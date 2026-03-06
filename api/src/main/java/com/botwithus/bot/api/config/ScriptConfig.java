@@ -16,13 +16,7 @@ public final class ScriptConfig {
         this.values = new LinkedHashMap<>(values);
     }
 
-    /**
-     * Returns the integer value for a key, or the default if absent or unparseable.
-     *
-     * @param key          the config key
-     * @param defaultValue the fallback value
-     * @return the integer value
-     */
+    /** Falls back to default if absent or unparseable. */
     public int getInt(String key, int defaultValue) {
         String v = values.get(key);
         if (v == null) return defaultValue;
@@ -33,35 +27,17 @@ public final class ScriptConfig {
         }
     }
 
-    /**
-     * Returns the string value for a key, or the default if absent.
-     *
-     * @param key          the config key
-     * @param defaultValue the fallback value
-     * @return the string value
-     */
     public String getString(String key, String defaultValue) {
         return values.getOrDefault(key, defaultValue);
     }
 
-    /**
-     * Returns the boolean value for a key, or the default if absent.
-     *
-     * @param key          the config key
-     * @param defaultValue the fallback value
-     * @return the boolean value
-     */
     public boolean getBoolean(String key, boolean defaultValue) {
         String v = values.get(key);
         if (v == null) return defaultValue;
         return Boolean.parseBoolean(v);
     }
 
-    /**
-     * Returns an unmodifiable view of all config key-value pairs.
-     *
-     * @return the config map
-     */
+    /** Returns an unmodifiable view. */
     public Map<String, String> asMap() {
         return Collections.unmodifiableMap(values);
     }

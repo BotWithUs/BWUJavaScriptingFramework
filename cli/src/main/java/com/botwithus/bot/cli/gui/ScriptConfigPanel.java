@@ -24,15 +24,11 @@ public class ScriptConfigPanel {
     private final Map<String, Object> editValues = new LinkedHashMap<>();
     private final ImBoolean open = new ImBoolean(false);
 
-    /**
-     * Opens the panel for a given script runner.
-     */
     public void open(ScriptRunner runner) {
         this.runner = runner;
         this.fields = runner.getConfigFields();
         if (fields == null || fields.isEmpty()) return;
 
-        // Initialize edit values from current config
         ScriptConfig current = runner.getCurrentConfig();
         editValues.clear();
         for (ConfigField field : fields) {
@@ -67,16 +63,11 @@ public class ScriptConfigPanel {
         open.set(true);
     }
 
-    /**
-     * @return {@code true} if the panel is currently visible
-     */
     public boolean isOpen() {
         return open.get();
     }
 
-    /**
-     * Renders the config panel. Call from the main ImGui render loop.
-     */
+    /** Call from the main ImGui render loop. */
     public void render() {
         if (!open.get() || runner == null || fields == null || fields.isEmpty()) return;
 

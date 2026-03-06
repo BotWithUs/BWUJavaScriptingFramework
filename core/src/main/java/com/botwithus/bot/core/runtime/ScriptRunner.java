@@ -72,9 +72,6 @@ public class ScriptRunner implements Runnable {
         return connectionName;
     }
 
-    /**
-     * Returns the config fields declared by the script.
-     */
     public List<ConfigField> getConfigFields() {
         return script.getConfigFields();
     }

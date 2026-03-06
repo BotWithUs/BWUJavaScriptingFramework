@@ -33,12 +33,10 @@ public final class ScriptConfigStore {
     public static ScriptConfig load(String scriptName, List<ConfigField> fields) {
         Map<String, String> values = new LinkedHashMap<>();
 
-        // Start with defaults
         for (ConfigField field : fields) {
             values.put(field.key(), String.valueOf(field.defaultValue()));
         }
 
-        // Overlay persisted values
         Path file = configFile(scriptName);
         if (Files.exists(file)) {
             Properties props = new Properties();
@@ -55,12 +53,6 @@ public final class ScriptConfigStore {
         return new ScriptConfig(values);
     }
 
-    /**
-     * Saves a config snapshot to disk.
-     *
-     * @param scriptName the script name
-     * @param config     the config to persist
-     */
     public static void save(String scriptName, ScriptConfig config) {
         try {
             Files.createDirectories(CONFIG_DIR);

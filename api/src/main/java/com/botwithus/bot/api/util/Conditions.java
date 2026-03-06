@@ -56,12 +56,7 @@ public final class Conditions {
         return waitUntil(() -> !condition.getAsBoolean(), timeoutMs);
     }
 
-    /**
-     * Checks a condition once. Convenience for readable script flow.
-     *
-     * @param condition the condition to verify
-     * @return the condition result
-     */
+    /** Checks a condition once — convenience for readable script flow. */
     public static boolean verify(BooleanSupplier condition) {
         return condition.getAsBoolean();
     }
