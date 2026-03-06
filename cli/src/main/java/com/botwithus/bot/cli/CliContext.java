@@ -31,7 +31,7 @@ public class CliContext {
         void display(BufferedImage image);
     }
 
-    /** Progress indicator that can be started and completed with an image or error. */
+/** Progress indicator that can be started and completed with an image or error. */
     public interface ProgressDisplay {
         /** Show an indeterminate progress bar with a label. Returns an opaque handle. */
         Object start(String label);

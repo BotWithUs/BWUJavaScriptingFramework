@@ -5,10 +5,11 @@ plugins {
 dependencies {
     implementation(project(":api"))
     implementation(project(":core"))
+    implementation("io.github.spair:imgui-java-app:1.90.0")
 }
 
 application {
-    mainClass = "com.botwithus.bot.cli.gui.JBotGui"
+    mainClass = "com.botwithus.bot.cli.gui.ImGuiApp"
 }
 
 // Put the API JAR on the module path so the boot layer has com.botwithus.bot.api

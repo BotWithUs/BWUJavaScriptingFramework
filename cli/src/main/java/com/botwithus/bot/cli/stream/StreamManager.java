@@ -1,10 +1,15 @@
 package com.botwithus.bot.cli.stream;
 
 import com.botwithus.bot.cli.Connection;
-import com.botwithus.bot.cli.gui.StreamWindow;
+import com.botwithus.bot.cli.gui.AnsiOutputBuffer;
+import com.botwithus.bot.cli.gui.OutputLine;
+import com.botwithus.bot.cli.gui.TextureManager;
 import com.botwithus.bot.core.pipe.StreamPipeReader;
 
-import javax.swing.*;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -12,28 +17,25 @@ import java.util.function.Function;
 
 /**
  * Manages active video streams: starting/stopping stream pipes, and
- * coordinating the StreamWindow display.
+ * coordinating inline display via AnsiOutputBuffer + TextureManager.
  */
 public class StreamManager {
 
-    private record ActiveStream(StreamPipeReader reader, StreamWindow.StreamCell cell) {}
+    private record ActiveStream(StreamPipeReader reader, OutputLine streamLine, int[] textureId) {}
 
     private final Map<String, ActiveStream> streams = new LinkedHashMap<>();
-    private StreamWindow window;
+    private final AnsiOutputBuffer outputBuffer;
+    private final TextureManager textureManager;
     private final PrintStream out;
 
-    public StreamManager(PrintStream out) {
+    public StreamManager(AnsiOutputBuffer outputBuffer, TextureManager textureManager, PrintStream out) {
+        this.outputBuffer = outputBuffer;
+        this.textureManager = textureManager;
         this.out = out;
     }
 
     /**
      * Start streaming for a single connection.
-     *
-     * @param conn      the active connection
-     * @param quality   JPEG quality (0-100)
-     * @param frameSkip frames to skip between sends (higher = lower fps)
-     * @param width     stream width in pixels
-     * @param height    stream height in pixels
      */
     public void startStream(Connection conn, int quality, int frameSkip, int width, int height) {
         String name = conn.getName();
@@ -67,21 +69,34 @@ public class StreamManager {
         String streamPipeName = pipeNameObj.toString();
         out.println("Stream pipe name: " + streamPipeName);
 
-        // Ensure window exists on EDT
-        ensureWindow();
+        // Clamp embedded size
+        int embW = Math.min(width, 800);
+        int embH = Math.min(height, 450);
 
-        // Add cell on EDT and start reader
-        SwingUtilities.invokeLater(() -> {
-            StreamWindow.StreamCell cell = window.addCell(name);
+        // Insert stream line in buffer (texture starts at 0 = no image yet)
+        OutputLine streamLine = outputBuffer.insertStream(name, "Stream: " + name, 0, embW, embH);
 
-            StreamPipeReader reader = new StreamPipeReader(streamPipeName, cell::updateFrame);
-            reader.setErrorCallback(out::println);
-            streams.put(name, new ActiveStream(reader, cell));
-            reader.start();
+        // Track mutable texture ID (array so we can update from lambda)
+        int[] texIdHolder = new int[]{0};
 
-            window.setVisible(true);
-            out.println("Streaming '" + name + "' from pipe: " + streamPipeName);
+        StreamPipeReader reader = new StreamPipeReader(streamPipeName, jpegData -> {
+            try {
+                BufferedImage img = ImageIO.read(new ByteArrayInputStream(jpegData));
+                if (img != null) {
+                    textureManager.queueOperation(() -> {
+                        int newTexId = textureManager.updateTexture(texIdHolder[0], img);
+                        texIdHolder[0] = newTexId;
+                        outputBuffer.updateStreamTexture(streamLine, newTexId);
+                    });
+                }
+            } catch (IOException ignored) {}
         });
+        reader.setErrorCallback(out::println);
+
+        streams.put(name, new ActiveStream(reader, streamLine, texIdHolder));
+        reader.start();
+
+        out.println("Streaming '" + name + "' inline from pipe: " + streamPipeName);
     }
 
     /**
@@ -104,21 +119,18 @@ public class StreamManager {
             } catch (Exception ignored) {}
         }
 
-        SwingUtilities.invokeLater(() -> {
-            if (window != null) {
-                window.removeCell(connectionName);
-                if (!window.hasCells()) {
-                    window.dispose();
-                    window = null;
-                }
-            }
-        });
+        // Clean up texture and remove line
+        int texId = active.textureId[0];
+        if (texId > 0) {
+            textureManager.queueOperation(() -> textureManager.deleteTexture(texId));
+        }
+        outputBuffer.removeStreamLine(active.streamLine);
 
         out.println("Stopped stream for '" + connectionName + "'.");
     }
 
     /**
-     * Stop all active streams and dispose the window.
+     * Stop all active streams.
      */
     public void stopAll(Function<String, Connection> connectionLookup) {
         for (var entry : Map.copyOf(streams).entrySet()) {
@@ -135,15 +147,14 @@ public class StreamManager {
                     } catch (Exception ignored) {}
                 }
             }
+
+            int texId = active.textureId[0];
+            if (texId > 0) {
+                textureManager.queueOperation(() -> textureManager.deleteTexture(texId));
+            }
+            outputBuffer.removeStreamLine(active.streamLine);
         }
         streams.clear();
-
-        SwingUtilities.invokeLater(() -> {
-            if (window != null) {
-                window.dispose();
-                window = null;
-            }
-        });
     }
 
     /**
@@ -154,33 +165,14 @@ public class StreamManager {
         if (active == null) return;
 
         active.reader.close();
-
-        SwingUtilities.invokeLater(() -> {
-            if (window != null) {
-                window.removeCell(connectionName);
-                if (!window.hasCells()) {
-                    window.dispose();
-                    window = null;
-                }
-            }
-        });
+        int texId = active.textureId[0];
+        if (texId > 0) {
+            textureManager.queueOperation(() -> textureManager.deleteTexture(texId));
+        }
+        outputBuffer.removeStreamLine(active.streamLine);
     }
 
     public boolean hasActiveStreams() {
         return !streams.isEmpty();
-    }
-
-    private void ensureWindow() {
-        if (window == null) {
-            // Create window on EDT but wait for it
-            try {
-                SwingUtilities.invokeAndWait(() -> {
-                    window = new StreamWindow();
-                    window.setOnCloseCallback(() -> stopAll(null));
-                });
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to create stream window", e);
-            }
-        }
     }
 }
