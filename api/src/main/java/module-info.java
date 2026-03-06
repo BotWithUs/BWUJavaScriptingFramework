@@ -7,4 +7,6 @@ module com.botwithus.bot.api {
     exports com.botwithus.bot.api.entities;
     exports com.botwithus.bot.api.isc;
     exports com.botwithus.bot.api.blueprint;
+    exports com.botwithus.bot.api.util;
+    exports com.botwithus.bot.api.config;
 }

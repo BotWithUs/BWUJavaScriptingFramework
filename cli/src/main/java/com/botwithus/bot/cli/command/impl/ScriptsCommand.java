@@ -17,7 +17,7 @@ public class ScriptsCommand implements Command {
     @Override public String name() { return "scripts"; }
     @Override public List<String> aliases() { return List.of("s"); }
     @Override public String description() { return "Manage scripts on active connection"; }
-    @Override public String usage() { return "scripts [list|start <name>|stop <name>|restart <name>|info <name>|status] [--group=<name>]"; }
+    @Override public String usage() { return "scripts [list|start <name>|stop <name>|restart <name>|info <name>|config <name>|status] [--group=<name>]"; }
 
     @Override
     public void execute(ParsedCommand parsed, CliContext ctx) {
@@ -78,8 +78,10 @@ public class ScriptsCommand implements Command {
             restartScript(parsed.arg(1), runtime, ctx);
         } else if (sub.equals("info")) {
             infoScript(parsed.arg(1), runtime, ctx);
+        } else if (sub.equals("config")) {
+            configScript(parsed.arg(1), runtime, ctx);
         } else {
-            ctx.out().println("Unknown subcommand: " + sub + ". Use: list, start, stop, restart, info, status");
+            ctx.out().println("Unknown subcommand: " + sub + ". Use: list, start, stop, restart, info, config, status");
         }
     }
 
@@ -169,6 +171,25 @@ public class ScriptsCommand implements Command {
         ctx.out().println("  Status:      " + (runner.isRunning() ? "RUNNING" : "STOPPED"));
         ctx.out().println("  Class:       " + runner.getScript().getClass().getName());
         ctx.out().println("  Connection:  " + ctx.getActiveConnectionName());
+    }
+
+    private void configScript(String name, ScriptRuntime runtime, CliContext ctx) {
+        if (name == null) {
+            ctx.out().println("Usage: scripts config <name>");
+            return;
+        }
+        ScriptRunner runner = runtime.findRunner(name);
+        if (runner == null) {
+            ctx.out().println("Script not found: " + name);
+            return;
+        }
+        var fields = runner.getConfigFields();
+        if (fields == null || fields.isEmpty()) {
+            ctx.out().println("Script '" + runner.getScriptName() + "' has no configurable fields.");
+            return;
+        }
+        ctx.openConfigPanel(runner);
+        ctx.out().println("Opened config panel for: " + runner.getScriptName());
     }
 
     private void groupStart(String name, String connName, ScriptRuntime runtime, CliContext ctx) {

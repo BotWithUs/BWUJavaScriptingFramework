@@ -18,6 +18,8 @@ import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
+import com.botwithus.bot.core.runtime.ScriptRunner;
+
 import java.awt.image.BufferedImage;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -28,6 +30,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public class CliContext {
 
@@ -56,6 +59,7 @@ public class CliContext {
     private ImageDisplay imageDisplay;
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
+    private Consumer<ScriptRunner> configPanelOpener;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
@@ -235,6 +239,11 @@ public class CliContext {
 
     public void setProgressDisplay(ProgressDisplay d) { this.progressDisplay = d; }
     public ProgressDisplay getProgressDisplay() { return progressDisplay; }
+
+    public void setConfigPanelOpener(Consumer<ScriptRunner> opener) { this.configPanelOpener = opener; }
+    public void openConfigPanel(ScriptRunner runner) {
+        if (configPanelOpener != null) configPanelOpener.accept(runner);
+    }
 
     // --- Connection Group management ---
 

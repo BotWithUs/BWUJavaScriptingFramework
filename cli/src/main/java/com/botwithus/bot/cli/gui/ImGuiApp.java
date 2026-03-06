@@ -76,6 +76,9 @@ public class ImGuiApp extends Application {
     private boolean editorMode = false;
     private BlueprintEditor blueprintEditor;
 
+    // Script config panel
+    private ScriptConfigPanel configPanel;
+
     // GLFW window handle for title updates
     private long glfwWindow;
 
@@ -179,6 +182,10 @@ public class ImGuiApp extends Application {
         // Initialize blueprint editor
         blueprintEditor = new BlueprintEditor();
 
+        // Initialize config panel and wire opener
+        configPanel = new ScriptConfigPanel();
+        ctx.setConfigPanelOpener(runner -> configPanel.open(runner));
+
         // Grab GLFW window handle for title updates
         glfwWindow = GLFW.glfwGetCurrentContext();
     }
@@ -227,6 +234,11 @@ public class ImGuiApp extends Application {
         }
 
         ImGui.end();
+
+        // Render config panel as floating window (outside the main window)
+        if (configPanel != null && configPanel.isOpen()) {
+            configPanel.render();
+        }
 
         // Update window title based on connection state
         updateTitle();

@@ -4,6 +4,8 @@ import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.api.config.ConfigField;
+import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.entities.*;
 import com.botwithus.bot.api.event.ActionExecutedEvent;
 import com.botwithus.bot.api.event.EventBus;
@@ -20,6 +22,8 @@ public class ExampleScript implements BotScript {
 
     private ScriptContext ctx;
     private int loopCount;
+    private int loopDelay = 5000;
+    private boolean verbose = true;
 
     // Scripter-friendly query facades — initialize once in onStart
     private Npcs npcs;
@@ -49,8 +53,29 @@ public class ExampleScript implements BotScript {
     }
 
     @Override
+    public List<ConfigField> getConfigFields() {
+        return List.of(
+                ConfigField.intField("loopDelay", "Loop Delay (ms)", 5000),
+                ConfigField.boolField("verbose", "Verbose Logging", true),
+                ConfigField.choiceField("mode", "Operating Mode",
+                        List.of("Passive", "Active", "Aggressive"), "Passive")
+        );
+    }
+
+    @Override
+    public void onConfigUpdate(ScriptConfig config) {
+        this.loopDelay = config.getInt("loopDelay", 5000);
+        this.verbose = config.getBoolean("verbose", true);
+        String mode = config.getString("mode", "Passive");
+        if (verbose) {
+            System.out.println("[ExampleScript] Config updated: delay=" + loopDelay + ", mode=" + mode);
+        }
+    }
+
+    @Override
     public int onLoop() {
-        return 5000;
+        loopCount++;
+        return loopDelay;
     }
 
     @Override

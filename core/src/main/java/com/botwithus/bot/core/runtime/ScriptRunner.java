@@ -3,9 +3,14 @@ package com.botwithus.bot.core.runtime;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.api.config.ConfigField;
+import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.core.blueprint.execution.BlueprintBotScript;
+import com.botwithus.bot.core.config.ScriptConfigStore;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Runs a single BotScript on its own virtual thread.
@@ -16,6 +21,7 @@ public class ScriptRunner implements Runnable {
     private final BotScript script;
     private final ScriptContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
     private Thread thread;
     private String connectionName;
 
@@ -66,6 +72,33 @@ public class ScriptRunner implements Runnable {
         return connectionName;
     }
 
+    /**
+     * Returns the config fields declared by the script.
+     */
+    public List<ConfigField> getConfigFields() {
+        return script.getConfigFields();
+    }
+
+    /**
+     * Returns the current config snapshot, or {@code null} if not yet loaded.
+     */
+    public ScriptConfig getCurrentConfig() {
+        return currentConfig.get();
+    }
+
+    /**
+     * Applies a new configuration from the UI thread. Persists and notifies the script.
+     */
+    public void applyConfig(ScriptConfig config) {
+        currentConfig.set(config);
+        ScriptConfigStore.save(getScriptName(), config);
+        try {
+            script.onConfigUpdate(config);
+        } catch (Exception e) {
+            System.err.println("[ScriptRunner] Error in onConfigUpdate for " + getScriptName() + ": " + e.getMessage());
+        }
+    }
+
     @Override
     public void run() {
         if (connectionName != null) {
@@ -73,6 +106,14 @@ public class ScriptRunner implements Runnable {
         }
         try {
             script.onStart(context);
+
+            // Load persisted config after onStart
+            List<ConfigField> fields = script.getConfigFields();
+            if (fields != null && !fields.isEmpty()) {
+                ScriptConfig config = ScriptConfigStore.load(getScriptName(), fields);
+                currentConfig.set(config);
+                script.onConfigUpdate(config);
+            }
             while (running.get() && !Thread.currentThread().isInterrupted()) {
                 int delay = script.onLoop();
                 if (delay < 0) break;

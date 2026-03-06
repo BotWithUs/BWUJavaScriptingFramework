@@ -1,5 +1,10 @@
 package com.botwithus.bot.api;
 
+import com.botwithus.bot.api.config.ConfigField;
+import com.botwithus.bot.api.config.ScriptConfig;
+
+import java.util.List;
+
 /**
  * Service Provider Interface for bot scripts.
  *
@@ -34,4 +39,25 @@ public interface BotScript {
      * {@link #onLoop()} or by an external stop request. Use this to clean up resources.
      */
     void onStop();
+
+    /**
+     * Returns the configurable fields this script exposes.
+     * Override this to declare user-editable parameters.
+     * The default implementation returns an empty list (no config).
+     *
+     * @return a list of config field descriptors
+     */
+    default List<ConfigField> getConfigFields() {
+        return List.of();
+    }
+
+    /**
+     * Called when the script's configuration is updated (at startup from persisted
+     * values, or at runtime from the config UI).
+     * The default implementation does nothing.
+     *
+     * @param config the new configuration snapshot
+     */
+    default void onConfigUpdate(ScriptConfig config) {
+    }
 }
