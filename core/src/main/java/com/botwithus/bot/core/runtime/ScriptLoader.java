@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.core.crypto.SdnLoader;
 
 import java.io.IOException;
 import java.lang.module.Configuration;
@@ -128,6 +129,15 @@ public final class ScriptLoader {
             } catch (Exception e) {
                 System.err.println("[ScriptLoader] Failed to load module " + name + ": " + e.getMessage());
                 e.printStackTrace();
+            }
+        }
+
+        if (!allScripts.isEmpty()) {
+            try {
+                SdnLoader.lockdown();
+                System.out.println("[ScriptLoader] Process lockdown enforced — unsigned DLL loading blocked.");
+            } catch (Exception e) {
+                System.err.println("[ScriptLoader] lockdown0() failed: " + e.getMessage());
             }
         }
 
