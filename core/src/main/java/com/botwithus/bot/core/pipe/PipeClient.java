@@ -92,8 +92,14 @@ public class PipeClient implements AutoCloseable {
                     .order(ByteOrder.LITTLE_ENDIAN)
                     .putInt(data.length)
                     .array();
-            pipe.write(header);
-            pipe.write(data);
+            // Combine header + body into a single write. On Windows named pipes
+            // in message mode, each WriteFile call is a separate pipe message.
+            // Split writes would cause the server to read the 4-byte header as
+            // its own message and crash trying to parse it as msgpack.
+            byte[] frame = new byte[header.length + data.length];
+            System.arraycopy(header, 0, frame, 0, header.length);
+            System.arraycopy(data, 0, frame, header.length, data.length);
+            pipe.write(frame);
         } catch (IOException e) {
             throw new PipeException("Failed to send message", e);
         }

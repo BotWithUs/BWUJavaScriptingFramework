@@ -99,4 +99,34 @@ class MessagePackCodecTest {
         var decoded = MessagePackCodec.decode(MessagePackCodec.encode(map));
         assertTrue(decoded.isEmpty());
     }
+
+    @Test
+    void loginToLobbyMatchesPython() {
+        // Exact message RpcClient.doCall builds for login_to_lobby
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("method", "login_to_lobby");
+        request.put("id", 1);
+        // params is empty, so not added (same as Python)
+
+        byte[] bytes = MessagePackCodec.encode(request);
+
+        // Python: msgpack.packb({"method": "login_to_lobby", "id": 1}, use_bin_type=True)
+        // produces: 82 a6 6d 65 74 68 6f 64 ae 6c 6f 67 69 6e 5f 74 6f 5f 6c 6f 62 62 79 a2 69 64 01
+        byte[] expected = {
+            (byte)0x82,                                                     // fixmap(2)
+            (byte)0xa6, 0x6d, 0x65, 0x74, 0x68, 0x6f, 0x64,              // fixstr "method"
+            (byte)0xae, 0x6c, 0x6f, 0x67, 0x69, 0x6e, 0x5f, 0x74, 0x6f, // fixstr "login_to_lobby"
+            0x5f, 0x6c, 0x6f, 0x62, 0x62, 0x79,
+            (byte)0xa2, 0x69, 0x64,                                        // fixstr "id"
+            0x01                                                            // fixint 1
+        };
+
+        StringBuilder javaSb = new StringBuilder();
+        for (byte b : bytes) javaSb.append(String.format("%02x ", b & 0xff));
+        StringBuilder pySb = new StringBuilder();
+        for (byte b : expected) pySb.append(String.format("%02x ", b & 0xff));
+
+        assertEquals(pySb.toString().trim(), javaSb.toString().trim(),
+            "Java msgpack encoding must match Python msgpack encoding");
+    }
 }
