@@ -506,6 +506,19 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
+    public AccountInfo getAccountInfo() {
+        Map<String, Object> r = rpc.callSync("get_account_info", Map.of());
+        return new AccountInfo(
+                getInt(r, "client_type"), getInt(r, "client_state"),
+                getString(r, "session_id"), getInt(r, "ip_hash"),
+                getString(r, "jx_display_name"), getString(r, "jx_character_id"),
+                getString(r, "display_name"), getBool(r, "is_member"),
+                getInt(r, "server_index"), getBool(r, "logged_in"),
+                getInt(r, "login_progress"), getInt(r, "login_status")
+        );
+    }
+
+    @Override
     public int getGameCycle() {
         Map<String, Object> r = rpc.callSync("get_game_cycle", Map.of());
         return getInt(r, "cycle");
@@ -615,6 +628,11 @@ public class GameAPIImpl implements GameAPI {
         if (oldState > 0) params.put("old_state", oldState);
         params.put("new_state", newState);
         rpc.callSync("change_login_state", params);
+    }
+
+    @Override
+    public void loginToLobby() {
+        rpc.callSync("login_to_lobby", Map.of());
     }
 
     @Override

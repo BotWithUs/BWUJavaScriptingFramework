@@ -534,6 +534,13 @@ public interface GameAPI {
     LocalPlayer getLocalPlayer();
 
     /**
+     * Returns account information for the current client session.
+     *
+     * @return the account info
+     */
+    AccountInfo getAccountInfo();
+
+    /**
      * Returns the current game cycle (tick count).
      *
      * @return the game cycle number
@@ -634,6 +641,15 @@ public interface GameAPI {
      * @param newState the desired new state
      */
     void changeLoginState(int oldState, int newState);
+
+    /**
+     * Triggers a login from the login screen to lobby by executing the lobby
+     * login script. Only works when the client is on the login screen (state 10).
+     *
+     * @throws RuntimeException if the client is not on the login screen,
+     *         a login is already in progress, or the account is unavailable
+     */
+    void loginToLobby();
 
     /**
      * Schedules a break (pause) for the specified duration.
