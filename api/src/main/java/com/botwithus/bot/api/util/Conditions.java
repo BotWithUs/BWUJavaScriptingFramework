@@ -1,5 +1,7 @@
 package com.botwithus.bot.api.util;
 
+import com.botwithus.bot.api.GameAPI;
+
 import java.util.function.BooleanSupplier;
 
 /**
@@ -59,5 +61,19 @@ public final class Conditions {
     /** Checks a condition once — convenience for readable script flow. */
     public static boolean verify(BooleanSupplier condition) {
         return condition.getAsBoolean();
+    }
+
+    /**
+     * Waits until an entity plays a specific animation.
+     */
+    public static boolean waitForAnimation(GameAPI api, int handle, int animId, long timeoutMs) {
+        return waitUntil(() -> api.getEntityAnimation(handle) == animId, timeoutMs);
+    }
+
+    /**
+     * Waits until an entity returns to idle (animation_id == -1).
+     */
+    public static boolean waitForIdle(GameAPI api, int handle, long timeoutMs) {
+        return waitForAnimation(api, handle, -1, timeoutMs);
     }
 }

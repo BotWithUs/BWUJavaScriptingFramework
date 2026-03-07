@@ -5,6 +5,7 @@ import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
+import com.botwithus.bot.api.isc.SharedState;
 
 public class ScriptContextImpl implements ScriptContext {
 
@@ -12,12 +13,18 @@ public class ScriptContextImpl implements ScriptContext {
     private final EventBus eventBus;
     private final MessageBus messageBus;
     private final ClientProvider clientProvider;
+    private final SharedState sharedState;
 
-    public ScriptContextImpl(GameAPI gameAPI, EventBus eventBus, MessageBus messageBus, ClientProvider clientProvider) {
+    public ScriptContextImpl(GameAPI gameAPI, EventBus eventBus, MessageBus messageBus, ClientProvider clientProvider, SharedState sharedState) {
         this.gameAPI = gameAPI;
         this.eventBus = eventBus;
         this.messageBus = messageBus;
         this.clientProvider = clientProvider;
+        this.sharedState = sharedState;
+    }
+
+    public ScriptContextImpl(GameAPI gameAPI, EventBus eventBus, MessageBus messageBus, ClientProvider clientProvider) {
+        this(gameAPI, eventBus, messageBus, clientProvider, new SharedStateImpl());
     }
 
     @Override
@@ -31,4 +38,7 @@ public class ScriptContextImpl implements ScriptContext {
 
     @Override
     public ClientProvider getClientProvider() { return clientProvider; }
+
+    @Override
+    public SharedState getSharedState() { return sharedState; }
 }

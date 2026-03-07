@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli;
 
+import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
@@ -11,6 +12,7 @@ public class Connection {
     private final PipeClient pipe;
     private final RpcClient rpc;
     private final ScriptRuntime runtime;
+    private EventBusImpl eventBus;
 
     public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime) {
         this.name = name;
@@ -23,6 +25,9 @@ public class Connection {
     public PipeClient getPipe() { return pipe; }
     public RpcClient getRpc() { return rpc; }
     public ScriptRuntime getRuntime() { return runtime; }
+
+    public void setEventBus(EventBusImpl eventBus) { this.eventBus = eventBus; }
+    public EventBusImpl getEventBus() { return eventBus; }
 
     /** Returns true if the underlying pipe is still open. */
     public boolean isAlive() {

@@ -25,6 +25,22 @@ public class ScriptRunner implements Runnable {
     private Thread thread;
     private String connectionName;
 
+    @FunctionalInterface
+    public interface ErrorHandler {
+        void onError(String scriptName, String phase, Throwable error);
+    }
+
+    private ErrorHandler errorHandler;
+    private final ScriptProfiler profiler = new ScriptProfiler();
+
+    public void setErrorHandler(ErrorHandler errorHandler) {
+        this.errorHandler = errorHandler;
+    }
+
+    public ScriptProfiler getProfiler() {
+        return profiler;
+    }
+
     public ScriptRunner(BotScript script, ScriptContext context) {
         this.script = script;
         this.context = context;
@@ -101,18 +117,34 @@ public class ScriptRunner implements Runnable {
         if (connectionName != null) {
             ConnectionContext.set(connectionName);
         }
+        String name = getScriptName();
         try {
             script.onStart(context);
+        } catch (Exception e) {
+            System.err.println("[ScriptRunner] onStart error in " + name + ": " + e.getMessage());
+            notifyError(name, "onStart", e);
+            running.set(false);
+            ConnectionContext.clear();
+            return;
+        }
 
-            // Load persisted config after onStart
+        // Load persisted config after onStart
+        try {
             List<ConfigField> fields = script.getConfigFields();
             if (fields != null && !fields.isEmpty()) {
-                ScriptConfig config = ScriptConfigStore.load(getScriptName(), fields);
+                ScriptConfig config = ScriptConfigStore.load(name, fields);
                 currentConfig.set(config);
                 script.onConfigUpdate(config);
             }
+        } catch (Exception e) {
+            System.err.println("[ScriptRunner] Config load error in " + name + ": " + e.getMessage());
+        }
+
+        try {
             while (running.get() && !Thread.currentThread().isInterrupted()) {
+                long loopStart = System.nanoTime();
                 int delay = script.onLoop();
+                profiler.recordLoop(System.nanoTime() - loopStart);
                 if (delay < 0) break;
                 if (delay > 0) {
                     Thread.sleep(delay);
@@ -121,16 +153,26 @@ public class ScriptRunner implements Runnable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            System.err.println("[ScriptRunner] Script error in " + getScriptName() + ": " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("[ScriptRunner] onLoop error in " + name + ": " + e.getMessage());
+            notifyError(name, "onLoop", e);
         } finally {
             running.set(false);
             try {
                 script.onStop();
             } catch (Exception e) {
-                System.err.println("[ScriptRunner] Error in onStop for " + getScriptName() + ": " + e.getMessage());
+                System.err.println("[ScriptRunner] onStop error in " + name + ": " + e.getMessage());
+                notifyError(name, "onStop", e);
             }
             ConnectionContext.clear();
+        }
+    }
+
+    private void notifyError(String scriptName, String phase, Throwable error) {
+        ErrorHandler handler = this.errorHandler;
+        if (handler != null) {
+            try {
+                handler.onError(scriptName, phase, error);
+            } catch (Exception ignored) {}
         }
     }
 }

@@ -19,6 +19,15 @@ public class ReloadCommand implements Command {
 
     @Override
     public void execute(ParsedCommand parsed, CliContext ctx) {
+        if (parsed.hasFlag("watch")) {
+            if (ctx.isWatcherRunning()) {
+                ctx.stopScriptWatcher();
+            } else {
+                ctx.startScriptWatcher();
+            }
+            return;
+        }
+
         boolean autoStart = parsed.hasFlag("start");
         String groupName = parsed.flag("group");
 

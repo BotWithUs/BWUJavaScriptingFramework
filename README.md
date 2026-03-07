@@ -37,13 +37,36 @@ example-script      (api only)       — Example BotScript implementations
 
 Pure interface module with zero dependencies. Contains `BotScript` (the SPI), `GameAPI` (100+ methods for game interaction), fluent entity query builders (`Npcs`, `Players`, `SceneObjects`, `GroundItems`), inventory wrappers (`Backpack`, `Bank`, `Equipment`), an event bus, and inter-script communication via `MessageBus`.
 
+Key packages:
+- **`constants`** — Game constant registries (`InterfaceIds`, `InventoryIds`, `AnimationIds`)
+- **`log`** — Structured logging API (`BotLogger`, `LoggerFactory`, `LogLevel`)
+- **`script`** — Task-based scripting framework (`Task`, `TaskScript`)
+- **`isc`** — Inter-script communication (`MessageBus` with request/response, `SharedState`)
+- **`util`** — Timing helpers (`Timing.gaussianRandom`, `Conditions.waitForAnimation`, `Humanize` for human-like delays)
+
 ### core
 
 Runtime and communication layer. Handles Windows named pipe I/O (`PipeClient`), synchronous JSON-RPC with MessagePack serialization (`RpcClient`), script discovery from JAR files (`ScriptLoader`), and script lifecycle management on virtual threads (`ScriptRuntime`, `ScriptRunner`).
 
+Key features:
+- **RPC timeouts** — Configurable per-call timeouts with `RpcTimeoutException`
+- **Retry & reconnect** — `RetryPolicy` with exponential backoff, `ReconnectablePipeClient` for auto-reconnect
+- **Metrics** — `RpcMetrics` tracks call count, latency, and error rate per method
+- **Profiling** — `ScriptProfiler` tracks loop timing (avg/min/max/last)
+- **Error isolation** — Per-phase error handling in `ScriptRunner` (onStart/onLoop/onStop)
+- **Structured logging** — `PrintStreamLogger` implementation of `BotLogger`
+
 ### cli
 
 Interactive Swing-based GUI with ANSI color support and a command system. Commands include `connect`, `disconnect`, `scripts`, `screenshot`, `logs`, `mount`/`unmount`, `reload`, `ping`, `help`, `clear`, and `exit`. Supports multiple simultaneous pipe connections.
+
+Additional commands:
+- **`metrics`** — View RPC call statistics (latency, error rates), reset, filter top N
+- **`profile`** — View per-script loop timing data, reset
+- **`config`** — Persistent CLI configuration (`~/.botwithus/config.properties`), show/set/save
+- **`actions`** — Inspect the game action queue, history, and blocked state
+- **`events`** — Monitor event bus subscriptions and publish counts
+- **`reload --watch`** — Auto-reload scripts when JAR files change in `scripts/`
 
 ### example-script
 
@@ -114,3 +137,12 @@ BotScript → GameAPI → RpcClient → PipeClient → Game Server (named pipe)
 ```
 
 The pipe transport uses length-prefixed MessagePack frames over `\\.\pipe\BotWithUs`. The RPC client provides synchronous request/response semantics with async event dispatch.
+
+## Testing
+
+```bash
+./gradlew test                     # Run all tests
+./gradlew :core:test               # Run core module tests only
+```
+
+The core module includes 40 unit tests covering MessagePack codec, RPC metrics, event bus, message bus, script runner/runtime, script profiler, and end-to-end transport with a mock game server.

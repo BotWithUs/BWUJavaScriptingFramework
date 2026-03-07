@@ -110,6 +110,33 @@ public final class Equipment {
         return interactComponent(comp, option);
     }
 
+    /**
+     * Attempts to equip an item from the backpack by trying common equip options.
+     * Tries "Wear", "Wield", and "Equip" in order.
+     *
+     * @param itemId   the item ID to equip
+     * @param backpack the backpack instance to interact with
+     * @return true if an equip action was queued
+     */
+    public boolean equipFromBackpack(int itemId, Backpack backpack) {
+        for (String option : new String[]{"Wear", "Wield", "Equip"}) {
+            if (backpack.interact(itemId, option)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Unequips an item from the given equipment slot.
+     *
+     * @param slot the equipment slot to unequip
+     * @return true if the action was queued
+     */
+    public boolean unequip(Slot slot) {
+        return interact(slot, "Remove");
+    }
+
     // ========================== Helpers ==========================
 
     private Component findComponentBySubIndex(int subIndex) {

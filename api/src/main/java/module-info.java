@@ -9,4 +9,7 @@ module com.botwithus.bot.api {
     exports com.botwithus.bot.api.blueprint;
     exports com.botwithus.bot.api.util;
     exports com.botwithus.bot.api.config;
+    exports com.botwithus.bot.api.constants;
+    exports com.botwithus.bot.api.log;
+    exports com.botwithus.bot.api.script;
 }

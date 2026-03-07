@@ -41,6 +41,10 @@ public class RpcClient implements AutoCloseable {
     private volatile boolean running;
     private String connectionName;
 
+    private long timeoutMs = 10_000;
+    private RetryPolicy retryPolicy = RetryPolicy.NONE;
+    private final RpcMetrics metrics = new RpcMetrics();
+
     public RpcClient(PipeClient pipe) {
         this.pipe = pipe;
     }
@@ -51,6 +55,22 @@ public class RpcClient implements AutoCloseable {
 
     public String getConnectionName() {
         return connectionName;
+    }
+
+    public void setTimeout(long timeoutMs) {
+        this.timeoutMs = timeoutMs;
+    }
+
+    public long getTimeout() {
+        return timeoutMs;
+    }
+
+    public void setRetryPolicy(RetryPolicy retryPolicy) {
+        this.retryPolicy = retryPolicy;
+    }
+
+    public RpcMetrics getMetrics() {
+        return metrics;
     }
 
     public void setEventHandler(Consumer<Map<String, Object>> handler) {
@@ -78,7 +98,7 @@ public class RpcClient implements AutoCloseable {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> callSync(String method, Map<String, Object> params) {
-        Map<String, Object> response = doCall(method, params);
+        Map<String, Object> response = doCallWithRetry(method, params);
 
         if (response.containsKey("error") && response.get("error") != null) {
             throw new RpcException("RPC error: " + response.get("error"));
@@ -94,7 +114,7 @@ public class RpcClient implements AutoCloseable {
      * Synchronous call that returns the raw result value (may be Map, List, or primitive).
      */
     public Object callSyncRaw(String method, Map<String, Object> params) {
-        Map<String, Object> response = doCall(method, params);
+        Map<String, Object> response = doCallWithRetry(method, params);
 
         if (response.containsKey("error") && response.get("error") != null) {
             throw new RpcException("RPC error: " + response.get("error"));
@@ -182,9 +202,26 @@ public class RpcClient implements AutoCloseable {
         try {
             pipe.send(MessagePackCodec.encode(request));
 
+            long deadlineNanos = System.nanoTime() + timeoutMs * 1_000_000L;
+
             // Read messages until we get the response matching our request ID.
             // Any event messages that arrive first are dispatched asynchronously.
             while (true) {
+                // Check timeout before blocking read
+                long remainingNanos = deadlineNanos - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    throw new RpcTimeoutException(method, timeoutMs);
+                }
+
+                // Poll for available data to avoid indefinite blocking
+                if (pipe.available() <= 0) {
+                    try { Thread.sleep(1); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RpcException("RPC call interrupted: " + method);
+                    }
+                    continue;
+                }
+
                 byte[] responseBytes = pipe.readMessage();
                 Map<String, Object> msg = MessagePackCodec.decode(responseBytes);
 
@@ -206,6 +243,40 @@ public class RpcClient implements AutoCloseable {
         } finally {
             pipeLock.unlock();
         }
+    }
+
+    private Map<String, Object> doCallWithRetry(String method, Map<String, Object> params) {
+        RpcException lastException = null;
+        int attempts = 1 + retryPolicy.maxRetries();
+        for (int i = 0; i < attempts; i++) {
+            long startNanos = System.nanoTime();
+            boolean error = false;
+            try {
+                Map<String, Object> result = doCall(method, params);
+                return result;
+            } catch (RpcTimeoutException e) {
+                error = true;
+                metrics.recordCall(method, System.nanoTime() - startNanos, true);
+                throw e;
+            } catch (RpcException e) {
+                error = true;
+                lastException = e;
+                if (i < attempts - 1) {
+                    long delay = retryPolicy.delayForAttempt(i + 1);
+                    try { Thread.sleep(delay); } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                }
+            } finally {
+                if (!error) {
+                    metrics.recordCall(method, System.nanoTime() - startNanos, false);
+                } else if (lastException != null && i == attempts - 1) {
+                    metrics.recordCall(method, System.nanoTime() - startNanos, true);
+                }
+            }
+        }
+        throw lastException;
     }
 
     private boolean matchesId(Map<String, Object> msg, int expectedId) {

@@ -60,6 +60,7 @@ public class CliContext {
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
+    private com.botwithus.bot.cli.watch.ScriptWatcher scriptWatcher;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
@@ -94,6 +95,7 @@ public class CliContext {
             ScriptRuntime runtime = new ScriptRuntime(context);
             runtime.setConnectionName(connName);
             Connection conn = new Connection(connName, pipe, rpc, runtime);
+            conn.setEventBus(eventBus);
             connections.put(connName, conn);
             activeConnectionName = connName;
             out().println("Connected to pipe: " + pipe.getPipePath());
@@ -292,4 +294,37 @@ public class CliContext {
 
     public boolean isMounted() { return mountedConnectionName != null; }
     public String getMountedConnectionName() { return mountedConnectionName; }
+
+    public void startScriptWatcher() {
+        if (scriptWatcher != null && scriptWatcher.isRunning()) return;
+        java.nio.file.Path scriptsDir = java.nio.file.Path.of("scripts");
+        if (!java.nio.file.Files.isDirectory(scriptsDir)) return;
+        scriptWatcher = new com.botwithus.bot.cli.watch.ScriptWatcher(scriptsDir, () -> {
+            out().println("[ScriptWatcher] Script files changed — reloading...");
+            for (Connection conn : connections.values()) {
+                if (conn.isAlive()) {
+                    conn.getRuntime().stopAll();
+                    List<BotScript> scripts = loadScripts();
+                    for (BotScript script : scripts) {
+                        conn.getRuntime().registerScript(script);
+                    }
+                    out().println("[ScriptWatcher] Reloaded " + scripts.size() + " script(s) on " + conn.getName());
+                }
+            }
+        });
+        scriptWatcher.start();
+        out().println("Script file watcher started.");
+    }
+
+    public void stopScriptWatcher() {
+        if (scriptWatcher != null) {
+            scriptWatcher.stop();
+            scriptWatcher = null;
+            out().println("Script file watcher stopped.");
+        }
+    }
+
+    public boolean isWatcherRunning() {
+        return scriptWatcher != null && scriptWatcher.isRunning();
+    }
 }

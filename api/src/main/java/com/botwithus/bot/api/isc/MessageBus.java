@@ -32,4 +32,25 @@ public interface MessageBus {
      * @param payload the message payload
      */
     void publish(String channel, String sender, Object payload);
+
+    /**
+     * Sends a request and waits for a response on the given channel.
+     *
+     * @param channel   the channel to send the request on
+     * @param sender    identifier of the requesting script
+     * @param payload   the request payload
+     * @param timeoutMs maximum time to wait for a response in milliseconds
+     * @return a future that completes with the response message
+     */
+    java.util.concurrent.CompletableFuture<ScriptMessage> request(String channel, String sender, Object payload, long timeoutMs);
+
+    /**
+     * Sends a response to a previous request.
+     *
+     * @param requestId the correlation ID from the original request
+     * @param channel   the channel to respond on
+     * @param sender    identifier of the responding script
+     * @param payload   the response payload
+     */
+    void respond(String requestId, String channel, String sender, Object payload);
 }

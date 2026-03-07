@@ -52,6 +52,11 @@ public class JBotCli {
         registry.register(new ScreenshotCommand());
         registry.register(new MountCommand());
         registry.register(new UnmountCommand());
+        registry.register(new MetricsCommand());
+        registry.register(new ProfileCommand());
+        registry.register(new ConfigCommand(com.botwithus.bot.cli.config.CliConfig.defaults()));
+        registry.register(new ActionsCommand());
+        registry.register(new EventsCommand());
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
 

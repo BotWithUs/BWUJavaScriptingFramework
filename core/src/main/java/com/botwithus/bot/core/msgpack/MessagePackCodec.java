@@ -18,7 +18,7 @@ public final class MessagePackCodec {
             packMap(packer, map);
             return packer.toByteArray();
         } catch (IOException e) {
-            throw new RuntimeException("MessagePack encode failed", e);
+            throw new MessagePackException("MessagePack encode failed", e);
         }
     }
 
@@ -27,8 +27,8 @@ public final class MessagePackCodec {
         try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(data)) {
             Value value = unpacker.unpackValue();
             return valueToMap(value.asMapValue());
-        } catch (IOException e) {
-            throw new RuntimeException("MessagePack decode failed", e);
+        } catch (Exception e) {
+            throw new MessagePackException("MessagePack decode failed", e);
         }
     }
 

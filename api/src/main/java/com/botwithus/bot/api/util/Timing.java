@@ -60,4 +60,15 @@ public final class Timing {
     public static long ticksToMs(int ticks) {
         return (long) ticks * TICK_MS;
     }
+
+    /** Returns a gaussian-distributed random value around a mean. */
+    public static long gaussianRandom(long mean, long stdDev) {
+        long value = (long) (mean + ThreadLocalRandom.current().nextGaussian() * stdDev);
+        return Math.max(0, value);
+    }
+
+    /** Sleep for a gaussian-distributed random duration. */
+    public static void sleepGaussian(long meanMs, long stdDevMs) {
+        sleep(gaussianRandom(meanMs, stdDevMs));
+    }
 }

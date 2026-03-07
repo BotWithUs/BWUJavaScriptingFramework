@@ -2,6 +2,7 @@ package com.botwithus.bot.api;
 
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
+import com.botwithus.bot.api.isc.SharedState;
 
 /**
  * Context object passed to {@link BotScript#onStart} providing access to
@@ -41,4 +42,11 @@ public interface ScriptContext {
      * @return the {@link ClientProvider} instance
      */
     ClientProvider getClientProvider();
+
+    /**
+     * Returns the shared state store for inter-script data sharing.
+     *
+     * @return the {@link SharedState} instance
+     */
+    SharedState getSharedState();
 }
