@@ -13,6 +13,8 @@ public class Connection {
     private final RpcClient rpc;
     private final ScriptRuntime runtime;
     private EventBusImpl eventBus;
+    private String accountName;
+    private java.util.Map<String, Object> accountInfo;
 
     public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime) {
         this.name = name;
@@ -28,6 +30,12 @@ public class Connection {
 
     public void setEventBus(EventBusImpl eventBus) { this.eventBus = eventBus; }
     public EventBusImpl getEventBus() { return eventBus; }
+
+    public void setAccountName(String accountName) { this.accountName = accountName; }
+    public String getAccountName() { return accountName; }
+
+    public void setAccountInfo(java.util.Map<String, Object> accountInfo) { this.accountInfo = accountInfo; }
+    public java.util.Map<String, Object> getAccountInfo() { return accountInfo; }
 
     /** Returns true if the underlying pipe is still open. */
     public boolean isAlive() {

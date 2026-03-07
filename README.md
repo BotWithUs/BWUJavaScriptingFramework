@@ -67,6 +67,7 @@ Additional commands:
 - **`actions`** — Inspect the game action queue, history, and blocked state
 - **`events`** — Monitor event bus subscriptions and publish counts
 - **`reload --watch`** — Auto-reload scripts when JAR files change in `scripts/`
+- **`autostart`** — Manage per-account script auto-start profiles (see [Auto-Start System](#auto-start-system))
 
 ### example-script
 
@@ -130,6 +131,50 @@ Place the compiled JAR in the `scripts/` directory. The runtime discovers and lo
 ./gradlew test                     # Run all tests
 ```
 
+## Auto-Start System
+
+The auto-start system remembers which scripts were running on each account and can automatically restart them on reconnect. Profiles are stored as `.properties` files in `~/.botwithus/profiles/`.
+
+### How It Works
+
+1. When you connect to a pipe, the app probes for account info (display name)
+2. If a profile exists for that account, the configured scripts are auto-started
+3. When scripts are started or stopped, the profile is automatically updated
+4. On app shutdown, all running script states are saved
+
+### File Layout
+
+```
+~/.botwithus/
+├── autostart.properties              # Global settings (autoConnect, pipePrefix, etc.)
+├── config.properties                 # CLI config (existing)
+└── profiles/
+    ├── PlayerOne.properties          # Per-account: scripts=Script1,Script2  autoStart=true
+    ├── PlayerTwo.properties
+    └── groups/
+        └── farm1.properties          # Per-group: scripts=WoodcuttingScript  autoStart=true
+```
+
+### Commands
+
+```bash
+autostart list                        # Show all account/group profiles
+autostart add <script>                # Add script to current account's auto-start
+autostart remove <script>             # Remove script from auto-start
+autostart enable / disable            # Toggle auto-start for current account
+autostart save                        # Save current running scripts as profile
+autostart clear [account]             # Clear a profile
+autostart group <name> add <script>   # Add script to group auto-start
+autostart group <name> remove <script># Remove script from group auto-start
+autostart group <name> list           # List scripts in a group
+autostart settings                    # Show global settings
+autostart on / off                    # Enable/disable background pipe scanning
+```
+
+### Background Auto-Connect
+
+When enabled (`autostart on`), the app scans for new pipes in the background and automatically connects, identifies accounts, and starts their configured scripts.
+
 ## Communication Flow
 
 ```
@@ -145,4 +190,4 @@ The pipe transport uses length-prefixed MessagePack frames over `\\.\pipe\BotWit
 ./gradlew :core:test               # Run core module tests only
 ```
 
-The core module includes 40 unit tests covering MessagePack codec, RPC metrics, event bus, message bus, script runner/runtime, script profiler, and end-to-end transport with a mock game server.
+Tests cover MessagePack codec, RPC metrics, event bus, message bus, script runner/runtime, script profiler, script profile persistence, auto-start command, connection groups, and end-to-end transport with a mock game server.

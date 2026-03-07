@@ -15,6 +15,7 @@ import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.runtime.ScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
@@ -61,6 +62,8 @@ public class CliContext {
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
     private com.botwithus.bot.cli.watch.ScriptWatcher scriptWatcher;
+    private ScriptProfileStore profileStore;
+    private AutoStartManager autoStartManager;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
@@ -69,6 +72,12 @@ public class CliContext {
 
     public void setStreamManager(StreamManager sm) { this.streamManager = sm; }
     public StreamManager getStreamManager() { return streamManager; }
+
+    public void setProfileStore(ScriptProfileStore store) { this.profileStore = store; }
+    public ScriptProfileStore getProfileStore() { return profileStore; }
+
+    public void setAutoStartManager(AutoStartManager manager) { this.autoStartManager = manager; }
+    public AutoStartManager getAutoStartManager() { return autoStartManager; }
 
     public void connect(String pipeName) {
         String connName = pipeName != null ? pipeName : "BotWithUs";
@@ -117,6 +126,10 @@ public class CliContext {
         if (conn.hasRunningScripts() && !force) {
             out().println("Connection '" + target + "' has running scripts. Use 'disconnect --force' to stop them and disconnect.");
             return;
+        }
+        // Save auto-start state before disconnecting
+        if (autoStartManager != null && conn.getAccountName() != null) {
+            autoStartManager.saveState(conn);
         }
         if (target.equals(mountedConnectionName)) {
             unmount();

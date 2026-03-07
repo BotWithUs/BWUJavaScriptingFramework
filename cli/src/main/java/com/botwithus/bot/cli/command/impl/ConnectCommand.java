@@ -9,6 +9,8 @@ import com.botwithus.bot.cli.output.TableFormatter;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 
+import com.botwithus.bot.cli.AutoStartManager;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -58,12 +60,15 @@ public class ConnectCommand implements Command {
                     if (lastScanResults != null && isNumber(sub)) {
                         int index = Integer.parseInt(sub) - 1;
                         if (index >= 0 && index < lastScanResults.size()) {
-                            ctx.connect(lastScanResults.get(index).pipeName());
+                            String pipeName = lastScanResults.get(index).pipeName();
+                            ctx.connect(pipeName);
+                            probeAndAutoStart(pipeName, ctx);
                         } else {
                             ctx.out().println("Invalid selection. Choose 1-" + lastScanResults.size() + ".");
                         }
                     } else {
                         ctx.connect(sub);
+                        probeAndAutoStart(sub, ctx);
                     }
                 }
             }
@@ -80,6 +85,7 @@ public class ConnectCommand implements Command {
         }
         if (pipes.size() == 1) {
             ctx.connect(pipes.getFirst());
+            probeAndAutoStart(pipes.getFirst(), ctx);
             lastScanResults = null;
         } else {
             displayPipeSelection(pipes, ctx);
@@ -252,6 +258,45 @@ public class ConnectCommand implements Command {
             } catch (Exception ignored) {
                 return new PipeInfo(pipeName, null, -1, false, false);
             }
+        }
+    }
+
+    /**
+     * After a successful connect, probes for account info and triggers auto-start
+     * if an AutoStartManager is configured.
+     */
+    private void probeAndAutoStart(String connName, CliContext ctx) {
+        AutoStartManager asm = ctx.getAutoStartManager();
+        if (asm == null) return;
+
+        // Find the connection that was just created
+        Connection found = null;
+        for (Connection c : ctx.getConnections()) {
+            if (c.getName().equals(connName)) {
+                found = c;
+                break;
+            }
+        }
+        if (found == null) return;
+        final Connection conn = found;
+
+        // Wire the state-change callback for auto-saving
+        conn.getRuntime().setOnStateChange(() -> asm.saveState(conn));
+
+        try {
+            Map<String, Object> info = conn.getRpc().callSync("get_account_info", Map.of());
+            String displayName = getString(info, "display_name");
+            if (displayName == null || displayName.isEmpty()) {
+                displayName = getString(info, "jx_display_name");
+            }
+            if (displayName != null && !displayName.isEmpty()) {
+                conn.setAccountName(displayName);
+                conn.setAccountInfo(info);
+                ctx.out().println("Account: " + displayName);
+                asm.onConnectionEstablished(conn, displayName);
+            }
+        } catch (Exception e) {
+            // Account info probe failed — not critical, user can still use the connection
         }
     }
 

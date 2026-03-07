@@ -1,8 +1,10 @@
 package com.botwithus.bot.cli.gui;
 
+import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.blueprint.BlueprintEditor;
 import com.botwithus.bot.cli.command.Command;
+import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.ParsedCommand;
@@ -129,6 +131,11 @@ public class ImGuiApp extends Application {
         ctx = new CliContext(logBuffer, logCapture);
         ctx.setStreamManager(new StreamManager(outputBuffer, textureManager, guiOut));
 
+        ScriptProfileStore profileStore = new ScriptProfileStore();
+        ctx.setProfileStore(profileStore);
+        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore);
+        ctx.setAutoStartManager(autoStartManager);
+
         registry = new CommandRegistry();
         registry.register(new HelpCommand(registry));
         registry.register(new ConnectCommand());
@@ -146,6 +153,7 @@ public class ImGuiApp extends Application {
         registry.register(new ConfigCommand(com.botwithus.bot.cli.config.CliConfig.defaults()));
         registry.register(new ActionsCommand());
         registry.register(new EventsCommand());
+        registry.register(new AutoStartCommand(profileStore, autoStartManager));
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
 
@@ -183,6 +191,9 @@ public class ImGuiApp extends Application {
 
         // Print banner
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
+
+        // Start auto-connect scanning if enabled
+        autoStartManager.start();
 
         // Initialize blueprint editor
         blueprintEditor = new BlueprintEditor();
@@ -504,6 +515,11 @@ public class ImGuiApp extends Application {
     }
 
     private void shutdown() {
+        // Save auto-start state before disconnecting
+        if (ctx.getAutoStartManager() != null) {
+            ctx.getAutoStartManager().saveAllState();
+            ctx.getAutoStartManager().stop();
+        }
         if (ctx.getStreamManager() != null) {
             ctx.getStreamManager().stopAll(name -> {
                 for (var c : ctx.getConnections()) {

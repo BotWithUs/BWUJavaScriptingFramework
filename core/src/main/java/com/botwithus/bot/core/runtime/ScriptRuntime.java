@@ -14,6 +14,7 @@ public class ScriptRuntime {
     private final ScriptContext context;
     private final List<ScriptRunner> runners = new CopyOnWriteArrayList<>();
     private String connectionName;
+    private Runnable onStateChange;
 
     public ScriptRuntime(ScriptContext context) {
         this.context = context;
@@ -25,6 +26,21 @@ public class ScriptRuntime {
 
     public String getConnectionName() {
         return connectionName;
+    }
+
+    public void setOnStateChange(Runnable callback) {
+        this.onStateChange = callback;
+    }
+
+    private void fireStateChange() {
+        Runnable cb = this.onStateChange;
+        if (cb != null) {
+            try {
+                cb.run();
+            } catch (Exception e) {
+                System.err.println("[Runtime] State change callback error: " + e.getMessage());
+            }
+        }
     }
 
     /**
@@ -43,6 +59,7 @@ public class ScriptRuntime {
         ScriptRunner runner = registerScript(script);
         runner.start();
         System.out.println("[Runtime] Started script: " + runner.getScriptName());
+        fireStateChange();
     }
 
     public void startAll(List<BotScript> scripts) {
@@ -57,6 +74,7 @@ public class ScriptRuntime {
             System.out.println("[Runtime] Stopped script: " + runner.getScriptName());
         }
         runners.clear();
+        fireStateChange();
     }
 
     public ScriptRunner findRunner(String name) {
@@ -73,6 +91,7 @@ public class ScriptRuntime {
         if (runner != null && runner.isRunning()) {
             runner.stop();
             System.out.println("[Runtime] Stopped script: " + runner.getScriptName());
+            fireStateChange();
             return true;
         }
         return false;
