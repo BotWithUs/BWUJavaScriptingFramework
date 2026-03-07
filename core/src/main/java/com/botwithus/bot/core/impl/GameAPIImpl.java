@@ -672,6 +672,40 @@ public class GameAPIImpl implements GameAPI {
         return new CacheFile(bytes, getInt(r, "size"));
     }
 
+    // ========================== Streaming ==========================
+
+    @Override
+    public StreamInfo startStream(int frameSkip, int quality, int width, int height) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        if (frameSkip > 0) params.put("frame_skip", frameSkip);
+        if (quality > 0) params.put("quality", quality);
+        if (width > 0) params.put("width", width);
+        if (height > 0) params.put("height", height);
+        Map<String, Object> r = rpc.callSync("start_stream", params);
+        return new StreamInfo(
+                getString(r, "pipe_name"), getInt(r, "frame_skip"),
+                getInt(r, "quality"), getInt(r, "width"), getInt(r, "height")
+        );
+    }
+
+    @Override
+    public void stopStream() {
+        rpc.callSync("stop_stream", Map.of());
+    }
+
+    // ========================== Humanization ==========================
+
+    @Override
+    public boolean getHumanizationEnabled() {
+        Map<String, Object> r = rpc.callSync("get_humanization_enabled", Map.of());
+        return getBool(r, "enabled");
+    }
+
+    @Override
+    public void setHumanizationEnabled(boolean enabled) {
+        rpc.callSync("set_humanization_enabled", Map.of("enabled", enabled));
+    }
+
     // ========================== Inventory & Items ==========================
 
     @Override

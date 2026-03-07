@@ -693,6 +693,48 @@ public interface GameAPI {
      */
     CacheFile takeScreenshot();
 
+    // ============================== Streaming ==============================
+
+    /**
+     * Starts continuous JPEG frame streaming over a dedicated one-way named pipe.
+     * The server creates a separate outbound-only pipe for frame data so the main
+     * RPC pipe remains unaffected. Connect to the returned pipe name to receive frames.
+     *
+     * <p>Each frame on the stream pipe is sent as:
+     * {@code [4 bytes: little-endian uint32 JPEG size] [N bytes: raw JPEG data]}</p>
+     *
+     * @param frameSkip capture every Nth frame (1 = every frame), default 2
+     * @param quality   JPEG quality 1-100, default 60
+     * @param width     output width in pixels (clamped 160-1920), default 960
+     * @param height    output height in pixels (clamped 90-1080), default 540
+     * @return stream info containing the pipe name and negotiated parameters
+     */
+    StreamInfo startStream(int frameSkip, int quality, int width, int height);
+
+    /**
+     * Stops the active frame stream and closes the stream pipe.
+     */
+    void stopStream();
+
+    // ============================== Humanization ==============================
+
+    /**
+     * Checks whether input humanization is enabled. When enabled, mouse path
+     * generation and the fatigue/risk model are active.
+     *
+     * @return {@code true} if humanization is enabled
+     */
+    boolean getHumanizationEnabled();
+
+    /**
+     * Enables or disables input humanization. When disabled, mouse path generation
+     * is skipped (clicks are sent directly) and the fatigue/risk model will not
+     * trigger automatic break recommendations.
+     *
+     * @param enabled {@code true} to enable, {@code false} to disable
+     */
+    void setHumanizationEnabled(boolean enabled);
+
     // ============================== Inventory & Items ==============================
 
     /**
