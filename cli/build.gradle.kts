@@ -1,5 +1,6 @@
 plugins {
     application
+    id("org.beryx.jlink")
 }
 
 dependencies {
@@ -10,19 +11,21 @@ dependencies {
 
 application {
     mainClass = "com.botwithus.bot.cli.gui.ImGuiApp"
+    mainModule = "com.botwithus.bot.cli"
 }
 
-// Put the API JAR on the module path so the boot layer has com.botwithus.bot.api
-// as a named module. ScriptLoader needs this to resolve script modules.
 tasks.named<JavaExec>("run") {
     workingDir = rootProject.projectDir
-    doFirst {
-        val apiJar = classpath.files.first { it.name.startsWith("api") && it.name.endsWith(".jar") }
-        classpath = files(classpath.files - apiJar)
-        jvmArgs(
-            "--module-path", apiJar.absolutePath,
-            "--add-modules", "com.botwithus.bot.api",
-            "-XX:ErrorFile=${rootProject.projectDir}/hs_err_pid%p.log"
-        )
+}
+
+jlink {
+    javaHome = "C:/openjdk25/jdk/build/windows-x86_64-server-release/images/jdk"
+    options.set(listOf("--strip-debug", "--compress", "zip-6", "--no-header-files", "--no-man-pages"))
+    launcher {
+        name = "jbot"
+    }
+    forceMerge("lwjgl")
+    mergedModule {
+        additive = true
     }
 }

@@ -1,5 +1,6 @@
 plugins {
     id("java")
+    id("org.beryx.jlink") version "3.1.1" apply false
 }
 
 group = "com.botwithus"
