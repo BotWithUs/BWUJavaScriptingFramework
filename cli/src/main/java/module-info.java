@@ -1,0 +1,15 @@
+module com.botwithus.bot.cli {
+    requires com.botwithus.bot.api;
+    requires com.botwithus.bot.core;
+    requires imgui.binding;
+    requires imgui.app;
+    requires org.lwjgl;
+    requires org.lwjgl.glfw;
+    requires org.lwjgl.opengl;
+    requires java.desktop;
+
+    uses com.botwithus.bot.api.BotScript;
+
+    exports com.botwithus.bot.cli;
+    exports com.botwithus.bot.cli.gui;
+}
