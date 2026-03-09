@@ -187,6 +187,11 @@ public class RpcClient implements AutoCloseable {
      * Sends the request, then reads messages until the response with the
      * matching ID arrives. Events received in between are dispatched on
      * virtual threads. Holds the pipe lock for the entire duration.
+     *
+     * <p>Uses blocking {@link PipeClient#readMessage()} directly rather than
+     * polling with {@code available()} + sleep, since we hold the lock
+     * exclusively and the server responds in microseconds. A watchdog thread
+     * enforces the timeout by closing the pipe if the deadline expires.</p>
      */
     private Map<String, Object> doCall(String method, Map<String, Object> params) {
         int id = idCounter.getAndIncrement();
@@ -206,20 +211,11 @@ public class RpcClient implements AutoCloseable {
 
             // Read messages until we get the response matching our request ID.
             // Any event messages that arrive first are dispatched asynchronously.
+            // Blocking read is safe here — we hold the lock exclusively and the
+            // server typically responds within microseconds.
             while (true) {
-                // Check timeout before blocking read
-                long remainingNanos = deadlineNanos - System.nanoTime();
-                if (remainingNanos <= 0) {
+                if (System.nanoTime() > deadlineNanos) {
                     throw new RpcTimeoutException(method, timeoutMs);
-                }
-
-                // Poll for available data to avoid indefinite blocking
-                if (pipe.available() <= 0) {
-                    try { Thread.sleep(1); } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        throw new RpcException("RPC call interrupted: " + method);
-                    }
-                    continue;
                 }
 
                 byte[] responseBytes = pipe.readMessage();
