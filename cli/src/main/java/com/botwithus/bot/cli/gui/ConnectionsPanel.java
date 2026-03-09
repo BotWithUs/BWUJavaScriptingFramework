@@ -2,15 +2,16 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
-import com.botwithus.bot.core.pipe.PipeClient;
-import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.cli.command.Command;
+import com.botwithus.bot.cli.command.CommandRegistry;
+import com.botwithus.bot.cli.command.CommandResult;
+import com.botwithus.bot.cli.command.ParsedCommand;
+import com.botwithus.bot.cli.command.impl.ConnectCommand;
 
 import imgui.ImGui;
-import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiTableFlags;
 import imgui.type.ImString;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
@@ -21,16 +22,16 @@ import java.util.concurrent.ExecutorService;
 public class ConnectionsPanel implements GuiPanel {
 
     private final ExecutorService executor;
+    private final CommandRegistry registry;
     private final ImString scanFilter = new ImString("BotWithUs", 128);
 
-    private record PipeInfo(String pipeName, String displayName, int worldId, boolean loggedIn, boolean isMember) {}
-
-    private List<PipeInfo> scanResults;
+    private List<ConnectCommand.PipeInfo> scanResults;
     private volatile boolean scanning = false;
     private volatile String scanStatus;
 
-    public ConnectionsPanel(ExecutorService executor) {
+    public ConnectionsPanel(ExecutorService executor, CommandRegistry registry) {
         this.executor = executor;
+        this.registry = registry;
     }
 
     @Override
@@ -61,8 +62,10 @@ public class ConnectionsPanel implements GuiPanel {
         ImGui.sameLine();
         if (ImGui.button("Quick Connect")) {
             executor.submit(() -> {
-                ctx.connect(null);
-                probeConnection(ctx, ctx.getActiveConnectionName());
+                Command cmd = registry.resolve("connect");
+                if (cmd != null) {
+                    cmd.execute(new ParsedCommand("connect", List.of(), Map.of()), ctx);
+                }
             });
         }
 
@@ -89,21 +92,27 @@ public class ConnectionsPanel implements GuiPanel {
     private void startScan(CliContext ctx) {
         scanning = true;
         scanStatus = "Scanning...";
-        executor.submit(() -> {
+        Thread.ofVirtual().name("pipe-scan").start(() -> {
             try {
-                String prefix = scanFilter.get().trim();
-                if (prefix.isEmpty()) prefix = "BotWithUs";
-                List<String> pipes = PipeClient.scanPipes(prefix);
-                if (pipes.isEmpty()) {
-                    scanResults = List.of();
-                    scanStatus = "No pipes found.";
-                } else {
-                    List<PipeInfo> infos = new ArrayList<>();
-                    for (String pipeName : pipes) {
-                        infos.add(probePipe(pipeName));
-                    }
+                String filter = scanFilter.get().trim();
+                if (filter.isEmpty()) filter = "BotWithUs";
+
+                Command cmd = registry.resolve("connect");
+                if (cmd == null) {
+                    scanStatus = "Connect command not found.";
+                    return;
+                }
+
+                CommandResult result = cmd.executeWithResult(
+                        new ParsedCommand("connect", List.of("scan", filter), Map.of()), ctx);
+
+                List<ConnectCommand.PipeInfo> infos = result.get("scanResults");
+                if (infos != null) {
                     scanResults = infos;
-                    scanStatus = "Found " + pipes.size() + " pipe(s).";
+                    scanStatus = result.message();
+                } else {
+                    scanResults = List.of();
+                    scanStatus = result.message() != null ? result.message() : "No pipes found.";
                 }
             } catch (Exception e) {
                 scanStatus = "Scan error: " + e.getMessage();
@@ -125,7 +134,7 @@ public class ConnectionsPanel implements GuiPanel {
             ImGui.tableHeadersRow();
 
             for (int i = 0; i < scanResults.size(); i++) {
-                PipeInfo info = scanResults.get(i);
+                ConnectCommand.PipeInfo info = scanResults.get(i);
                 ImGui.tableNextRow();
 
                 ImGui.tableSetColumnIndex(0);
@@ -174,8 +183,10 @@ public class ConnectionsPanel implements GuiPanel {
                     if (ImGui.smallButton("Connect")) {
                         String pipeName = info.pipeName();
                         executor.submit(() -> {
-                            ctx.connect(pipeName);
-                            probeConnection(ctx, pipeName);
+                            Command cmd = registry.resolve("connect");
+                            if (cmd != null) {
+                                cmd.execute(new ParsedCommand("connect", List.of(pipeName), Map.of()), ctx);
+                            }
                         });
                     }
                     ImGui.popID();
@@ -281,82 +292,5 @@ public class ConnectionsPanel implements GuiPanel {
 
             ImGui.endTable();
         }
-    }
-
-    private PipeInfo probePipe(String pipeName) {
-        try (PipeClient pipe = new PipeClient(pipeName)) {
-            RpcClient rpc = new RpcClient(pipe);
-            rpc.setTimeout(3_000);
-            Map<String, Object> r = rpc.callSync("get_account_info", Map.of());
-            String displayName = getString(r, "display_name");
-            if (displayName == null || displayName.isEmpty()) {
-                displayName = getString(r, "jx_display_name");
-            }
-            boolean loggedIn = getBool(r, "logged_in");
-            boolean isMember = getBool(r, "is_member");
-
-            int worldId = -1;
-            if (loggedIn) {
-                try {
-                    Map<String, Object> wr = rpc.callSync("get_current_world", Map.of());
-                    worldId = getInt(wr, "world_id");
-                } catch (Exception e) {
-                    System.err.println("[ConnectionsPanel] Failed to get world for " + pipeName + ": " + e.getMessage());
-                }
-            }
-
-            return new PipeInfo(pipeName, displayName, worldId, loggedIn, isMember);
-        } catch (Exception e) {
-            System.err.println("[ConnectionsPanel] Probe failed for " + pipeName + ": " + e.getMessage());
-            return new PipeInfo(pipeName, null, -1, false, false);
-        }
-    }
-
-    private void probeConnection(CliContext ctx, String connName) {
-        if (connName == null) return;
-        Connection found = null;
-        for (Connection c : ctx.getConnections()) {
-            if (c.getName().equals(connName)) {
-                found = c;
-                break;
-            }
-        }
-        if (found == null) return;
-        final Connection conn = found;
-
-        try {
-            Map<String, Object> info = conn.getRpc().callSync("get_account_info", Map.of());
-            String displayName = getString(info, "display_name");
-            if (displayName == null || displayName.isEmpty()) {
-                displayName = getString(info, "jx_display_name");
-            }
-            if (displayName != null && !displayName.isEmpty()) {
-                conn.setAccountName(displayName);
-                conn.setAccountInfo(info);
-                if (ctx.getAutoStartManager() != null) {
-                    conn.getRuntime().setOnStateChange(() -> ctx.getAutoStartManager().saveState(conn));
-                    ctx.getAutoStartManager().onConnectionEstablished(conn, displayName);
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("[ConnectionsPanel] Probe connection failed for " + connName + ": " + e.getMessage());
-        }
-    }
-
-    private static String getString(Map<String, Object> map, String key) {
-        Object v = map.get(key);
-        return v != null ? v.toString() : null;
-    }
-
-    private static int getInt(Map<String, Object> map, String key) {
-        Object v = map.get(key);
-        if (v instanceof Number n) return n.intValue();
-        return -1;
-    }
-
-    private static boolean getBool(Map<String, Object> map, String key) {
-        Object v = map.get(key);
-        if (v instanceof Boolean b) return b;
-        return false;
     }
 }

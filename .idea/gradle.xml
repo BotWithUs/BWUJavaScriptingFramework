@@ -4,7 +4,8 @@
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
         <option name="externalProjectPath" value="$PROJECT_DIR$" />
-        <option name="gradleHome" value="//wsl.localhost/Arch/usr/share/java/gradle" />
+        <option name="gradleHome" value="\\wsl.localhost\Arch\usr\share\java\gradle" />
+        <option name="gradleJvm" value="openjdk-25" />
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />

@@ -19,4 +19,13 @@ public interface Command {
     }
 
     void execute(ParsedCommand parsed, CliContext ctx);
+
+    /**
+     * Execute and return a structured result for programmatic callers (e.g. GUI panels).
+     * Commands that support this should override it. Default delegates to {@link #execute}.
+     */
+    default CommandResult executeWithResult(ParsedCommand parsed, CliContext ctx) {
+        execute(parsed, ctx);
+        return CommandResult.ok();
+    }
 }

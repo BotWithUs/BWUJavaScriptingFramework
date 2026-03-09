@@ -192,7 +192,7 @@ public class ImGuiApp extends Application {
 
         // Initialize panels
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
-        panels.add(new ConnectionsPanel(executor));
+        panels.add(new ConnectionsPanel(executor, registry));
         panels.add(new ScriptsPanel(executor));
         panels.add(new LogsPanel());
         panels.add(new GroupsPanel());

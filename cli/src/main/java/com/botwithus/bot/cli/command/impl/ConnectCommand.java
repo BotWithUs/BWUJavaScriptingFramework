@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.command.impl;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.command.Command;
+import com.botwithus.bot.cli.command.CommandResult;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.output.TableFormatter;
@@ -14,6 +15,9 @@ import com.botwithus.bot.cli.AutoStartManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class ConnectCommand implements Command {
 
@@ -26,18 +30,23 @@ public class ConnectCommand implements Command {
     private static final int LOBBY_POLL_TIMEOUT_MS = 15_000;
 
     /** Info gathered from probing a pipe. */
-    private record PipeInfo(String pipeName, String displayName, int worldId, boolean loggedIn, boolean isMember) {}
+    public record PipeInfo(String pipeName, String displayName, int worldId, boolean loggedIn, boolean isMember) {}
 
     /** Cached results from the last scan/autoConnect for number-based selection. */
     private List<PipeInfo> lastScanResults;
 
     @Override
     public void execute(ParsedCommand parsed, CliContext ctx) {
+        executeWithResult(parsed, ctx);
+    }
+
+    @Override
+    public CommandResult executeWithResult(ParsedCommand parsed, CliContext ctx) {
         String sub = parsed.arg(0);
         if (sub == null) {
-            autoConnect(ctx);
+            return autoConnect(ctx);
         } else {
-            switch (sub.toLowerCase()) {
+            return switch (sub.toLowerCase()) {
                 case "scan" -> scan(parsed.arg(1), ctx);
                 case "disconnect", "dc" -> {
                     boolean force = parsed.hasFlag("force");
@@ -46,15 +55,26 @@ public class ConnectCommand implements Command {
                     } else {
                         ctx.disconnect(parsed.arg(1), force);
                     }
+                    yield CommandResult.ok();
                 }
                 case "reconnect", "rc" -> {
                     String name = ctx.getActiveConnectionName();
                     ctx.disconnect(null);
                     ctx.connect(name);
+                    yield CommandResult.ok();
                 }
-                case "list", "ls" -> listConnections(ctx);
-                case "use" -> useConnection(parsed.arg(1), ctx);
-                case "status" -> status(ctx);
+                case "list", "ls" -> {
+                    listConnections(ctx);
+                    yield CommandResult.ok();
+                }
+                case "use" -> {
+                    useConnection(parsed.arg(1), ctx);
+                    yield CommandResult.ok();
+                }
+                case "status" -> {
+                    status(ctx);
+                    yield CommandResult.ok();
+                }
                 default -> {
                     // Check if it's a number referencing a previous scan result
                     if (lastScanResults != null && isNumber(sub)) {
@@ -70,38 +90,40 @@ public class ConnectCommand implements Command {
                         ctx.connect(sub);
                         probeAndAutoStart(sub, ctx);
                     }
+                    yield CommandResult.ok();
                 }
-            }
+            };
         }
     }
 
-    private void autoConnect(CliContext ctx) {
+    private CommandResult autoConnect(CliContext ctx) {
         List<String> pipes = PipeClient.scanPipes("BotWithUs");
         if (pipes.isEmpty()) {
             ctx.out().println("No BotWithUs pipes found. Is the client running?");
             ctx.out().println("Use 'connect scan <filter>' to search with a different filter.");
             lastScanResults = null;
-            return;
+            return CommandResult.error("No BotWithUs pipes found.");
         }
         if (pipes.size() == 1) {
             ctx.connect(pipes.getFirst());
             probeAndAutoStart(pipes.getFirst(), ctx);
             lastScanResults = null;
+            return CommandResult.ok("Connected to " + pipes.getFirst());
         } else {
-            displayPipeSelection(pipes, ctx);
+            return displayPipeSelection(pipes, ctx);
         }
     }
 
-    private void scan(String filter, CliContext ctx) {
+    private CommandResult scan(String filter, CliContext ctx) {
         String prefix = filter != null ? filter : "BotWithUs";
         ctx.out().println("Scanning for pipes matching '" + prefix + "'...");
         List<String> pipes = PipeClient.scanPipes(prefix);
         if (pipes.isEmpty()) {
             ctx.out().println("No matching pipes found.");
             lastScanResults = null;
-            return;
+            return CommandResult.error("No matching pipes found.");
         }
-        displayPipeSelection(pipes, ctx);
+        return displayPipeSelection(pipes, ctx);
     }
 
     /**
@@ -109,7 +131,7 @@ public class ConnectCommand implements Command {
      * Pipes with no account info (e.g. Steam clients at login screen) are sent
      * to lobby first, then re-probed.
      */
-    private void displayPipeSelection(List<String> pipes, CliContext ctx) {
+    private CommandResult displayPipeSelection(List<String> pipes, CliContext ctx) {
         ctx.out().println("Found " + pipes.size() + " pipes. Probing for account info...");
         List<PipeInfo> infos = new ArrayList<>();
         List<String> needsLobby = new ArrayList<>();
@@ -160,6 +182,7 @@ public class ConnectCommand implements Command {
         }
         ctx.out().print(table.build());
         ctx.out().println("Use 'connect <number>' to connect, or 'connect --all' to connect to all.");
+        return CommandResult.ok("Found " + infos.size() + " pipe(s).", Map.of("scanResults", List.copyOf(infos)));
     }
 
     /**
@@ -219,8 +242,22 @@ public class ConnectCommand implements Command {
 
     /**
      * Opens a temporary connection to a pipe, queries account info, and closes it.
+     * Uses a 5-second timeout to avoid blocking indefinitely if the pipe server is full.
      */
     private PipeInfo probePipe(String pipeName) {
+        try {
+            return CompletableFuture.supplyAsync(() -> probePipeBlocking(pipeName), java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor())
+                    .get(5, TimeUnit.SECONDS);
+        } catch (TimeoutException e) {
+            System.err.println("[ConnectCommand] probePipe timed out for " + pipeName);
+            return new PipeInfo(pipeName, "(timeout)", -1, false, false);
+        } catch (Exception e) {
+            System.err.println("[ConnectCommand] probePipe failed for " + pipeName + ": " + e.getMessage());
+            return new PipeInfo(pipeName, null, -1, false, false);
+        }
+    }
+
+    private PipeInfo probePipeBlocking(String pipeName) {
         try (PipeClient pipe = new PipeClient(pipeName)) {
             RpcClient rpc = new RpcClient(pipe);
             rpc.setTimeout(3_000);
