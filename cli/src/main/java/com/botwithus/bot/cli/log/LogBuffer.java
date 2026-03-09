@@ -73,4 +73,14 @@ public class LogBuffer {
             lock.unlock();
         }
     }
+
+    public void clear() {
+        lock.lock();
+        try {
+            head = 0;
+            size = 0;
+        } finally {
+            lock.unlock();
+        }
+    }
 }

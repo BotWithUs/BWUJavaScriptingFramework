@@ -1,6 +1,6 @@
 plugins {
     id("java")
-    id("org.beryx.jlink") version "3.1.1" apply false
+    id("org.beryx.jlink") version "3.2.1" apply false
 }
 
 group = "com.botwithus"
@@ -26,8 +26,8 @@ subprojects {
     dependencies {
         testImplementation(platform("org.junit:junit-bom:5.10.0"))
         testImplementation("org.junit.jupiter:junit-jupiter")
-        testImplementation("org.mockito:mockito-core:5.14.2")
-        testImplementation("org.mockito:mockito-junit-jupiter:5.14.2")
+        testImplementation("org.mockito:mockito-core:5.20.0")
+        testImplementation("org.mockito:mockito-junit-jupiter:5.20.0")
         testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     }
 

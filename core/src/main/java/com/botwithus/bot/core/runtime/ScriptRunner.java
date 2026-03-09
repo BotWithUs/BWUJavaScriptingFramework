@@ -172,7 +172,9 @@ public class ScriptRunner implements Runnable {
         if (handler != null) {
             try {
                 handler.onError(scriptName, phase, error);
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                System.err.println("[ScriptRunner] Error handler itself threw for " + scriptName + "/" + phase + ": " + e.getMessage());
+            }
         }
     }
 }

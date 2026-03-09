@@ -41,7 +41,7 @@ tasks.named<JavaExec>("run") {
 }
 
 jlink {
-    javaHome = "C:/openjdk25/jdk/build/windows-x86_64-server-release/images/jdk"
+    javaHome.set(file("C:/openjdk25/jdk/build/windows-x86_64-server-release/images/jdk"))
     options.set(listOf("--strip-debug", "--compress", "zip-6", "--no-header-files", "--no-man-pages"))
     launcher {
         name = "jbot"

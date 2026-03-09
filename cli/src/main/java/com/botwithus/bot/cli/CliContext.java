@@ -16,7 +16,7 @@ import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.config.ScriptProfileStore;
-import com.botwithus.bot.core.runtime.ScriptLoader;
+import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
 import com.botwithus.bot.core.runtime.ScriptRunner;
@@ -184,7 +184,7 @@ public class CliContext {
     }
 
     public List<BotScript> loadScripts() {
-        return ScriptLoader.loadScripts();
+        return SDNScriptLoader.loadScripts();
     }
 
     /**

@@ -98,7 +98,9 @@ public class StreamPipeReader implements AutoCloseable {
 
     private void closePipe() {
         if (pipeFile != null) {
-            try { pipeFile.close(); } catch (IOException ignored) {}
+            try { pipeFile.close(); } catch (IOException e) {
+                System.err.println("[StreamPipeReader] Error closing stream pipe: " + e.getMessage());
+            }
         }
     }
 

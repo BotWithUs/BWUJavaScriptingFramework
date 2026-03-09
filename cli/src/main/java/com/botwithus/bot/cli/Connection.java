@@ -49,7 +49,11 @@ public class Connection {
 
     /** Stop all scripts AND close the connection. */
     public void close() {
-        try { runtime.stopAll(); } catch (Exception ignored) {}
-        try { rpc.close(); } catch (Exception ignored) {}
+        try { runtime.stopAll(); } catch (Exception e) {
+            System.err.println("[Connection] Error stopping scripts for " + name + ": " + e.getMessage());
+        }
+        try { rpc.close(); } catch (Exception e) {
+            System.err.println("[Connection] Error closing RPC for " + name + ": " + e.getMessage());
+        }
     }
 }

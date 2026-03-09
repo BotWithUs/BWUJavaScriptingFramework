@@ -454,8 +454,8 @@ public final class BlueprintSerializer {
                         try {
                             PinType pinType = PinType.valueOf(typeName);
                             graph.getVariables().put(name, pinType);
-                        } catch (IllegalArgumentException ignored) {
-                            // Skip unknown variable types
+                        } catch (IllegalArgumentException e) {
+                            System.err.println("[BlueprintSerializer] Unknown PinType '" + typeName + "' for variable '" + name + "', skipping");
                         }
                     }
                 }

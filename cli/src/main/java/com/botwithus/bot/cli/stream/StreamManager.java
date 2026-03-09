@@ -89,7 +89,9 @@ public class StreamManager {
                         outputBuffer.updateStreamTexture(streamLine, newTexId);
                     });
                 }
-            } catch (IOException ignored) {}
+            } catch (IOException e) {
+                System.err.println("[StreamManager] Failed to decode JPEG frame: " + e.getMessage());
+            }
         });
         reader.setErrorCallback(out::println);
 
@@ -116,7 +118,9 @@ public class StreamManager {
         if (conn != null && conn.isAlive()) {
             try {
                 conn.getRpc().callSync("stop_stream", Map.of());
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                System.err.println("[StreamManager] Failed to send stop_stream for '" + connectionName + "': " + e.getMessage());
+            }
         }
 
         // Clean up texture and remove line
@@ -144,7 +148,9 @@ public class StreamManager {
                 if (conn != null && conn.isAlive()) {
                     try {
                         conn.getRpc().callSync("stop_stream", Map.of());
-                    } catch (Exception ignored) {}
+                    } catch (Exception e) {
+                        System.err.println("[StreamManager] Failed to send stop_stream for '" + name + "': " + e.getMessage());
+                    }
                 }
             }
 

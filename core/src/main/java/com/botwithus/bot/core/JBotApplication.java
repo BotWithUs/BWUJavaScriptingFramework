@@ -10,7 +10,7 @@ import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
-import com.botwithus.bot.core.runtime.ScriptLoader;
+import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
 import java.util.List;
@@ -38,7 +38,7 @@ public class JBotApplication {
             rpc.start();
 
             // Discover scripts from scripts/ directory (drop JARs there)
-            List<BotScript> scripts = ScriptLoader.loadScripts();
+            List<BotScript> scripts = SDNScriptLoader.loadScripts();
             System.out.println("[JBot] Discovered " + scripts.size() + " script(s)");
 
             ScriptRuntime runtime = new ScriptRuntime(context);

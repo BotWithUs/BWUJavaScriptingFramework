@@ -3,30 +3,22 @@ package com.botwithus.bot.cli.gui;
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.blueprint.BlueprintEditor;
-import com.botwithus.bot.cli.command.Command;
-import com.botwithus.bot.core.config.ScriptProfileStore;
-import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.CommandRegistry;
-import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.command.impl.*;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
+import com.botwithus.bot.core.config.ScriptProfileStore;
 
-import imgui.ImFont;
 import imgui.ImFontConfig;
 import imgui.ImGui;
 import imgui.ImGuiIO;
-import imgui.ImVec2;
 import imgui.app.Application;
 import imgui.app.Configuration;
-import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiCond;
-import imgui.flag.ImGuiConfigFlags;
-import imgui.flag.ImGuiInputTextFlags;
+import imgui.flag.ImGuiTabBarFlags;
 import imgui.flag.ImGuiWindowFlags;
-import imgui.type.ImString;
 
 import org.lwjgl.glfw.GLFW;
 
@@ -38,8 +30,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Main imgui-based application replacing the Swing GUI.
- * Extends {@code imgui.app.Application} for window management and GL context.
+ * Main imgui-based application with tabbed GUI panels.
+ * Each tab renders via the {@link GuiPanel} interface.
  */
 public class ImGuiApp extends Application {
 
@@ -67,18 +59,15 @@ public class ImGuiApp extends Application {
         return t;
     });
 
-    // Input state
-    private final ImString inputBuffer = new ImString(512);
-    private final List<String> history = new ArrayList<>();
-    private int historyIndex = -1;
-    private boolean focusInput = true;
-    private boolean scrollToBottom = true;
+    // Panels
+    private final List<GuiPanel> panels = new ArrayList<>();
+    private StatusBar statusBar;
 
     // Blueprint editor mode
     private boolean editorMode = false;
     private BlueprintEditor blueprintEditor;
 
-    // Script config panel
+    // Script config panel (floating window)
     private ScriptConfigPanel configPanel;
 
     // GLFW window handle for title updates
@@ -86,9 +75,9 @@ public class ImGuiApp extends Application {
 
     @Override
     protected void configure(Configuration config) {
-        config.setTitle("JBot — disconnected");
-        config.setWidth(900);
-        config.setHeight(650);
+        config.setTitle("JBot \u2014 disconnected");
+        config.setWidth(1100);
+        config.setHeight(700);
     }
 
     @Override
@@ -105,7 +94,6 @@ public class ImGuiApp extends Application {
         float dpiScale = Math.max(xScale[0], 1.0f);
 
         // Rebuild font atlas at scaled pixel size so text is crisp on HiDPI.
-        // super.initImGui already added a default font — clear it and rebuild.
         ImGuiIO io = ImGui.getIO();
         io.getFonts().clear();
         ImFontConfig fontConfig = new ImFontConfig();
@@ -157,7 +145,7 @@ public class ImGuiApp extends Application {
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
 
-        // Image display hook — queues texture creation on GL thread, then appends to buffer
+        // Image display hook
         ctx.setImageDisplay(image -> {
             textureManager.queueOperation(() -> {
                 int texId = textureManager.createTexture(image);
@@ -202,6 +190,16 @@ public class ImGuiApp extends Application {
         configPanel = new ScriptConfigPanel();
         ctx.setConfigPanelOpener(runner -> configPanel.open(runner));
 
+        // Initialize panels
+        panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
+        panels.add(new ConnectionsPanel(executor));
+        panels.add(new ScriptsPanel(executor));
+        panels.add(new LogsPanel());
+        panels.add(new GroupsPanel());
+        panels.add(new SettingsPanel());
+
+        statusBar = new StatusBar();
+
         // Grab GLFW window handle for title updates
         glfwWindow = GLFW.glfwGetCurrentContext();
     }
@@ -242,11 +240,26 @@ public class ImGuiApp extends Application {
                 blueprintEditor.dispose();
             }
         } else {
-            float inputBarHeight = ImGui.getFrameHeightWithSpacing() + 8f;
-            float outputHeight = ImGui.getContentRegionAvailY() - inputBarHeight;
+            // Reserve space for status bar at the bottom
+            float statusBarHeight = ImGui.getFrameHeightWithSpacing() + 4f;
 
-            renderOutput(outputHeight);
-            renderInputBar();
+            // Tab bar
+            if (ImGui.beginTabBar("##mainTabs", ImGuiTabBarFlags.None)) {
+                for (GuiPanel panel : panels) {
+                    if (ImGui.beginTabItem(panel.title())) {
+                        // Panel content area — fill available space minus status bar
+                        float panelHeight = ImGui.getContentRegionAvailY() - statusBarHeight;
+                        ImGui.beginChild("##tabContent", 0, panelHeight, false);
+                        panel.render(ctx);
+                        ImGui.endChild();
+                        ImGui.endTabItem();
+                    }
+                }
+                ImGui.endTabBar();
+            }
+
+            // Status bar at the bottom
+            statusBar.render(ctx);
         }
 
         ImGui.end();
@@ -260,244 +273,6 @@ public class ImGuiApp extends Application {
         updateTitle();
     }
 
-    private void renderOutput(float height) {
-        ImGui.beginChild("output", 0, height, false, ImGuiWindowFlags.HorizontalScrollbar);
-
-        List<OutputLine> snapshot = outputBuffer.snapshot();
-        for (OutputLine line : snapshot) {
-            if (line.isRemoved()) continue;
-
-            switch (line.getType()) {
-                case TEXT -> renderTextLine(line);
-                case IMAGE -> renderImageLine(line);
-                case PROGRESS -> renderProgressLine(line);
-                case STREAM -> renderStreamLine(line);
-            }
-        }
-
-        // Auto-scroll if at bottom
-        if (scrollToBottom && ImGui.getScrollY() >= ImGui.getScrollMaxY() - 10) {
-            ImGui.setScrollHereY(1.0f);
-        }
-
-        ImGui.endChild();
-    }
-
-    private void renderTextLine(OutputLine line) {
-        List<OutputLine.Segment> segments = line.getSegments();
-        if (segments == null || segments.isEmpty()) {
-            ImGui.text(""); // blank line
-            return;
-        }
-
-        boolean first = true;
-        for (OutputLine.Segment seg : segments) {
-            if (!first) {
-                ImGui.sameLine(0, 0);
-            }
-            first = false;
-
-            // Bold is simulated by slightly brighter color (imgui doesn't have font weight per-char easily)
-            float r = seg.bold() ? Math.min(seg.r() + 0.1f, 1f) : seg.r();
-            float g = seg.bold() ? Math.min(seg.g() + 0.1f, 1f) : seg.g();
-            float b = seg.bold() ? Math.min(seg.b() + 0.1f, 1f) : seg.b();
-
-            ImGui.textColored(r, g, b, seg.a(), seg.text());
-        }
-    }
-
-    private void renderImageLine(OutputLine line) {
-        int texId = line.getTextureId();
-        if (texId > 0) {
-            // Clamp display size
-            float maxW = Math.min(line.getImageWidth(), ImGui.getContentRegionAvailX());
-            float scale = maxW / line.getImageWidth();
-            float displayH = line.getImageHeight() * scale;
-            ImGui.image(texId, maxW, displayH);
-        }
-    }
-
-    private void renderProgressLine(OutputLine line) {
-        String label = line.getLabel() != null ? line.getLabel() : "Working...";
-        float progress = line.getProgress();
-        if (progress < 0) {
-            // Indeterminate — use animated fraction based on time
-            float t = (float) (ImGui.getTime() % 2.0) / 2.0f;
-            ImGui.progressBar(t, 250, 16, label);
-        } else {
-            ImGui.progressBar(progress, 250, 16, label);
-        }
-    }
-
-    private void renderStreamLine(OutputLine line) {
-        String label = line.getLabel();
-        if (label != null) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                    "  " + label);
-        }
-        int texId = line.getTextureId();
-        if (texId > 0) {
-            float maxW = Math.min(line.getImageWidth(), ImGui.getContentRegionAvailX());
-            float scale = maxW / line.getImageWidth();
-            float displayH = line.getImageHeight() * scale;
-            ImGui.image(texId, maxW, displayH);
-        }
-    }
-
-    private void renderInputBar() {
-        ImGui.separator();
-
-        // Prompt
-        boolean connected = ctx.hasActiveConnection();
-        String connName = ctx.getActiveConnectionName();
-        int count = ctx.getConnections().size();
-        String mountedName = ctx.getMountedConnectionName();
-
-        if (connected && connName != null) {
-            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "*");
-            ImGui.sameLine(0, 4);
-            ImGui.text("jbot:");
-            ImGui.sameLine(0, 0);
-            ImGui.textColored(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G, ImGuiTheme.CYAN_B, 1f, connName);
-            if (count > 1) {
-                ImGui.sameLine(0, 0);
-                ImGui.text(" [" + count + "]");
-            }
-            if (mountedName != null) {
-                ImGui.sameLine(0, 4);
-                ImGui.textColored(ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B, 1f, "[mounted]");
-            }
-            ImGui.sameLine(0, 0);
-            ImGui.text("> ");
-        } else {
-            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f, "o");
-            ImGui.sameLine(0, 4);
-            ImGui.text("jbot> ");
-        }
-
-        ImGui.sameLine();
-
-        // Input field
-        ImGui.pushItemWidth(ImGui.getContentRegionAvailX());
-        int flags = ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackHistory
-                | ImGuiInputTextFlags.CallbackCompletion;
-
-        if (focusInput) {
-            ImGui.setKeyboardFocusHere();
-            focusInput = false;
-        }
-
-        if (ImGui.inputText("##input", inputBuffer, flags)) {
-            String text = inputBuffer.get().trim();
-            if (!text.isEmpty()) {
-                history.add(text);
-                historyIndex = history.size();
-                handleCommand(text);
-            }
-            inputBuffer.set("");
-            focusInput = true;
-            scrollToBottom = true;
-        }
-
-        // Handle history callback via imgui's built-in mechanism
-        // For now, handle arrow keys manually since inputText callbacks are complex in imgui-java
-        if (ImGui.isItemFocused()) {
-            if (ImGui.isKeyPressed(GLFW.GLFW_KEY_UP)) {
-                if (!history.isEmpty() && historyIndex > 0) {
-                    historyIndex--;
-                    inputBuffer.set(history.get(historyIndex));
-                }
-            }
-            if (ImGui.isKeyPressed(GLFW.GLFW_KEY_DOWN)) {
-                if (historyIndex < history.size()) {
-                    historyIndex++;
-                    if (historyIndex == history.size()) {
-                        inputBuffer.set("");
-                    } else {
-                        inputBuffer.set(history.get(historyIndex));
-                    }
-                }
-            }
-            if (ImGui.isKeyPressed(GLFW.GLFW_KEY_TAB)) {
-                autoComplete();
-            }
-        }
-
-        ImGui.popItemWidth();
-    }
-
-    private void handleCommand(String line) {
-        // Echo input in accent color
-        PrintStream out = outputBuffer.getPrintStream();
-        out.println(AnsiCodes.colorize("> " + line, "\u001B[33m")); // yellow-ish echo
-
-        executor.submit(() -> {
-            ParsedCommand parsed = CommandParser.parse(line);
-            Command cmd = registry.resolve(parsed.name());
-
-            if (cmd == null) {
-                out.println("Unknown command: " + parsed.name() + ". Type 'help' for available commands.");
-                return;
-            }
-
-            if (cmd instanceof ExitCommand) {
-                shutdown();
-                return;
-            }
-
-            try {
-                cmd.execute(parsed, ctx);
-            } catch (com.botwithus.bot.core.pipe.PipeException | com.botwithus.bot.core.rpc.RpcException e) {
-                out.println("Connection error: " + e.getMessage());
-                String connName = ctx.getActiveConnectionName();
-                if (connName != null) {
-                    ctx.handleConnectionError(connName);
-                }
-            } catch (Exception e) {
-                out.println("Error: " + e.getMessage());
-            }
-        });
-    }
-
-    private void autoComplete() {
-        if (registry == null) return;
-        String prefix = inputBuffer.get().toLowerCase();
-        if (prefix.isEmpty()) return;
-
-        List<String> matches = new ArrayList<>();
-        for (var cmd : registry.all()) {
-            if (cmd.name().toLowerCase().startsWith(prefix)) {
-                matches.add(cmd.name());
-            }
-            for (String alias : cmd.aliases()) {
-                if (alias.toLowerCase().startsWith(prefix)) {
-                    matches.add(alias);
-                }
-            }
-        }
-
-        if (matches.size() == 1) {
-            inputBuffer.set(matches.get(0));
-        } else if (matches.size() > 1) {
-            String common = matches.get(0);
-            for (int i = 1; i < matches.size(); i++) {
-                common = commonPrefix(common, matches.get(i));
-            }
-            if (common.length() > prefix.length()) {
-                inputBuffer.set(common);
-            }
-        }
-    }
-
-    private static String commonPrefix(String a, String b) {
-        int len = Math.min(a.length(), b.length());
-        int i = 0;
-        while (i < len && Character.toLowerCase(a.charAt(i)) == Character.toLowerCase(b.charAt(i))) {
-            i++;
-        }
-        return a.substring(0, i);
-    }
-
     private void updateTitle() {
         if (glfwWindow == 0) return;
         boolean connected = ctx.hasActiveConnection();
@@ -507,9 +282,9 @@ public class ImGuiApp extends Application {
         String title;
         if (connected && connName != null) {
             String suffix = count > 1 ? " [" + count + "]" : "";
-            title = "JBot — " + connName + suffix;
+            title = "JBot \u2014 " + connName + suffix;
         } else {
-            title = "JBot — disconnected";
+            title = "JBot \u2014 disconnected";
         }
         GLFW.glfwSetWindowTitle(glfwWindow, title);
     }
