@@ -11,9 +11,9 @@ import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 
+import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
 import imgui.ImGui;
-import imgui.ImGuiIO;
 import imgui.app.Application;
 import imgui.app.Configuration;
 import imgui.flag.ImGuiConfigFlags;
@@ -68,8 +68,8 @@ public class ImGuiApp extends Application {
     private boolean editorMode = false;
     private BlueprintEditor blueprintEditor;
 
-    // Script config panel (floating window)
-    private ScriptConfigPanel configPanel;
+    // Script custom UI window (floating window)
+    private ScriptUIWindow scriptUIWindow;
 
     // GLFW window handle for title updates
     private long glfwWindow;
@@ -94,18 +94,24 @@ public class ImGuiApp extends Application {
         }
         float dpiScale = Math.max(xScale[0], 1.0f);
 
-        // Rebuild font atlas at scaled pixel size so text is crisp on HiDPI.
-        ImGuiIO io = ImGui.getIO();
-        io.getFonts().clear();
-        ImFontConfig fontConfig = new ImFontConfig();
-        fontConfig.setSizePixels(14f * dpiScale);
-        fontConfig.setOversampleH(2);
-        fontConfig.setOversampleV(2);
-        io.getFonts().addFontDefault(fontConfig);
-        io.getFonts().build();
-        fontConfig.destroy();
+        float uiSize = (float) Math.round(19f * dpiScale);
+        ImFontAtlas atlas = ImGui.getIO().getFonts();
+        atlas.clear();
+        byte[] ttf = loadSystemFont("segoeui.ttf", "arial.ttf", "verdana.ttf");
+        ImFontConfig cfg = new ImFontConfig();
+        cfg.setOversampleH(3);
+        cfg.setOversampleV(3);
+        cfg.setPixelSnapH(true);
+        if (ttf != null) {
+            atlas.addFontFromMemoryTTF(ttf, uiSize, cfg);
+        } else {
+            cfg.setSizePixels(uiSize);
+            atlas.addFontDefault(cfg);
+        }
+        cfg.destroy();
+        atlas.build();
 
-        io.addConfigFlags(ImGuiConfigFlags.ViewportsEnable);
+        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable);
 
         ImGuiTheme.apply(dpiScale);
 
@@ -189,9 +195,9 @@ public class ImGuiApp extends Application {
         // Initialize blueprint editor
         blueprintEditor = new BlueprintEditor();
 
-        // Initialize config panel and wire opener
-        configPanel = new ScriptConfigPanel();
-        ctx.setConfigPanelOpener(runner -> configPanel.open(runner));
+        // Initialize script UI window and wire opener
+        scriptUIWindow = new ScriptUIWindow();
+        ctx.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
 
         // Initialize panels
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
@@ -204,8 +210,10 @@ public class ImGuiApp extends Application {
 
         statusBar = new StatusBar();
 
-        // Grab GLFW window handle for title updates
         glfwWindow = GLFW.glfwGetCurrentContext();
+
+        var oldSizeCb = GLFW.glfwSetWindowSizeCallback(glfwWindow, null);
+        if (oldSizeCb != null) oldSizeCb.free();
     }
 
     @Override
@@ -269,13 +277,26 @@ public class ImGuiApp extends Application {
 
         ImGui.end();
 
-        // Render config panel as floating window (outside the main window)
-        if (configPanel != null && configPanel.isOpen()) {
-            configPanel.render();
+        // Render script custom UI as a floating window (outside the main window)
+        if (scriptUIWindow != null && scriptUIWindow.isOpen()) {
+            scriptUIWindow.render();
         }
 
         // Update window title based on connection state
         updateTitle();
+    }
+
+    private static byte[] loadSystemFont(String... candidates) {
+        String windir = System.getenv("WINDIR");
+        if (windir == null) windir = "C:\\Windows";
+        java.nio.file.Path fontsDir = java.nio.file.Paths.get(windir, "Fonts");
+        for (String name : candidates) {
+            java.nio.file.Path p = fontsDir.resolve(name);
+            if (java.nio.file.Files.exists(p)) {
+                try { return java.nio.file.Files.readAllBytes(p); } catch (Exception ignored) {}
+            }
+        }
+        return null;
     }
 
     private void updateTitle() {
