@@ -6,6 +6,7 @@ import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
+import com.botwithus.bot.api.script.ScriptManager;
 
 public class ScriptContextImpl implements ScriptContext {
 
@@ -14,6 +15,7 @@ public class ScriptContextImpl implements ScriptContext {
     private final MessageBus messageBus;
     private final ClientProvider clientProvider;
     private final SharedState sharedState;
+    private volatile ScriptManager scriptManager;
 
     public ScriptContextImpl(GameAPI gameAPI, EventBus eventBus, MessageBus messageBus, ClientProvider clientProvider, SharedState sharedState) {
         this.gameAPI = gameAPI;
@@ -25,6 +27,14 @@ public class ScriptContextImpl implements ScriptContext {
 
     public ScriptContextImpl(GameAPI gameAPI, EventBus eventBus, MessageBus messageBus, ClientProvider clientProvider) {
         this(gameAPI, eventBus, messageBus, clientProvider, new SharedStateImpl());
+    }
+
+    /**
+     * Sets the script manager. Called after the runtime is created,
+     * since ScriptManager needs ScriptRuntime which needs ScriptContext.
+     */
+    public void setScriptManager(ScriptManager scriptManager) {
+        this.scriptManager = scriptManager;
     }
 
     @Override
@@ -41,4 +51,7 @@ public class ScriptContextImpl implements ScriptContext {
 
     @Override
     public SharedState getSharedState() { return sharedState; }
+
+    @Override
+    public ScriptManager getScriptManager() { return scriptManager; }
 }
