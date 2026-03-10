@@ -16,6 +16,7 @@ import imgui.ImGui;
 import imgui.ImGuiIO;
 import imgui.app.Application;
 import imgui.app.Configuration;
+import imgui.flag.ImGuiConfigFlags;
 import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiTabBarFlags;
 import imgui.flag.ImGuiWindowFlags;
@@ -103,6 +104,8 @@ public class ImGuiApp extends Application {
         io.getFonts().addFontDefault(fontConfig);
         io.getFonts().build();
         fontConfig.destroy();
+
+        io.addConfigFlags(ImGuiConfigFlags.ViewportsEnable);
 
         ImGuiTheme.apply(dpiScale);
 
@@ -218,9 +221,10 @@ public class ImGuiApp extends Application {
             }
         }
 
-        // Full-window imgui window
-        ImGui.setNextWindowPos(0, 0, ImGuiCond.Always);
-        ImGui.setNextWindowSize(ImGui.getIO().getDisplaySizeX(), ImGui.getIO().getDisplaySizeY(), ImGuiCond.Always);
+        // Full-window imgui window — use main viewport pos for correct placement with viewports enabled
+        var viewport = ImGui.getMainViewport();
+        ImGui.setNextWindowPos(viewport.getPosX(), viewport.getPosY(), ImGuiCond.Always);
+        ImGui.setNextWindowSize(viewport.getSizeX(), viewport.getSizeY(), ImGuiCond.Always);
 
         int windowFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove
                 | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoBringToFrontOnFocus;
