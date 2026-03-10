@@ -90,7 +90,19 @@ public class ScreenshotCommand implements Command {
         Path outPath;
         try {
             if (fileArg != null) {
-                outPath = Path.of(fileArg);
+                Path screenshotsDir = Path.of("screenshots").toAbsolutePath();
+                Path requested = screenshotsDir.resolve(fileArg).normalize();
+                if (!requested.startsWith(screenshotsDir)) {
+                    String msg = "Invalid path: must be within screenshots/ directory.";
+                    if (progress != null && progressHandle != null) {
+                        progress.completeWithError(progressHandle, msg);
+                    } else {
+                        ctx.out().println(msg);
+                    }
+                    return;
+                }
+                Files.createDirectories(requested.getParent());
+                outPath = requested;
             } else {
                 Path screenshotsDir = Path.of("screenshots");
                 Files.createDirectories(screenshotsDir);

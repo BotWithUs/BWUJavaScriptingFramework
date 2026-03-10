@@ -41,7 +41,11 @@ tasks.named<JavaExec>("run") {
 }
 
 jlink {
-    javaHome.set(file("C:/openjdk25/jdk/build/windows-x86_64-server-release/images/jdk"))
+    val jlinkHome = providers.gradleProperty("jlink.javaHome")
+        .orElse(providers.environmentVariable("JLINK_JAVA_HOME"))
+    if (jlinkHome.isPresent) {
+        javaHome.set(file(jlinkHome.get()))
+    }
     options.set(listOf("--strip-debug", "--compress", "zip-6", "--no-header-files", "--no-man-pages"))
     launcher {
         name = "jbot"

@@ -35,25 +35,28 @@ public class EventBusImpl implements EventBus {
 
     @Override
     public <T extends GameEvent> void subscribe(Class<T> eventType, Consumer<T> listener) {
-        List<Consumer<? extends GameEvent>> list = listeners.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>());
-        boolean wasEmpty = list.isEmpty();
-        list.add(listener);
-
-        if (wasEmpty && onFirstSubscribe != null) {
-            onFirstSubscribe.accept(eventType);
-        }
+        listeners.compute(eventType, (key, list) -> {
+            if (list == null) {
+                list = new CopyOnWriteArrayList<>();
+            }
+            boolean wasEmpty = list.isEmpty();
+            list.add(listener);
+            if (wasEmpty && onFirstSubscribe != null) {
+                onFirstSubscribe.accept(key);
+            }
+            return list;
+        });
     }
 
     @Override
     public <T extends GameEvent> void unsubscribe(Class<T> eventType, Consumer<T> listener) {
-        List<Consumer<? extends GameEvent>> list = listeners.get(eventType);
-        if (list != null) {
+        listeners.computeIfPresent(eventType, (key, list) -> {
             list.remove(listener);
-
             if (list.isEmpty() && onLastUnsubscribe != null) {
-                onLastUnsubscribe.accept(eventType);
+                onLastUnsubscribe.accept(key);
             }
-        }
+            return list.isEmpty() ? null : list;
+        });
     }
 
     @Override

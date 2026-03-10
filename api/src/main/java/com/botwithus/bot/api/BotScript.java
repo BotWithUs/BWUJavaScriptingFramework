@@ -2,6 +2,7 @@ package com.botwithus.bot.api;
 
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.ui.ScriptUI;
 
 import java.util.List;
 
@@ -59,5 +60,19 @@ public interface BotScript {
      * @param config the new configuration snapshot
      */
     default void onConfigUpdate(ScriptConfig config) {
+    }
+
+    /**
+     * Returns a custom UI for this script, rendered in the Script UI panel.
+     * Override this to provide interactive widgets, status displays, or controls
+     * beyond what {@link #getConfigFields()} offers.
+     *
+     * <p>The returned {@link ScriptUI} is called every frame on the UI thread.
+     * Return {@code null} (the default) if this script has no custom UI.</p>
+     *
+     * @return a ScriptUI implementation, or null
+     */
+    default ScriptUI getUI() {
+        return null;
     }
 }
