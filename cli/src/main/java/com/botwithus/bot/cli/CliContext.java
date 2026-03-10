@@ -103,6 +103,11 @@ public class CliContext {
 
             ScriptRuntime runtime = new ScriptRuntime(context);
             runtime.setConnectionName(connName);
+
+            // Wire up ScriptManager so scripts can manage other scripts
+            var scriptManager = new com.botwithus.bot.core.impl.ScriptManagerImpl(runtime);
+            context.setScriptManager(scriptManager);
+
             Connection conn = new Connection(connName, pipe, rpc, runtime);
             conn.setEventBus(eventBus);
             connections.put(connName, conn);

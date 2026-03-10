@@ -8,6 +8,7 @@ import com.botwithus.bot.core.impl.EventDispatcher;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
+import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
@@ -42,11 +43,17 @@ public class JBotApplication {
             System.out.println("[JBot] Discovered " + scripts.size() + " script(s)");
 
             ScriptRuntime runtime = new ScriptRuntime(context);
+
+            // Wire up ScriptManager so scripts can manage other scripts
+            ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
+            context.setScriptManager(scriptManager);
+
             runtime.startAll(scripts);
 
             // Keep main thread alive until interrupted
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 System.out.println("[JBot] Shutting down...");
+                scriptManager.shutdown();
                 runtime.stopAll();
                 rpc.close();
             }));
