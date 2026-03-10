@@ -7,6 +7,7 @@ import com.botwithus.bot.api.query.EntityFilter;
 import java.util.List;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
 
 /**
@@ -43,8 +44,14 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
         return self();
     }
 
-    /** Filter by name using a regex pattern. */
+    /**
+     * Filter by name using a regex pattern.
+     *
+     * @throws PatternSyntaxException if the regex is invalid
+     */
     public Q nameMatching(String regex) {
+        // Validate regex to prevent ReDoS and catch errors early
+        java.util.regex.Pattern.compile(regex);
         filterBuilder.namePattern(regex).matchType("regex");
         return self();
     }

@@ -256,7 +256,13 @@ public class BlueprintInterpreter {
      * @param name  the variable name
      * @param value the variable value
      */
+    private static final int MAX_VARIABLES = 10_000;
+
     public void setVariable(String name, Object value) {
+        if (variables.size() >= MAX_VARIABLES && !variables.containsKey(name)) {
+            System.err.println("[Blueprint] Variable limit reached (" + MAX_VARIABLES + "), ignoring: " + name);
+            return;
+        }
         variables.put(name, value);
     }
 

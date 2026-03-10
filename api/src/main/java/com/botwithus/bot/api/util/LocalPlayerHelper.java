@@ -39,10 +39,10 @@ public final class LocalPlayerHelper {
         return lp().maxHealth();
     }
 
-    /** Returns health as a fraction in [0.0, 1.0]. */
+    /** Returns health as a fraction in [0.0, 1.0]. Returns 1.0 if health data is unavailable. */
     public double getHealthPercent() {
         LocalPlayer p = lp();
-        if (p.maxHealth() <= 0) return 0.0;
+        if (p.maxHealth() <= 0) return 1.0;
         return (double) p.health() / p.maxHealth();
     }
 

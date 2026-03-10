@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import com.botwithus.bot.core.runtime.ConnectionContext;
 
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -36,6 +37,7 @@ public class RpcClient implements AutoCloseable {
     private final PipeClient pipe;
     private final AtomicInteger idCounter = new AtomicInteger(1);
     private final ReentrantLock pipeLock = new ReentrantLock();
+    private final Condition dataAvailable = pipeLock.newCondition();
 
     private Consumer<Map<String, Object>> eventHandler;
     private volatile boolean running;
@@ -146,6 +148,12 @@ public class RpcClient implements AutoCloseable {
      * Background reader loop. Polls {@link PipeClient#available()} to check
      * for data without blocking the pipe handle. When data is available and
      * no RPC call holds the lock, reads and dispatches events.
+     *
+     * <p>When no data is available, waits on the {@link #dataAvailable}
+     * condition with a short timeout instead of busy-polling with
+     * {@code Thread.sleep}. The RPC call path signals this condition after
+     * releasing the lock so the reader wakes immediately when the pipe
+     * becomes idle again.</p>
      */
     private void readerLoop() {
         while (running && pipe.isOpen()) {
@@ -165,7 +173,14 @@ public class RpcClient implements AutoCloseable {
                         pipeLock.unlock();
                     }
                 } else {
-                    Thread.sleep(1);
+                    // Wait for the RPC call to finish or data to arrive.
+                    // Uses a short timeout so we re-check pipe.available().
+                    pipeLock.lock();
+                    try {
+                        dataAvailable.awaitNanos(5_000_000L); // 5ms max wait
+                    } finally {
+                        pipeLock.unlock();
+                    }
                 }
             } catch (PipeException e) {
                 if (running) {
@@ -237,6 +252,8 @@ public class RpcClient implements AutoCloseable {
         } catch (Exception e) {
             throw new RpcException("RPC call failed: " + method, e);
         } finally {
+            // Signal reader thread that the lock is about to be released
+            dataAvailable.signal();
             pipeLock.unlock();
         }
     }

@@ -58,7 +58,7 @@ Key features:
 
 ### cli
 
-Interactive Swing-based GUI with ANSI color support and a command system. Commands include `connect`, `disconnect`, `scripts`, `screenshot`, `logs`, `mount`/`unmount`, `reload`, `ping`, `help`, `clear`, and `exit`. Supports multiple simultaneous pipe connections.
+Interactive ImGui-based GUI with ANSI color support and a command system. Commands include `connect`, `disconnect`, `scripts`, `screenshot`, `logs`, `mount`/`unmount`, `reload`, `ping`, `help`, `clear`, and `exit`. Supports multiple simultaneous pipe connections.
 
 Additional commands:
 - **`metrics`** — View RPC call statistics (latency, error rates), reset, filter top N
@@ -71,7 +71,7 @@ Additional commands:
 
 ### example-script
 
-Reference implementations (`ExampleScript`, `WoodcuttingFletcherScript`). Building this module automatically installs the JAR to the `scripts/` directory.
+Reference implementations (`ExampleScript`, `WoodcuttingFletcherScript`). `ExampleScript` demonstrates the custom Script UI system with status display, controls, and an entity summary table. Building this module automatically installs the JAR to the `scripts/` directory.
 
 ## Writing a Script
 
@@ -120,6 +120,38 @@ module my.script {
 ```
 
 Place the compiled JAR in the `scripts/` directory. The runtime discovers and loads it automatically.
+
+## Script UI
+
+Scripts can provide custom ImGui-based UI that renders in the **Script UI** tab. Override `getUI()` to return a `ScriptUI` implementation:
+
+```java
+import imgui.ImGui;
+import com.botwithus.bot.api.ui.ScriptUI;
+
+@Override
+public ScriptUI getUI() {
+    return () -> {
+        ImGui.text("Status: running");
+        if (ImGui.button("Do something")) {
+            // handle click
+        }
+        ImGui.progressBar(progress, -1, 0, "Progress");
+    };
+}
+```
+
+The full ImGui API is available — collapsing headers, tables, trees, inputs, tabs, etc. Add `requires imgui.binding;` to your `module-info.java` and `compileOnly("io.github.spair:imgui-java-binding:1.90.0")` to your build dependencies. The imgui module is already loaded at runtime by the host application.
+
+```java
+module my.script {
+    requires com.botwithus.bot.api;
+    requires imgui.binding;
+    provides com.botwithus.bot.api.BotScript with my.script.MyScript;
+}
+```
+
+The `render()` method is called every frame on the UI thread. Each script with a UI gets its own tab in the Script UI panel.
 
 ## Build Commands
 

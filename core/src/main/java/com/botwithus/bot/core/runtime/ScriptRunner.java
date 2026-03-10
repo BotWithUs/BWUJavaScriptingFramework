@@ -9,6 +9,8 @@ import com.botwithus.bot.core.blueprint.execution.BlueprintBotScript;
 import com.botwithus.bot.core.config.ScriptConfigStore;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -22,6 +24,7 @@ public class ScriptRunner implements Runnable {
     private final ScriptContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
+    private volatile CountDownLatch stopLatch;
     private Thread thread;
     private String connectionName;
 
@@ -48,6 +51,7 @@ public class ScriptRunner implements Runnable {
 
     public void start() {
         if (running.compareAndSet(false, true)) {
+            stopLatch = new CountDownLatch(1);
             String name = getScriptName();
             this.thread = Thread.ofVirtual().name("script-" + name).start(this);
         }
@@ -57,6 +61,23 @@ public class ScriptRunner implements Runnable {
         running.set(false);
         if (thread != null) {
             thread.interrupt();
+        }
+    }
+
+    /**
+     * Blocks until the script thread has finished, or until the timeout expires.
+     *
+     * @param timeoutMs maximum time to wait in milliseconds
+     * @return {@code true} if the script stopped within the timeout
+     */
+    public boolean awaitStop(long timeoutMs) {
+        CountDownLatch latch = this.stopLatch;
+        if (latch == null) return true;
+        try {
+            return latch.await(timeoutMs, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
@@ -104,7 +125,8 @@ public class ScriptRunner implements Runnable {
      */
     public void applyConfig(ScriptConfig config) {
         currentConfig.set(config);
-        ScriptConfigStore.save(getScriptName(), config);
+        String name = getScriptName();
+        Thread.startVirtualThread(() -> ScriptConfigStore.save(name, config));
         try {
             script.onConfigUpdate(config);
         } catch (Exception e) {
@@ -164,6 +186,8 @@ public class ScriptRunner implements Runnable {
                 notifyError(name, "onStop", e);
             }
             ConnectionContext.clear();
+            CountDownLatch latch = this.stopLatch;
+            if (latch != null) latch.countDown();
         }
     }
 

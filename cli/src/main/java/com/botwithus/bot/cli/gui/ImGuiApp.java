@@ -194,6 +194,7 @@ public class ImGuiApp extends Application {
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
         panels.add(new ConnectionsPanel(executor, registry));
         panels.add(new ScriptsPanel(executor));
+        panels.add(new ScriptUIPanel());
         panels.add(new LogsPanel());
         panels.add(new GroupsPanel());
         panels.add(new SettingsPanel());
@@ -305,7 +306,9 @@ public class ImGuiApp extends Application {
         }
         ctx.disconnectAll();
         executor.shutdownNow();
-        System.exit(0);
+        if (glfwWindow != 0) {
+            GLFW.glfwSetWindowShouldClose(glfwWindow, true);
+        }
     }
 
     /**

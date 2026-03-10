@@ -141,6 +141,7 @@ public class PipeClient implements AutoCloseable {
     @Override
     public void close() {
         open = false;
+        try { pipeInput.close(); } catch (IOException ignored) {}
         try { pipe.close(); } catch (IOException e) {
             System.err.println("[PipeClient] Error closing pipe " + pipePath + ": " + e.getMessage());
         }

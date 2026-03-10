@@ -301,7 +301,7 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public World getCurrentWorld() {
         Map<String, Object> r = rpc.callSync("get_current_world", Map.of());
-        return new World(getInt(r, "world_id"), 0, 0, 0, "");
+        return mapWorld(r);
     }
 
     @Override

@@ -147,8 +147,8 @@ public class ScriptsCommand implements Command {
         }
         if (runner.isRunning()) {
             runner.stop();
+            runner.awaitStop(2000);
         }
-        try { Thread.sleep(100); } catch (InterruptedException ignored) {}
         runner.start();
         ctx.out().println("Restarted: " + runner.getScriptName());
     }
@@ -222,8 +222,8 @@ public class ScriptsCommand implements Command {
         }
         if (runner.isRunning()) {
             runner.stop();
+            runner.awaitStop(2000);
         }
-        try { Thread.sleep(100); } catch (InterruptedException ignored) {}
         runner.start();
         ctx.out().println("[" + connName + "] Restarted: " + runner.getScriptName());
     }
