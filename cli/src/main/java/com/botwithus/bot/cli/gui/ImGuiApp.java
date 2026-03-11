@@ -150,6 +150,7 @@ public class ImGuiApp extends Application {
         registry.register(new ConfigCommand(com.botwithus.bot.cli.config.CliConfig.defaults()));
         registry.register(new ActionsCommand());
         registry.register(new EventsCommand());
+        registry.register(new ClientCommand());
         registry.register(new AutoStartCommand(profileStore, autoStartManager));
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
