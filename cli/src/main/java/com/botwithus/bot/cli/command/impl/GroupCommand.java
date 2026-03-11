@@ -75,7 +75,7 @@ public class GroupCommand implements Command {
             ctx.out().println("'" + connName + "' is already in group '" + groupName + "'.");
             return;
         }
-        group.add(connName);
+        ctx.addToGroup(groupName, connName);
         ctx.out().println("Added '" + connName + "' to group '" + groupName + "'.");
     }
 
@@ -93,7 +93,7 @@ public class GroupCommand implements Command {
             ctx.out().println("'" + connName + "' is not in group '" + groupName + "'.");
             return;
         }
-        group.remove(connName);
+        ctx.removeFromGroup(groupName, connName);
         ctx.out().println("Removed '" + connName + "' from group '" + groupName + "'.");
     }
 

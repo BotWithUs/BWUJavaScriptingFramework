@@ -21,6 +21,10 @@ import com.botwithus.bot.core.runtime.ScriptRuntime;
 
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
+
 import java.awt.image.BufferedImage;
 import java.io.PrintStream;
 import java.nio.file.Files;
@@ -297,14 +301,69 @@ public class CliContext {
         if (configPanelOpener != null) configPanelOpener.accept(runner);
     }
 
-    // --- Connection Group management ---
+    // --- Connection Group management & persistence ---
+
+    private static final Path GROUPS_FILE = Path.of(System.getProperty("user.home"), ".botwithus", "groups.json");
+
+    /** Simple DTO for JSON serialization of a group. */
+    private static class GroupData {
+        String description;
+        List<String> members;
+        GroupData() {}
+        GroupData(String description, List<String> members) {
+            this.description = description;
+            this.members = members;
+        }
+    }
+
+    /** Loads persisted groups from ~/.botwithus/groups.json. */
+    public void loadGroups() {
+        if (!Files.exists(GROUPS_FILE)) return;
+        try {
+            String json = Files.readString(GROUPS_FILE);
+            Gson gson = new Gson();
+            Map<String, GroupData> data = gson.fromJson(json,
+                    new TypeToken<LinkedHashMap<String, GroupData>>() {}.getType());
+            if (data != null) {
+                groups.clear();
+                for (var entry : data.entrySet()) {
+                    ConnectionGroup group = new ConnectionGroup(entry.getKey());
+                    GroupData gd = entry.getValue();
+                    if (gd.description != null) group.setDescription(gd.description);
+                    if (gd.members != null) gd.members.forEach(group::add);
+                    groups.put(entry.getKey(), group);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[CliContext] Failed to load groups: " + e.getMessage());
+        }
+    }
+
+    /** Persists current groups to ~/.botwithus/groups.json. */
+    void saveGroups() {
+        try {
+            Files.createDirectories(GROUPS_FILE.getParent());
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            Map<String, GroupData> data = new LinkedHashMap<>();
+            for (var entry : groups.entrySet()) {
+                ConnectionGroup g = entry.getValue();
+                data.put(entry.getKey(), new GroupData(g.getDescription(), new ArrayList<>(g.getConnectionNames())));
+            }
+            Files.writeString(GROUPS_FILE, gson.toJson(data));
+        } catch (Exception e) {
+            System.err.println("[CliContext] Failed to save groups: " + e.getMessage());
+        }
+    }
 
     public void createGroup(String name) {
         groups.put(name, new ConnectionGroup(name));
+        saveGroups();
     }
 
     public boolean deleteGroup(String name) {
-        return groups.remove(name) != null;
+        boolean removed = groups.remove(name) != null;
+        if (removed) saveGroups();
+        return removed;
     }
 
     public ConnectionGroup getGroup(String name) {
@@ -313,6 +372,22 @@ public class CliContext {
 
     public Map<String, ConnectionGroup> getGroups() {
         return Collections.unmodifiableMap(groups);
+    }
+
+    public void addToGroup(String groupName, String connectionName) {
+        ConnectionGroup group = groups.get(groupName);
+        if (group != null) {
+            group.add(connectionName);
+            saveGroups();
+        }
+    }
+
+    public void removeFromGroup(String groupName, String connectionName) {
+        ConnectionGroup group = groups.get(groupName);
+        if (group != null) {
+            group.remove(connectionName);
+            saveGroups();
+        }
     }
 
     /**
