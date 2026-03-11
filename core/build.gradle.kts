@@ -5,6 +5,7 @@ plugins {
 dependencies {
     implementation(project(":api"))
     implementation("org.msgpack:msgpack-core:0.9.8")
+    implementation("com.google.code.gson:gson:2.11.0")
 }
 
 extraJavaModuleInfo {
