@@ -65,6 +65,7 @@ public class CliContext {
     private ScriptProfileStore profileStore;
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
+    private com.botwithus.bot.core.runtime.ManagementScriptRuntime managementRuntime;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
@@ -82,6 +83,33 @@ public class CliContext {
     public AutoStartManager getAutoStartManager() { return autoStartManager; }
 
     public ClientManager getClientManager() { return clientManager; }
+
+    public com.botwithus.bot.core.runtime.ManagementScriptRuntime getManagementRuntime() {
+        return managementRuntime;
+    }
+
+    /**
+     * Initialises the management script runtime. Call after the ClientManager
+     * is ready (i.e. after construction). Uses a global MessageBus and
+     * SharedState shared across all management scripts.
+     */
+    public void initManagementRuntime() {
+        if (managementRuntime != null) return;
+        var messageBus = new MessageBusImpl();
+        var sharedState = new com.botwithus.bot.core.impl.SharedStateImpl();
+        var mgmtContext = new com.botwithus.bot.core.impl.ManagementContextImpl(
+                clientManager, clientProvider, messageBus, sharedState);
+        managementRuntime = new com.botwithus.bot.core.runtime.ManagementScriptRuntime(mgmtContext);
+    }
+
+    /**
+     * Loads management scripts from {@code scripts/management/} and registers
+     * them in the management runtime.
+     */
+    public List<com.botwithus.bot.api.script.ManagementScript> loadManagementScripts() {
+        if (managementRuntime == null) initManagementRuntime();
+        return com.botwithus.bot.core.runtime.ManagementScriptLoader.loadScripts();
+    }
 
     public void connect(String pipeName) {
         String connName = pipeName != null ? pipeName : "BotWithUs";

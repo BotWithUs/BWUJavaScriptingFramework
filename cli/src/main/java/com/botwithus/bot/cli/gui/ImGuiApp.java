@@ -184,6 +184,9 @@ public class ImGuiApp extends Application {
         // Print banner
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
 
+        // Initialize management script runtime
+        ctx.initManagementRuntime();
+
         // Start auto-connect scanning if enabled
         autoStartManager.start();
 
@@ -308,6 +311,9 @@ public class ImGuiApp extends Application {
                 }
                 return null;
             });
+        }
+        if (ctx.getManagementRuntime() != null) {
+            ctx.getManagementRuntime().stopAll();
         }
         ctx.disconnectAll();
         executor.shutdownNow();

@@ -1,8 +1,8 @@
 package com.botwithus.bot.cli.command.impl;
 
+import com.botwithus.bot.api.script.ClientOrchestrator.OpResult;
+import com.botwithus.bot.api.script.ClientOrchestrator.ScriptStatusEntry;
 import com.botwithus.bot.cli.ClientManager;
-import com.botwithus.bot.cli.ClientManager.ClientScriptStatus;
-import com.botwithus.bot.cli.ClientManager.ScriptOpResult;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.ConnectionGroup;
@@ -100,7 +100,7 @@ public class ClientCommand implements Command {
 
     private void status(ParsedCommand parsed, ClientManager mgr, CliContext ctx) {
         String groupName = parsed.flag("group");
-        List<ClientScriptStatus> statuses = groupName != null
+        List<ScriptStatusEntry> statuses = groupName != null
                 ? mgr.getStatusForGroup(groupName)
                 : mgr.getStatusAll();
 
@@ -117,7 +117,7 @@ public class ClientCommand implements Command {
         ctx.out().println(header);
 
         TableFormatter table = new TableFormatter().headers("Client", "Script", "Version", "Status");
-        for (ClientScriptStatus s : statuses) {
+        for (ScriptStatusEntry s : statuses) {
             String status = s.running()
                     ? AnsiCodes.colorize("RUNNING", AnsiCodes.GREEN)
                     : AnsiCodes.colorize("STOPPED", AnsiCodes.RED);
@@ -252,10 +252,10 @@ public class ClientCommand implements Command {
         }
 
         // Show scripts running on group members
-        List<ClientScriptStatus> statuses = mgr.getStatusForGroup(name);
+        List<ScriptStatusEntry> statuses = mgr.getStatusForGroup(name);
         if (!statuses.isEmpty()) {
             ctx.out().println("  Scripts:");
-            for (ClientScriptStatus s : statuses) {
+            for (ScriptStatusEntry s : statuses) {
                 String st = s.running()
                         ? AnsiCodes.colorize("RUNNING", AnsiCodes.GREEN)
                         : AnsiCodes.colorize("STOPPED", AnsiCodes.RED);
@@ -299,7 +299,7 @@ public class ClientCommand implements Command {
 
         if (clientName != null) {
             // Single client
-            ScriptOpResult r = switch (action) {
+            OpResult r = switch (action) {
                 case "start" -> mgr.startScript(clientName, scriptName);
                 case "stop" -> mgr.stopScript(clientName, scriptName);
                 case "restart" -> mgr.restartScript(clientName, scriptName);
@@ -308,7 +308,7 @@ public class ClientCommand implements Command {
             printResult(r, ctx);
         } else if (groupName != null) {
             // Group
-            List<ScriptOpResult> results = switch (action) {
+            List<OpResult> results = switch (action) {
                 case "start" -> mgr.startScriptOnGroup(groupName, scriptName);
                 case "stop" -> mgr.stopScriptOnGroup(groupName, scriptName);
                 case "restart" -> mgr.restartScriptOnGroup(groupName, scriptName);
@@ -317,7 +317,7 @@ public class ClientCommand implements Command {
             printResults(results, ctx);
         } else if (all) {
             // All clients
-            List<ScriptOpResult> results = switch (action) {
+            List<OpResult> results = switch (action) {
                 case "start" -> mgr.startScriptOnAll(scriptName);
                 case "stop" -> mgr.stopScriptOnAll(scriptName);
                 case "restart" -> mgr.restartScriptOnAll(scriptName);
@@ -336,7 +336,7 @@ public class ClientCommand implements Command {
         boolean all = parsed.hasFlag("all");
 
         if (groupName != null) {
-            List<ScriptOpResult> results = mgr.stopAllScriptsOnGroup(groupName);
+            List<OpResult> results = mgr.stopAllScriptsOnGroup(groupName);
             printResults(results, ctx);
         } else if (all) {
             mgr.stopAllScriptsOnAll();
@@ -348,7 +348,7 @@ public class ClientCommand implements Command {
 
     // ── output helpers ───────────────────────────────────────────────────────
 
-    private void printResult(ScriptOpResult r, CliContext ctx) {
+    private void printResult(OpResult r, CliContext ctx) {
         if (r.success()) {
             ctx.out().println("[" + r.clientName() + "] " + r.scriptName() + ": " + r.message());
         } else {
@@ -358,8 +358,8 @@ public class ClientCommand implements Command {
         }
     }
 
-    private void printResults(List<ScriptOpResult> results, CliContext ctx) {
-        for (ScriptOpResult r : results) {
+    private void printResults(List<OpResult> results, CliContext ctx) {
+        for (OpResult r : results) {
             printResult(r, ctx);
         }
     }

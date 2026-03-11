@@ -1,5 +1,6 @@
 module com.botwithus.bot.core {
     uses com.botwithus.bot.api.BotScript;
+    uses com.botwithus.bot.api.script.ManagementScript;
     requires com.botwithus.bot.api;
     requires msgpack.core;
 

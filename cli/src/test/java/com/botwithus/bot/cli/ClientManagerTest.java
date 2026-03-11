@@ -1,7 +1,7 @@
 package com.botwithus.bot.cli;
 
-import com.botwithus.bot.cli.ClientManager.ClientScriptStatus;
-import com.botwithus.bot.cli.ClientManager.ScriptOpResult;
+import com.botwithus.bot.api.script.ClientOrchestrator.OpResult;
+import com.botwithus.bot.api.script.ClientOrchestrator.ScriptStatusEntry;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.core.runtime.ScriptRunner;
@@ -139,7 +139,8 @@ class ClientManagerTest {
 
         @Test
         void createGroupWithDescription() {
-            ConnectionGroup group = mgr.createGroup("skillers", "Skilling accounts");
+            assertTrue(mgr.createGroup("skillers", "Skilling accounts"));
+            ConnectionGroup group = mgr.getGroup("skillers");
             assertNotNull(group);
             assertEquals("skillers", group.getName());
             assertEquals("Skilling accounts", group.getDescription());
@@ -147,17 +148,18 @@ class ClientManagerTest {
 
         @Test
         void createGroupWithoutDescription() {
-            ConnectionGroup group = mgr.createGroup("combat");
+            assertTrue(mgr.createGroup("combat"));
+            ConnectionGroup group = mgr.getGroup("combat");
             assertNotNull(group);
             assertNull(group.getDescription());
         }
 
         @Test
-        void createGroupReturnsSameIfExists() {
-            mgr.createGroup("skillers", "desc1");
-            ConnectionGroup second = mgr.createGroup("skillers", "desc2");
-            // Should return existing group, not overwrite
-            assertEquals("desc1", second.getDescription());
+        void createGroupReturnsFalseIfExists() {
+            assertTrue(mgr.createGroup("skillers", "desc1"));
+            assertFalse(mgr.createGroup("skillers", "desc2"));
+            // Should not overwrite description
+            assertEquals("desc1", mgr.getGroup("skillers").getDescription());
         }
 
         @Test
@@ -241,7 +243,7 @@ class ClientManagerTest {
             ScriptRunner runner = mockRunner("Woodcutter", false);
             when(conn.getRuntime().findRunner("Woodcutter")).thenReturn(runner);
 
-            ScriptOpResult r = mgr.startScript("Bot1", "Woodcutter");
+            OpResult r = mgr.startScript("Bot1", "Woodcutter");
             assertTrue(r.success());
             assertEquals("Bot1", r.clientName());
             assertEquals("Woodcutter", r.scriptName());
@@ -252,7 +254,7 @@ class ClientManagerTest {
         @Test
         void startScriptClientNotFound() {
             stubConnections();
-            ScriptOpResult r = mgr.startScript("Nope", "Woodcutter");
+            OpResult r = mgr.startScript("Nope", "Woodcutter");
             assertFalse(r.success());
             assertEquals("client not found", r.message());
         }
@@ -263,7 +265,7 @@ class ClientManagerTest {
             when(conn.isAlive()).thenReturn(false);
             stubConnections(conn);
 
-            ScriptOpResult r = mgr.startScript("Bot1", "Woodcutter");
+            OpResult r = mgr.startScript("Bot1", "Woodcutter");
             assertFalse(r.success());
             assertEquals("client disconnected", r.message());
         }
@@ -274,7 +276,7 @@ class ClientManagerTest {
             stubConnections(conn);
             when(conn.getRuntime().findRunner("Nope")).thenReturn(null);
 
-            ScriptOpResult r = mgr.startScript("Bot1", "Nope");
+            OpResult r = mgr.startScript("Bot1", "Nope");
             assertFalse(r.success());
             assertEquals("script not found", r.message());
         }
@@ -287,7 +289,7 @@ class ClientManagerTest {
             ScriptRunner runner = mockRunner("Woodcutter", true);
             when(conn.getRuntime().findRunner("Woodcutter")).thenReturn(runner);
 
-            ScriptOpResult r = mgr.startScript("Bot1", "Woodcutter");
+            OpResult r = mgr.startScript("Bot1", "Woodcutter");
             assertFalse(r.success());
             assertEquals("already running", r.message());
             verify(runner, never()).start();
@@ -299,7 +301,7 @@ class ClientManagerTest {
             stubConnections(conn);
             when(conn.getRuntime().stopScript("Woodcutter")).thenReturn(true);
 
-            ScriptOpResult r = mgr.stopScript("Bot1", "Woodcutter");
+            OpResult r = mgr.stopScript("Bot1", "Woodcutter");
             assertTrue(r.success());
             assertEquals("stopped", r.message());
         }
@@ -310,7 +312,7 @@ class ClientManagerTest {
             stubConnections(conn);
             when(conn.getRuntime().stopScript("Nope")).thenReturn(false);
 
-            ScriptOpResult r = mgr.stopScript("Bot1", "Nope");
+            OpResult r = mgr.stopScript("Bot1", "Nope");
             assertFalse(r.success());
             assertEquals("script not found", r.message());
         }
@@ -318,7 +320,7 @@ class ClientManagerTest {
         @Test
         void stopScriptClientNotFound() {
             stubConnections();
-            ScriptOpResult r = mgr.stopScript("Nope", "Woodcutter");
+            OpResult r = mgr.stopScript("Nope", "Woodcutter");
             assertFalse(r.success());
             assertEquals("client not found", r.message());
         }
@@ -331,7 +333,7 @@ class ClientManagerTest {
             ScriptRunner runner = mockRunner("Woodcutter", false);
             when(conn.getRuntime().findRunner("Woodcutter")).thenReturn(runner);
 
-            ScriptOpResult r = mgr.restartScript("Bot1", "Woodcutter");
+            OpResult r = mgr.restartScript("Bot1", "Woodcutter");
             assertTrue(r.success());
             assertEquals("restarted", r.message());
             verify(runner, never()).stop();
@@ -346,7 +348,7 @@ class ClientManagerTest {
             ScriptRunner runner = mockRunner("Woodcutter", true);
             when(conn.getRuntime().findRunner("Woodcutter")).thenReturn(runner);
 
-            ScriptOpResult r = mgr.restartScript("Bot1", "Woodcutter");
+            OpResult r = mgr.restartScript("Bot1", "Woodcutter");
             assertTrue(r.success());
             verify(runner).stop();
             verify(runner).awaitStop(2000);
@@ -356,7 +358,7 @@ class ClientManagerTest {
         @Test
         void restartScriptClientNotFound() {
             stubConnections();
-            ScriptOpResult r = mgr.restartScript("Nope", "Woodcutter");
+            OpResult r = mgr.restartScript("Nope", "Woodcutter");
             assertFalse(r.success());
         }
 
@@ -366,7 +368,7 @@ class ClientManagerTest {
             stubConnections(conn);
             when(conn.getRuntime().findRunner("Nope")).thenReturn(null);
 
-            ScriptOpResult r = mgr.restartScript("Bot1", "Nope");
+            OpResult r = mgr.restartScript("Bot1", "Nope");
             assertFalse(r.success());
             assertEquals("script not found", r.message());
         }
@@ -396,15 +398,15 @@ class ClientManagerTest {
 
             doReturn(List.of(c1, c2)).when(ctx).getGroupConnections("skillers");
 
-            List<ScriptOpResult> results = mgr.startScriptOnGroup("skillers", "Woodcutter");
-            assertEquals(2, results.stream().filter(ScriptOpResult::success).count());
+            List<OpResult> results = mgr.startScriptOnGroup("skillers", "Woodcutter");
+            assertEquals(2, results.stream().filter(OpResult::success).count());
             verify(r1).start();
             verify(r2).start();
         }
 
         @Test
         void startScriptOnGroupNotFound() {
-            List<ScriptOpResult> results = mgr.startScriptOnGroup("nope", "Woodcutter");
+            List<OpResult> results = mgr.startScriptOnGroup("nope", "Woodcutter");
             assertEquals(1, results.size());
             assertFalse(results.get(0).success());
             assertEquals("group not found", results.get(0).message());
@@ -415,7 +417,7 @@ class ClientManagerTest {
             mgr.createGroup("empty");
             doReturn(List.of()).when(ctx).getGroupConnections("empty");
 
-            List<ScriptOpResult> results = mgr.startScriptOnGroup("empty", "Woodcutter");
+            List<OpResult> results = mgr.startScriptOnGroup("empty", "Woodcutter");
             assertEquals(1, results.size());
             assertFalse(results.get(0).success());
             assertTrue(results.get(0).message().contains("no active clients"));
@@ -436,7 +438,7 @@ class ClientManagerTest {
             // Only Bot1 is active
             doReturn(List.of(c1)).when(ctx).getGroupConnections("mixed");
 
-            List<ScriptOpResult> results = mgr.startScriptOnGroup("mixed", "Woodcutter");
+            List<OpResult> results = mgr.startScriptOnGroup("mixed", "Woodcutter");
             // Should have success for Bot1 + disconnected warning for Bot2
             assertTrue(results.stream().anyMatch(r -> r.success() && r.clientName().equals("Bot1")));
             assertTrue(results.stream().anyMatch(r -> !r.success() && r.clientName().equals("Bot2")
@@ -453,8 +455,8 @@ class ClientManagerTest {
             when(c1.getRuntime().stopScript("Fighter")).thenReturn(true);
             doReturn(List.of(c1)).when(ctx).getGroupConnections("combat");
 
-            List<ScriptOpResult> results = mgr.stopScriptOnGroup("combat", "Fighter");
-            assertEquals(1, results.stream().filter(ScriptOpResult::success).count());
+            List<OpResult> results = mgr.stopScriptOnGroup("combat", "Fighter");
+            assertEquals(1, results.stream().filter(OpResult::success).count());
         }
 
         @Test
@@ -469,8 +471,8 @@ class ClientManagerTest {
             when(c1.getRuntime().findRunner("Fighter")).thenReturn(runner);
             doReturn(List.of(c1)).when(ctx).getGroupConnections("combat");
 
-            List<ScriptOpResult> results = mgr.restartScriptOnGroup("combat", "Fighter");
-            assertTrue(results.stream().allMatch(ScriptOpResult::success));
+            List<OpResult> results = mgr.restartScriptOnGroup("combat", "Fighter");
+            assertTrue(results.stream().allMatch(OpResult::success));
             verify(runner).stop();
             verify(runner).start();
         }
@@ -484,14 +486,14 @@ class ClientManagerTest {
             stubConnections(c1);
             doReturn(List.of(c1)).when(ctx).getGroupConnections("farm");
 
-            List<ScriptOpResult> results = mgr.stopAllScriptsOnGroup("farm");
+            List<OpResult> results = mgr.stopAllScriptsOnGroup("farm");
             assertTrue(results.stream().anyMatch(r -> r.success()));
             verify(c1.getRuntime()).stopAll();
         }
 
         @Test
         void stopAllScriptsOnGroupNotFound() {
-            List<ScriptOpResult> results = mgr.stopAllScriptsOnGroup("nope");
+            List<OpResult> results = mgr.stopAllScriptsOnGroup("nope");
             assertEquals(1, results.size());
             assertFalse(results.get(0).success());
             assertEquals("group not found", results.get(0).message());
@@ -516,9 +518,9 @@ class ClientManagerTest {
             when(c1.getRuntime().findRunner("Woodcutter")).thenReturn(r1);
             when(c2.getRuntime().findRunner("Woodcutter")).thenReturn(r2);
 
-            List<ScriptOpResult> results = mgr.startScriptOnAll("Woodcutter");
+            List<OpResult> results = mgr.startScriptOnAll("Woodcutter");
             assertEquals(2, results.size());
-            assertTrue(results.stream().allMatch(ScriptOpResult::success));
+            assertTrue(results.stream().allMatch(OpResult::success));
             verify(r1).start();
             verify(r2).start();
         }
@@ -533,7 +535,7 @@ class ClientManagerTest {
             ScriptRunner r1 = mockRunner("Woodcutter", false);
             when(c1.getRuntime().findRunner("Woodcutter")).thenReturn(r1);
 
-            List<ScriptOpResult> results = mgr.startScriptOnAll("Woodcutter");
+            List<OpResult> results = mgr.startScriptOnAll("Woodcutter");
             assertEquals(1, results.size());
             assertTrue(results.get(0).success());
             assertEquals("Bot1", results.get(0).clientName());
@@ -547,9 +549,9 @@ class ClientManagerTest {
             when(c1.getRuntime().stopScript("Woodcutter")).thenReturn(true);
             when(c2.getRuntime().stopScript("Woodcutter")).thenReturn(true);
 
-            List<ScriptOpResult> results = mgr.stopScriptOnAll("Woodcutter");
+            List<OpResult> results = mgr.stopScriptOnAll("Woodcutter");
             assertEquals(2, results.size());
-            assertTrue(results.stream().allMatch(ScriptOpResult::success));
+            assertTrue(results.stream().allMatch(OpResult::success));
         }
 
         @Test
@@ -560,7 +562,7 @@ class ClientManagerTest {
             ScriptRunner runner = mockRunner("Woodcutter", true);
             when(c1.getRuntime().findRunner("Woodcutter")).thenReturn(runner);
 
-            List<ScriptOpResult> results = mgr.restartScriptOnAll("Woodcutter");
+            List<OpResult> results = mgr.restartScriptOnAll("Woodcutter");
             assertEquals(1, results.size());
             assertTrue(results.get(0).success());
             verify(runner).stop();
@@ -593,7 +595,7 @@ class ClientManagerTest {
         @Test
         void startOnAllWithNoClients() {
             stubConnections();
-            List<ScriptOpResult> results = mgr.startScriptOnAll("Woodcutter");
+            List<OpResult> results = mgr.startScriptOnAll("Woodcutter");
             assertTrue(results.isEmpty());
         }
     }
@@ -616,16 +618,16 @@ class ClientManagerTest {
             when(c2.getRuntime().getRunners()).thenReturn(List.of(r2));
             stubConnections(c1, c2);
 
-            List<ClientScriptStatus> statuses = mgr.getStatusAll();
+            List<ScriptStatusEntry> statuses = mgr.getStatusAll();
             assertEquals(2, statuses.size());
 
-            ClientScriptStatus s1 = statuses.get(0);
+            ScriptStatusEntry s1 = statuses.get(0);
             assertEquals("Bot1", s1.clientName());
             assertEquals("Woodcutter", s1.scriptName());
             assertTrue(s1.running());
             assertTrue(s1.clientAlive());
 
-            ClientScriptStatus s2 = statuses.get(1);
+            ScriptStatusEntry s2 = statuses.get(1);
             assertEquals("Bot2", s2.clientName());
             assertEquals("Fighter", s2.scriptName());
             assertFalse(s2.running());
@@ -636,7 +638,7 @@ class ClientManagerTest {
             Connection c1 = mockConnection("Bot1");
             stubConnections(c1);
 
-            List<ClientScriptStatus> statuses = mgr.getStatusAll();
+            List<ScriptStatusEntry> statuses = mgr.getStatusAll();
             assertTrue(statuses.isEmpty());
         }
 
@@ -650,7 +652,7 @@ class ClientManagerTest {
             when(c1.getRuntime().getRunners()).thenReturn(List.of(r1));
             doReturn(List.of(c1)).when(ctx).getGroupConnections("skillers");
 
-            List<ClientScriptStatus> statuses = mgr.getStatusForGroup("skillers");
+            List<ScriptStatusEntry> statuses = mgr.getStatusForGroup("skillers");
             assertEquals(1, statuses.size());
             assertEquals("Bot1", statuses.get(0).clientName());
             assertEquals("Woodcutter", statuses.get(0).scriptName());
@@ -659,7 +661,7 @@ class ClientManagerTest {
 
         @Test
         void getStatusForGroupEmptyWhenGroupNotFound() {
-            List<ClientScriptStatus> statuses = mgr.getStatusForGroup("nope");
+            List<ScriptStatusEntry> statuses = mgr.getStatusForGroup("nope");
             assertTrue(statuses.isEmpty());
         }
 
@@ -671,21 +673,21 @@ class ClientManagerTest {
             when(c1.getRuntime().getRunners()).thenReturn(List.of(r1));
             stubConnections(c1);
 
-            List<ClientScriptStatus> statuses = mgr.getStatusAll();
+            List<ScriptStatusEntry> statuses = mgr.getStatusAll();
             assertEquals("?", statuses.get(0).version());
         }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  ScriptOpResult record
+    //  OpResult record
     // ═══════════════════════════════════════════════════════════════════════
 
     @Nested
-    class ScriptOpResultTests {
+    class OpResultTests {
 
         @Test
         void okResult() {
-            ScriptOpResult r = ScriptOpResult.ok("Bot1", "Woodcutter", "started");
+            OpResult r = new OpResult(true, "Bot1", "Woodcutter", "started");
             assertTrue(r.success());
             assertEquals("Bot1", r.clientName());
             assertEquals("Woodcutter", r.scriptName());
@@ -693,51 +695,24 @@ class ClientManagerTest {
         }
 
         @Test
-        void clientNotFoundResult() {
-            ScriptOpResult r = ScriptOpResult.clientNotFound("Bot1");
+        void failedResult() {
+            OpResult r = new OpResult(false, "Bot1", null, "client not found");
             assertFalse(r.success());
             assertNull(r.scriptName());
-        }
-
-        @Test
-        void clientDisconnectedResult() {
-            ScriptOpResult r = ScriptOpResult.clientDisconnected("Bot1");
-            assertFalse(r.success());
-            assertEquals("client disconnected", r.message());
-        }
-
-        @Test
-        void scriptNotFoundResult() {
-            ScriptOpResult r = ScriptOpResult.scriptNotFound("Bot1", "Nope");
-            assertFalse(r.success());
-            assertEquals("Nope", r.scriptName());
-        }
-
-        @Test
-        void alreadyRunningResult() {
-            ScriptOpResult r = ScriptOpResult.alreadyRunning("Bot1", "Woodcutter");
-            assertFalse(r.success());
-            assertEquals("already running", r.message());
-        }
-
-        @Test
-        void groupNotFoundResult() {
-            ScriptOpResult r = ScriptOpResult.groupNotFound("team");
-            assertFalse(r.success());
-            assertEquals("group not found", r.message());
+            assertEquals("client not found", r.message());
         }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  ClientScriptStatus record
+    //  ScriptStatusEntry record
     // ═══════════════════════════════════════════════════════════════════════
 
     @Nested
-    class ClientScriptStatusTests {
+    class ScriptStatusEntryTests {
 
         @Test
         void recordFields() {
-            ClientScriptStatus s = new ClientScriptStatus("Bot1", "Woodcutter", "1.0", true, true);
+            ScriptStatusEntry s = new ScriptStatusEntry("Bot1", "Woodcutter", "1.0", true, true);
             assertEquals("Bot1", s.clientName());
             assertEquals("Woodcutter", s.scriptName());
             assertEquals("1.0", s.version());

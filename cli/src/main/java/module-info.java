@@ -9,6 +9,7 @@ module com.botwithus.bot.cli {
     requires java.desktop;
 
     uses com.botwithus.bot.api.BotScript;
+    uses com.botwithus.bot.api.script.ManagementScript;
 
     exports com.botwithus.bot.cli;
     exports com.botwithus.bot.cli.gui;
