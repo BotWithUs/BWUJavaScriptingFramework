@@ -3,6 +3,7 @@ module com.botwithus.bot.core {
     uses com.botwithus.bot.api.script.ManagementScript;
     requires com.botwithus.bot.api;
     requires msgpack.core;
+    requires com.google.gson;
 
     exports com.botwithus.bot.core;
     exports com.botwithus.bot.core.blueprint.execution;

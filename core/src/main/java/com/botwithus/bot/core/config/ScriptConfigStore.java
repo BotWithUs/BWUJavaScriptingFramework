@@ -2,24 +2,29 @@ package com.botwithus.bot.core.config;
 
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
 
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
+import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 
 /**
- * Persists script configuration as {@code .properties} files
+ * Persists script configuration as JSON files using Gson
  * in {@code ~/.botwithus/config/}.
  */
 public final class ScriptConfigStore {
 
     private static final Path CONFIG_DIR = Path.of(System.getProperty("user.home"), ".botwithus", "config");
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Type MAP_TYPE = new TypeToken<Map<String, String>>() {}.getType();
 
     private ScriptConfigStore() {}
 
@@ -39,14 +44,29 @@ public final class ScriptConfigStore {
 
         Path file = configFile(scriptName);
         if (Files.exists(file)) {
-            Properties props = new Properties();
             try (Reader reader = Files.newBufferedReader(file)) {
-                props.load(reader);
+                Map<String, String> saved = GSON.fromJson(reader, MAP_TYPE);
+                if (saved != null) {
+                    values.putAll(saved);
+                }
             } catch (IOException e) {
                 System.err.println("[ScriptConfigStore] Failed to load config for " + scriptName + ": " + e.getMessage());
             }
-            for (String key : props.stringPropertyNames()) {
-                values.put(key, props.getProperty(key));
+        }
+
+        // Migrate legacy .properties file if it exists and no JSON file was found
+        if (!Files.exists(file)) {
+            Path legacyFile = CONFIG_DIR.resolve(safeName(scriptName) + ".properties");
+            if (Files.exists(legacyFile)) {
+                var props = new java.util.Properties();
+                try (Reader reader = Files.newBufferedReader(legacyFile)) {
+                    props.load(reader);
+                    for (String key : props.stringPropertyNames()) {
+                        values.put(key, props.getProperty(key));
+                    }
+                } catch (IOException e) {
+                    // ignore migration failure
+                }
             }
         }
 
@@ -57,10 +77,8 @@ public final class ScriptConfigStore {
         try {
             Files.createDirectories(CONFIG_DIR);
             Path file = configFile(scriptName);
-            Properties props = new Properties();
-            props.putAll(config.asMap());
             try (Writer writer = Files.newBufferedWriter(file)) {
-                props.store(writer, "Config for script: " + scriptName);
+                GSON.toJson(config.asMap(), MAP_TYPE, writer);
             }
         } catch (IOException e) {
             System.err.println("[ScriptConfigStore] Failed to save config for " + scriptName + ": " + e.getMessage());
@@ -68,8 +86,10 @@ public final class ScriptConfigStore {
     }
 
     private static Path configFile(String scriptName) {
-        // Sanitize name for filesystem
-        String safe = scriptName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
-        return CONFIG_DIR.resolve(safe + ".properties");
+        return CONFIG_DIR.resolve(safeName(scriptName) + ".json");
+    }
+
+    private static String safeName(String scriptName) {
+        return scriptName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
     }
 }
