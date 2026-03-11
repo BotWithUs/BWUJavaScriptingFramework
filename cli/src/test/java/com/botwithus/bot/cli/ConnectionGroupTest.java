@@ -59,6 +59,34 @@ class ConnectionGroupTest {
     }
 
     @Test
+    void constructorWithDescription() {
+        var group = new ConnectionGroup("farm", "Farming accounts");
+        assertEquals("farm", group.getName());
+        assertEquals("Farming accounts", group.getDescription());
+    }
+
+    @Test
+    void descriptionIsNullByDefault() {
+        var group = new ConnectionGroup("farm");
+        assertNull(group.getDescription());
+    }
+
+    @Test
+    void setDescription() {
+        var group = new ConnectionGroup("farm");
+        assertNull(group.getDescription());
+        group.setDescription("Skilling bots");
+        assertEquals("Skilling bots", group.getDescription());
+    }
+
+    @Test
+    void setDescriptionOverwrites() {
+        var group = new ConnectionGroup("farm", "old");
+        group.setDescription("new");
+        assertEquals("new", group.getDescription());
+    }
+
+    @Test
     void preservesInsertionOrder() {
         var group = new ConnectionGroup("farm");
         group.add("C");

@@ -64,10 +64,12 @@ public class CliContext {
     private com.botwithus.bot.cli.watch.ScriptWatcher scriptWatcher;
     private ScriptProfileStore profileStore;
     private AutoStartManager autoStartManager;
+    private ClientManager clientManager;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
         this.logCapture = logCapture;
+        this.clientManager = new ClientManager(this);
     }
 
     public void setStreamManager(StreamManager sm) { this.streamManager = sm; }
@@ -78,6 +80,8 @@ public class CliContext {
 
     public void setAutoStartManager(AutoStartManager manager) { this.autoStartManager = manager; }
     public AutoStartManager getAutoStartManager() { return autoStartManager; }
+
+    public ClientManager getClientManager() { return clientManager; }
 
     public void connect(String pipeName) {
         String connName = pipeName != null ? pipeName : "BotWithUs";
