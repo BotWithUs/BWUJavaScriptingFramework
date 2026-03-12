@@ -126,6 +126,7 @@ public class ImGuiApp extends Application {
         logCapture.install();
 
         ctx = new CliContext(logBuffer, logCapture);
+        ctx.loadGroups();
         ctx.setStreamManager(new StreamManager(outputBuffer, textureManager, guiOut));
 
         ScriptProfileStore profileStore = new ScriptProfileStore();

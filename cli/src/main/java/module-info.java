@@ -1,6 +1,7 @@
 module com.botwithus.bot.cli {
     requires com.botwithus.bot.api;
     requires com.botwithus.bot.core;
+    requires com.google.gson;
     requires imgui.binding;
     requires imgui.app;
     requires org.lwjgl;

@@ -113,6 +113,7 @@ public class ClientManager implements ClientOrchestrator {
         ConnectionGroup group = ctx.getGroup(groupName);
         if (group != null) {
             group.setDescription(description);
+            ctx.saveGroups();
         }
     }
 
@@ -124,17 +125,15 @@ public class ClientManager implements ClientOrchestrator {
 
     @Override
     public boolean addToGroup(String groupName, String clientName) {
-        ConnectionGroup group = ctx.getGroup(groupName);
-        if (group == null) return false;
-        group.add(clientName);
+        if (ctx.getGroup(groupName) == null) return false;
+        ctx.addToGroup(groupName, clientName);
         return true;
     }
 
     @Override
     public boolean removeFromGroup(String groupName, String clientName) {
-        ConnectionGroup group = ctx.getGroup(groupName);
-        if (group == null) return false;
-        group.remove(clientName);
+        if (ctx.getGroup(groupName) == null) return false;
+        ctx.removeFromGroup(groupName, clientName);
         return true;
     }
 
