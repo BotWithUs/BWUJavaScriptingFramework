@@ -27,7 +27,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - run: ./gradlew :api:javadoc
+      - run: chmod +x gradlew && ./gradlew :api:javadoc
 
       - uses: actions/upload-pages-artifact@v3
         with:
