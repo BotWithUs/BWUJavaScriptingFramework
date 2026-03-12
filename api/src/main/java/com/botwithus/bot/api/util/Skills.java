@@ -41,18 +41,37 @@ public final class Skills {
     public static final int ARCHAEOLOGY = 27;
     public static final int NECROMANCY = 28;
 
-    /** Base (real) level, not boosted. */
+    /**
+     * Returns the base (real) level of a skill, not including boosts or drains.
+     *
+     * @param api     the game API instance
+     * @param skillId the skill ID constant (e.g., {@link #ATTACK}, {@link #MINING})
+     * @return the base level, or 0 if unavailable
+     */
     public static int getLevel(GameAPI api, int skillId) {
         PlayerStat stat = api.getPlayerStat(skillId);
         return stat != null ? stat.level() : 0;
     }
 
-    /** Current level including boosts/drains. */
+    /**
+     * Returns the current level of a skill, including boosts and drains.
+     *
+     * @param api     the game API instance
+     * @param skillId the skill ID constant
+     * @return the boosted level, or 0 if unavailable
+     */
     public static int getBoostedLevel(GameAPI api, int skillId) {
         PlayerStat stat = api.getPlayerStat(skillId);
         return stat != null ? stat.boostedLevel() : 0;
     }
 
+    /**
+     * Returns the total experience points in a skill.
+     *
+     * @param api     the game API instance
+     * @param skillId the skill ID constant
+     * @return the XP value, or 0 if unavailable
+     */
     public static int getXp(GameAPI api, int skillId) {
         PlayerStat stat = api.getPlayerStat(skillId);
         return stat != null ? stat.xp() : 0;

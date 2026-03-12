@@ -10,7 +10,13 @@ public final class Humanize {
     private Humanize() {}
 
     /**
-     * Returns a gaussian-bounded delay in milliseconds.
+     * Returns a gaussian-bounded delay in milliseconds, clamped to [{@code min}, {@code max}].
+     *
+     * @param mean   the mean delay
+     * @param stdDev the standard deviation
+     * @param min    minimum allowed delay
+     * @param max    maximum allowed delay
+     * @return a randomized delay in milliseconds
      */
     public static long delay(long mean, long stdDev, long min, long max) {
         long value = (long) (mean + ThreadLocalRandom.current().nextGaussian() * stdDev);
@@ -19,13 +25,20 @@ public final class Humanize {
 
     /**
      * Sleeps for a gaussian-distributed duration.
+     *
+     * @param mean   the mean sleep time in milliseconds
+     * @param stdDev the standard deviation in milliseconds
      */
     public static void sleep(long mean, long stdDev) {
         Timing.sleep(delay(mean, stdDev, 0, mean * 3));
     }
 
     /**
-     * Returns a loop delay with variance and a 5% chance of a micro-break.
+     * Returns a loop delay with variance and a 5% chance of a micro-break (2-5s).
+     *
+     * @param baseMs         the base delay in milliseconds
+     * @param varianceFactor multiplier for the variance (e.g., 0.3 = 30% of base)
+     * @return the computed delay in milliseconds
      */
     public static int loopDelay(int baseMs, double varianceFactor) {
         double variance = baseMs * varianceFactor;
@@ -41,7 +54,10 @@ public final class Humanize {
     }
 
     /**
-     * Returns true with the given probability (0.0 to 1.0).
+     * Returns {@code true} with the given probability.
+     *
+     * @param probability a value between 0.0 (never) and 1.0 (always)
+     * @return {@code true} if the random check passed
      */
     public static boolean chance(double probability) {
         return ThreadLocalRandom.current().nextDouble() < probability;

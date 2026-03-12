@@ -12,6 +12,11 @@ public final class Timing {
 
     private Timing() {}
 
+    /**
+     * Sleeps for the specified duration. Restores the interrupt flag if interrupted.
+     *
+     * @param ms duration in milliseconds; values &lt;= 0 return immediately
+     */
     public static void sleep(long ms) {
         if (ms <= 0) return;
         try {
@@ -21,6 +26,12 @@ public final class Timing {
         }
     }
 
+    /**
+     * Sleeps for a uniformly random duration between {@code minMs} and {@code maxMs}.
+     *
+     * @param minMs minimum sleep duration in milliseconds
+     * @param maxMs maximum sleep duration in milliseconds
+     */
     public static void sleepRandom(long minMs, long maxMs) {
         sleep(random(minMs, maxMs));
     }
@@ -57,6 +68,12 @@ public final class Timing {
         sleepRandom(600, 1200);
     }
 
+    /**
+     * Converts game ticks to milliseconds.
+     *
+     * @param ticks the number of game ticks
+     * @return the equivalent duration in milliseconds
+     */
     public static long ticksToMs(int ticks) {
         return (long) ticks * TICK_MS;
     }
