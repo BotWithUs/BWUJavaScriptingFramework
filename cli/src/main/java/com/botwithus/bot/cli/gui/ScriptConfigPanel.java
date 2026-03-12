@@ -67,6 +67,10 @@ public class ScriptConfigPanel {
         return open.get();
     }
 
+    public void close() {
+        open.set(false);
+    }
+
     /** Call from the main ImGui render loop. */
     public void render() {
         if (!open.get() || runner == null || fields == null || fields.isEmpty()) return;
