@@ -40,6 +40,7 @@ public class JBotCli {
 
         PrintStream out = logCapture.getOriginalOut();
         CliContext ctx = new CliContext(logBuffer, logCapture);
+        ctx.loadGroups();
         CommandRegistry registry = new CommandRegistry();
 
         // Register commands

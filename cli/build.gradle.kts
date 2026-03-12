@@ -11,6 +11,7 @@ val lwjglNatives = "natives-windows"
 dependencies {
     implementation(project(":api"))
     implementation(project(":core"))
+    implementation("com.google.code.gson:gson:2.11.0")
     implementation("io.github.spair:imgui-java-app:$imguiVersion")
     runtimeOnly("io.github.spair:imgui-java-natives-windows:$imguiVersion")
     runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")

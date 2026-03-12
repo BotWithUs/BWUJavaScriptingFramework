@@ -135,7 +135,7 @@ public class GroupsPanel implements GuiPanel {
                         ImGui.sameLine(0, 12);
                         ImGui.pushID("member_rm_" + grpIdx + "_" + memberIdx);
                         if (ImGui.smallButton("Remove")) {
-                            group.remove(memberName);
+                            ctx.removeFromGroup(groupName, memberName);
                         }
                         ImGui.popID();
                         memberIdx++;
@@ -167,7 +167,7 @@ public class GroupsPanel implements GuiPanel {
         ImGui.popItemWidth();
         ImGui.sameLine();
         if (ImGui.smallButton("Add")) {
-            group.add(names[selected.get()]);
+            ctx.addToGroup(groupName, names[selected.get()]);
         }
         ImGui.popID();
     }
