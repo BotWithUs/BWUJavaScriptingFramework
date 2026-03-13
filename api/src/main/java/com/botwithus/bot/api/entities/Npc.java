@@ -50,7 +50,7 @@ public class Npc extends EntityContext {
 
     /** Whether this NPC has a specific right-click option (case-insensitive). */
     public boolean hasOption(String option) {
-        return getOptions().stream().anyMatch(o -> o != null && o.equalsIgnoreCase(option));
+        return containsOption(getOptions(), option);
     }
 
     /** Whether this NPC is visible according to its definition. */
@@ -63,20 +63,6 @@ public class Npc extends EntityContext {
         return getType().clickable();
     }
 
-    /**
-     * Returns the server index of the entity this NPC is following, or -1.
-     */
-    public int getFollowingIndex() {
-        return getInfo().followingIndex();
-    }
-
-    /**
-     * Whether this NPC is currently following/targeting another entity.
-     */
-    public boolean isFollowing() {
-        return getFollowingIndex() != -1;
-    }
-
     // ========================== Interaction ==========================
 
     /**
@@ -86,14 +72,10 @@ public class Npc extends EntityContext {
      * @return {@code true} if the option was found and the action was queued
      */
     public boolean interact(String option) {
-        List<String> options = getOptions();
-        for (int i = 0; i < options.size(); i++) {
-            if (options.get(i) != null && options.get(i).equalsIgnoreCase(option)) {
-                interact(i + 1);
-                return true;
-            }
-        }
-        return false;
+        int index = findOptionIndex(getOptions(), option);
+        if (index == -1) return false;
+        interact(index);
+        return true;
     }
 
     /**

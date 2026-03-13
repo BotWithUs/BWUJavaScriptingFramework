@@ -7,6 +7,9 @@ import com.botwithus.bot.api.query.ComponentFilter;
 
 import java.util.List;
 
+import static com.botwithus.bot.api.inventory.ComponentHelper.componentHash;
+import static com.botwithus.bot.api.inventory.ComponentHelper.queueComponentAction;
+
 /**
  * Provides access to the bank interface (inventory ID 95, interface 517).
  * Ported from the legacy BotWithUs API to use the pipe RPC.
@@ -160,7 +163,7 @@ public final class Bank {
         if (comp == null) return false;
         int optionIndex = mapDepositOption(amount);
         if (optionIndex < 0) return false;
-        return queueComponentAction(comp, optionIndex);
+        return queueComponentAction(api, comp, optionIndex);
     }
 
     /**
@@ -170,7 +173,7 @@ public final class Bank {
         if (!isOpen() || !container.contains(itemId)) return false;
         Component comp = findBackpackItem(itemId);
         if (comp == null) return false;
-        return queueComponentAction(comp, 6);
+        return queueComponentAction(api, comp, 6);
     }
 
     /**
@@ -194,7 +197,7 @@ public final class Bank {
         if (comp == null) return false;
         int optionIndex = mapWithdrawOption(amount);
         if (optionIndex < 0) return false;
-        return queueComponentAction(comp, optionIndex);
+        return queueComponentAction(api, comp, optionIndex);
     }
 
     /**
@@ -211,7 +214,7 @@ public final class Bank {
         if (!isOpen() || !container.contains(itemId)) return false;
         Component comp = findBankItem(itemId);
         if (comp == null) return false;
-        return queueComponentAction(comp, 6);
+        return queueComponentAction(api, comp, 6);
     }
 
     // ========================== Presets ==========================
@@ -396,17 +399,11 @@ public final class Bank {
         List<String> options = api.getComponentOptions(comp.interfaceId(), comp.componentId());
         for (int i = 0; i < options.size(); i++) {
             if (options.get(i).contains(option)) {
-                return queueComponentAction(comp, i + 1);
+                return queueComponentAction(api, comp, i + 1);
             }
         }
         // Fallback: interact with default option
-        return queueComponentAction(comp, 1);
-    }
-
-    private boolean queueComponentAction(Component comp, int optionIndex) {
-        int hash = comp.interfaceId() << 16 | comp.componentId();
-        api.queueAction(new GameAction(ActionTypes.COMPONENT, optionIndex, comp.subComponentId(), hash));
-        return true;
+        return queueComponentAction(api, comp, 1);
     }
 
     private boolean queueRawAction(int optionIndex, int subComponent, int hash) {

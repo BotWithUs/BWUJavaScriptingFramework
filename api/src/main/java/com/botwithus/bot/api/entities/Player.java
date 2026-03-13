@@ -26,20 +26,6 @@ public class Player extends EntityContext {
         super(api, raw);
     }
 
-    /**
-     * The server index of the entity this player is following, or -1.
-     */
-    public int getFollowingIndex() {
-        return getInfo().followingIndex();
-    }
-
-    /**
-     * Whether this player is currently following/targeting another entity.
-     */
-    public boolean isFollowing() {
-        return getFollowingIndex() != -1;
-    }
-
     // ========================== Interaction ==========================
 
     /**
