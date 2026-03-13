@@ -71,6 +71,9 @@ public class ImGuiApp extends Application {
     // Script custom UI window (floating window)
     private ScriptUIWindow scriptUIWindow;
 
+    // Management script config panel (floating window)
+    private ManagementConfigPanel managementConfigPanel;
+
     // GLFW window handle for title updates
     private long glfwWindow;
 
@@ -153,6 +156,7 @@ public class ImGuiApp extends Application {
         registry.register(new EventsCommand());
         registry.register(new ClientCommand());
         registry.register(new AutoStartCommand(profileStore, autoStartManager));
+        registry.register(new ManagementScriptsCommand());
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
 
@@ -204,10 +208,16 @@ public class ImGuiApp extends Application {
         scriptUIWindow = new ScriptUIWindow();
         ctx.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
 
+        // Initialize management config panel
+        managementConfigPanel = new ManagementConfigPanel();
+
         // Initialize panels
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
         panels.add(new ConnectionsPanel(executor, registry));
         panels.add(new ScriptsPanel(executor));
+        ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
+        mgmtPanel.setConfigOpener(runner -> managementConfigPanel.open(runner));
+        panels.add(mgmtPanel);
         panels.add(new ScriptUIPanel());
         panels.add(new LogsPanel());
         panels.add(new GroupsPanel());
@@ -285,6 +295,11 @@ public class ImGuiApp extends Application {
         // Render script custom UI as a floating window (outside the main window)
         if (scriptUIWindow != null && scriptUIWindow.isOpen()) {
             scriptUIWindow.render();
+        }
+
+        // Render management script config panel as a floating window
+        if (managementConfigPanel != null && managementConfigPanel.isOpen()) {
+            managementConfigPanel.render();
         }
 
         // Update window title based on connection state
