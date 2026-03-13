@@ -6,6 +6,8 @@ import com.botwithus.bot.api.model.ChatMessage;
 
 import java.util.Map;
 
+import static com.botwithus.bot.core.impl.MapHelper.*;
+
 /**
  * Converts raw pipe event maps into typed {@link GameEvent} instances
  * and publishes them to the {@link EventBus}.
@@ -75,45 +77,45 @@ public class EventDispatcher {
 
         GameEvent event = switch (eventType) {
             case "tick" -> new TickEvent(
-                    intVal(data, "tick")
+                    getInt(data, "tick")
             );
             case "login_state_change" -> new LoginStateChangeEvent(
-                    intVal(data, "old_state"),
-                    intVal(data, "new_state")
+                    getInt(data, "old_state"),
+                    getInt(data, "new_state")
             );
             case "var_change" -> new VarChangeEvent(
-                    intVal(data, "var_id"),
-                    intVal(data, "old_value"),
-                    intVal(data, "new_value")
+                    getInt(data, "var_id"),
+                    getInt(data, "old_value"),
+                    getInt(data, "new_value")
             );
             case "varbit_change" -> new VarbitChangeEvent(
-                    intVal(data, "var_id"),
-                    intVal(data, "old_value"),
-                    intVal(data, "new_value")
+                    getInt(data, "var_id"),
+                    getInt(data, "old_value"),
+                    getInt(data, "new_value")
             );
             case "key_input" -> new KeyInputEvent(
-                    intVal(data, "key"),
-                    boolVal(data, "is_alt"),
-                    boolVal(data, "is_ctrl"),
-                    boolVal(data, "is_shift")
+                    getInt(data, "key"),
+                    getBool(data, "is_alt"),
+                    getBool(data, "is_ctrl"),
+                    getBool(data, "is_shift")
             );
             case "action_executed" -> new ActionExecutedEvent(
-                    intVal(data, "action_id"),
-                    intVal(data, "param1"),
-                    intVal(data, "param2"),
-                    intVal(data, "param3")
+                    getInt(data, "action_id"),
+                    getInt(data, "param1"),
+                    getInt(data, "param2"),
+                    getInt(data, "param3")
             );
             case "break_started" -> new BreakStartedEvent(
-                    intVal(data, "duration_seconds"),
-                    doubleVal(data, "fatigue"),
-                    doubleVal(data, "risk")
+                    getInt(data, "duration_seconds"),
+                    getDouble(data, "fatigue"),
+                    getDouble(data, "risk")
             );
             case "break_ended" -> new BreakEndedEvent();
             case "chat_message" -> new ChatMessageEvent(new ChatMessage(
-                    intVal(data, "index"),
-                    intVal(data, "message_type"),
-                    stringVal(data, "text"),
-                    stringVal(data, "player_name")
+                    getInt(data, "index"),
+                    getInt(data, "message_type"),
+                    getStringNullable(data, "text"),
+                    getStringNullable(data, "player_name")
             ));
             default -> null;
         };
@@ -121,25 +123,5 @@ public class EventDispatcher {
         if (event != null) {
             eventBus.publish(event);
         }
-    }
-
-    private static int intVal(Map<String, Object> data, String key) {
-        Object v = data.get(key);
-        return v instanceof Number n ? n.intValue() : 0;
-    }
-
-    private static double doubleVal(Map<String, Object> data, String key) {
-        Object v = data.get(key);
-        return v instanceof Number n ? n.doubleValue() : 0.0;
-    }
-
-    private static boolean boolVal(Map<String, Object> data, String key) {
-        Object v = data.get(key);
-        return v instanceof Boolean b && b;
-    }
-
-    private static String stringVal(Map<String, Object> data, String key) {
-        Object v = data.get(key);
-        return v instanceof String s ? s : null;
     }
 }

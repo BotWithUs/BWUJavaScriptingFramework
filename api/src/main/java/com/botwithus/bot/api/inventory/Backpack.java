@@ -4,7 +4,6 @@ import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.InventoryItem;
-import com.botwithus.bot.api.query.ComponentFilter;
 
 import java.util.List;
 
@@ -133,9 +132,9 @@ public final class Backpack {
      * @return true if the action was queued
      */
     public boolean interact(int itemId, String option) {
-        Component comp = findComponentByItem(itemId);
+        Component comp = ComponentHelper.findComponentByItem(api, INTERFACE_ID, itemId);
         if (comp == null) return false;
-        return interactComponent(comp, option);
+        return ComponentHelper.interactComponent(api, comp, option);
     }
 
     /**
@@ -146,9 +145,9 @@ public final class Backpack {
      * @return true if the action was queued
      */
     public boolean interact(int itemId, int optionIndex) {
-        Component comp = findComponentByItem(itemId);
+        Component comp = ComponentHelper.findComponentByItem(api, INTERFACE_ID, itemId);
         if (comp == null) return false;
-        return queueComponentAction(comp, optionIndex);
+        return ComponentHelper.queueComponentAction(api, comp, optionIndex);
     }
 
     /**
@@ -158,38 +157,10 @@ public final class Backpack {
      * @return true if the action was queued
      */
     public boolean use(int itemId) {
-        Component comp = findComponentByItem(itemId);
+        Component comp = ComponentHelper.findComponentByItem(api, INTERFACE_ID, itemId);
         if (comp == null) return false;
-        int hash = comp.interfaceId() << 16 | comp.componentId();
         api.queueAction(new GameAction(
-                ActionTypes.SELECT_COMPONENT_ITEM, 0, comp.subComponentId(), hash));
-        return true;
-    }
-
-    // ========================== Helpers ==========================
-
-    private Component findComponentByItem(int itemId) {
-        List<Component> comps = api.queryComponents(ComponentFilter.builder()
-                .interfaceId(INTERFACE_ID)
-                .itemId(itemId)
-                .build());
-        return comps.isEmpty() ? null : comps.getFirst();
-    }
-
-    private boolean interactComponent(Component comp, String option) {
-        List<String> options = api.getComponentOptions(comp.interfaceId(), comp.componentId());
-        for (int i = 0; i < options.size(); i++) {
-            if (options.get(i).equalsIgnoreCase(option)) {
-                return queueComponentAction(comp, i + 1);
-            }
-        }
-        return false;
-    }
-
-    private boolean queueComponentAction(Component comp, int optionIndex) {
-        int hash = comp.interfaceId() << 16 | comp.componentId();
-        api.queueAction(new GameAction(
-                ActionTypes.COMPONENT, optionIndex, comp.subComponentId(), hash));
+                ActionTypes.SELECT_COMPONENT_ITEM, 0, comp.subComponentId(), ComponentHelper.componentHash(comp)));
         return true;
     }
 }

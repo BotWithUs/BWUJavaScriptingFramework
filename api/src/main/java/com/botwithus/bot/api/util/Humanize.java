@@ -19,7 +19,7 @@ public final class Humanize {
      * @return a randomized delay in milliseconds
      */
     public static long delay(long mean, long stdDev, long min, long max) {
-        long value = (long) (mean + ThreadLocalRandom.current().nextGaussian() * stdDev);
+        long value = Timing.gaussianRandom(mean, stdDev);
         return Math.max(min, Math.min(max, value));
     }
 
@@ -41,9 +41,8 @@ public final class Humanize {
      * @return the computed delay in milliseconds
      */
     public static int loopDelay(int baseMs, double varianceFactor) {
-        double variance = baseMs * varianceFactor;
-        long delay = (long) (baseMs + ThreadLocalRandom.current().nextGaussian() * variance);
-        delay = Math.max(baseMs / 2, delay);
+        long variance = (long) (baseMs * varianceFactor);
+        long delay = Math.max(baseMs / 2, Timing.gaussianRandom(baseMs, variance));
 
         // 5% chance of micro-break (2-5 seconds)
         if (ThreadLocalRandom.current().nextDouble() < 0.05) {

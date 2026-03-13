@@ -177,6 +177,51 @@ public class EntityContext {
         return getInfo().combatLevel();
     }
 
+    // ========================== Following ==========================
+
+    /**
+     * Returns the server index of the entity this one is following, or -1.
+     */
+    public int getFollowingIndex() {
+        return getInfo().followingIndex();
+    }
+
+    /**
+     * Whether this entity is currently following/targeting another entity.
+     */
+    public boolean isFollowing() {
+        return getFollowingIndex() != -1;
+    }
+
+    // ========================== Options ==========================
+
+    /**
+     * Finds the 1-based index of a right-click option by name (case-insensitive).
+     *
+     * @param options the list of option strings
+     * @param option  the option text to find
+     * @return the 1-based index, or -1 if not found
+     */
+    protected static int findOptionIndex(List<String> options, String option) {
+        for (int i = 0; i < options.size(); i++) {
+            if (options.get(i) != null && options.get(i).equalsIgnoreCase(option)) {
+                return i + 1;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Checks whether the given options list contains the specified option (case-insensitive).
+     *
+     * @param options the list of option strings
+     * @param option  the option text to check
+     * @return {@code true} if a matching option exists
+     */
+    protected static boolean containsOption(List<String> options, String option) {
+        return options.stream().anyMatch(o -> o != null && o.equalsIgnoreCase(option));
+    }
+
     // ========================== Overhead ==========================
 
     /** Overhead text displayed on the entity, or null. */
