@@ -87,7 +87,7 @@ public class Npc extends EntityContext {
         if (optionIndex < 1 || optionIndex >= ActionTypes.NPC_OPTIONS.length) {
             throw new IllegalArgumentException("NPC option index out of range: " + optionIndex);
         }
-        api.queueAction(new GameAction(ActionTypes.NPC_OPTIONS[optionIndex], 0, raw.handle(), 0));
+        api.queueAction(new GameAction(ActionTypes.NPC_OPTIONS[optionIndex], raw.serverIndex(), 0, 0));
     }
 
     @Override

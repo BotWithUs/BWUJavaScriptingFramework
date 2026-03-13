@@ -37,7 +37,7 @@ public class Player extends EntityContext {
         if (optionIndex < 1 || optionIndex >= ActionTypes.PLAYER_OPTIONS.length) {
             throw new IllegalArgumentException("Player option index out of range: " + optionIndex);
         }
-        api.queueAction(new GameAction(ActionTypes.PLAYER_OPTIONS[optionIndex], 0, raw.handle(), 0));
+        api.queueAction(new GameAction(ActionTypes.PLAYER_OPTIONS[optionIndex], raw.serverIndex(), 0, 0));
     }
 
     @Override
