@@ -12,6 +12,8 @@ module com.botwithus.bot.cli {
     uses com.botwithus.bot.api.BotScript;
     uses com.botwithus.bot.api.script.ManagementScript;
 
+    opens com.botwithus.bot.cli to com.google.gson;
+
     exports com.botwithus.bot.cli;
     exports com.botwithus.bot.cli.gui;
 }
