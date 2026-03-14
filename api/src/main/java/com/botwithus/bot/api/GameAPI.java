@@ -735,6 +735,17 @@ public interface GameAPI {
      */
     void setHumanizationEnabled(boolean enabled);
 
+    /**
+     * Returns the current humanizer personality profile and live session statistics.
+     * <p>
+     * Personality values are stable per-user traits that define movement characteristics.
+     * Session stats reflect the current fatigue/risk state. Use these to adapt timing
+     * delays, click precision, and break scheduling.
+     *
+     * @return the personality profile, or {@code null} if the humanizer is not initialized
+     */
+    Personality getPersonality();
+
     // ============================== Inventory & Items ==============================
 
     /**

@@ -1,15 +1,18 @@
 package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.model.Personality;
 import com.botwithus.bot.core.blueprint.execution.BlueprintBotScript;
 import com.botwithus.bot.core.config.ScriptConfigStore;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -162,6 +165,7 @@ public class ScriptRunner implements Runnable {
             System.err.println("[ScriptRunner] Config load error in " + name + ": " + e.getMessage());
         }
 
+        GameAPI gameAPI = context.getGameAPI();
         try {
             while (running.get() && !Thread.currentThread().isInterrupted()) {
                 long loopStart = System.nanoTime();
@@ -169,6 +173,7 @@ public class ScriptRunner implements Runnable {
                 profiler.recordLoop(System.nanoTime() - loopStart);
                 if (delay < 0) break;
                 if (delay > 0) {
+                    delay = adjustDelay(delay, gameAPI);
                     Thread.sleep(delay);
                 }
             }
@@ -189,6 +194,57 @@ public class ScriptRunner implements Runnable {
             CountDownLatch latch = this.stopLatch;
             if (latch != null) latch.countDown();
         }
+    }
+
+    /**
+     * Adjusts the script loop delay based on the humanizer personality profile.
+     * <p>
+     * Factors considered:
+     * <ul>
+     *   <li><b>Reaction speed</b> – scales the base delay (higher = slower reactions)</li>
+     *   <li><b>Pause tendency</b> – adds extra pausing time for pause-heavy personalities</li>
+     *   <li><b>Fatigue level</b> – fatigued users slow down (up to +30% at full fatigue)</li>
+     *   <li><b>Attention level</b> – low attention adds sluggishness (up to +20%)</li>
+     *   <li><b>Rhythm consistency</b> – low consistency adds random jitter (±15%)</li>
+     * </ul>
+     * If the personality cannot be fetched (humanizer not initialized), the delay is
+     * returned unchanged.
+     */
+    int adjustDelay(int baseDelay, GameAPI gameAPI) {
+        Personality p;
+        try {
+            p = gameAPI.getPersonality();
+        } catch (Exception e) {
+            return baseDelay;
+        }
+        if (p == null) return baseDelay;
+
+        Personality.Timing timing = p.timing();
+        Personality.Session session = p.session();
+        if (timing == null || session == null) return baseDelay;
+
+        // Base scaling: reaction speed (0.7–1.5, centered at 1.0)
+        double adjusted = baseDelay * timing.reactionSpeed();
+
+        // Pause tendency: adds proportional extra delay (0.5–2.0, neutral at 1.0)
+        // A pause tendency of 1.3 adds 15% extra, 2.0 adds 50%
+        adjusted *= (1.0 + (timing.pauseTendency() - 1.0) * 0.5);
+
+        // Fatigue: fatigued users are slower (0.0–1.0 → up to +30%)
+        adjusted *= (1.0 + session.fatigueLevel() * 0.3);
+
+        // Attention: low attention adds sluggishness (0.3–1.0 → up to +20%)
+        adjusted *= (1.0 + (1.0 - session.attentionLevel()) * 0.2);
+
+        // Rhythm consistency jitter: low consistency → more random variation
+        // consistency 1.0 = no jitter, 0.3 = ±15% random spread
+        double jitterRange = (1.0 - timing.rhythmConsistency()) * 0.15;
+        if (jitterRange > 0.001) {
+            double jitter = 1.0 + ThreadLocalRandom.current().nextDouble(-jitterRange, jitterRange);
+            adjusted *= jitter;
+        }
+
+        return Math.max(1, (int) Math.round(adjusted));
     }
 
     private void notifyError(String scriptName, String phase, Throwable error) {

@@ -708,6 +708,42 @@ public class GameAPIImpl implements GameAPI {
         rpc.callSync("set_humanization_enabled", Map.of("enabled", enabled));
     }
 
+    @Override
+    public Personality getPersonality() {
+        Map<String, Object> r;
+        try {
+            r = rpc.callSync("get_personality", Map.of());
+        } catch (Exception e) {
+            return null;
+        }
+        if (r == null || r.containsKey("error")) return null;
+
+        Map<String, Object> sp = getObjectMap(r, "speed");
+        Map<String, Object> pa = getObjectMap(r, "path");
+        Map<String, Object> pr = getObjectMap(r, "precision");
+        Map<String, Object> tr = getObjectMap(r, "tremor");
+        Map<String, Object> ti = getObjectMap(r, "timing");
+        Map<String, Object> fa = getObjectMap(r, "fatigue");
+        Map<String, Object> ca = getObjectMap(r, "camera");
+        Map<String, Object> se = getObjectMap(r, "session");
+
+        return new Personality(
+                getLong(r, "personality_id"),
+                new Personality.Speed(getDouble(sp, "bias"), getDouble(sp, "consistency")),
+                new Personality.Path(getDouble(pa, "curvature_bias"), getString(pa, "handedness"), getDouble(pa, "variability")),
+                new Personality.Precision(getDouble(pr, "overshoot_tendency"), getDouble(pr, "correction_speed"), getDouble(pr, "target_precision")),
+                new Personality.Tremor(getDouble(tr, "frequency_bias"), getDouble(tr, "amplitude_bias")),
+                new Personality.Timing(getDouble(ti, "reaction_speed"), getDouble(ti, "rhythm_consistency"), getDouble(ti, "pause_tendency")),
+                new Personality.Fatigue(getDouble(fa, "resistance"), getDouble(fa, "recovery")),
+                new Personality.Camera(getDouble(ca, "sensitivity"), getDouble(ca, "smoothness"), getDouble(ca, "overshoot_tendency"),
+                        getDouble(ca, "idle_drift_amount"), getDouble(ca, "settling_speed")),
+                getDouble(r, "daily_variance"),
+                new Personality.Session(getDouble(se, "fatigue_level"), getDouble(se, "attention_level"), getDouble(se, "cumulative_risk"),
+                        getDouble(se, "ban_probability"), getString(se, "risk_level"), getDouble(se, "session_duration_hours"),
+                        getInt(se, "total_actions"), getInt(se, "total_errors"), getInt(se, "breaks_taken"))
+        );
+    }
+
     // ========================== Inventory & Items ==========================
 
     @Override
