@@ -9,6 +9,8 @@ import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
 import imgui.ImGui;
 import imgui.flag.ImGuiTableFlags;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
@@ -66,7 +68,8 @@ public class ManagementScriptsPanel implements GuiPanel {
         ImGui.separator();
         ImGui.spacing();
 
-        List<ManagementScriptRunner> runners = runtime.getRunners();
+        List<ManagementScriptRunner> runners = new ArrayList<>(runtime.getRunners());
+        runners.sort(Comparator.comparing(ManagementScriptRunner::getScriptName, String.CASE_INSENSITIVE_ORDER));
 
         if (runners.isEmpty()) {
             ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
