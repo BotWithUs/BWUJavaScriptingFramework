@@ -43,8 +43,9 @@ public final class Bank {
     private static final int VARP_WITHDRAW_MODE = 160;
 
     // Component hashes for specific bank buttons
-    private static final int HASH_PRESETS_BUTTON = INTERFACE_ID << 16 | 177;  // 33882257
-    private static final int HASH_PRESET_LIST = INTERFACE_ID << 16 | 231 - 286 + 286; // 33882231 → 517 << 16 | 103 = wait...
+    private static final int HASH_PRESETS_BUTTON = INTERFACE_ID << 16 | 177;
+    /** Preset grid component — sub-components 1-10 are preset slots. */
+    private static final int PRESET_COMPONENT = 119;
 
     private final GameAPI api;
     private final InventoryContainer container;
@@ -235,13 +236,11 @@ public final class Bank {
         // Handle page switching
         int targetPage = presetNumber > 9 ? 1 : 0;
         if (getPresetPage() != targetPage) {
-            // Click the page switch button (517 << 16 | 103)
-            api.queueAction(new GameAction(ActionTypes.COMPONENT, 1, 100, INTERFACE_ID << 16 | 103));
-            // Caller should wait for page to switch
+            api.queueAction(new GameAction(ActionTypes.COMPONENT, 1, 100, INTERFACE_ID << 16 | PRESET_COMPONENT));
         }
 
         int preset = presetNumber > 9 ? presetNumber - 9 : presetNumber;
-        api.queueAction(new GameAction(ActionTypes.COMPONENT, 1, preset, INTERFACE_ID << 16 | 103));
+        api.queueAction(new GameAction(ActionTypes.COMPONENT, 1, preset, INTERFACE_ID << 16 | PRESET_COMPONENT));
         return true;
     }
 
