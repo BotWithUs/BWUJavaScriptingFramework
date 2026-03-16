@@ -14,6 +14,7 @@ import imgui.type.ImBoolean;
 import imgui.type.ImInt;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 
@@ -88,7 +89,8 @@ public class ScriptsPanel implements GuiPanel {
 
         Connection conn = connections.get(selectedConnection.get());
         ScriptRuntime runtime = conn.getRuntime();
-        List<ScriptRunner> runners = runtime.getRunners();
+        List<ScriptRunner> runners = new ArrayList<>(runtime.getRunners());
+        runners.sort(Comparator.comparing(ScriptRunner::getScriptName, String.CASE_INSENSITIVE_ORDER));
 
         if (runners.isEmpty()) {
             ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
