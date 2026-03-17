@@ -33,9 +33,12 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class CliContext {
@@ -255,6 +258,78 @@ public class CliContext {
     }
 
     /**
+     * Reloads scripts for every live connection from the scripts directory.
+     * Optionally restarts the scripts that were running before the reload.
+     */
+    public void reloadAllConnectionScripts(boolean autoStartAll, boolean restartPreviouslyRunning) {
+        List<Connection> liveConnections = getConnections().stream()
+                .filter(Connection::isAlive)
+                .toList();
+        if (liveConnections.isEmpty()) {
+            return;
+        }
+
+        Map<String, Set<String>> previouslyRunningByConnection = new LinkedHashMap<>();
+        if (restartPreviouslyRunning && !autoStartAll) {
+            for (Connection conn : liveConnections) {
+                Set<String> runningNames = new LinkedHashSet<>();
+                for (ScriptRunner runner : conn.getRuntime().getRunners()) {
+                    if (runner.isRunning()) {
+                        runningNames.add(normalizeScriptName(runner.getScriptName()));
+                    }
+                }
+                previouslyRunningByConnection.put(conn.getName(), runningNames);
+            }
+        }
+
+        for (Connection conn : liveConnections) {
+            conn.getRuntime().stopAll();
+        }
+
+        List<BotScript> scripts = loadScripts();
+        List<BotScript> blueprints = loadBlueprints();
+
+        for (Connection conn : liveConnections) {
+            ScriptRuntime runtime = conn.getRuntime();
+            List<ScriptRunner> registeredRunners = new ArrayList<>();
+            for (BotScript script : scripts) {
+                registeredRunners.add(runtime.registerScript(script));
+            }
+            for (BotScript blueprint : blueprints) {
+                registeredRunners.add(runtime.registerScript(blueprint));
+            }
+
+            out().println("Reloaded " + registeredRunners.size() + " script(s) on " + conn.getName());
+
+            if (autoStartAll) {
+                for (ScriptRunner runner : registeredRunners) {
+                    runner.start();
+                }
+                if (!registeredRunners.isEmpty()) {
+                    out().println("Auto-started all scripts on " + conn.getName());
+                }
+                continue;
+            }
+
+            if (!restartPreviouslyRunning) {
+                continue;
+            }
+
+            Set<String> previouslyRunning = previouslyRunningByConnection.getOrDefault(conn.getName(), Set.of());
+            int restarted = 0;
+            for (ScriptRunner runner : registeredRunners) {
+                if (previouslyRunning.contains(normalizeScriptName(runner.getScriptName()))) {
+                    runner.start();
+                    restarted++;
+                }
+            }
+            if (restarted > 0) {
+                out().println("Restarted " + restarted + " previously running script(s) on " + conn.getName());
+            }
+        }
+    }
+
+    /**
      * Called when a connection error is detected (pipe closed, RPC failure, etc.).
      * Removes the dead connection, stops its scripts, and switches to the next
      * available connection (or clears the active view).
@@ -433,16 +508,7 @@ public class CliContext {
         if (!java.nio.file.Files.isDirectory(scriptsDir)) return;
         scriptWatcher = new com.botwithus.bot.cli.watch.ScriptWatcher(scriptsDir, () -> {
             out().println("[ScriptWatcher] Script files changed — reloading...");
-            for (Connection conn : connections.values()) {
-                if (conn.isAlive()) {
-                    conn.getRuntime().stopAll();
-                    List<BotScript> scripts = loadScripts();
-                    for (BotScript script : scripts) {
-                        conn.getRuntime().registerScript(script);
-                    }
-                    out().println("[ScriptWatcher] Reloaded " + scripts.size() + " script(s) on " + conn.getName());
-                }
-            }
+            reloadAllConnectionScripts(false, true);
         });
         scriptWatcher.start();
         out().println("Script file watcher started.");
@@ -471,5 +537,9 @@ public class CliContext {
             return;
         }
         ActiveGameApiRegistry.set(activeConnection.getGameApi());
+    }
+
+    private static String normalizeScriptName(String scriptName) {
+        return scriptName == null ? "" : scriptName.trim().toLowerCase(Locale.ROOT);
     }
 }

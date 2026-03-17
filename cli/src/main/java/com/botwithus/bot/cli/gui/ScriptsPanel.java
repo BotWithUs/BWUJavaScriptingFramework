@@ -1,6 +1,5 @@
 package com.botwithus.bot.cli.gui;
 
-import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
@@ -44,7 +43,7 @@ public class ScriptsPanel implements GuiPanel {
             executor.submit(() -> reloadScripts(ctx, startAfter));
         }
         ImGui.sameLine();
-        ImGui.checkbox("Auto-start", autoStartOnReload);
+        ImGui.checkbox("Start all after reload", autoStartOnReload);
 
         ImGui.sameLine(0, 20);
         boolean watcherRunning = ctx.isWatcherRunning();
@@ -182,32 +181,6 @@ public class ScriptsPanel implements GuiPanel {
     }
 
     private void reloadScripts(CliContext ctx, boolean autoStart) {
-        List<Connection> connections = new ArrayList<>(ctx.getConnections());
-        for (Connection conn : connections) {
-            if (!conn.isAlive()) continue;
-            conn.getRuntime().stopAll();
-        }
-
-        List<BotScript> scripts = ctx.loadScripts();
-        List<BotScript> blueprints = ctx.loadBlueprints();
-
-        for (Connection conn : connections) {
-            if (!conn.isAlive()) continue;
-            ScriptRuntime runtime = conn.getRuntime();
-            for (BotScript script : scripts) {
-                runtime.registerScript(script);
-            }
-            for (BotScript bp : blueprints) {
-                runtime.registerScript(bp);
-            }
-            ctx.out().println("Reloaded " + (scripts.size() + blueprints.size()) + " script(s) on " + conn.getName());
-
-            if (autoStart) {
-                for (ScriptRunner runner : runtime.getRunners()) {
-                    runner.start();
-                }
-                ctx.out().println("Auto-started all scripts on " + conn.getName());
-            }
-        }
+        ctx.reloadAllConnectionScripts(autoStart, true);
     }
 }
