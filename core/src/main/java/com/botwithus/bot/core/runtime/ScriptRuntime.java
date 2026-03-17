@@ -11,6 +11,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class ScriptRuntime {
 
+    private static final long STOP_TIMEOUT_MS = 2_000L;
+
     private final ScriptContext context;
     private final List<ScriptRunner> runners = new CopyOnWriteArrayList<>();
     private String connectionName;
@@ -69,11 +71,17 @@ public class ScriptRuntime {
     }
 
     public void stopAll() {
-        for (ScriptRunner runner : runners) {
+        List<ScriptRunner> snapshot = List.copyOf(runners);
+        for (ScriptRunner runner : snapshot) {
             runner.stop();
             System.out.println("[Runtime] Stopped script: " + runner.getScriptName());
         }
-        runners.clear();
+        for (ScriptRunner runner : snapshot) {
+            if (!runner.awaitStop(STOP_TIMEOUT_MS)) {
+                System.err.println("[Runtime] Timed out waiting for script to stop: " + runner.getScriptName());
+            }
+            runners.remove(runner);
+        }
         fireStateChange();
     }
 

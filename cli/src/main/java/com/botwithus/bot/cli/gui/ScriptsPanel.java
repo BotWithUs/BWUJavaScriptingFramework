@@ -182,13 +182,18 @@ public class ScriptsPanel implements GuiPanel {
     }
 
     private void reloadScripts(CliContext ctx, boolean autoStart) {
+        List<Connection> connections = new ArrayList<>(ctx.getConnections());
+        for (Connection conn : connections) {
+            if (!conn.isAlive()) continue;
+            conn.getRuntime().stopAll();
+        }
+
         List<BotScript> scripts = ctx.loadScripts();
         List<BotScript> blueprints = ctx.loadBlueprints();
 
-        for (Connection conn : ctx.getConnections()) {
+        for (Connection conn : connections) {
             if (!conn.isAlive()) continue;
             ScriptRuntime runtime = conn.getRuntime();
-            runtime.stopAll();
             for (BotScript script : scripts) {
                 runtime.registerScript(script);
             }

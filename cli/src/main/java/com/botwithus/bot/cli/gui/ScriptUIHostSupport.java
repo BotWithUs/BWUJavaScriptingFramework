@@ -23,6 +23,16 @@ final class ScriptUIHostSupport {
 
     static void openExternalWindow(ScriptUI ui) {
         if (ui == null) return;
-        EXTERNAL_UI_EXECUTOR.execute(ui::render);
+        ClassLoader uiClassLoader = ui.getClass().getClassLoader();
+        EXTERNAL_UI_EXECUTOR.execute(() -> {
+            Thread thread = Thread.currentThread();
+            ClassLoader previous = thread.getContextClassLoader();
+            try {
+                thread.setContextClassLoader(uiClassLoader);
+                ui.render();
+            } finally {
+                thread.setContextClassLoader(previous);
+            }
+        });
     }
 }
