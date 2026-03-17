@@ -342,8 +342,17 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public String getComponentText(int interfaceId, int componentId) {
+        return getComponentText(interfaceId, componentId, -1);
+    }
+
+    @Override
+    public String getComponentText(int interfaceId, int componentId, int subComponentId) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("interface_id", interfaceId);
+        params.put("component_id", componentId);
+        if (subComponentId >= 0) params.put("sub_component_id", subComponentId);
         Map<String, Object> r = rpc.callSync("get_component_text",
-                Map.of("interface_id", interfaceId, "component_id", componentId));
+                params);
         return getString(r, "text");
     }
 
@@ -367,8 +376,18 @@ public class GameAPIImpl implements GameAPI {
     @Override
     @SuppressWarnings("unchecked")
     public List<String> getComponentOptions(int interfaceId, int componentId) {
+        return getComponentOptions(interfaceId, componentId, -1);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<String> getComponentOptions(int interfaceId, int componentId, int subComponentId) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("interface_id", interfaceId);
+        params.put("component_id", componentId);
+        if (subComponentId >= 0) params.put("sub_component_id", subComponentId);
         Object raw = rpc.callSyncRaw("get_component_options",
-                Map.of("interface_id", interfaceId, "component_id", componentId));
+                params);
         if (raw instanceof List<?> list) {
             return list.stream().map(Object::toString).toList();
         }
