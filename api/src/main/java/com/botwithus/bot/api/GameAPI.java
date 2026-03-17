@@ -360,7 +360,19 @@ public interface GameAPI {
      * @param componentId the component ID
      * @return the component text, or {@code null} if none
      */
-    String getComponentText(int interfaceId, int componentId);
+    default String getComponentText(int interfaceId, int componentId) {
+        return getComponentText(interfaceId, componentId, -1);
+    }
+
+    /**
+     * Returns the text content of a component or sub-component.
+     *
+     * @param interfaceId    the parent interface ID
+     * @param componentId    the component ID
+     * @param subComponentId the sub-component ID, or {@code -1} for none
+     * @return the component text, or {@code null} if none
+     */
+    String getComponentText(int interfaceId, int componentId, int subComponentId);
 
     /**
      * Returns the item displayed by a component.
@@ -388,7 +400,19 @@ public interface GameAPI {
      * @param componentId the component ID
      * @return a list of option strings
      */
-    List<String> getComponentOptions(int interfaceId, int componentId);
+    default List<String> getComponentOptions(int interfaceId, int componentId) {
+        return getComponentOptions(interfaceId, componentId, -1);
+    }
+
+    /**
+     * Returns the right-click menu options available on a component or sub-component.
+     *
+     * @param interfaceId    the parent interface ID
+     * @param componentId    the component ID
+     * @param subComponentId the sub-component ID, or {@code -1} for none
+     * @return a list of option strings
+     */
+    List<String> getComponentOptions(int interfaceId, int componentId, int subComponentId);
 
     /**
      * Returns the sprite ID displayed by a component.
