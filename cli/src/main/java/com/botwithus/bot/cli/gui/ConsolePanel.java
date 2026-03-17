@@ -171,7 +171,7 @@ public class ConsolePanel implements GuiPanel {
         if (connected && connName != null) {
             ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "*");
             ImGui.sameLine(0, 4);
-            ImGui.text("jbot:");
+            ImGui.text("bwu:");
             ImGui.sameLine(0, 0);
             ImGui.textColored(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G, ImGuiTheme.CYAN_B, 1f, connName);
             if (count > 1) {
@@ -187,7 +187,7 @@ public class ConsolePanel implements GuiPanel {
         } else {
             ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f, "o");
             ImGui.sameLine(0, 4);
-            ImGui.text("jbot> ");
+            ImGui.text("bwu> ");
         }
 
         ImGui.sameLine();

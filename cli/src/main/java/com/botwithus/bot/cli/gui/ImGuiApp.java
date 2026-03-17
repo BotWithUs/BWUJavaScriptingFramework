@@ -18,7 +18,7 @@ import imgui.app.Application;
 import imgui.app.Configuration;
 import imgui.flag.ImGuiConfigFlags;
 import imgui.flag.ImGuiCond;
-import imgui.flag.ImGuiTabBarFlags;
+import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiWindowFlags;
 
 import org.lwjgl.glfw.GLFW;
@@ -38,12 +38,12 @@ public class ImGuiApp extends Application {
 
     private static final String BANNER = """
 
-               _ ____        _      ____ _     ___
-              | | __ )  ___ | |_   / ___| |   |_ _|
-           _  | |  _ \\ / _ \\| __| | |   | |    | |
-          | |_| | |_) | (_) | |_  | |___| |___ | |
-           \\___/|____/ \\___/ \\__|  \\____|_____|___|
-                  BotWithUs Script Manager
+            ____        _ __        ___ _   _     _   _
+           | __ )  ___ | |\\ \\      / (_) |_| |__ | | | |___
+           |  _ \\ / _ \\| __\\ \\ /\\ / /| | __| '_ \\| | | / __|
+           | |_) | (_) | |_ \\ V  V / | | |_| | | | |_| \\__ \\
+           |____/ \\___/ \\__| \\_/\\_/  |_|\\__|_| |_|\\___/|___/
+                        Script Manager
 
               Type 'help' for available commands.
               Press F2 to open the Blueprint Editor.
@@ -55,7 +55,7 @@ public class ImGuiApp extends Application {
     private CommandRegistry registry;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "jbot-cmd");
+        Thread t = new Thread(r, "bwu-cmd");
         t.setDaemon(true);
         return t;
     });
@@ -63,6 +63,8 @@ public class ImGuiApp extends Application {
     // Panels
     private final List<GuiPanel> panels = new ArrayList<>();
     private StatusBar statusBar;
+    private int selectedPanel = 0;
+    private float dpiScale = 1f;
 
     // Blueprint editor mode
     private boolean editorMode = false;
@@ -79,7 +81,7 @@ public class ImGuiApp extends Application {
 
     @Override
     protected void configure(Configuration config) {
-        config.setTitle("JBot \u2014 disconnected");
+        config.setTitle("BotWithUs \u2014 disconnected");
         config.setWidth(1100);
         config.setHeight(700);
     }
@@ -95,7 +97,7 @@ public class ImGuiApp extends Application {
         if (monitor != 0) {
             GLFW.glfwGetMonitorContentScale(monitor, xScale, yScale);
         }
-        float dpiScale = Math.max(xScale[0], 1.0f);
+        dpiScale = Math.max(xScale[0], 1.0f);
 
         float uiSize = (float) Math.round(19f * dpiScale);
         ImFontAtlas atlas = ImGui.getIO().getFonts();
@@ -270,21 +272,25 @@ public class ImGuiApp extends Application {
         } else {
             // Reserve space for status bar at the bottom
             float statusBarHeight = ImGui.getFrameHeightWithSpacing() + 4f;
+            float sidebarWidth = ImGui.calcTextSize("  EXTENSIONS  ").x + ImGui.getStyle().getWindowPaddingX() * 2;
+            float contentHeight = ImGui.getContentRegionAvailY() - statusBarHeight;
 
-            // Tab bar
-            if (ImGui.beginTabBar("##mainTabs", ImGuiTabBarFlags.None)) {
-                for (GuiPanel panel : panels) {
-                    if (ImGui.beginTabItem(panel.title())) {
-                        // Panel content area — fill available space minus status bar
-                        float panelHeight = ImGui.getContentRegionAvailY() - statusBarHeight;
-                        ImGui.beginChild("##tabContent", 0, panelHeight, false);
-                        panel.render(ctx);
-                        ImGui.endChild();
-                        ImGui.endTabItem();
-                    }
-                }
-                ImGui.endTabBar();
+            // --- Sidebar Navigation ---
+            ImGui.pushStyleColor(ImGuiCol.ChildBg,
+                    ImGuiTheme.SIDEBAR_BG_R, ImGuiTheme.SIDEBAR_BG_G, ImGuiTheme.SIDEBAR_BG_B, 1f);
+            ImGui.beginChild("##sidebar", sidebarWidth, contentHeight, true);
+            ImGui.popStyleColor();
+            renderSidebar();
+            ImGui.endChild();
+
+            ImGui.sameLine(0, 0);
+
+            // --- Content Area ---
+            ImGui.beginChild("##content", 0, contentHeight, false);
+            if (selectedPanel >= 0 && selectedPanel < panels.size()) {
+                panels.get(selectedPanel).render(ctx);
             }
+            ImGui.endChild();
 
             // Status bar at the bottom
             statusBar.render(ctx);
@@ -304,6 +310,74 @@ public class ImGuiApp extends Application {
 
         // Update window title based on connection state
         updateTitle();
+    }
+
+    // Sidebar navigation section definitions
+    private static final String[] NAV_SECTION_LABELS = {"CORE", "EXTENSIONS", "SYSTEM"};
+    private static final int[][] NAV_SECTION_PANELS = {
+        {0, 1, 2},      // Console, Connections, Scripts
+        {3, 4, 5},      // Management, Script UI, Groups
+        {6, 7}           // Logs, Settings
+    };
+
+    private void renderSidebar() {
+        // Brand header
+        ImGui.spacing();
+        ImGui.pushStyleColor(ImGuiCol.Text,
+                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
+        ImGui.text("  BotWithUs");
+        ImGui.popStyleColor();
+        ImGui.spacing();
+        ImGui.separator();
+
+        int accentCol = ImGuiTheme.imCol32(
+                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
+
+        for (int s = 0; s < NAV_SECTION_LABELS.length; s++) {
+            ImGui.spacing();
+            ImGui.textColored(
+                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.6f,
+                    "  " + NAV_SECTION_LABELS[s]);
+            ImGui.spacing();
+
+            for (int p : NAV_SECTION_PANELS[s]) {
+                if (p >= panels.size()) continue;
+                boolean isActive = (p == selectedPanel);
+
+                if (isActive) {
+                    ImGui.pushStyleColor(ImGuiCol.Header,
+                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.15f);
+                    ImGui.pushStyleColor(ImGuiCol.HeaderHovered,
+                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.25f);
+                    ImGui.pushStyleColor(ImGuiCol.HeaderActive,
+                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f);
+                }
+
+                if (ImGui.selectable("   " + panels.get(p).title() + "##nav" + p, isActive)) {
+                    selectedPanel = p;
+                }
+
+                if (isActive) {
+                    // Draw accent indicator bar on left edge of active item
+                    var drawList = ImGui.getWindowDrawList();
+                    drawList.addRectFilled(
+                            ImGui.getItemRectMinX(), ImGui.getItemRectMinY(),
+                            ImGui.getItemRectMinX() + ImGui.getStyle().getFrameRounding() + 1f, ImGui.getItemRectMaxY(),
+                            accentCol);
+                    ImGui.popStyleColor(3);
+                }
+            }
+        }
+
+        // Bottom hint — pushed to bottom of sidebar
+        float bottomY = ImGui.getWindowHeight() - ImGui.getFrameHeightWithSpacing() * 2;
+        if (bottomY > ImGui.getCursorPosY()) {
+            ImGui.setCursorPosY(bottomY);
+            ImGui.separator();
+            ImGui.textColored(
+                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.5f,
+                    "  F2: Blueprint Editor");
+        }
     }
 
     private static byte[] loadSystemFont(String... candidates) {
@@ -328,9 +402,9 @@ public class ImGuiApp extends Application {
         String title;
         if (connected && connName != null) {
             String suffix = count > 1 ? " [" + count + "]" : "";
-            title = "JBot \u2014 " + connName + suffix;
+            title = "BotWithUs \u2014 " + connName + suffix;
         } else {
-            title = "JBot \u2014 disconnected";
+            title = "BotWithUs \u2014 disconnected";
         }
         GLFW.glfwSetWindowTitle(glfwWindow, title);
     }

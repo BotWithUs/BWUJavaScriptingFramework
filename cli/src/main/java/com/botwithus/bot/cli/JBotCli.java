@@ -17,12 +17,12 @@ public class JBotCli {
 
     private static final String BANNER = """
 
-               _ ____        _      ____ _     ___
-              | | __ )  ___ | |_   / ___| |   |_ _|
-           _  | |  _ \\ / _ \\| __| | |   | |    | |
-          | |_| | |_) | (_) | |_  | |___| |___ | |
-           \\___/|____/ \\___/ \\__|  \\____|_____|___|
-                  BotWithUs Script Manager
+            ____        _ __        ___ _   _     _   _
+           | __ )  ___ | |\\ \\      / (_) |_| |__ | | | |___
+           |  _ \\ / _ \\| __\\ \\ /\\ / /| | __| '_ \\| | | / __|
+           | |_) | (_) | |_ \\ V  V / | | |_| | | | |_| \\__ \\
+           |____/ \\___/ \\__| \\_/\\_/  |_|\\__|_| |_|\\___/|___/
+                        Script Manager
 
               Type 'help' for available commands.
             """;
@@ -75,9 +75,9 @@ public class JBotCli {
                 String mountIndicator = ctx.isMounted()
                         ? " " + AnsiCodes.colorize("[mounted]", AnsiCodes.MAGENTA) : "";
                 connLabel = AnsiCodes.colorize("*", AnsiCodes.GREEN) + " "
-                        + AnsiCodes.bold("jbot") + ":" + AnsiCodes.colorize(name, AnsiCodes.CYAN) + suffix + mountIndicator;
+                        + AnsiCodes.bold("bwu") + ":" + AnsiCodes.colorize(name, AnsiCodes.CYAN) + suffix + mountIndicator;
             } else {
-                connLabel = AnsiCodes.colorize("o", AnsiCodes.RED) + " " + AnsiCodes.bold("jbot");
+                connLabel = AnsiCodes.colorize("o", AnsiCodes.RED) + " " + AnsiCodes.bold("bwu");
             }
             out.print(connLabel + "> ");
             out.flush();

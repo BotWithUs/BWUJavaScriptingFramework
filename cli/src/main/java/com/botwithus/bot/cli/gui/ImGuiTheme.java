@@ -5,7 +5,7 @@ import imgui.ImGuiStyle;
 import imgui.flag.ImGuiCol;
 
 /**
- * Color constants and imgui style setup matching the botwithus.com dark theme.
+ * Color constants and imgui style setup for the BotWithUs dark theme.
  * All colors in 0.0-1.0 float range.
  */
 public final class ImGuiTheme {
@@ -19,8 +19,8 @@ public final class ImGuiTheme {
     public static final float TEXT_R = 0xf0 / 255f, TEXT_G = 0xf0 / 255f, TEXT_B = 0xf0 / 255f;
     public static final float DIM_TEXT_R = 0x80 / 255f, DIM_TEXT_G = 0x80 / 255f, DIM_TEXT_B = 0x88 / 255f;
 
-    // Accent — BotWithUs brand blue (#4a90e2)
-    public static final float ACCENT_R = 0x4a / 255f, ACCENT_G = 0x90 / 255f, ACCENT_B = 0xe2 / 255f;
+    // Accent — BotWithUs brand green (#5cb85c)
+    public static final float ACCENT_R = 0x5c / 255f, ACCENT_G = 0xb8 / 255f, ACCENT_B = 0x5c / 255f;
 
     // ANSI colors
     public static final float RED_R = 0xdc / 255f, RED_G = 0x35 / 255f, RED_B = 0x45 / 255f;
@@ -29,6 +29,9 @@ public final class ImGuiTheme {
     public static final float BLUE_R = 0x4a / 255f, BLUE_G = 0x90 / 255f, BLUE_B = 0xe2 / 255f;
     public static final float MAGENTA_R = 0xc0 / 255f, MAGENTA_G = 0x84 / 255f, MAGENTA_B = 0xfc / 255f;
     public static final float CYAN_R = 0x67 / 255f, CYAN_G = 0xe8 / 255f, CYAN_B = 0xf9 / 255f;
+
+    // Sidebar background (slightly lighter than main BG for depth)
+    public static final float SIDEBAR_BG_R = 0x16 / 255f, SIDEBAR_BG_G = 0x18 / 255f, SIDEBAR_BG_B = 0x20 / 255f;
 
     private ImGuiTheme() {}
 
@@ -50,6 +53,13 @@ public final class ImGuiTheme {
     }
 
     /**
+     * Convert RGBA floats (0-1) to packed ImGui color integer (IM_COL32 format).
+     */
+    public static int imCol32(float r, float g, float b, float a) {
+        return ((int)(a * 255f) << 24) | ((int)(b * 255f) << 16) | ((int)(g * 255f) << 8) | (int)(r * 255f);
+    }
+
+    /**
      * Apply the dark theme to the current imgui context with DPI scale factor of 1.0.
      */
     public static void apply() {
@@ -57,24 +67,27 @@ public final class ImGuiTheme {
     }
 
     /**
-     * Apply the dark theme to the current imgui context, scaling padding/sizes by the given factor.
+     * Apply the dark theme to the current imgui context, scaling sizes by the given DPI factor.
      */
     public static void apply(float scale) {
         ImGuiStyle style = ImGui.getStyle();
 
-        // Rounding
+        // Base sizes in logical pixels — ImGui scales these via scaleAllSizes()
         style.setWindowRounding(0f);
-        style.setFrameRounding(4f * scale);
-        style.setScrollbarRounding(4f * scale);
-        style.setGrabRounding(2f * scale);
-        style.setTabRounding(4f * scale);
+        style.setChildRounding(2f);
+        style.setFrameRounding(4f);
+        style.setScrollbarRounding(4f);
+        style.setGrabRounding(2f);
+        style.setTabRounding(4f);
 
-        // Padding
-        style.setWindowPadding(8f * scale, 8f * scale);
-        style.setFramePadding(6f * scale, 4f * scale);
-        style.setItemSpacing(8f * scale, 4f * scale);
-        style.setItemInnerSpacing(4f * scale, 4f * scale);
-        style.setScrollbarSize(12f * scale);
+        style.setWindowPadding(8f, 8f);
+        style.setFramePadding(6f, 4f);
+        style.setItemSpacing(8f, 4f);
+        style.setItemInnerSpacing(4f, 4f);
+        style.setScrollbarSize(12f);
+
+        // Let ImGui scale all sizes uniformly for DPI
+        style.scaleAllSizes(scale);
 
         // -- Window & child backgrounds --
         style.setColor(ImGuiCol.WindowBg, BG_R, BG_G, BG_B, 1f);
