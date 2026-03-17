@@ -9,6 +9,7 @@ import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
+import com.botwithus.bot.core.log.LocalLogManager;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
@@ -22,6 +23,7 @@ import java.util.List;
 public class JBotApplication {
 
     public static void main(String[] args) {
+        LocalLogManager.install("jbot-core");
         System.out.println("[JBot] Connecting to BotWithUs pipe...");
         try (PipeClient pipe = new PipeClient()) {
             RpcClient rpc = new RpcClient(pipe);

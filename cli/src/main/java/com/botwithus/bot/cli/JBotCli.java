@@ -8,6 +8,7 @@ import com.botwithus.bot.cli.command.impl.*;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
+import com.botwithus.bot.core.log.LocalLogManager;
 
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -33,6 +34,7 @@ public class JBotCli {
         PrintStream utf8Err = new PrintStream(System.err, true, StandardCharsets.UTF_8);
         System.setOut(utf8Out);
         System.setErr(utf8Err);
+        LocalLogManager.install("jbot-cli");
 
         LogBuffer logBuffer = new LogBuffer();
         LogCapture logCapture = new LogCapture(logBuffer);

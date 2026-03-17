@@ -111,6 +111,18 @@ public final class SdnLoader {
         }
     }
 
+    /**
+     * Returns whether the current JVM exposes the native lockdown entry point.
+     */
+    public static boolean isLockdownAvailable() {
+        try {
+            getLockdown0Handle();
+            return true;
+        } catch (RpcException e) {
+            return false;
+        }
+    }
+
     private static byte[] decodeBytes(Object value, String fieldName) {
         if (value instanceof byte[] bytes) {
             return bytes;

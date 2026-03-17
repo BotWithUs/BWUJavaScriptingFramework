@@ -88,7 +88,7 @@ public final class SDNScriptLoader {
 
     /**
      * Loads all BotScript providers from local JARs in the default {@code scripts/} directory.
-     * This is the legacy entry point — equivalent to {@link #loadLocalScripts()}.
+     * This is the legacy entry point - equivalent to {@link #loadLocalScripts()}.
      */
     public static List<BotScript> loadScripts() {
         List<BotScript> scripts = loadLocalScripts();
@@ -98,7 +98,7 @@ public final class SDNScriptLoader {
 
     /**
      * Loads all BotScript providers from local JARs in the given directory.
-     * This is the legacy entry point — equivalent to {@link #loadLocalScripts(Path)}.
+     * This is the legacy entry point - equivalent to {@link #loadLocalScripts(Path)}.
      */
     public static List<BotScript> loadScripts(Path scriptsDir) {
         List<BotScript> scripts = loadLocalScripts(scriptsDir);
@@ -111,13 +111,27 @@ public final class SDNScriptLoader {
      */
     private static void enforceLockdown(List<BotScript> scripts) {
         if (!scripts.isEmpty() && !lockdownCalled) {
+            if (!SdnLoader.isLockdownAvailable()) {
+                lockdownCalled = true;
+                System.out.println("[ScriptLoader] Process lockdown unavailable on this JVM; continuing without DLL lockdown.");
+                return;
+            }
             try {
                 SdnLoader.lockdown();
                 lockdownCalled = true;
-                System.out.println("[ScriptLoader] Process lockdown enforced — unsigned DLL loading blocked.");
+                System.out.println("[ScriptLoader] Process lockdown enforced - unsigned DLL loading blocked.");
             } catch (Exception e) {
-                System.err.println("[ScriptLoader] lockdown0() failed: " + e.getMessage());
+                lockdownCalled = true;
+                System.err.println("[ScriptLoader] Process lockdown unavailable: " + rootCauseMessage(e));
             }
         }
+    }
+
+    private static String rootCauseMessage(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 }

@@ -10,6 +10,7 @@ import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.core.log.LocalLogManager;
 
 import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
@@ -27,8 +28,11 @@ import java.awt.image.BufferedImage;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Future;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Main imgui-based application with tabbed GUI panels.
@@ -54,11 +58,7 @@ public class ImGuiApp extends Application {
     private CliContext ctx;
     private CommandRegistry registry;
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
-        Thread t = new Thread(r, "bwu-cmd");
-        t.setDaemon(true);
-        return t;
-    });
+    private final ExecutorService executor = new LoggingExecutor();
 
     // Panels
     private final List<GuiPanel> panels = new ArrayList<>();
@@ -122,9 +122,14 @@ public class ImGuiApp extends Application {
 
         textureManager = new TextureManager();
         outputBuffer = new AnsiOutputBuffer();
+        LocalLogManager logManager = LocalLogManager.install("bwu-gui");
 
         PrintStream guiOut = outputBuffer.getPrintStream();
         PrintStream guiErr = outputBuffer.getPrintStream();
+        if (logManager != null) {
+            guiOut = logManager.wrapStdout(guiOut);
+            guiErr = logManager.wrapStderr(guiErr);
+        }
 
         LogBuffer logBuffer = new LogBuffer();
         LogCapture logCapture = new LogCapture(logBuffer, guiOut, guiErr);
@@ -441,6 +446,39 @@ public class ImGuiApp extends Application {
     }
 
     public static void main(String[] args) {
+        LocalLogManager.install("bwu-gui");
         launch(new ImGuiApp());
+    }
+
+    private static final class LoggingExecutor extends ThreadPoolExecutor {
+        private LoggingExecutor() {
+            super(1, 1, 0L, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(), task -> {
+                Thread thread = new Thread(task, "bwu-cmd");
+                thread.setDaemon(true);
+                return thread;
+            });
+        }
+
+        @Override
+        protected void afterExecute(Runnable runnable, Throwable failure) {
+            super.afterExecute(runnable, failure);
+
+            Throwable error = failure;
+            if (error == null && runnable instanceof Future<?> future && future.isDone()) {
+                try {
+                    future.get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (java.util.concurrent.ExecutionException e) {
+                    error = e.getCause() != null ? e.getCause() : e;
+                } catch (java.util.concurrent.CancellationException ignored) {
+                }
+            }
+
+            if (error != null) {
+                System.err.println("[ImGuiApp] Background task failed: " + error);
+                error.printStackTrace(System.err);
+            }
+        }
     }
 }
