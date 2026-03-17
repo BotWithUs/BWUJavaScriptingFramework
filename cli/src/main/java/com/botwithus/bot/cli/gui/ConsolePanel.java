@@ -15,8 +15,6 @@ import imgui.type.ImString;
 
 import org.lwjgl.glfw.GLFW;
 
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -65,11 +63,9 @@ public class ConsolePanel implements GuiPanel {
 
     private void renderOutput(float height) {
         // Copy button row above output
-        if (copyFeedbackTimer > 0f) {
-            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "Copied!");
-            copyFeedbackTimer -= ImGui.getIO().getDeltaTime();
-        } else if (ImGui.smallButton("Copy Console")) {
-            copyConsoleToClipboard();
+        copyFeedbackTimer = ClipboardHelper.renderCopyFeedback(copyFeedbackTimer);
+        if (copyFeedbackTimer <= 0f && ImGui.smallButton("Copy Console")) {
+            copyConsoleToClipboard(null);
         }
 
         ImGui.beginChild("output", 0, height - ImGui.getFrameHeightWithSpacing(), false, ImGuiWindowFlags.HorizontalScrollbar);
@@ -84,10 +80,10 @@ public class ConsolePanel implements GuiPanel {
                     renderTextLine(line);
                     if (ImGui.beginPopupContextItem("lineCtx_" + i)) {
                         if (ImGui.menuItem("Copy Line")) {
-                            copyToClipboard(extractLineText(line));
+                            ClipboardHelper.copyToClipboard(extractLineText(line));
                         }
                         if (ImGui.menuItem("Copy All")) {
-                            copyConsoleToClipboard();
+                            copyConsoleToClipboard(snapshot);
                         }
                         ImGui.endPopup();
                     }
@@ -325,34 +321,19 @@ public class ConsolePanel implements GuiPanel {
         return sb.toString();
     }
 
-    private void copyConsoleToClipboard() {
-        List<OutputLine> snapshot = outputBuffer.snapshot();
+    private void copyConsoleToClipboard(List<OutputLine> existing) {
+        List<OutputLine> lines = existing != null ? existing : outputBuffer.snapshot();
         StringBuilder sb = new StringBuilder();
-        for (OutputLine line : snapshot) {
+        for (OutputLine line : lines) {
             if (line.isRemoved()) continue;
             if (line.getType() == OutputLine.Type.TEXT) {
-                List<OutputLine.Segment> segments = line.getSegments();
-                if (segments != null) {
-                    for (OutputLine.Segment seg : segments) {
-                        sb.append(seg.text());
-                    }
-                }
-                sb.append('\n');
+                sb.append(extractLineText(line)).append('\n');
             } else if (line.getType() == OutputLine.Type.PROGRESS) {
                 sb.append(line.getLabel() != null ? line.getLabel() : "").append('\n');
             }
         }
-        copyToClipboard(sb.toString());
-        copyFeedbackTimer = 1.5f;
-    }
-
-    private static void copyToClipboard(String text) {
-        try {
-            Toolkit.getDefaultToolkit().getSystemClipboard()
-                    .setContents(new StringSelection(text), null);
-        } catch (Exception ignored) {
-            // Clipboard may be unavailable in headless environments
-        }
+        ClipboardHelper.copyToClipboard(sb.toString());
+        copyFeedbackTimer = ClipboardHelper.FEEDBACK_DURATION;
     }
 
     /** Clear the output buffer (used by clear command). */

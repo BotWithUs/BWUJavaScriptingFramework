@@ -10,8 +10,6 @@ import imgui.type.ImBoolean;
 import imgui.type.ImInt;
 import imgui.type.ImString;
 
-import java.awt.Toolkit;
-import java.awt.datatransfer.StringSelection;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -89,10 +87,8 @@ public class LogsPanel implements GuiPanel {
 
         ImGui.sameLine(0, 8);
         boolean wantCopy = false;
-        if (copyFeedbackTimer > 0f) {
-            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "Copied!");
-            copyFeedbackTimer -= ImGui.getIO().getDeltaTime();
-        } else if (ImGui.button("Copy Logs")) {
+        copyFeedbackTimer = ClipboardHelper.renderCopyFeedback(copyFeedbackTimer);
+        if (copyFeedbackTimer <= 0f && ImGui.button("Copy Logs")) {
             wantCopy = true;
         }
 
@@ -146,10 +142,10 @@ public class LogsPanel implements GuiPanel {
                 // Right-click context menu for this row
                 if (ImGui.beginPopupContextItem("logRowCtx_" + i)) {
                     if (ImGui.menuItem("Copy Message")) {
-                        copyToClipboard(entry.message() != null ? entry.message() : "");
+                        ClipboardHelper.copyToClipboard(entry.message() != null ? entry.message() : "");
                     }
                     if (ImGui.menuItem("Copy Row")) {
-                        copyToClipboard(formatLogEntry(entry));
+                        ClipboardHelper.copyToClipboard(formatLogEntry(entry));
                     }
                     if (ImGui.menuItem("Copy All Logs")) {
                         copyLogsToClipboard(filtered);
@@ -200,29 +196,13 @@ public class LogsPanel implements GuiPanel {
                 (entry.message() != null ? entry.message() : "");
     }
 
-    private static void copyToClipboard(String text) {
-        try {
-            Toolkit.getDefaultToolkit().getSystemClipboard()
-                    .setContents(new StringSelection(text), null);
-        } catch (Exception ignored) {
-        }
-    }
-
     private void copyLogsToClipboard(List<LogEntry> entries) {
         StringBuilder sb = new StringBuilder();
         for (LogEntry entry : entries) {
-            sb.append(TIME_FMT.format(entry.timestamp())).append('\t');
-            sb.append(entry.level() != null ? entry.level() : "-").append('\t');
-            sb.append(entry.source() != null ? entry.source() : "-").append('\t');
-            sb.append(entry.connection() != null ? entry.connection() : "-").append('\t');
-            sb.append(entry.message() != null ? entry.message() : "").append('\n');
+            sb.append(formatLogEntry(entry)).append('\n');
         }
-        try {
-            Toolkit.getDefaultToolkit().getSystemClipboard()
-                    .setContents(new StringSelection(sb.toString()), null);
-        } catch (Exception ignored) {
-        }
-        copyFeedbackTimer = 1.5f;
+        ClipboardHelper.copyToClipboard(sb.toString());
+        copyFeedbackTimer = ClipboardHelper.FEEDBACK_DURATION;
     }
 
     private void renderLevel(String level) {
