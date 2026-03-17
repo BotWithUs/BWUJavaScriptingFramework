@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli;
 
+import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -12,6 +13,7 @@ public class Connection {
     private final PipeClient pipe;
     private final RpcClient rpc;
     private final ScriptRuntime runtime;
+    private GameAPI gameApi;
     private EventBusImpl eventBus;
     private String accountName;
     private java.util.Map<String, Object> accountInfo;
@@ -27,6 +29,8 @@ public class Connection {
     public PipeClient getPipe() { return pipe; }
     public RpcClient getRpc() { return rpc; }
     public ScriptRuntime getRuntime() { return runtime; }
+    public void setGameApi(GameAPI gameApi) { this.gameApi = gameApi; }
+    public GameAPI getGameApi() { return gameApi; }
 
     public void setEventBus(EventBusImpl eventBus) { this.eventBus = eventBus; }
     public EventBusImpl getEventBus() { return eventBus; }

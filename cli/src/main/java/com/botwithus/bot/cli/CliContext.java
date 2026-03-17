@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli;
 
+import com.botwithus.bot.api.ActiveGameApiRegistry;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.blueprint.BlueprintGraph;
 import com.botwithus.bot.cli.log.LogBuffer;
@@ -145,9 +146,11 @@ public class CliContext {
             context.setScriptManager(scriptManager);
 
             Connection conn = new Connection(connName, pipe, rpc, runtime);
+            conn.setGameApi(gameAPI);
             conn.setEventBus(eventBus);
             connections.put(connName, conn);
             activeConnectionName = connName;
+            syncActiveGameApi();
             out().println("Connected to pipe: " + pipe.getPipePath());
             if (connections.size() > 1) {
                 out().println("Active connection set to '" + connName + "'.");
@@ -187,6 +190,7 @@ public class CliContext {
                 out().println("Active connection switched to '" + activeConnectionName + "'.");
             }
         }
+        syncActiveGameApi();
     }
 
     public void disconnect(String name) {
@@ -212,6 +216,7 @@ public class CliContext {
         if (activeConnectionName != null && !connections.containsKey(activeConnectionName)) {
             activeConnectionName = connections.isEmpty() ? null : connections.keySet().iterator().next();
         }
+        syncActiveGameApi();
     }
 
     public void disconnectAll() {
@@ -221,6 +226,7 @@ public class CliContext {
     public boolean setActive(String name) {
         if (!connections.containsKey(name)) return false;
         activeConnectionName = name;
+        syncActiveGameApi();
         return true;
     }
 
@@ -273,6 +279,7 @@ public class CliContext {
                 out().println("Active connection switched to '" + activeConnectionName + "'.");
             }
         }
+        syncActiveGameApi();
     }
 
     public boolean hasConnections() { return !connections.isEmpty(); }
@@ -451,5 +458,18 @@ public class CliContext {
 
     public boolean isWatcherRunning() {
         return scriptWatcher != null && scriptWatcher.isRunning();
+    }
+
+    private void syncActiveGameApi() {
+        Connection activeConnection = getActiveConnection();
+        if (activeConnection == null) {
+            ActiveGameApiRegistry.clear();
+            return;
+        }
+        if (activeConnection.getGameApi() == null) {
+            ActiveGameApiRegistry.clear();
+            return;
+        }
+        ActiveGameApiRegistry.set(activeConnection.getGameApi());
     }
 }
