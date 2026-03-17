@@ -15,6 +15,8 @@ import imgui.type.ImString;
 
 import org.lwjgl.glfw.GLFW;
 
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +39,7 @@ public class ConsolePanel implements GuiPanel {
     private int historyIndex = -1;
     private boolean focusInput = true;
     private boolean scrollToBottom = true;
+    private float copyFeedbackTimer = 0f;
 
     public ConsolePanel(AnsiOutputBuffer outputBuffer, CommandRegistry registry,
                         ExecutorService executor, Runnable shutdownHook) {
@@ -61,14 +64,34 @@ public class ConsolePanel implements GuiPanel {
     }
 
     private void renderOutput(float height) {
-        ImGui.beginChild("output", 0, height, false, ImGuiWindowFlags.HorizontalScrollbar);
+        // Copy button row above output
+        if (copyFeedbackTimer > 0f) {
+            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "Copied!");
+            copyFeedbackTimer -= ImGui.getIO().getDeltaTime();
+        } else if (ImGui.smallButton("Copy Console")) {
+            copyConsoleToClipboard();
+        }
+
+        ImGui.beginChild("output", 0, height - ImGui.getFrameHeightWithSpacing(), false, ImGuiWindowFlags.HorizontalScrollbar);
 
         List<OutputLine> snapshot = outputBuffer.snapshot();
-        for (OutputLine line : snapshot) {
+        for (int i = 0; i < snapshot.size(); i++) {
+            OutputLine line = snapshot.get(i);
             if (line.isRemoved()) continue;
 
             switch (line.getType()) {
-                case TEXT -> renderTextLine(line);
+                case TEXT -> {
+                    renderTextLine(line);
+                    if (ImGui.beginPopupContextItem("lineCtx_" + i)) {
+                        if (ImGui.menuItem("Copy Line")) {
+                            copyToClipboard(extractLineText(line));
+                        }
+                        if (ImGui.menuItem("Copy All")) {
+                            copyConsoleToClipboard();
+                        }
+                        ImGui.endPopup();
+                    }
+                }
                 case IMAGE -> renderImageLine(line);
                 case PROGRESS -> renderProgressLine(line);
                 case STREAM -> renderStreamLine(line);
@@ -290,6 +313,46 @@ public class ConsolePanel implements GuiPanel {
             i++;
         }
         return a.substring(0, i);
+    }
+
+    private static String extractLineText(OutputLine line) {
+        List<OutputLine.Segment> segments = line.getSegments();
+        if (segments == null || segments.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (OutputLine.Segment seg : segments) {
+            sb.append(seg.text());
+        }
+        return sb.toString();
+    }
+
+    private void copyConsoleToClipboard() {
+        List<OutputLine> snapshot = outputBuffer.snapshot();
+        StringBuilder sb = new StringBuilder();
+        for (OutputLine line : snapshot) {
+            if (line.isRemoved()) continue;
+            if (line.getType() == OutputLine.Type.TEXT) {
+                List<OutputLine.Segment> segments = line.getSegments();
+                if (segments != null) {
+                    for (OutputLine.Segment seg : segments) {
+                        sb.append(seg.text());
+                    }
+                }
+                sb.append('\n');
+            } else if (line.getType() == OutputLine.Type.PROGRESS) {
+                sb.append(line.getLabel() != null ? line.getLabel() : "").append('\n');
+            }
+        }
+        copyToClipboard(sb.toString());
+        copyFeedbackTimer = 1.5f;
+    }
+
+    private static void copyToClipboard(String text) {
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new StringSelection(text), null);
+        } catch (Exception ignored) {
+            // Clipboard may be unavailable in headless environments
+        }
     }
 
     /** Clear the output buffer (used by clear command). */

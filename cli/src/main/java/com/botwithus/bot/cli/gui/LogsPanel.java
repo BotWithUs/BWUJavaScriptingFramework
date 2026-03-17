@@ -10,6 +10,8 @@ import imgui.type.ImBoolean;
 import imgui.type.ImInt;
 import imgui.type.ImString;
 
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -29,6 +31,7 @@ public class LogsPanel implements GuiPanel {
     private final ImInt lineCount = new ImInt(200);
     private final ImBoolean followMode = new ImBoolean(true);
     private final ImInt connectionFilter = new ImInt(0);
+    private float copyFeedbackTimer = 0f;
 
     @Override
     public String title() {
@@ -84,11 +87,24 @@ public class LogsPanel implements GuiPanel {
             ctx.getLogBuffer().clear();
         }
 
+        ImGui.sameLine(0, 8);
+        boolean wantCopy = false;
+        if (copyFeedbackTimer > 0f) {
+            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "Copied!");
+            copyFeedbackTimer -= ImGui.getIO().getDeltaTime();
+        } else if (ImGui.button("Copy Logs")) {
+            wantCopy = true;
+        }
+
         ImGui.spacing();
 
         // Get log entries
         List<LogEntry> entries = ctx.getLogBuffer().tail(lineCount.get());
         List<LogEntry> filtered = filterEntries(entries, connections);
+
+        if (wantCopy) {
+            copyLogsToClipboard(filtered);
+        }
 
         // Log table
         float tableHeight = ImGui.getContentRegionAvailY();
@@ -102,7 +118,8 @@ public class LogsPanel implements GuiPanel {
             ImGui.tableSetupColumn("Message", 0, 3.0f);
             ImGui.tableHeadersRow();
 
-            for (LogEntry entry : filtered) {
+            for (int i = 0; i < filtered.size(); i++) {
+                LogEntry entry = filtered.get(i);
                 ImGui.tableNextRow();
 
                 ImGui.tableSetColumnIndex(0);
@@ -124,6 +141,20 @@ public class LogsPanel implements GuiPanel {
                             entry.message() != null ? entry.message() : "");
                 } else {
                     ImGui.text(entry.message() != null ? entry.message() : "");
+                }
+
+                // Right-click context menu for this row
+                if (ImGui.beginPopupContextItem("logRowCtx_" + i)) {
+                    if (ImGui.menuItem("Copy Message")) {
+                        copyToClipboard(entry.message() != null ? entry.message() : "");
+                    }
+                    if (ImGui.menuItem("Copy Row")) {
+                        copyToClipboard(formatLogEntry(entry));
+                    }
+                    if (ImGui.menuItem("Copy All Logs")) {
+                        copyLogsToClipboard(filtered);
+                    }
+                    ImGui.endPopup();
                 }
             }
 
@@ -159,6 +190,39 @@ public class LogsPanel implements GuiPanel {
             result.add(entry);
         }
         return result;
+    }
+
+    private static String formatLogEntry(LogEntry entry) {
+        return TIME_FMT.format(entry.timestamp()) + "\t" +
+                (entry.level() != null ? entry.level() : "-") + "\t" +
+                (entry.source() != null ? entry.source() : "-") + "\t" +
+                (entry.connection() != null ? entry.connection() : "-") + "\t" +
+                (entry.message() != null ? entry.message() : "");
+    }
+
+    private static void copyToClipboard(String text) {
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new StringSelection(text), null);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void copyLogsToClipboard(List<LogEntry> entries) {
+        StringBuilder sb = new StringBuilder();
+        for (LogEntry entry : entries) {
+            sb.append(TIME_FMT.format(entry.timestamp())).append('\t');
+            sb.append(entry.level() != null ? entry.level() : "-").append('\t');
+            sb.append(entry.source() != null ? entry.source() : "-").append('\t');
+            sb.append(entry.connection() != null ? entry.connection() : "-").append('\t');
+            sb.append(entry.message() != null ? entry.message() : "").append('\n');
+        }
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new StringSelection(sb.toString()), null);
+        } catch (Exception ignored) {
+        }
+        copyFeedbackTimer = 1.5f;
     }
 
     private void renderLevel(String level) {
