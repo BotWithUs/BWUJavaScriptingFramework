@@ -15,6 +15,12 @@ public class ScriptUIWindow {
 
     public void open(ScriptRunner runner) {
         this.runner = runner;
+        ScriptUI ui = runner.getScript().getUI();
+        if (ScriptUIHostSupport.isExternalWindowScriptUI(ui)) {
+            ScriptUIHostSupport.openExternalWindow(ui);
+            open.set(false);
+            return;
+        }
         open.set(true);
         ImGui.setNextWindowSize(925, 690, ImGuiCond.FirstUseEver);
     }
@@ -28,6 +34,11 @@ public class ScriptUIWindow {
 
         ScriptUI ui = runner.getScript().getUI();
         if (ui == null) { open.set(false); return; }
+        if (ScriptUIHostSupport.isExternalWindowScriptUI(ui)) {
+            ScriptUIHostSupport.openExternalWindow(ui);
+            open.set(false);
+            return;
+        }
 
         ImGui.setNextWindowSize(925, 690, ImGuiCond.FirstUseEver);
         if (ImGui.begin(runner.getScriptName() + " Config###scriptUIWindow", open,
