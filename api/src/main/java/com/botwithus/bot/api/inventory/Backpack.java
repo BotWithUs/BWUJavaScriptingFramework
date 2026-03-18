@@ -54,12 +54,30 @@ public final class Backpack {
     }
 
     /**
+     * Checks if the backpack has at least one item.
+     *
+     * @return {@code true} if the backpack is not empty
+     */
+    public boolean isNotEmpty() {
+        return container.isNotEmpty();
+    }
+
+    /**
      * Checks if the backpack has no free slots.
      *
      * @return {@code true} if the backpack is full
      */
     public boolean isFull() {
         return container.isFull();
+    }
+
+    /**
+     * Checks if the backpack has at least one free slot.
+     *
+     * @return {@code true} if the backpack is not full
+     */
+    public boolean isNotFull() {
+        return !container.isFull();
     }
 
     /**
@@ -133,12 +151,30 @@ public final class Backpack {
     }
 
     /**
+     * Returns the number of occupied (non-empty) slots in the backpack.
+     *
+     * @return the occupied slot count
+     */
+    public int occupiedSlots() {
+        return container.occupiedSlots();
+    }
+
+    /**
      * Returns the number of empty slots in the backpack.
      *
      * @return the free slot count
      */
     public int freeSlots() {
         return container.freeSlots();
+    }
+
+    /**
+     * Returns all items including empty slots.
+     *
+     * @return a list of all inventory slots
+     */
+    public List<InventoryItem> getAllSlots() {
+        return container.getAllSlots();
     }
 
     // ========================== Interaction Methods ==========================

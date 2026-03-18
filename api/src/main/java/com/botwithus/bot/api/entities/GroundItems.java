@@ -1,15 +1,14 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
-import com.botwithus.bot.api.model.GroundItem;
-import com.botwithus.bot.api.model.GroundItemStack;
-import com.botwithus.bot.api.model.ItemType;
-import com.botwithus.bot.api.model.LocalPlayer;
+import com.botwithus.bot.api.inventory.ActionTypes;
+import com.botwithus.bot.api.model.*;
 import com.botwithus.bot.api.query.EntityFilter;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Query facade for ground items. Provides convenient methods for finding
@@ -62,6 +61,20 @@ public class GroundItems {
      */
     public List<Entry> all(int itemId) {
         return query().withItemId(itemId).all();
+    }
+
+    /**
+     * Returns the nearest ground item entry whose name contains the given string, or null.
+     */
+    public Entry nearest(String name) {
+        return query().named(name).nearest();
+    }
+
+    /**
+     * Returns all ground item entries whose name contains the given string.
+     */
+    public List<Entry> all(String name) {
+        return query().named(name).all();
     }
 
     /**
@@ -141,6 +154,38 @@ public class GroundItems {
             return distanceTo(lp.tileX(), lp.tileY());
         }
 
+        /**
+         * Interacts with this ground item using the given right-click option name.
+         *
+         * @param option the option text (e.g. "Take"), case-insensitive
+         * @return {@code true} if the option was found and the action was queued
+         */
+        public boolean interact(String option) {
+            ItemType type = getType();
+            if (type == null || type.groundOptions() == null) return false;
+            List<String> options = type.groundOptions();
+            for (int i = 0; i < options.size(); i++) {
+                if (options.get(i) != null && options.get(i).equalsIgnoreCase(option)) {
+                    interact(i + 1);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /**
+         * Interacts with this ground item using the given 1-based option index.
+         *
+         * @param optionIndex the 1-based option index (1–6)
+         */
+        public void interact(int optionIndex) {
+            if (optionIndex < 1 || optionIndex >= ActionTypes.GROUND_ITEM_OPTIONS.length) {
+                throw new IllegalArgumentException("Ground item option index out of range: " + optionIndex);
+            }
+            api.queueAction(new GameAction(
+                    ActionTypes.GROUND_ITEM_OPTIONS[optionIndex], item.itemId(), stack.tileX(), stack.tileY()));
+        }
+
         @Override
         public String toString() {
             return "GroundItem{" + name() + " x" + quantity()
@@ -158,6 +203,8 @@ public class GroundItems {
         private final GameAPI api;
         private final EntityFilter.Builder filterBuilder = EntityFilter.builder();
         private int itemIdFilter = -1;
+        private String nameFilter;
+        private Predicate<Entry> postFilter;
 
         Query(GameAPI api) {
             this.api = api;
@@ -188,7 +235,22 @@ public class GroundItems {
             return this;
         }
 
-        /** Sort by distance and limit results. */
+        /** Filter by item name (contains match, case-insensitive). */
+        public Query named(String name) {
+            this.nameFilter = name.toLowerCase();
+            return this;
+        }
+
+        /**
+         * Adds a post-query filter predicate applied after entries are constructed.
+         * Use this for conditions the server-side filter can't express.
+         */
+        public Query filter(Predicate<Entry> predicate) {
+            this.postFilter = this.postFilter == null ? predicate : this.postFilter.and(predicate);
+            return this;
+        }
+
+        /** Limit the maximum number of results. */
         public Query limit(int max) {
             filterBuilder.maxResults(max);
             return this;
@@ -201,10 +263,14 @@ public class GroundItems {
             List<Entry> entries = new ArrayList<>();
             for (GroundItemStack stack : stacks) {
                 for (GroundItem gi : stack.items()) {
-                    if (itemIdFilter == -1 || gi.itemId() == itemIdFilter) {
-                        entries.add(new Entry(api, stack, gi));
-                    }
+                    if (itemIdFilter != -1 && gi.itemId() != itemIdFilter) continue;
+                    Entry entry = new Entry(api, stack, gi);
+                    if (nameFilter != null && !entry.name().toLowerCase().contains(nameFilter)) continue;
+                    entries.add(entry);
                 }
+            }
+            if (postFilter != null) {
+                entries.removeIf(postFilter.negate()::test);
             }
             return entries;
         }
@@ -219,9 +285,15 @@ public class GroundItems {
                     .orElse(null);
         }
 
+        /** Returns the first matching ground item entry (no distance sort), or null. */
+        public Entry first() {
+            List<Entry> entries = all();
+            return entries.isEmpty() ? null : entries.getFirst();
+        }
+
         /** Returns true if at least one matching ground item exists. */
         public boolean exists() {
-            return nearest() != null;
+            return !all().isEmpty();
         }
 
         /** Returns the count of matching entries. */

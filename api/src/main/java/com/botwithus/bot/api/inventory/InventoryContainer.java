@@ -88,6 +88,15 @@ public class InventoryContainer {
     }
 
     /**
+     * Checks if the inventory has at least one free slot.
+     *
+     * @return {@code true} if the inventory is not full
+     */
+    public boolean isNotFull() {
+        return !isFull();
+    }
+
+    /**
      * Check if the inventory contains an item with the given ID.
      */
     public boolean contains(int itemId) {
@@ -170,6 +179,55 @@ public class InventoryContainer {
                 })
                 .mapToInt(InventoryItem::quantity)
                 .sum();
+    }
+
+    /**
+     * Returns the first item matching the given ID, or {@code null} if not found.
+     *
+     * @param itemId the item ID to find
+     * @return the matching item, or {@code null}
+     */
+    public InventoryItem getFirst(int itemId) {
+        List<InventoryItem> items = api.queryInventoryItems(InventoryFilter.builder()
+                .inventoryId(id)
+                .itemId(itemId)
+                .nonEmpty(true)
+                .maxResults(1)
+                .build());
+        return items.isEmpty() ? null : items.getFirst();
+    }
+
+    /**
+     * Returns the first item whose name contains the given string (case-insensitive),
+     * or {@code null} if not found.
+     *
+     * @param name the name substring to search for
+     * @return the matching item, or {@code null}
+     */
+    public InventoryItem getFirst(String name) {
+        return getItems().stream()
+                .filter(item -> {
+                    var type = api.getItemType(item.itemId());
+                    return type != null && type.name() != null
+                            && type.name().toLowerCase().contains(name.toLowerCase());
+                })
+                .findFirst().orElse(null);
+    }
+
+    /**
+     * Returns all items whose name contains the given string (case-insensitive).
+     *
+     * @param name the name substring to search for
+     * @return list of matching items
+     */
+    public List<InventoryItem> getAll(String name) {
+        return getItems().stream()
+                .filter(item -> {
+                    var type = api.getItemType(item.itemId());
+                    return type != null && type.name() != null
+                            && type.name().toLowerCase().contains(name.toLowerCase());
+                })
+                .toList();
     }
 
     /**

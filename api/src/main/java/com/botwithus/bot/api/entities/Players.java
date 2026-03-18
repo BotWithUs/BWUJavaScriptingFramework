@@ -73,6 +73,13 @@ public class Players {
     }
 
     /**
+     * Returns all players matching the given name.
+     */
+    public List<Player> all(String name) {
+        return query().named(name).all();
+    }
+
+    /**
      * Fluent query builder for players.
      */
     public static class Query extends EntityQuery<Player, Query> {

@@ -181,7 +181,10 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
      * Returns true if at least one entity matches.
      */
     public boolean exists() {
-        return nearest() != null;
+        if (postFilter == null) {
+            filterBuilder.maxResults(1);
+        }
+        return !all().isEmpty();
     }
 
     // ========================== Abstract ==========================

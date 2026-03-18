@@ -3,6 +3,7 @@ package com.botwithus.bot.api.inventory;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.InventoryItem;
 import com.botwithus.bot.api.query.ComponentFilter;
 
 import java.util.List;
@@ -122,6 +123,35 @@ public final class Bank {
      */
     public boolean contains(String name) {
         return container.contains(name);
+    }
+
+    /**
+     * Counts the total quantity of an item in the bank.
+     *
+     * @param itemId the item ID to count
+     * @return the total quantity
+     */
+    public int count(int itemId) {
+        return container.count(itemId);
+    }
+
+    /**
+     * Counts the total quantity of items whose name contains the given string (case-insensitive).
+     *
+     * @param name the name substring to search for
+     * @return the total quantity of matching items
+     */
+    public int count(String name) {
+        return container.count(name);
+    }
+
+    /**
+     * Returns all non-empty items in the bank.
+     *
+     * @return a list of bank items
+     */
+    public List<InventoryItem> getItems() {
+        return container.getItems();
     }
 
     // ========================== Deposit Methods ==========================
