@@ -114,6 +114,16 @@ public final class Bank {
         return container.contains(itemId, amount);
     }
 
+    /**
+     * Checks if the bank contains an item whose name contains the given string (case-insensitive).
+     *
+     * @param name the name substring to search for
+     * @return {@code true} if a matching item is in the bank
+     */
+    public boolean contains(String name) {
+        return container.contains(name);
+    }
+
     // ========================== Deposit Methods ==========================
 
     /**

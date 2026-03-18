@@ -140,6 +140,39 @@ public class InventoryContainer {
     }
 
     /**
+     * Check if the inventory contains an item whose name contains the given string (case-insensitive).
+     * Uses {@link com.botwithus.bot.api.GameAPI#getItemType} to resolve item names.
+     *
+     * @param name the name substring to search for
+     * @return {@code true} if a matching item is found
+     */
+    public boolean contains(String name) {
+        return getItems().stream()
+                .anyMatch(item -> {
+                    var type = api.getItemType(item.itemId());
+                    return type != null && type.name() != null
+                            && type.name().toLowerCase().contains(name.toLowerCase());
+                });
+    }
+
+    /**
+     * Count the total quantity of items whose name contains the given string (case-insensitive).
+     *
+     * @param name the name substring to search for
+     * @return the total quantity of matching items
+     */
+    public int count(String name) {
+        return getItems().stream()
+                .filter(item -> {
+                    var type = api.getItemType(item.itemId());
+                    return type != null && type.name() != null
+                            && type.name().toLowerCase().contains(name.toLowerCase());
+                })
+                .mapToInt(InventoryItem::quantity)
+                .sum();
+    }
+
+    /**
      * Get the number of free (empty) slots.
      */
     public int freeSlots() {

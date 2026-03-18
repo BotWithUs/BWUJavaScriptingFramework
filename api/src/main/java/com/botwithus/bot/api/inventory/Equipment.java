@@ -60,6 +60,16 @@ public final class Equipment {
     }
 
     /**
+     * Checks if an item whose name contains the given string is currently equipped (case-insensitive).
+     *
+     * @param name the name substring to search for
+     * @return {@code true} if a matching item is equipped
+     */
+    public boolean contains(String name) {
+        return container.contains(name);
+    }
+
+    /**
      * Returns all currently equipped items.
      *
      * @return a list of equipped inventory items

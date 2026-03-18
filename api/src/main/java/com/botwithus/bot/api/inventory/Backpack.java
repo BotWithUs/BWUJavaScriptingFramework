@@ -84,6 +84,16 @@ public final class Backpack {
     }
 
     /**
+     * Checks if the backpack contains an item whose name contains the given string (case-insensitive).
+     *
+     * @param name the name substring to search for
+     * @return {@code true} if a matching item is present
+     */
+    public boolean contains(String name) {
+        return container.contains(name);
+    }
+
+    /**
      * Counts the total quantity of an item across all backpack slots.
      *
      * @param itemId the item ID to count
@@ -91,6 +101,16 @@ public final class Backpack {
      */
     public int count(int itemId) {
         return container.count(itemId);
+    }
+
+    /**
+     * Counts the total quantity of items whose name contains the given string (case-insensitive).
+     *
+     * @param name the name substring to search for
+     * @return the total quantity of matching items
+     */
+    public int count(String name) {
+        return container.count(name);
     }
 
     /**
