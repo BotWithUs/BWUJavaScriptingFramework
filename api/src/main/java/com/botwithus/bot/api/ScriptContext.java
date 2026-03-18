@@ -57,4 +57,13 @@ public interface ScriptContext {
      * @return the {@link ScriptManager} instance
      */
     ScriptManager getScriptManager();
+
+    /**
+     * Returns the navigation interface for blocking walk operations.
+     * Walk methods block the calling thread until arrival, cancellation,
+     * failure, or timeout, but do not block the pipe.
+     *
+     * @return the {@link Navigation} instance
+     */
+    Navigation getNavigation();
 }

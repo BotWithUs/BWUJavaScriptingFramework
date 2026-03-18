@@ -867,6 +867,270 @@ public interface GameAPI {
      */
     int getChatHistorySize();
 
+    // ============================== Navigation & Pathfinding ==============================
+
+    /**
+     * Starts a local A* walk to the given tile. Returns immediately; the walk
+     * happens asynchronously on the game thread. Listen for
+     * {@link com.botwithus.bot.api.event.WalkArrivedEvent},
+     * {@link com.botwithus.bot.api.event.WalkFailedEvent}, or
+     * {@link com.botwithus.bot.api.event.WalkCancelledEvent} for completion.
+     *
+     * @param x target world tile X
+     * @param y target world tile Y
+     */
+    void walkToAsync(int x, int y);
+
+    /**
+     * Starts a world-scale walk using HPA&#42;/flat A&#42; with teleport, door,
+     * shortcut, and transport support. Returns immediately; the walk
+     * happens asynchronously. Listen for walk events for completion.
+     *
+     * @param x     target world tile X
+     * @param y     target world tile Y
+     * @param plane target plane (height level)
+     */
+    void walkWorldPathAsync(int x, int y, int plane);
+
+    /**
+     * Cancels any active walk. Emits {@code walk_cancelled} if a walk was in progress.
+     */
+    void walkCancel();
+
+    /**
+     * Returns the current walker state.
+     *
+     * @return the walk status
+     */
+    WalkStatus getWalkStatus();
+
+    /**
+     * Checks if a tile is reachable from the player's current position
+     * via local A* pathfinding.
+     *
+     * @param x target world X
+     * @param y target world Y
+     * @return {@code true} if the tile is reachable
+     */
+    boolean isReachable(int x, int y);
+
+    /**
+     * Checks if a tile is reachable with a custom iteration limit.
+     *
+     * @param x             target world X
+     * @param y             target world Y
+     * @param maxIterations max A* iterations
+     * @return {@code true} if the tile is reachable
+     */
+    boolean isReachable(int x, int y, int maxIterations);
+
+    /**
+     * Finds a local A* path between two tiles.
+     *
+     * @param toX destination world X
+     * @param toY destination world Y
+     * @return the path result
+     */
+    PathResult findPath(int toX, int toY);
+
+    /**
+     * Finds a local A* path from a specific origin.
+     *
+     * @param fromX origin world X
+     * @param fromY origin world Y
+     * @param toX   destination world X
+     * @param toY   destination world Y
+     * @return the path result
+     */
+    PathResult findPath(int fromX, int fromY, int toX, int toY);
+
+    /**
+     * Finds a world-scale path without walking it. Uses RegionGraph pathfinding.
+     *
+     * @param toX destination world X
+     * @param toY destination world Y
+     * @return the path result
+     */
+    PathResult findWorldPath(int toX, int toY);
+
+    /**
+     * Finds a world-scale path from a specific origin without walking it.
+     *
+     * @param fromX origin world X
+     * @param fromY origin world Y
+     * @param toX   destination world X
+     * @param toY   destination world Y
+     * @return the path result
+     */
+    PathResult findWorldPath(int fromX, int fromY, int toX, int toY);
+
+    /**
+     * Returns the region collision cache size.
+     *
+     * @return the number of cached regions
+     */
+    int getRegionCacheSize();
+
+    /**
+     * Invalidates all cached region collision data.
+     */
+    void clearRegionCache();
+
+    // ============================== Navigation Links & Teleports ==============================
+
+    /**
+     * Adds a transport link to the navigation graph.
+     *
+     * @param transport the transport link to add
+     */
+    void navAddTransport(NavTransport transport);
+
+    /**
+     * Removes a transport link from the navigation graph.
+     *
+     * @param objectId game object ID
+     * @param x        world tile X
+     * @param y        world tile Y
+     * @param plane    plane
+     */
+    void navRemoveTransport(int objectId, int x, int y, int plane);
+
+    /**
+     * Lists all transport links in the navigation graph.
+     *
+     * @return a list of transport links
+     */
+    List<NavTransport> navListTransports();
+
+    /**
+     * Adds a door to the navigation graph.
+     *
+     * @param door the door to add
+     */
+    void navAddDoor(NavDoor door);
+
+    /**
+     * Removes a door from the navigation graph.
+     *
+     * @param objectId game object ID
+     * @param x        world tile X
+     * @param y        world tile Y
+     * @param plane    plane
+     */
+    void navRemoveDoor(int objectId, int x, int y, int plane);
+
+    /**
+     * Lists all doors in the navigation graph.
+     *
+     * @return a list of doors
+     */
+    List<NavDoor> navListDoors();
+
+    /**
+     * Adds an agility shortcut to the navigation graph.
+     *
+     * @param shortcut the shortcut to add
+     */
+    void navAddShortcut(NavShortcut shortcut);
+
+    /**
+     * Removes a shortcut from the navigation graph.
+     *
+     * @param objectId game object ID
+     * @param x        world tile X
+     * @param y        world tile Y
+     * @param plane    plane
+     */
+    void navRemoveShortcut(int objectId, int x, int y, int plane);
+
+    /**
+     * Adds a plane (floor level) transition to the navigation graph.
+     *
+     * @param transition the plane transition to add
+     */
+    void navAddPlaneTransition(NavPlaneTransition transition);
+
+    /**
+     * Removes a plane transition from the navigation graph.
+     *
+     * @param objectId game object ID
+     * @param x        world tile X
+     * @param y        world tile Y
+     * @param plane    plane
+     */
+    void navRemovePlaneTransition(int objectId, int x, int y, int plane);
+
+    /**
+     * Adds a climbover obstacle to the navigation graph.
+     *
+     * @param climbover the climbover to add
+     */
+    void navAddClimbover(NavClimbover climbover);
+
+    /**
+     * Removes a climbover from the navigation graph.
+     *
+     * @param objectId game object ID
+     * @param x        world tile X
+     * @param y        world tile Y
+     * @param plane    plane
+     */
+    void navRemoveClimbover(int objectId, int x, int y, int plane);
+
+    /**
+     * Batch-adds transport links to the navigation graph.
+     *
+     * @param links the transport links to add
+     * @return the number of links added
+     */
+    int navLoadJson(List<NavTransport> links);
+
+    /**
+     * Saves all navigation overrides to a binary file.
+     *
+     * @param path output file path (or {@code null} for default "nav_overrides.bin")
+     */
+    void navSaveLinks(String path);
+
+    /**
+     * Loads navigation overrides from a binary file.
+     *
+     * @param path input file path (or {@code null} for default "nav_overrides.bin")
+     * @return the number of links loaded
+     */
+    int navLoadLinks(String path);
+
+    /**
+     * Returns navigation data statistics.
+     *
+     * @return the nav stats
+     */
+    NavStats navGetStats();
+
+    /**
+     * Registers custom teleports for the pathfinder.
+     *
+     * @param json   JSON string containing teleport definitions
+     * @param format format: {@code "item_teleports"} or {@code "gibson"}
+     * @return the number of teleports added
+     */
+    int navRegisterTeleports(String json, String format);
+
+    /**
+     * Removes all script-registered teleports. Built-in teleports are preserved.
+     *
+     * @return the number of teleports removed
+     */
+    int navClearScriptTeleports();
+
+    /**
+     * Lists registered teleports.
+     *
+     * @param scriptOnly if {@code true}, only list script-registered teleports
+     * @return a list of teleports
+     */
+    List<NavTeleport> navListTeleports(boolean scriptOnly);
+
     // ============================== Config Type Lookups ==============================
 
     /**

@@ -196,6 +196,11 @@ public class ScriptRunner implements Runnable {
                 log.error("onStop error in {}: {}", name, e.getMessage());
                 notifyError(name, "onStop", e);
             }
+            try {
+                context.getNavigation().cleanup();
+            } catch (Exception e) {
+                log.debug("Navigation cleanup error in {}: {}", name, e.getMessage());
+            }
             MDC.clear();
             ConnectionContext.clear();
             CountDownLatch latch = this.stopLatch;

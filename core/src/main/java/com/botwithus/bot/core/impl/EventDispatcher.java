@@ -4,6 +4,7 @@ import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.event.*;
 import com.botwithus.bot.api.model.ChatMessage;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import static com.botwithus.bot.core.impl.MapHelper.*;
@@ -18,17 +19,24 @@ import static com.botwithus.bot.core.impl.MapHelper.*;
  */
 public class EventDispatcher {
 
-    private static final Map<Class<? extends GameEvent>, String> EVENT_NAMES = Map.of(
-            TickEvent.class, "tick",
-            LoginStateChangeEvent.class, "login_state_change",
-            VarChangeEvent.class, "var_change",
-            VarbitChangeEvent.class, "varbit_change",
-            KeyInputEvent.class, "key_input",
-            ActionExecutedEvent.class, "action_executed",
-            BreakStartedEvent.class, "break_started",
-            BreakEndedEvent.class, "break_ended",
-            ChatMessageEvent.class, "chat_message"
-    );
+    private static final Map<Class<? extends GameEvent>, String> EVENT_NAMES;
+
+    static {
+        Map<Class<? extends GameEvent>, String> m = new HashMap<>();
+        m.put(TickEvent.class, "tick");
+        m.put(LoginStateChangeEvent.class, "login_state_change");
+        m.put(VarChangeEvent.class, "var_change");
+        m.put(VarbitChangeEvent.class, "varbit_change");
+        m.put(KeyInputEvent.class, "key_input");
+        m.put(ActionExecutedEvent.class, "action_executed");
+        m.put(BreakStartedEvent.class, "break_started");
+        m.put(BreakEndedEvent.class, "break_ended");
+        m.put(ChatMessageEvent.class, "chat_message");
+        m.put(WalkArrivedEvent.class, "walk_arrived");
+        m.put(WalkCancelledEvent.class, "walk_cancelled");
+        m.put(WalkFailedEvent.class, "walk_failed");
+        EVENT_NAMES = Map.copyOf(m);
+    }
 
     private final EventBusImpl eventBus;
 
@@ -117,6 +125,18 @@ public class EventDispatcher {
                     getStringNullable(data, "text"),
                     getStringNullable(data, "player_name")
             ));
+            case "walk_arrived" -> new WalkArrivedEvent(
+                    getInt(data, "target_x"),
+                    getInt(data, "target_y")
+            );
+            case "walk_cancelled" -> new WalkCancelledEvent(
+                    getInt(data, "target_x"),
+                    getInt(data, "target_y")
+            );
+            case "walk_failed" -> new WalkFailedEvent(
+                    getInt(data, "target_x"),
+                    getInt(data, "target_y")
+            );
             default -> null;
         };
 
