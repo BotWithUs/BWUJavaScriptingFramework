@@ -156,12 +156,8 @@ public class InventoryContainer {
      * @return {@code true} if a matching item is found
      */
     public boolean contains(String name) {
-        return getItems().stream()
-                .anyMatch(item -> {
-                    var type = api.getItemType(item.itemId());
-                    return type != null && type.name() != null
-                            && type.name().toLowerCase().contains(name.toLowerCase());
-                });
+        String lowerName = name.toLowerCase();
+        return getItems().stream().anyMatch(item -> matchesName(item, lowerName));
     }
 
     /**
@@ -171,12 +167,9 @@ public class InventoryContainer {
      * @return the total quantity of matching items
      */
     public int count(String name) {
+        String lowerName = name.toLowerCase();
         return getItems().stream()
-                .filter(item -> {
-                    var type = api.getItemType(item.itemId());
-                    return type != null && type.name() != null
-                            && type.name().toLowerCase().contains(name.toLowerCase());
-                })
+                .filter(item -> matchesName(item, lowerName))
                 .mapToInt(InventoryItem::quantity)
                 .sum();
     }
@@ -205,12 +198,9 @@ public class InventoryContainer {
      * @return the matching item, or {@code null}
      */
     public InventoryItem getFirst(String name) {
+        String lowerName = name.toLowerCase();
         return getItems().stream()
-                .filter(item -> {
-                    var type = api.getItemType(item.itemId());
-                    return type != null && type.name() != null
-                            && type.name().toLowerCase().contains(name.toLowerCase());
-                })
+                .filter(item -> matchesName(item, lowerName))
                 .findFirst().orElse(null);
     }
 
@@ -221,13 +211,16 @@ public class InventoryContainer {
      * @return list of matching items
      */
     public List<InventoryItem> getAll(String name) {
+        String lowerName = name.toLowerCase();
         return getItems().stream()
-                .filter(item -> {
-                    var type = api.getItemType(item.itemId());
-                    return type != null && type.name() != null
-                            && type.name().toLowerCase().contains(name.toLowerCase());
-                })
+                .filter(item -> matchesName(item, lowerName))
                 .toList();
+    }
+
+    private boolean matchesName(InventoryItem item, String lowerName) {
+        var type = api.getItemType(item.itemId());
+        return type != null && type.name() != null
+                && type.name().toLowerCase().contains(lowerName);
     }
 
     /**

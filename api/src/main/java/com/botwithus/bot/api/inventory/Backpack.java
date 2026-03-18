@@ -77,7 +77,7 @@ public final class Backpack {
      * @return {@code true} if the backpack is not full
      */
     public boolean isNotFull() {
-        return !container.isFull();
+        return container.isNotFull();
     }
 
     /**

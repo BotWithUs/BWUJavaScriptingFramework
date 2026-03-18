@@ -163,14 +163,10 @@ public class GroundItems {
         public boolean interact(String option) {
             ItemType type = getType();
             if (type == null || type.groundOptions() == null) return false;
-            List<String> options = type.groundOptions();
-            for (int i = 0; i < options.size(); i++) {
-                if (options.get(i) != null && options.get(i).equalsIgnoreCase(option)) {
-                    interact(i + 1);
-                    return true;
-                }
-            }
-            return false;
+            int index = EntityContext.findOptionIndex(type.groundOptions(), option);
+            if (index == -1) return false;
+            interact(index);
+            return true;
         }
 
         /**
@@ -293,6 +289,9 @@ public class GroundItems {
 
         /** Returns true if at least one matching ground item exists. */
         public boolean exists() {
+            if (postFilter == null && nameFilter == null) {
+                filterBuilder.maxResults(1);
+            }
             return !all().isEmpty();
         }
 

@@ -202,7 +202,7 @@ public class EntityContext {
      * @param option  the option text to find
      * @return the 1-based index, or -1 if not found
      */
-    protected static int findOptionIndex(List<String> options, String option) {
+    static int findOptionIndex(List<String> options, String option) {
         for (int i = 0; i < options.size(); i++) {
             if (options.get(i) != null && options.get(i).equalsIgnoreCase(option)) {
                 return i + 1;
