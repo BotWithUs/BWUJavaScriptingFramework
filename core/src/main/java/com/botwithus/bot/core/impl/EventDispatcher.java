@@ -79,8 +79,9 @@ public class EventDispatcher {
         String eventType = (String) raw.get("event");
         if (eventType == null) return;
 
-        Map<String, Object> data = raw.get("data") instanceof Map<?, ?>
-                ? (Map<String, Object>) raw.get("data")
+        Object rawData = raw.get("data");
+        Map<String, Object> data = rawData instanceof Map<?, ?>
+                ? (Map<String, Object>) rawData
                 : Map.of();
 
         GameEvent event = switch (eventType) {

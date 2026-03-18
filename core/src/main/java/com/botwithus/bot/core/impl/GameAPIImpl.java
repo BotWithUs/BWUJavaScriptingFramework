@@ -933,28 +933,12 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void navAddTransport(NavTransport t) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", t.objectId());
-        params.put("x", t.x());
-        params.put("y", t.y());
-        if (t.plane() != 0) params.put("plane", t.plane());
-        if (t.shape() != 10) params.put("shape", t.shape());
-        if (t.rotation() != 0) params.put("rotation", t.rotation());
-        if (t.optionIndex() != 0) params.put("option_index", t.optionIndex());
-        params.put("dest_x", t.destX());
-        params.put("dest_y", t.destY());
-        if (t.destPlane() != 0) params.put("dest_plane", t.destPlane());
-        rpc.callSync("nav.add_transport", params);
+        rpc.callSync("nav.add_transport", transportToMap(t));
     }
 
     @Override
     public void navRemoveTransport(int objectId, int x, int y, int plane) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", objectId);
-        params.put("x", x);
-        params.put("y", y);
-        if (plane != 0) params.put("plane", plane);
-        rpc.callSync("nav.remove_transport", params);
+        navRemoveLink("nav.remove_transport", objectId, x, y, plane);
     }
 
     @Override
@@ -983,12 +967,7 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void navRemoveDoor(int objectId, int x, int y, int plane) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", objectId);
-        params.put("x", x);
-        params.put("y", y);
-        if (plane != 0) params.put("plane", plane);
-        rpc.callSync("nav.remove_door", params);
+        navRemoveLink("nav.remove_door", objectId, x, y, plane);
     }
 
     @Override
@@ -1017,12 +996,7 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void navRemoveShortcut(int objectId, int x, int y, int plane) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", objectId);
-        params.put("x", x);
-        params.put("y", y);
-        if (plane != 0) params.put("plane", plane);
-        rpc.callSync("nav.remove_shortcut", params);
+        navRemoveLink("nav.remove_shortcut", objectId, x, y, plane);
     }
 
     @Override
@@ -1044,12 +1018,7 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void navRemovePlaneTransition(int objectId, int x, int y, int plane) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", objectId);
-        params.put("x", x);
-        params.put("y", y);
-        if (plane != 0) params.put("plane", plane);
-        rpc.callSync("nav.remove_plane_transition", params);
+        navRemoveLink("nav.remove_plane_transition", objectId, x, y, plane);
     }
 
     @Override
@@ -1066,30 +1035,12 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void navRemoveClimbover(int objectId, int x, int y, int plane) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", objectId);
-        params.put("x", x);
-        params.put("y", y);
-        if (plane != 0) params.put("plane", plane);
-        rpc.callSync("nav.remove_climbover", params);
+        navRemoveLink("nav.remove_climbover", objectId, x, y, plane);
     }
 
     @Override
     public int navLoadJson(List<NavTransport> links) {
-        List<Map<String, Object>> linkMaps = links.stream().map(t -> {
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("object_id", t.objectId());
-            m.put("x", t.x());
-            m.put("y", t.y());
-            if (t.plane() != 0) m.put("plane", t.plane());
-            if (t.shape() != 10) m.put("shape", t.shape());
-            if (t.rotation() != 0) m.put("rotation", t.rotation());
-            if (t.optionIndex() != 0) m.put("option_index", t.optionIndex());
-            m.put("dest_x", t.destX());
-            m.put("dest_y", t.destY());
-            if (t.destPlane() != 0) m.put("dest_plane", t.destPlane());
-            return m;
-        }).toList();
+        List<Map<String, Object>> linkMaps = links.stream().map(this::transportToMap).toList();
         Map<String, Object> r = rpc.callSync("nav.load_json", Map.of("links", linkMaps));
         return getInt(r, "added");
     }
@@ -1147,6 +1098,32 @@ public class GameAPIImpl implements GameAPI {
                 getDouble(m, "cost"), getDouble(m, "cost_quick"),
                 getInt(m, "chain_steps"), getInt(m, "requirements"), getBool(m, "builtin")
         )).toList();
+    }
+
+    // ========================== Navigation Helpers ==========================
+
+    private void navRemoveLink(String method, int objectId, int x, int y, int plane) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("object_id", objectId);
+        params.put("x", x);
+        params.put("y", y);
+        if (plane != 0) params.put("plane", plane);
+        rpc.callSync(method, params);
+    }
+
+    private Map<String, Object> transportToMap(NavTransport t) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("object_id", t.objectId());
+        params.put("x", t.x());
+        params.put("y", t.y());
+        if (t.plane() != 0) params.put("plane", t.plane());
+        if (t.shape() != 10) params.put("shape", t.shape());
+        if (t.rotation() != 0) params.put("rotation", t.rotation());
+        if (t.optionIndex() != 0) params.put("option_index", t.optionIndex());
+        params.put("dest_x", t.destX());
+        params.put("dest_y", t.destY());
+        if (t.destPlane() != 0) params.put("dest_plane", t.destPlane());
+        return params;
     }
 
     // ========================== Config Type Lookups ==========================
