@@ -24,22 +24,25 @@ public class LogBufferAppender extends AppenderBase<ILoggingEvent> {
         LogBuffer buf = logBuffer;
         if (buf == null) return;
 
-        String source = event.getLoggerName();
-        // Use short logger name (last segment)
-        int dot = source.lastIndexOf('.');
-        if (dot >= 0) source = source.substring(dot + 1);
-
-        String level = event.getLevel().toString();
-        String message = event.getFormattedMessage();
-
         var mdc = event.getMDCPropertyMap();
         String scriptName = mdc.get("script.name");
         String connection = mdc.get("connection.name");
 
-        // Use script name as source if present
+        String source;
         if (scriptName != null) {
             source = scriptName;
+        } else {
+            source = event.getLoggerName();
+            if (source != null) {
+                int dot = source.lastIndexOf('.');
+                if (dot >= 0) source = source.substring(dot + 1);
+            } else {
+                source = "unknown";
+            }
         }
+
+        String level = event.getLevel().toString();
+        String message = event.getFormattedMessage();
 
         buf.add(new LogEntry(
                 Instant.ofEpochMilli(event.getTimeStamp()),
