@@ -3,6 +3,8 @@ package com.botwithus.bot.core.rpc;
 import com.botwithus.bot.core.msgpack.MessagePackCodec;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.pipe.PipeException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,6 +36,7 @@ import java.util.function.Consumer;
  */
 public class RpcClient implements AutoCloseable {
 
+    private static final Logger log = LoggerFactory.getLogger(RpcClient.class);
     private final PipeClient pipe;
     private final AtomicInteger idCounter = new AtomicInteger(1);
     private final ReentrantLock pipeLock = new ReentrantLock();
@@ -192,7 +195,7 @@ public class RpcClient implements AutoCloseable {
                 break;
             } catch (Exception e) {
                 if (running) {
-                    System.err.println("[RpcClient] Reader error: " + e.getMessage());
+                    log.error("Reader error: {}", e.getMessage());
                 }
             }
         }

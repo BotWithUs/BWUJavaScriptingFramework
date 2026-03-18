@@ -12,6 +12,8 @@ import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.ui.ScriptUI;
 
 import imgui.ImGui;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import imgui.flag.ImGuiTableFlags;
 import imgui.flag.ImGuiTreeNodeFlags;
 import imgui.type.ImBoolean;
@@ -25,6 +27,8 @@ import java.util.List;
         description = "A demo script showing the entity query API"
 )
 public class ExampleScript implements BotScript {
+
+    private static final Logger log = LoggerFactory.getLogger(ExampleScript.class);
 
     private ScriptContext ctx;
     private int loopCount;
@@ -48,14 +52,14 @@ public class ExampleScript implements BotScript {
         this.players = new Players(api);
         this.groundItems = new GroundItems(api);
 
-        System.out.println("[ExampleScript] Started!");
+        log.info("Started!");
 
         EventBus events = ctx.getEventBus();
         events.subscribe(ActionExecutedEvent.class, this::handleActionEvent);
     }
 
     private void handleActionEvent(ActionExecutedEvent event) {
-        System.out.println("Action " + event.getActionId() + " " + event.getParam1() + " " + event.getParam2() + " " + event.getParam3());
+        log.debug("Action {} {} {} {}", event.getActionId(), event.getParam1(), event.getParam2(), event.getParam3());
     }
 
     @Override
@@ -74,7 +78,7 @@ public class ExampleScript implements BotScript {
         this.verbose = config.getBoolean("verbose", true);
         String mode = config.getString("mode", "Passive");
         if (verbose) {
-            System.out.println("[ExampleScript] Config updated: delay=" + loopDelay + ", mode=" + mode);
+            log.info("Config updated: delay={}, mode={}", loopDelay, mode);
         }
     }
 
@@ -86,7 +90,7 @@ public class ExampleScript implements BotScript {
 
     @Override
     public void onStop() {
-        System.out.println("[ExampleScript] Stopped after " + loopCount + " loops.");
+        log.info("Stopped after {} loops.", loopCount);
     }
 
     // ── Custom Script UI ──────────────────────────────────────────────────────
@@ -110,8 +114,7 @@ public class ExampleScript implements BotScript {
             }
             ImGui.sameLine();
             if (ImGui.button("Print Stats")) {
-                System.out.println("[ExampleScript] Stats: loops=" + loopCount
-                        + ", delay=" + loopDelay);
+                log.info("Stats: loops={}, delay={}", loopCount, loopDelay);
             }
         }
 

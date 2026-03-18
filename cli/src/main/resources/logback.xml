@@ -1,0 +1,12 @@
+<configuration>
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level [%X{script.name:-system}] %logger{20} - %msg%n</pattern>
+    </encoder>
+  </appender>
+  <appender name="LOG_BUFFER" class="com.botwithus.bot.cli.log.LogBufferAppender"/>
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="LOG_BUFFER"/>
+  </root>
+</configuration>

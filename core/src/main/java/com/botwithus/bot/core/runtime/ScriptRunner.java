@@ -9,6 +9,9 @@ import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.model.Personality;
 import com.botwithus.bot.core.blueprint.execution.BlueprintBotScript;
 import com.botwithus.bot.core.config.ScriptConfigStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -23,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class ScriptRunner implements Runnable {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptRunner.class);
     private final BotScript script;
     private final ScriptContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -133,7 +137,7 @@ public class ScriptRunner implements Runnable {
         try {
             script.onConfigUpdate(config);
         } catch (Exception e) {
-            System.err.println("[ScriptRunner] Error in onConfigUpdate for " + getScriptName() + ": " + e.getMessage());
+            log.error("Error in onConfigUpdate for {}: {}", getScriptName(), e.getMessage());
         }
     }
 
@@ -143,10 +147,12 @@ public class ScriptRunner implements Runnable {
             ConnectionContext.set(connectionName);
         }
         String name = getScriptName();
+        MDC.put("script.name", name);
+        if (connectionName != null) MDC.put("connection.name", connectionName);
         try {
             script.onStart(context);
         } catch (Exception e) {
-            System.err.println("[ScriptRunner] onStart error in " + name + ": " + e.getMessage());
+            log.error("onStart error in {}: {}", name, e.getMessage());
             notifyError(name, "onStart", e);
             running.set(false);
             ConnectionContext.clear();
@@ -162,7 +168,7 @@ public class ScriptRunner implements Runnable {
                 script.onConfigUpdate(config);
             }
         } catch (Exception e) {
-            System.err.println("[ScriptRunner] Config load error in " + name + ": " + e.getMessage());
+            log.error("Config load error in {}: {}", name, e.getMessage());
         }
 
         GameAPI gameAPI = context.getGameAPI();
@@ -180,16 +186,17 @@ public class ScriptRunner implements Runnable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            System.err.println("[ScriptRunner] onLoop error in " + name + ": " + e.getMessage());
+            log.error("onLoop error in {}: {}", name, e.getMessage());
             notifyError(name, "onLoop", e);
         } finally {
             running.set(false);
             try {
                 script.onStop();
             } catch (Exception e) {
-                System.err.println("[ScriptRunner] onStop error in " + name + ": " + e.getMessage());
+                log.error("onStop error in {}: {}", name, e.getMessage());
                 notifyError(name, "onStop", e);
             }
+            MDC.clear();
             ConnectionContext.clear();
             CountDownLatch latch = this.stopLatch;
             if (latch != null) latch.countDown();
@@ -253,7 +260,7 @@ public class ScriptRunner implements Runnable {
             try {
                 handler.onError(scriptName, phase, error);
             } catch (Exception e) {
-                System.err.println("[ScriptRunner] Error handler itself threw for " + scriptName + "/" + phase + ": " + e.getMessage());
+                log.error("Error handler itself threw for {}/{}: {}", scriptName, phase, e.getMessage());
             }
         }
     }

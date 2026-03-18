@@ -14,6 +14,9 @@ import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 
 /**
@@ -21,8 +24,10 @@ import java.util.List;
  */
 public class JBotApplication {
 
+    private static final Logger log = LoggerFactory.getLogger(JBotApplication.class);
+
     public static void main(String[] args) {
-        System.out.println("[JBot] Connecting to BotWithUs pipe...");
+        log.info("Connecting to BotWithUs pipe...");
         try (PipeClient pipe = new PipeClient()) {
             RpcClient rpc = new RpcClient(pipe);
             EventBusImpl eventBus = new EventBusImpl();
@@ -40,7 +45,7 @@ public class JBotApplication {
 
             // Discover scripts from scripts/ directory (drop JARs there)
             List<BotScript> scripts = SDNScriptLoader.loadScripts();
-            System.out.println("[JBot] Discovered " + scripts.size() + " script(s)");
+            log.info("Discovered {} script(s)", scripts.size());
 
             ScriptRuntime runtime = new ScriptRuntime(context);
 
@@ -52,7 +57,7 @@ public class JBotApplication {
 
             // Keep main thread alive until interrupted
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                System.out.println("[JBot] Shutting down...");
+                log.info("Shutting down...");
                 scriptManager.shutdown();
                 runtime.stopAll();
                 rpc.close();
@@ -62,8 +67,7 @@ public class JBotApplication {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            System.err.println("[JBot] Fatal error: " + e.getMessage());
-            e.printStackTrace();
+            log.error("Fatal error: {}", e.getMessage(), e);
         }
     }
 }

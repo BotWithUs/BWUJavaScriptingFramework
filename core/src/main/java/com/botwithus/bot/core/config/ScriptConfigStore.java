@@ -3,6 +3,8 @@ package com.botwithus.bot.core.config;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
 import com.google.gson.Gson;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
@@ -22,6 +24,7 @@ import java.util.Map;
  */
 public final class ScriptConfigStore {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptConfigStore.class);
     private static final Path CONFIG_DIR = Path.of(System.getProperty("user.home"), ".botwithus", "config");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Type MAP_TYPE = new TypeToken<Map<String, String>>() {}.getType();
@@ -50,7 +53,7 @@ public final class ScriptConfigStore {
                     values.putAll(saved);
                 }
             } catch (IOException e) {
-                System.err.println("[ScriptConfigStore] Failed to load config for " + scriptName + ": " + e.getMessage());
+                log.error("Failed to load config for {}: {}", scriptName, e.getMessage());
             }
         }
 
@@ -81,7 +84,7 @@ public final class ScriptConfigStore {
                 GSON.toJson(config.asMap(), MAP_TYPE, writer);
             }
         } catch (IOException e) {
-            System.err.println("[ScriptConfigStore] Failed to save config for " + scriptName + ": " + e.getMessage());
+            log.error("Failed to save config for {}: {}", scriptName, e.getMessage());
         }
     }
 

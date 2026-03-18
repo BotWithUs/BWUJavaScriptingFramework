@@ -1,4 +1,11 @@
-// api module - pure Java, zero dependencies
+// api module - pure Java interfaces plus SLF4J API
+plugins {
+    `java-library`
+}
+
+dependencies {
+    api("org.slf4j:slf4j-api:2.0.16")
+}
 
 tasks.javadoc {
     title = "BotWithUs API $version"

@@ -3,6 +3,8 @@ package com.botwithus.bot.core.runtime;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.core.crypto.SdnLoader;
 import com.botwithus.bot.core.rpc.RpcClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -18,6 +20,7 @@ import java.util.ServiceLoader;
  */
 public final class SDNScriptLoader {
 
+    private static final Logger log = LoggerFactory.getLogger(SDNScriptLoader.class);
     private static volatile boolean lockdownCalled = false;
 
     private SDNScriptLoader() {}
@@ -70,18 +73,18 @@ public final class SDNScriptLoader {
             ServiceLoader<BotScript> loader = ServiceLoader.load(BotScript.class, sdnClassLoader);
             for (BotScript script : loader) {
                 scripts.add(script);
-                System.out.println("[ScriptLoader] SDN loaded: " + script.getClass().getName());
+                log.info("SDN loaded: {}", script.getClass().getName());
             }
 
             if (scripts.isEmpty()) {
-                System.out.println("[ScriptLoader] No BotScript providers found in SDN bundle.");
+                log.info("No BotScript providers found in SDN bundle.");
             } else {
-                System.out.println("[ScriptLoader] Loaded " + scripts.size() + " script(s) from SDN.");
+                log.info("Loaded {} script(s) from SDN.", scripts.size());
             }
 
             return scripts;
         } catch (Exception e) {
-            System.err.println("[ScriptLoader] SDN script loading failed: " + e.getMessage());
+            log.error("SDN script loading failed: {}", e.getMessage());
             return List.of();
         }
     }
@@ -114,9 +117,9 @@ public final class SDNScriptLoader {
             try {
                 SdnLoader.lockdown();
                 lockdownCalled = true;
-                System.out.println("[ScriptLoader] Process lockdown enforced — unsigned DLL loading blocked.");
+                log.info("Process lockdown enforced — unsigned DLL loading blocked.");
             } catch (Exception e) {
-                System.err.println("[ScriptLoader] lockdown0() failed: " + e.getMessage());
+                log.error("lockdown0() failed: {}", e.getMessage());
             }
         }
     }

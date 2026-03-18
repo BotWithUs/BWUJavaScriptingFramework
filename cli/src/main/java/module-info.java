@@ -8,6 +8,8 @@ module com.botwithus.bot.cli {
     requires org.lwjgl.glfw;
     requires org.lwjgl.opengl;
     requires java.desktop;
+    requires ch.qos.logback.classic;
+    requires ch.qos.logback.core;
 
     uses com.botwithus.bot.api.BotScript;
     uses com.botwithus.bot.api.script.ManagementScript;

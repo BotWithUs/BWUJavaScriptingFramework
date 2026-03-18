@@ -1,5 +1,8 @@
 package com.botwithus.bot.cli.watch;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -8,6 +11,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * Watches the scripts/ directory for JAR file changes and triggers a callback.
  */
 public class ScriptWatcher {
+
+    private static final Logger log = LoggerFactory.getLogger(ScriptWatcher.class);
 
     private final Path scriptsDir;
     private final Runnable onChange;
@@ -74,14 +79,14 @@ public class ScriptWatcher {
                         try {
                             onChange.run();
                         } catch (Exception e) {
-                            System.err.println("[ScriptWatcher] Callback error: " + e.getMessage());
+                            log.error("Callback error", e);
                         }
                     }
                 }
             }
         } catch (IOException e) {
             if (running.get()) {
-                System.err.println("[ScriptWatcher] Watch service error: " + e.getMessage());
+                log.error("Watch service error", e);
             }
         }
         running.set(false);

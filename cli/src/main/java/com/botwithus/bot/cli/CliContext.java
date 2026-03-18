@@ -2,6 +2,9 @@ package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.blueprint.BlueprintGraph;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.stream.StreamManager;
@@ -38,6 +41,8 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 public class CliContext {
+
+    private static final Logger log = LoggerFactory.getLogger(CliContext.class);
 
     @FunctionalInterface
     public interface ImageDisplay {
@@ -243,7 +248,7 @@ public class CliContext {
             }
             return scripts;
         } catch (Exception e) {
-            System.err.println("[CliContext] Failed to load blueprints: " + e.getMessage());
+            log.error("Failed to load blueprints", e);
             return List.of();
         }
     }
@@ -335,7 +340,7 @@ public class CliContext {
                 }
             }
         } catch (Exception e) {
-            System.err.println("[CliContext] Failed to load groups: " + e.getMessage());
+            log.error("Failed to load groups", e);
         }
     }
 
@@ -351,7 +356,7 @@ public class CliContext {
             }
             Files.writeString(GROUPS_FILE, gson.toJson(data));
         } catch (Exception e) {
-            System.err.println("[CliContext] Failed to save groups: " + e.getMessage());
+            log.error("Failed to save groups", e);
         }
     }
 

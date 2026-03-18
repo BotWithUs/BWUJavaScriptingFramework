@@ -1,5 +1,8 @@
 package com.botwithus.bot.core.pipe;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -18,6 +21,7 @@ import java.util.function.Consumer;
  */
 public class StreamPipeReader implements AutoCloseable {
 
+    private static final Logger log = LoggerFactory.getLogger(StreamPipeReader.class);
     private static final String PIPE_PREFIX = "\\\\.\\pipe\\";
     private static final int MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8 MB
 
@@ -99,7 +103,7 @@ public class StreamPipeReader implements AutoCloseable {
     private void closePipe() {
         if (pipeFile != null) {
             try { pipeFile.close(); } catch (IOException e) {
-                System.err.println("[StreamPipeReader] Error closing stream pipe: " + e.getMessage());
+                log.error("Error closing stream pipe: {}", e.getMessage());
             }
         }
     }

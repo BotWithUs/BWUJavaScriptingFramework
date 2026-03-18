@@ -2,6 +2,8 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.script.ScriptManager;
 import com.botwithus.bot.api.script.ScriptScheduler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -20,6 +22,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class ScriptSchedulerImpl implements ScriptScheduler {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptSchedulerImpl.class);
     private final ScriptManager manager;
     private final ScheduledExecutorService executor;
     private final ConcurrentHashMap<String, ScheduleState> schedules = new ConcurrentHashMap<>();
@@ -62,7 +65,7 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
         }, delay.toMillis(), TimeUnit.MILLISECONDS);
 
         schedules.put(id, new ScheduleState(scriptName, nextRun, null, null, future, null));
-        System.out.println("[Scheduler] Scheduled '" + scriptName + "' to run after " + delay + " (id=" + id + ")");
+        log.info("Scheduled '{}' to run after {} (id={})", scriptName, delay, id);
         return id;
     }
 
@@ -98,8 +101,7 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
                     ScheduledFuture<?> stopFuture = executor.schedule(() -> {
                         if (manager.isRunning(scriptName)) {
                             manager.stop(scriptName);
-                            System.out.println("[Scheduler] Auto-stopped '" + scriptName
-                                    + "' after " + maxDuration + " (id=" + id + ")");
+                            log.info("Auto-stopped '{}' after {} (id={})", scriptName, maxDuration, id);
                         }
                     }, maxDuration.toMillis(), TimeUnit.MILLISECONDS);
 
@@ -112,16 +114,16 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
                     }
                 }
             } catch (Exception e) {
-                System.err.println("[Scheduler] Error running '" + scriptName + "': " + e.getMessage());
+                log.error("Error running '{}': {}", scriptName, e.getMessage());
             }
         }, interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
 
         schedules.put(id, new ScheduleState(scriptName, nextRun, interval, maxDuration, future, null));
-        String msg = "[Scheduler] Scheduled '" + scriptName + "' every " + interval;
         if (maxDuration != null) {
-            msg += " (max " + maxDuration + " per run)";
+            log.info("Scheduled '{}' every {} (max {} per run) (id={})", scriptName, interval, maxDuration, id);
+        } else {
+            log.info("Scheduled '{}' every {} (id={})", scriptName, interval, id);
         }
-        System.out.println(msg + " (id=" + id + ")");
         return id;
     }
 
@@ -134,7 +136,7 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
         if (state.stopFuture != null) {
             state.stopFuture.cancel(false);
         }
-        System.out.println("[Scheduler] Cancelled schedule for '" + state.scriptName + "' (id=" + scheduleId + ")");
+        log.info("Cancelled schedule for '{}' (id={})", state.scriptName, scheduleId);
         return true;
     }
 

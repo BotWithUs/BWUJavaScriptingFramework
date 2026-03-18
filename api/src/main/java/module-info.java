@@ -1,4 +1,6 @@
 module com.botwithus.bot.api {
+    requires transitive org.slf4j;
+
     exports com.botwithus.bot.api;
     exports com.botwithus.bot.api.event;
     exports com.botwithus.bot.api.model;

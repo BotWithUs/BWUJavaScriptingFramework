@@ -1,5 +1,8 @@
 package com.botwithus.bot.core.blueprint.registry;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.botwithus.bot.api.blueprint.NodeDefinition;
 import com.botwithus.bot.api.blueprint.PinDefinition;
 import com.botwithus.bot.api.blueprint.PinDirection;
@@ -12,6 +15,8 @@ import java.util.Map;
  * Registers debug/utility nodes for blueprint development.
  */
 public final class DebugNodes {
+
+    private static final Logger log = LoggerFactory.getLogger(DebugNodes.class);
 
     private DebugNodes() {}
 
@@ -38,9 +43,9 @@ public final class DebugNodes {
                     Object value = ctx.readInputRaw("value");
                     String label = ctx.readInput("label", String.class, "");
                     if (label != null && !label.isEmpty()) {
-                        System.out.println("[Blueprint] " + label + ": " + value);
+                        log.info("{}: {}", label, value);
                     } else {
-                        System.out.println("[Blueprint] " + value);
+                        log.info("{}", value);
                     }
                     return ExecutionResult.flow("exec_out");
                 }

@@ -6,7 +6,12 @@ import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 public class Connection {
+
+    private static final Logger log = LoggerFactory.getLogger(Connection.class);
 
     private final String name;
     private final PipeClient pipe;
@@ -50,10 +55,10 @@ public class Connection {
     /** Stop all scripts AND close the connection. */
     public void close() {
         try { runtime.stopAll(); } catch (Exception e) {
-            System.err.println("[Connection] Error stopping scripts for " + name + ": " + e.getMessage());
+            log.error("Error stopping scripts for {}", name, e);
         }
         try { rpc.close(); } catch (Exception e) {
-            System.err.println("[Connection] Error closing RPC for " + name + ": " + e.getMessage());
+            log.error("Error closing RPC for {}", name, e);
         }
     }
 }

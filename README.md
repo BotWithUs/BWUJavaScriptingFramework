@@ -25,9 +25,9 @@ The GUI provides a tabbed interface for connecting to the game server, managing 
 Four Gradle subprojects with strict dependency layering:
 
 ```
-api                 (no deps)        — Public interfaces, models, query builders
+api                 (slf4j-api)      — Public interfaces, models, query builders
   ↑ required by
-core                (api + msgpack)  — RPC client, pipe transport, script runtime
+core                (api + msgpack + logback) — RPC client, pipe transport, script runtime
   ↑ required by
 cli                 (api + core)     — Interactive GUI, command system
 example-script      (api only)       — Example BotScript implementations
@@ -35,7 +35,7 @@ example-script      (api only)       — Example BotScript implementations
 
 ### api
 
-Pure interface module with zero dependencies. Contains `BotScript` (the SPI), `GameAPI` (100+ methods for game interaction), fluent entity query builders (`Npcs`, `Players`, `SceneObjects`, `GroundItems`), inventory wrappers (`Backpack`, `Bank`, `Equipment`), an event bus, and inter-script communication via `MessageBus`.
+Pure interface module whose only dependency is `slf4j-api` (exposed transitively so scripts get SLF4J for free). Contains `BotScript` (the SPI), `GameAPI` (100+ methods for game interaction), fluent entity query builders (`Npcs`, `Players`, `SceneObjects`, `GroundItems`), inventory wrappers (`Backpack`, `Bank`, `Equipment`), an event bus, and inter-script communication via `MessageBus`.
 
 Key packages:
 - **`blueprint`** — Visual graph workflow model (`BlueprintGraph`, `NodeInstance`, `Link`, `PinDefinition`)
@@ -43,7 +43,7 @@ Key packages:
 - **`constants`** — Game constant registries (`InterfaceIds`, `InventoryIds`, `AnimationIds`)
 - **`entities`** — Fluent query builders and `EntityContext` wrapper with lazy-cached info, distance calculations, health/animation/combat state
 - **`isc`** — Inter-script communication (`MessageBus` with request/response, `SharedState` thread-safe key-value store)
-- **`log`** — Structured logging API (`BotLogger`, `LoggerFactory`, `LogLevel`)
+- **`log`** — Structured logging API (`BotLogger` → SLF4J delegation, `LoggerFactory`, `LogLevel`)
 - **`model`** — Domain models including `Personality` (humanizer profile with live session stats)
 - **`script`** — `ManagementScript` SPI, `ScriptScheduler`, `TaskScript`, `ClientOrchestrator`
 - **`ui`** — `ScriptUI` interface for custom ImGui-based script UIs
@@ -59,7 +59,8 @@ Key features:
 - **Metrics** — `RpcMetrics` tracks call count, latency, and error rate per method
 - **Profiling** — `ScriptProfiler` tracks loop timing (avg/min/max/last)
 - **Error isolation** — Per-phase error handling in `ScriptRunner` (onStart/onLoop/onStop)
-- **Structured logging** — `PrintStreamLogger` implementation of `BotLogger`
+- **Structured logging** — SLF4J + Logback with MDC-based context tagging (`script.name`, `connection.name`)
+- **GUI log bridge** — Custom `LogBufferAppender` feeds Logback events into the in-memory `LogBuffer` for the GUI log panel
 
 ### cli
 
@@ -107,6 +108,9 @@ Reference implementations (`ExampleScript`, `WoodcuttingFletcherScript`). `Examp
 Scripts implement the `BotScript` SPI and are packaged as Java modules.
 
 ```java
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 @ScriptManifest(
     name = "My Script",
     version = "1.0",
@@ -115,11 +119,13 @@ Scripts implement the `BotScript` SPI and are packaged as Java modules.
 )
 public class MyScript implements BotScript {
 
+    private static final Logger log = LoggerFactory.getLogger(MyScript.class);
     private ScriptContext ctx;
 
     @Override
     public void onStart(ScriptContext ctx) {
         this.ctx = ctx;
+        log.info("Started!");
         // Initialize state, subscribe to events
     }
 
@@ -134,10 +140,12 @@ public class MyScript implements BotScript {
 
     @Override
     public void onStop() {
-        // Clean up resources
+        log.info("Stopped.");
     }
 }
 ```
+
+SLF4J is available transitively from the API module — no extra dependency needed. Log output from scripts is automatically tagged with the script name and connection via MDC.
 
 Your `module-info.java` must declare the service provider:
 

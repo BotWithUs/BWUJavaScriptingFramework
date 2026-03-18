@@ -1,6 +1,8 @@
 package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.script.ManagementScript;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.module.Configuration;
@@ -21,6 +23,7 @@ import java.util.*;
  */
 public final class ManagementScriptLoader {
 
+    private static final Logger log = LoggerFactory.getLogger(ManagementScriptLoader.class);
     private static final String MANAGEMENT_DIR = "management";
     private static final List<URLClassLoader> previousLoaders = new ArrayList<>();
 
@@ -43,9 +46,9 @@ public final class ManagementScriptLoader {
         if (!Files.isDirectory(managementDir)) {
             try {
                 Files.createDirectories(managementDir);
-                System.out.println("[ManagementScriptLoader] Created: " + managementDir.toAbsolutePath());
+                log.info("Created: {}", managementDir.toAbsolutePath());
             } catch (IOException e) {
-                System.err.println("[ManagementScriptLoader] Failed to create directory: " + e.getMessage());
+                log.error("Failed to create directory: {}", e.getMessage());
             }
             return List.of();
         }
@@ -56,22 +59,22 @@ public final class ManagementScriptLoader {
         try (var stream = Files.list(managementDir)) {
             jars = stream.filter(p -> p.toString().endsWith(".jar")).toList();
         } catch (IOException e) {
-            System.err.println("[ManagementScriptLoader] Failed to scan directory: " + e.getMessage());
+            log.error("Failed to scan directory: {}", e.getMessage());
             return List.of();
         }
 
         if (jars.isEmpty()) {
-            System.out.println("[ManagementScriptLoader] No JARs in " + managementDir.toAbsolutePath());
+            log.info("No JARs in {}", managementDir.toAbsolutePath());
             return List.of();
         }
 
-        System.out.println("[ManagementScriptLoader] Found " + jars.size() + " JAR(s) in " + managementDir.toAbsolutePath());
+        log.info("Found {} JAR(s) in {}", jars.size(), managementDir.toAbsolutePath());
 
         ModuleFinder finder = ModuleFinder.of(managementDir);
         Set<ModuleReference> moduleReferences = finder.findAll();
 
         if (moduleReferences.isEmpty()) {
-            System.out.println("[ManagementScriptLoader] No modules found in JARs.");
+            log.info("No modules found in JARs.");
             return List.of();
         }
 
@@ -94,10 +97,10 @@ public final class ManagementScriptLoader {
                 ServiceLoader<ManagementScript> loader = ServiceLoader.load(layer, ManagementScript.class);
                 for (ManagementScript script : loader) {
                     allScripts.add(script);
-                    System.out.println("[ManagementScriptLoader] Loaded: " + script.getClass().getName());
+                    log.info("Loaded: {}", script.getClass().getName());
                 }
             } catch (Exception e) {
-                System.err.println("[ManagementScriptLoader] Failed to load module " + name + ": " + e.getMessage());
+                log.error("Failed to load module {}: {}", name, e.getMessage());
             }
         }
 
@@ -109,7 +112,7 @@ public final class ManagementScriptLoader {
             try {
                 loader.close();
             } catch (IOException e) {
-                System.err.println("[ManagementScriptLoader] Failed to close classloader: " + e.getMessage());
+                log.error("Failed to close classloader: {}", e.getMessage());
             }
         }
         previousLoaders.clear();

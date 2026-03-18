@@ -6,6 +6,9 @@ import com.botwithus.bot.cli.gui.OutputLine;
 import com.botwithus.bot.cli.gui.TextureManager;
 import com.botwithus.bot.core.pipe.StreamPipeReader;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
@@ -20,6 +23,8 @@ import java.util.function.Function;
  * coordinating inline display via AnsiOutputBuffer + TextureManager.
  */
 public class StreamManager {
+
+    private static final Logger log = LoggerFactory.getLogger(StreamManager.class);
 
     private record ActiveStream(StreamPipeReader reader, OutputLine streamLine, int[] textureId) {}
 
@@ -90,7 +95,7 @@ public class StreamManager {
                     });
                 }
             } catch (IOException e) {
-                System.err.println("[StreamManager] Failed to decode JPEG frame: " + e.getMessage());
+                log.error("Failed to decode JPEG frame", e);
             }
         });
         reader.setErrorCallback(out::println);
@@ -119,7 +124,7 @@ public class StreamManager {
             try {
                 conn.getRpc().callSync("stop_stream", Map.of());
             } catch (Exception e) {
-                System.err.println("[StreamManager] Failed to send stop_stream for '" + connectionName + "': " + e.getMessage());
+                log.error("Failed to send stop_stream for '{}'", connectionName, e);
             }
         }
 
@@ -149,7 +154,7 @@ public class StreamManager {
                     try {
                         conn.getRpc().callSync("stop_stream", Map.of());
                     } catch (Exception e) {
-                        System.err.println("[StreamManager] Failed to send stop_stream for '" + name + "': " + e.getMessage());
+                        log.error("Failed to send stop_stream for '{}'", name, e);
                     }
                 }
             }

@@ -17,6 +17,7 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-glfw:$lwjglVersion:$lwjglNatives")
     runtimeOnly("org.lwjgl:lwjgl-opengl:$lwjglVersion:$lwjglNatives")
+    implementation("ch.qos.logback:logback-classic:1.5.16")
 }
 
 extraJavaModuleInfo {

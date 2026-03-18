@@ -1,6 +1,8 @@
 package com.botwithus.bot.core.blueprint.serialization;
 
 import com.botwithus.bot.api.blueprint.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -11,6 +13,8 @@ import java.util.Map;
  * Run {@link #main} to write them to {@code scripts/blueprints/}.
  */
 public final class ExampleBlueprints {
+
+    private static final Logger log = LoggerFactory.getLogger(ExampleBlueprints.class);
 
     private ExampleBlueprints() {}
 
@@ -345,12 +349,11 @@ public final class ExampleBlueprints {
         BlueprintGraph fletcher = buildWoodcuttingFletcher();
         Path path = dir.resolve("woodcutting-fletcher.blueprint.json");
         BlueprintSerializer.saveToFile(fletcher, path);
-        System.out.println("Saved: " + path.toAbsolutePath());
+        log.info("Saved: {}", path.toAbsolutePath());
 
         // Verify round-trip
         BlueprintGraph reloaded = BlueprintSerializer.loadFromFile(path);
-        System.out.println("Reloaded: " + reloaded.getMetadata().name()
-                + " — " + reloaded.getNodes().size() + " nodes, "
-                + reloaded.getLinks().size() + " links");
+        log.info("Reloaded: {} — {} nodes, {} links", reloaded.getMetadata().name(),
+                reloaded.getNodes().size(), reloaded.getLinks().size());
     }
 }

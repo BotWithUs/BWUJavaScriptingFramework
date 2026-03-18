@@ -1,5 +1,8 @@
 package com.botwithus.bot.cli.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -12,6 +15,7 @@ import java.util.Properties;
  */
 public class CliConfig {
 
+    private static final Logger log = LoggerFactory.getLogger(CliConfig.class);
     private static final Path CONFIG_DIR = Path.of(System.getProperty("user.home"), ".botwithus");
     private static final Path CONFIG_FILE = CONFIG_DIR.resolve("config.properties");
 
@@ -39,7 +43,7 @@ public class CliConfig {
         try (InputStream in = Files.newInputStream(CONFIG_FILE)) {
             props.load(in);
         } catch (IOException e) {
-            System.err.println("[CliConfig] Failed to load config: " + e.getMessage());
+            log.error("Failed to load config", e);
         }
     }
 
@@ -50,7 +54,7 @@ public class CliConfig {
                 props.store(out, "JBotWithUs CLI Configuration");
             }
         } catch (IOException e) {
-            System.err.println("[CliConfig] Failed to save config: " + e.getMessage());
+            log.error("Failed to save config", e);
         }
     }
 

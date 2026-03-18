@@ -3,6 +3,8 @@ package com.botwithus.bot.core.blueprint.execution;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.blueprint.*;
 import com.botwithus.bot.core.blueprint.registry.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
 import java.util.List;
@@ -15,6 +17,7 @@ import java.util.Map;
  */
 public class BlueprintInterpreter {
 
+    private static final Logger log = LoggerFactory.getLogger(BlueprintInterpreter.class);
     private final BlueprintGraph graph;
     private final NodeRegistry registry;
     private final GameAPI api;
@@ -109,7 +112,7 @@ public class BlueprintInterpreter {
         NodeExecutor executor = registry.getExecutor(typeId);
         NodeDefinition def = registry.getDefinition(typeId);
         if (executor == null || def == null) {
-            System.err.println("[Blueprint] No executor for node type: " + typeId);
+            log.error("No executor for node type: {}", typeId);
             return null;
         }
 
@@ -131,7 +134,7 @@ public class BlueprintInterpreter {
 
             return new ExecutionResult(allOutputs, result.nextExecPin());
         } catch (Exception e) {
-            System.err.println("[Blueprint] Error executing node " + typeId + " (id=" + node.getId() + "): " + e.getMessage());
+            log.error("Error executing node {} (id={}): {}", typeId, node.getId(), e.getMessage());
             return null;
         }
     }
@@ -260,7 +263,7 @@ public class BlueprintInterpreter {
 
     public void setVariable(String name, Object value) {
         if (variables.size() >= MAX_VARIABLES && !variables.containsKey(name)) {
-            System.err.println("[Blueprint] Variable limit reached (" + MAX_VARIABLES + "), ignoring: " + name);
+            log.warn("Variable limit reached ({}), ignoring: {}", MAX_VARIABLES, name);
             return;
         }
         variables.put(name, value);

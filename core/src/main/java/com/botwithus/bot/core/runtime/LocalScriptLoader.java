@@ -2,6 +2,9 @@ package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.BotScript;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.lang.module.Configuration;
 import java.lang.module.ModuleFinder;
@@ -19,6 +22,7 @@ import java.util.*;
  */
 public final class LocalScriptLoader {
 
+    private static final Logger log = LoggerFactory.getLogger(LocalScriptLoader.class);
     private static final String SCRIPTS_DIR_NAME = "scripts";
     private static final String SCRIPTS_DIR_PROPERTY = "botwithus.scripts.dir";
 
@@ -64,12 +68,12 @@ public final class LocalScriptLoader {
      */
     public static List<BotScript> loadScripts(Path scriptsDir) {
         if (!Files.isDirectory(scriptsDir)) {
-            System.out.println("[LocalScriptLoader] Scripts directory not found: " + scriptsDir.toAbsolutePath());
-            System.out.println("[LocalScriptLoader] Creating it — drop script JARs there and restart.");
+            log.info("Scripts directory not found: {}", scriptsDir.toAbsolutePath());
+            log.info("Creating it — drop script JARs there and restart.");
             try {
                 Files.createDirectories(scriptsDir);
             } catch (IOException e) {
-                System.err.println("[LocalScriptLoader] Failed to create scripts directory: " + e.getMessage());
+                log.error("Failed to create scripts directory: {}", e.getMessage());
             }
             return List.of();
         }
@@ -82,23 +86,22 @@ public final class LocalScriptLoader {
         try (var stream = Files.list(scriptsDir)) {
             jars = stream.filter(p -> p.toString().endsWith(".jar")).toList();
         } catch (IOException e) {
-            System.err.println("[LocalScriptLoader] Failed to scan scripts directory: " + e.getMessage());
+            log.error("Failed to scan scripts directory: {}", e.getMessage());
             return List.of();
         }
 
         if (jars.isEmpty()) {
-            System.out.println("[LocalScriptLoader] No JARs found in " + scriptsDir.toAbsolutePath());
+            log.info("No JARs found in {}", scriptsDir.toAbsolutePath());
             return List.of();
         }
 
-        System.out.println("[LocalScriptLoader] Found " + jars.size() + " JAR(s) in " + scriptsDir.toAbsolutePath());
+        log.info("Found {} JAR(s) in {}", jars.size(), scriptsDir.toAbsolutePath());
 
         ModuleFinder finder = ModuleFinder.of(scriptsDir);
         Set<ModuleReference> moduleReferences = finder.findAll();
 
         if (moduleReferences.isEmpty()) {
-            System.out.println("[LocalScriptLoader] No modules found in JARs. "
-                    + "Ensure each JAR has a module-info with 'provides BotScript with ...'");
+            log.info("No modules found in JARs. Ensure each JAR has a module-info with 'provides BotScript with ...'");
             return List.of();
         }
 
@@ -109,9 +112,8 @@ public final class LocalScriptLoader {
             boolean declaresUses = coreModule.getDescriptor().uses()
                     .contains(BotScript.class.getName());
             if (!declaresUses) {
-                System.err.println("[LocalScriptLoader] FATAL: Module '" + coreModule.getName()
-                        + "' is missing 'uses com.botwithus.bot.api.BotScript;' in module-info.java");
-                System.err.println("[LocalScriptLoader] ServiceLoader will not discover any scripts without it!");
+                log.error("FATAL: Module '{}' is missing 'uses com.botwithus.bot.api.BotScript;' in module-info.java", coreModule.getName());
+                log.error("ServiceLoader will not discover any scripts without it!");
                 return List.of();
             }
         }
@@ -123,7 +125,7 @@ public final class LocalScriptLoader {
             String name = ref.descriptor().name();
             var location = ref.location();
             if (location.isEmpty()) {
-                System.out.println("[LocalScriptLoader] Module " + name + " has no location, skipping.");
+                log.info("Module {} has no location, skipping.", name);
                 continue;
             }
 
@@ -138,7 +140,7 @@ public final class LocalScriptLoader {
 
                 Optional<Module> module = layer.findModule(name);
                 if (module.isEmpty()) {
-                    System.out.println("[LocalScriptLoader] Module " + name + " could not be found in layer, skipping.");
+                    log.info("Module {} could not be found in layer, skipping.", name);
                     continue;
                 }
 
@@ -150,20 +152,17 @@ public final class LocalScriptLoader {
                 int countBefore = allScripts.size();
                 for (BotScript script : loader) {
                     allScripts.add(script);
-                    System.out.println("[LocalScriptLoader] Loaded: " + script.getClass().getName());
+                    log.info("Loaded: {}", script.getClass().getName());
                 }
 
                 int loaded = allScripts.size() - countBefore;
                 if (loaded == 0 && providesBotScript) {
-                    System.err.println("[LocalScriptLoader] WARNING: Module '" + name
-                            + "' declares 'provides BotScript' but ServiceLoader found 0 implementations.");
+                    log.warn("Module '{}' declares 'provides BotScript' but ServiceLoader found 0 implementations.", name);
                 } else if (loaded == 0) {
-                    System.out.println("[LocalScriptLoader] Module '" + name
-                            + "' contains no BotScript providers — skipping.");
+                    log.info("Module '{}' contains no BotScript providers — skipping.", name);
                 }
             } catch (Exception e) {
-                System.err.println("[LocalScriptLoader] Failed to load module " + name + ": " + e.getMessage());
-                e.printStackTrace();
+                log.error("Failed to load module {}: {}", name, e.getMessage(), e);
             }
         }
 
@@ -179,7 +178,7 @@ public final class LocalScriptLoader {
             try {
                 loader.close();
             } catch (IOException e) {
-                System.err.println("[LocalScriptLoader] Failed to close previous classloader: " + e.getMessage());
+                log.error("Failed to close previous classloader: {}", e.getMessage());
             }
         }
         previousLoaders.clear();

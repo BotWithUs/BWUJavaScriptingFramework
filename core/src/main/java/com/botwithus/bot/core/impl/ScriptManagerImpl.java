@@ -2,6 +2,8 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptManifest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.script.ScriptInfo;
 import com.botwithus.bot.api.script.ScriptManager;
@@ -19,6 +21,7 @@ import java.util.Map;
  */
 public class ScriptManagerImpl implements ScriptManager {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptManagerImpl.class);
     private final ScriptRuntime runtime;
     private final ScriptSchedulerImpl scheduler;
 
@@ -66,7 +69,7 @@ public class ScriptManagerImpl implements ScriptManager {
             throw new IllegalStateException("Script already running: " + name);
         }
         runner.start();
-        System.out.println("[ScriptManager] Started: " + runner.getScriptName());
+        log.info("Started: {}", runner.getScriptName());
         return true;
     }
 
@@ -90,8 +93,8 @@ public class ScriptManagerImpl implements ScriptManager {
         }
 
         runner.start();
-        System.out.println("[ScriptManager] Started: " + runner.getScriptName()
-                + " with " + (config != null ? config.size() : 0) + " config values");
+        log.info("Started: {} with {} config values", runner.getScriptName(),
+                config != null ? config.size() : 0);
         return true;
     }
 
@@ -99,7 +102,7 @@ public class ScriptManagerImpl implements ScriptManager {
     public boolean stop(String name) {
         boolean stopped = runtime.stopScript(name);
         if (stopped) {
-            System.out.println("[ScriptManager] Stopped: " + name);
+            log.info("Stopped: {}", name);
         }
         return stopped;
     }
@@ -114,14 +117,14 @@ public class ScriptManagerImpl implements ScriptManager {
             runner.awaitStop(2000);
         }
         runner.start();
-        System.out.println("[ScriptManager] Restarted: " + runner.getScriptName());
+        log.info("Restarted: {}", runner.getScriptName());
         return true;
     }
 
     @Override
     public void stopAll() {
         runtime.stopAll();
-        System.out.println("[ScriptManager] Stopped all scripts");
+        log.info("Stopped all scripts");
     }
 
     // ── Loading ────────────────────────────────────────────────────────────────
@@ -133,7 +136,7 @@ public class ScriptManagerImpl implements ScriptManager {
 
         // Reload from disk
         List<BotScript> scripts = LocalScriptLoader.loadScripts();
-        System.out.println("[ScriptManager] Reloaded " + scripts.size() + " script(s) from local");
+        log.info("Reloaded {} script(s) from local", scripts.size());
 
         // Register without starting
         for (BotScript script : scripts) {

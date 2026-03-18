@@ -1,5 +1,8 @@
 package com.botwithus.bot.core.pipe;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -22,6 +25,7 @@ import java.util.stream.Stream;
  */
 public class PipeClient implements AutoCloseable {
 
+    private static final Logger log = LoggerFactory.getLogger(PipeClient.class);
     private static final String PIPE_PREFIX = "\\\\.\\pipe\\";
     private static final String DEFAULT_PIPE_NAME = "BotWithUs";
 
@@ -143,7 +147,7 @@ public class PipeClient implements AutoCloseable {
         open = false;
         try { pipeInput.close(); } catch (IOException ignored) {}
         try { pipe.close(); } catch (IOException e) {
-            System.err.println("[PipeClient] Error closing pipe " + pipePath + ": " + e.getMessage());
+            log.error("Error closing pipe {}: {}", pipePath, e.getMessage());
         }
     }
 }

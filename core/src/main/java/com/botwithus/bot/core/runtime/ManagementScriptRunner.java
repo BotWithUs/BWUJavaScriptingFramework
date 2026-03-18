@@ -6,6 +6,9 @@ import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.config.ScriptConfigStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -20,6 +23,7 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class ManagementScriptRunner implements Runnable {
 
+    private static final Logger log = LoggerFactory.getLogger(ManagementScriptRunner.class);
     private final ManagementScript script;
     private final ManagementContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -101,17 +105,18 @@ public class ManagementScriptRunner implements Runnable {
         try {
             script.onConfigUpdate(config);
         } catch (Exception e) {
-            System.err.println("[ManagementScriptRunner] Error in onConfigUpdate for " + getScriptName() + ": " + e.getMessage());
+            log.error("Error in onConfigUpdate for {}: {}", getScriptName(), e.getMessage());
         }
     }
 
     @Override
     public void run() {
         String name = getScriptName();
+        MDC.put("script.name", name);
         try {
             script.onStart(context);
         } catch (Exception e) {
-            System.err.println("[ManagementScriptRunner] onStart error in " + name + ": " + e.getMessage());
+            log.error("onStart error in {}: {}", name, e.getMessage());
             notifyError(name, "onStart", e);
             running.set(false);
             return;
@@ -126,7 +131,7 @@ public class ManagementScriptRunner implements Runnable {
                 script.onConfigUpdate(config);
             }
         } catch (Exception e) {
-            System.err.println("[ManagementScriptRunner] Config load error in " + name + ": " + e.getMessage());
+            log.error("Config load error in {}: {}", name, e.getMessage());
         }
 
         try {
@@ -140,16 +145,17 @@ public class ManagementScriptRunner implements Runnable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
-            System.err.println("[ManagementScriptRunner] onLoop error in " + name + ": " + e.getMessage());
+            log.error("onLoop error in {}: {}", name, e.getMessage());
             notifyError(name, "onLoop", e);
         } finally {
             running.set(false);
             try {
                 script.onStop();
             } catch (Exception e) {
-                System.err.println("[ManagementScriptRunner] onStop error in " + name + ": " + e.getMessage());
+                log.error("onStop error in {}: {}", name, e.getMessage());
                 notifyError(name, "onStop", e);
             }
+            MDC.clear();
             CountDownLatch latch = this.stopLatch;
             if (latch != null) latch.countDown();
         }
@@ -161,7 +167,7 @@ public class ManagementScriptRunner implements Runnable {
             try {
                 handler.onError(scriptName, phase, error);
             } catch (Exception e) {
-                System.err.println("[ManagementScriptRunner] Error handler threw for " + scriptName + "/" + phase + ": " + e.getMessage());
+                log.error("Error handler threw for {}/{}: {}", scriptName, phase, e.getMessage());
             }
         }
     }

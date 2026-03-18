@@ -12,6 +12,9 @@ import com.botwithus.bot.core.rpc.RpcClient;
 
 import com.botwithus.bot.cli.AutoStartManager;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 public class ConnectCommand implements Command {
+
+    private static final Logger log = LoggerFactory.getLogger(ConnectCommand.class);
 
     @Override public String name() { return "connect"; }
     @Override public List<String> aliases() { return List.of("conn"); }
@@ -224,7 +229,7 @@ public class ConnectCommand implements Command {
                         return info;
                     }
                 } catch (Exception e) {
-                    System.err.println("[ConnectCommand] Lobby probe poll failed for " + pipeName + ": " + e.getMessage());
+                    log.warn("Lobby probe poll failed for {}: {}", pipeName, e.getMessage());
                 }
                 try { Thread.sleep(LOBBY_POLL_INTERVAL_MS); } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -235,7 +240,7 @@ public class ConnectCommand implements Command {
             ctx.out().println("  " + pipeName + ": lobby timeout — could not retrieve account info.");
             return new PipeInfo(pipeName, null, -1, false, false);
         } catch (Exception e) {
-            System.err.println("[ConnectCommand] lobbyLoginAndProbe failed for " + pipeName + ": " + e.getMessage());
+            log.error("lobbyLoginAndProbe failed for {}", pipeName, e);
             return new PipeInfo(pipeName, null, -1, false, false);
         }
     }
@@ -249,10 +254,10 @@ public class ConnectCommand implements Command {
             return CompletableFuture.supplyAsync(() -> probePipeBlocking(pipeName), java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor())
                     .get(5, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
-            System.err.println("[ConnectCommand] probePipe timed out for " + pipeName);
+            log.warn("probePipe timed out for {}", pipeName);
             return new PipeInfo(pipeName, "(timeout)", -1, false, false);
         } catch (Exception e) {
-            System.err.println("[ConnectCommand] probePipe failed for " + pipeName + ": " + e.getMessage());
+            log.error("probePipe failed for {}", pipeName, e);
             return new PipeInfo(pipeName, null, -1, false, false);
         }
     }
@@ -263,7 +268,7 @@ public class ConnectCommand implements Command {
             rpc.setTimeout(3_000);
             return probeWithRpc(pipeName, rpc);
         } catch (Exception e) {
-            System.err.println("[ConnectCommand] probePipe failed for " + pipeName + ": " + e.getMessage());
+            log.error("probePipe failed for {}", pipeName, e);
             return new PipeInfo(pipeName, null, -1, false, false);
         }
     }
@@ -287,20 +292,20 @@ public class ConnectCommand implements Command {
                     Map<String, Object> wr = rpc.callSync("get_current_world", Map.of());
                     worldId = getInt(wr, "world_id");
                 } catch (Exception e) {
-                    System.err.println("[ConnectCommand] Failed to get world for " + pipeName + ": " + e.getMessage());
+                    log.warn("Failed to get world for {}: {}", pipeName, e.getMessage());
                 }
             }
 
             return new PipeInfo(pipeName, displayName, worldId, loggedIn, isMember);
         } catch (Exception e) {
             // Fallback: try get_local_player
-            System.err.println("[ConnectCommand] get_account_info failed for " + pipeName + ": " + e.getMessage());
+            log.warn("get_account_info failed for {}: {}", pipeName, e.getMessage());
             try {
                 Map<String, Object> r = rpc.callSync("get_local_player", Map.of());
                 String name = getString(r, "name");
                 return new PipeInfo(pipeName, name, -1, name != null && !name.isEmpty(), false);
             } catch (Exception e2) {
-                System.err.println("[ConnectCommand] get_local_player fallback also failed for " + pipeName + ": " + e2.getMessage());
+                log.warn("get_local_player fallback also failed for {}: {}", pipeName, e2.getMessage());
                 return new PipeInfo(pipeName, null, -1, false, false);
             }
         }
@@ -341,7 +346,7 @@ public class ConnectCommand implements Command {
                 asm.onConnectionEstablished(conn, displayName);
             }
         } catch (Exception e) {
-            System.err.println("[ConnectCommand] probeAndAutoStart failed for " + connName + ": " + e.getMessage());
+            log.error("probeAndAutoStart failed for {}", connName, e);
         }
     }
 

@@ -2,6 +2,8 @@ package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -12,6 +14,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class ManagementScriptRuntime {
 
+    private static final Logger log = LoggerFactory.getLogger(ManagementScriptRuntime.class);
     private final ManagementContext context;
     private final List<ManagementScriptRunner> runners = new CopyOnWriteArrayList<>();
     private Runnable onStateChange;
@@ -30,7 +33,7 @@ public class ManagementScriptRuntime {
             try {
                 cb.run();
             } catch (Exception e) {
-                System.err.println("[ManagementRuntime] State change callback error: " + e.getMessage());
+                log.error("State change callback error: {}", e.getMessage());
             }
         }
     }
@@ -46,7 +49,7 @@ public class ManagementScriptRuntime {
     public void startScript(ManagementScript script) {
         ManagementScriptRunner runner = registerScript(script);
         runner.start();
-        System.out.println("[ManagementRuntime] Started: " + runner.getScriptName());
+        log.info("Started: {}", runner.getScriptName());
         fireStateChange();
     }
 
@@ -65,7 +68,7 @@ public class ManagementScriptRuntime {
         ManagementScriptRunner runner = findRunner(name);
         if (runner != null && runner.isRunning()) {
             runner.stop();
-            System.out.println("[ManagementRuntime] Stopped: " + runner.getScriptName());
+            log.info("Stopped: {}", runner.getScriptName());
             fireStateChange();
             return true;
         }
@@ -86,7 +89,7 @@ public class ManagementScriptRuntime {
     public void stopAll() {
         for (ManagementScriptRunner runner : runners) {
             runner.stop();
-            System.out.println("[ManagementRuntime] Stopped: " + runner.getScriptName());
+            log.info("Stopped: {}", runner.getScriptName());
         }
         runners.clear();
         fireStateChange();

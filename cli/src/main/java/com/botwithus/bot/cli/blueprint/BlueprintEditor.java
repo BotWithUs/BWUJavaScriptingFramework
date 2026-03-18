@@ -16,6 +16,9 @@ import com.botwithus.bot.core.blueprint.registry.LogicNodes;
 import com.botwithus.bot.core.blueprint.registry.NodeRegistry;
 import com.botwithus.bot.core.blueprint.serialization.BlueprintSerializer;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import imgui.ImDrawList;
 import imgui.ImGui;
 import imgui.ImVec2;
@@ -35,6 +38,8 @@ import java.util.List;
  * Called from {@code ImGuiApp} when in editor mode (toggled with F2).
  */
 public class BlueprintEditor {
+
+    private static final Logger log = LoggerFactory.getLogger(BlueprintEditor.class);
 
     private static final int COL_CANVAS_BG   = NodeRenderer.packColor(30, 30, 32, 255);
     private static final int COL_GRID_LINE   = NodeRenderer.packColor(50, 50, 55, 255);
@@ -575,7 +580,7 @@ public class BlueprintEditor {
             state.setCurrentFilePath(path);
             state.clearDirty();
         } catch (IOException e) {
-            System.err.println("Failed to save blueprint: " + e.getMessage());
+            log.error("Failed to save blueprint", e);
         }
     }
 
@@ -586,7 +591,7 @@ public class BlueprintEditor {
             state.clearSelection();
             state.clearDirty();
         } catch (IOException e) {
-            System.err.println("Failed to load blueprint: " + e.getMessage());
+            log.error("Failed to load blueprint", e);
         }
     }
 

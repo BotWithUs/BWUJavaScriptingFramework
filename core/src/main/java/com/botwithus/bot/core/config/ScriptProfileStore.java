@@ -1,5 +1,8 @@
 package com.botwithus.bot.core.config;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
@@ -23,6 +26,7 @@ import java.util.stream.Stream;
  */
 public final class ScriptProfileStore {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptProfileStore.class);
     private final Path baseDir;
     private final Path profilesDir;
     private final Path groupsDir;
@@ -48,7 +52,7 @@ public final class ScriptProfileStore {
         try (Reader r = Files.newBufferedReader(settingsFile)) {
             globalSettings.load(r);
         } catch (IOException e) {
-            System.err.println("[ScriptProfileStore] Failed to load settings: " + e.getMessage());
+            log.error("Failed to load settings: {}", e.getMessage());
         }
     }
 
@@ -59,7 +63,7 @@ public final class ScriptProfileStore {
                 globalSettings.store(w, "JBotWithUs Auto-Start Settings");
             }
         } catch (IOException e) {
-            System.err.println("[ScriptProfileStore] Failed to save settings: " + e.getMessage());
+            log.error("Failed to save settings: {}", e.getMessage());
         }
     }
 
@@ -169,7 +173,7 @@ public final class ScriptProfileStore {
                         result.put(name, getAccountScripts(name));
                     });
         } catch (IOException e) {
-            System.err.println("[ScriptProfileStore] Failed to list profiles: " + e.getMessage());
+            log.error("Failed to list profiles: {}", e.getMessage());
         }
         return result;
     }
@@ -188,7 +192,7 @@ public final class ScriptProfileStore {
                         result.put(name, getGroupScripts(name));
                     });
         } catch (IOException e) {
-            System.err.println("[ScriptProfileStore] Failed to list group profiles: " + e.getMessage());
+            log.error("Failed to list group profiles: {}", e.getMessage());
         }
         return result;
     }
@@ -201,7 +205,7 @@ public final class ScriptProfileStore {
         try {
             return Files.deleteIfExists(file);
         } catch (IOException e) {
-            System.err.println("[ScriptProfileStore] Failed to clear profile: " + e.getMessage());
+            log.error("Failed to clear profile: {}", e.getMessage());
             return false;
         }
     }
@@ -228,7 +232,7 @@ public final class ScriptProfileStore {
             try (Reader r = Files.newBufferedReader(file)) {
                 props.load(r);
             } catch (IOException e) {
-                System.err.println("[ScriptProfileStore] Failed to load " + file + ": " + e.getMessage());
+                log.error("Failed to load {}: {}", file, e.getMessage());
             }
         }
         return props;
@@ -241,7 +245,7 @@ public final class ScriptProfileStore {
                 props.store(w, comment);
             }
         } catch (IOException e) {
-            System.err.println("[ScriptProfileStore] Failed to save " + file + ": " + e.getMessage());
+            log.error("Failed to save {}: {}", file, e.getMessage());
         }
     }
 }

@@ -6,6 +6,7 @@ import com.botwithus.bot.cli.blueprint.BlueprintEditor;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.impl.*;
 import com.botwithus.bot.cli.log.LogBuffer;
+import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
@@ -127,6 +128,7 @@ public class ImGuiApp extends Application {
         PrintStream guiErr = outputBuffer.getPrintStream();
 
         LogBuffer logBuffer = new LogBuffer();
+        LogBufferAppender.setLogBuffer(logBuffer);
         LogCapture logCapture = new LogCapture(logBuffer, guiOut, guiErr);
         logCapture.install();
 

@@ -2,6 +2,8 @@ package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -11,6 +13,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class ScriptRuntime {
 
+    private static final Logger log = LoggerFactory.getLogger(ScriptRuntime.class);
     private final ScriptContext context;
     private final List<ScriptRunner> runners = new CopyOnWriteArrayList<>();
     private String connectionName;
@@ -38,7 +41,7 @@ public class ScriptRuntime {
             try {
                 cb.run();
             } catch (Exception e) {
-                System.err.println("[Runtime] State change callback error: " + e.getMessage());
+                log.error("State change callback error: {}", e.getMessage());
             }
         }
     }
@@ -58,7 +61,7 @@ public class ScriptRuntime {
     public void startScript(BotScript script) {
         ScriptRunner runner = registerScript(script);
         runner.start();
-        System.out.println("[Runtime] Started script: " + runner.getScriptName());
+        log.info("Started script: {}", runner.getScriptName());
         fireStateChange();
     }
 
@@ -71,7 +74,7 @@ public class ScriptRuntime {
     public void stopAll() {
         for (ScriptRunner runner : runners) {
             runner.stop();
-            System.out.println("[Runtime] Stopped script: " + runner.getScriptName());
+            log.info("Stopped script: {}", runner.getScriptName());
         }
         runners.clear();
         fireStateChange();
@@ -90,7 +93,7 @@ public class ScriptRuntime {
         ScriptRunner runner = findRunner(name);
         if (runner != null && runner.isRunning()) {
             runner.stop();
-            System.out.println("[Runtime] Stopped script: " + runner.getScriptName());
+            log.info("Stopped script: {}", runner.getScriptName());
             fireStateChange();
             return true;
         }

@@ -12,6 +12,9 @@ import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.model.GameAction;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Chops trees until inventory is full, then fletches logs into arrow shafts.
  * Repeats indefinitely.
@@ -23,6 +26,8 @@ import com.botwithus.bot.api.model.GameAction;
         description = "Chops trees and fletches logs into arrow shafts"
 )
 public class WoodcuttingFletcherScript implements BotScript {
+
+    private static final Logger log = LoggerFactory.getLogger(WoodcuttingFletcherScript.class);
 
     private static final int LOGS = 1511;
     /** RS3 production / Make-X interface. */
@@ -44,7 +49,7 @@ public class WoodcuttingFletcherScript implements BotScript {
         this.objects = new SceneObjects(api);
         this.backpack = new Backpack(api);
         this.state = State.CHOPPING;
-        System.out.println("[WoodcuttingFletcher] Started!");
+        log.info("Started!");
     }
 
     @Override
@@ -52,21 +57,21 @@ public class WoodcuttingFletcherScript implements BotScript {
         try {
             GameAPI api = ctx.getGameAPI();
 
-            System.out.println("Looping Woodcutting Fletcher " + state);
+            log.debug("Looping {}", state);
 
             return switch (state) {
                 case CHOPPING -> handleChopping(api);
                 case FLETCHING -> handleFletching(api);
             };
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Error in onLoop", e);
             return 5000;
         }
     }
 
     private int handleChopping(GameAPI api) {
         if (backpack.isFull()) {
-            System.out.println("[WoodcuttingFletcher] Inventory full, switching to fletching.");
+            log.info("Inventory full, switching to fletching.");
             state = State.FLETCHING;
             return 300;
         }
@@ -84,7 +89,7 @@ public class WoodcuttingFletcherScript implements BotScript {
                 .nearest();
 
         if (tree == null) {
-            System.out.println("[WoodcuttingFletcher] No tree found!");
+            log.warn("No tree found!");
         } else {
             tree.interact("Chop down");
             return 1200;
@@ -95,7 +100,7 @@ public class WoodcuttingFletcherScript implements BotScript {
 
     private int handleFletching(GameAPI api) {
         if (!backpack.contains(LOGS)) {
-            System.out.println("[WoodcuttingFletcher] No logs remaining, switching to chopping.");
+            log.info("No logs remaining, switching to chopping.");
             state = State.CHOPPING;
             return 300;
         }
@@ -126,6 +131,6 @@ public class WoodcuttingFletcherScript implements BotScript {
 
     @Override
     public void onStop() {
-        System.out.println("[WoodcuttingFletcher] Stopped.");
+        log.info("Stopped.");
     }
 }

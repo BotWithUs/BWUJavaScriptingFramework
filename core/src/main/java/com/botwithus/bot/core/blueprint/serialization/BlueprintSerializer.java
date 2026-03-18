@@ -6,6 +6,9 @@ import com.botwithus.bot.api.blueprint.Link;
 import com.botwithus.bot.api.blueprint.NodeInstance;
 import com.botwithus.bot.api.blueprint.PinType;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
@@ -23,6 +26,7 @@ import java.util.Map;
  */
 public final class BlueprintSerializer {
 
+    private static final Logger log = LoggerFactory.getLogger(BlueprintSerializer.class);
     private static final String FILE_SUFFIX = ".blueprint.json";
 
     private BlueprintSerializer() {
@@ -99,7 +103,7 @@ public final class BlueprintSerializer {
                 try {
                     graphs.add(loadFromFile(file));
                 } catch (Exception e) {
-                    System.err.println("Failed to load blueprint " + file + ": " + e.getMessage());
+                    log.error("Failed to load blueprint {}: {}", file, e.getMessage());
                 }
             }
         }
@@ -455,7 +459,7 @@ public final class BlueprintSerializer {
                             PinType pinType = PinType.valueOf(typeName);
                             graph.getVariables().put(name, pinType);
                         } catch (IllegalArgumentException e) {
-                            System.err.println("[BlueprintSerializer] Unknown PinType '" + typeName + "' for variable '" + name + "', skipping");
+                            log.warn("Unknown PinType '{}' for variable '{}', skipping", typeName, name);
                         }
                     }
                 }
