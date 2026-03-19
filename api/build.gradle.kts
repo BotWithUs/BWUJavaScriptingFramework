@@ -1,6 +1,16 @@
 // api module - pure Java interfaces plus SLF4J API
 plugins {
     `java-library`
+    `maven-publish`
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            from(components["java"])
+            artifactId = "bot-api"
+        }
+    }
 }
 
 dependencies {
