@@ -38,23 +38,23 @@ public class LogsPanel implements GuiPanel {
 
     @Override
     public void render(CliContext ctx) {
-        // Filter controls
-        ImGui.text("Level:");
+        // Filter controls row 1
+        GuiHelpers.textSecondary("Level:");
         ImGui.sameLine();
         ImGui.pushItemWidth(80);
         ImGui.combo("##levelFilter", levelFilter, LEVELS);
         ImGui.popItemWidth();
 
-        ImGui.sameLine(0, 12);
-        ImGui.text("Source:");
+        ImGui.sameLine(0, 16);
+        GuiHelpers.textSecondary("Source:");
         ImGui.sameLine();
         ImGui.pushItemWidth(120);
         ImGui.inputText("##sourceFilter", sourceFilter);
         ImGui.popItemWidth();
 
         // Connection filter
-        ImGui.sameLine(0, 12);
-        ImGui.text("Connection:");
+        ImGui.sameLine(0, 16);
+        GuiHelpers.textSecondary("Connection:");
         ImGui.sameLine();
         var connections = new ArrayList<>(ctx.getConnections());
         String[] connOptions = new String[connections.size() + 1];
@@ -67,11 +67,11 @@ public class LogsPanel implements GuiPanel {
         ImGui.combo("##connFilter", connectionFilter, connOptions);
         ImGui.popItemWidth();
 
-        ImGui.sameLine(0, 12);
+        ImGui.sameLine(0, 16);
         ImGui.checkbox("Follow", followMode);
 
-        ImGui.sameLine(0, 12);
-        ImGui.text("Lines:");
+        ImGui.sameLine(0, 16);
+        GuiHelpers.textSecondary("Lines:");
         ImGui.sameLine();
         ImGui.pushItemWidth(80);
         int[] lineCountArr = {lineCount.get()};
@@ -81,14 +81,14 @@ public class LogsPanel implements GuiPanel {
         ImGui.popItemWidth();
 
         ImGui.sameLine(0, 12);
-        if (ImGui.button("Clear")) {
+        if (GuiHelpers.buttonDanger(Icons.TRASH + "  Clear")) {
             ctx.getLogBuffer().clear();
         }
 
         ImGui.sameLine(0, 8);
         boolean wantCopy = false;
         copyFeedbackTimer = ClipboardHelper.renderCopyFeedback(copyFeedbackTimer);
-        if (copyFeedbackTimer <= 0f && ImGui.button("Copy Logs")) {
+        if (copyFeedbackTimer <= 0f && GuiHelpers.buttonSecondary(Icons.COPY + "  Copy Logs")) {
             wantCopy = true;
         }
 

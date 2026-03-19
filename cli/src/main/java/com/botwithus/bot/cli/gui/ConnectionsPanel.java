@@ -42,25 +42,25 @@ public class ConnectionsPanel implements GuiPanel {
     @Override
     public void render(CliContext ctx) {
         // Scan controls
-        ImGui.text("Pipe Filter:");
+        GuiHelpers.textSecondary("Pipe Filter:");
         ImGui.sameLine();
         ImGui.pushItemWidth(200);
         ImGui.inputText("##scanFilter", scanFilter);
         ImGui.popItemWidth();
-        ImGui.sameLine();
+        ImGui.sameLine(0, 8);
 
         if (scanning) {
             ImGui.beginDisabled();
-            ImGui.button("Scanning...");
+            GuiHelpers.buttonSecondary("Scanning...");
             ImGui.endDisabled();
         } else {
-            if (ImGui.button("Scan")) {
+            if (GuiHelpers.buttonPrimary(Icons.SEARCH + "  Scan")) {
                 startScan(ctx);
             }
         }
 
-        ImGui.sameLine();
-        if (ImGui.button("Quick Connect")) {
+        ImGui.sameLine(0, 8);
+        if (GuiHelpers.buttonSecondary(Icons.BOLT + "  Quick Connect")) {
             executor.submit(() -> {
                 Command cmd = registry.resolve("connect");
                 if (cmd != null) {
@@ -70,22 +70,18 @@ public class ConnectionsPanel implements GuiPanel {
         }
 
         if (scanStatus != null) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f, scanStatus);
+            ImGui.sameLine(0, 12);
+            GuiHelpers.textMuted(scanStatus);
         }
 
-        ImGui.spacing();
-
-        // Scan results table
+        // Scan results
         if (scanResults != null && !scanResults.isEmpty()) {
-            ImGui.text("Available Pipes:");
+            GuiHelpers.sectionHeader("Available Pipes");
             renderScanTable(ctx);
-            ImGui.spacing();
         }
 
-        // Active connections table
-        ImGui.separator();
-        ImGui.text("Active Connections:");
-        ImGui.spacing();
+        // Active connections
+        GuiHelpers.sectionHeader("Active Connections");
         renderConnectionsTable(ctx);
     }
 
@@ -200,8 +196,7 @@ public class ConnectionsPanel implements GuiPanel {
     private void renderConnectionsTable(CliContext ctx) {
         var connections = ctx.getConnections();
         if (connections.isEmpty()) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                    "No active connections. Use Scan or Quick Connect above.");
+            GuiHelpers.textMuted("No active connections. Use Scan or Quick Connect above.");
             return;
         }
 
@@ -281,7 +276,7 @@ public class ConnectionsPanel implements GuiPanel {
                 }
 
                 ImGui.sameLine();
-                if (ImGui.smallButton("Disconnect")) {
+                if (GuiHelpers.smallButtonDanger(Icons.POWER + " Disconnect")) {
                     String name = conn.getName();
                     executor.submit(() -> ctx.disconnect(name, true));
                 }

@@ -30,27 +30,34 @@ public class SettingsPanel implements GuiPanel {
     public void render(CliContext ctx) {
         // Auto-start section
         if (ImGui.collapsingHeader("Auto-Start Configuration", ImGuiTreeNodeFlags.DefaultOpen)) {
+            ImGui.spacing();
             renderAutoStartSection(ctx);
         }
 
         ImGui.spacing();
+        ImGui.spacing();
 
         // Metrics section
         if (ImGui.collapsingHeader("RPC Metrics")) {
+            ImGui.spacing();
             renderMetricsSection(ctx);
         }
 
         ImGui.spacing();
+        ImGui.spacing();
 
         // Profiling section
         if (ImGui.collapsingHeader("Script Profiling")) {
+            ImGui.spacing();
             renderProfilingSection(ctx);
         }
 
         ImGui.spacing();
+        ImGui.spacing();
 
         // CLI Config section
         if (ImGui.collapsingHeader("CLI Configuration")) {
+            ImGui.spacing();
             renderConfigSection(ctx);
         }
     }
@@ -133,7 +140,7 @@ public class SettingsPanel implements GuiPanel {
         RpcMetrics metrics = conn.getRpc().getMetrics();
         Map<String, RpcMetrics.MethodStats> snapshot = metrics.snapshot();
 
-        if (ImGui.button("Reset Metrics")) {
+        if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reset Metrics")) {
             metrics.reset();
         }
 
@@ -200,7 +207,7 @@ public class SettingsPanel implements GuiPanel {
             return;
         }
 
-        if (ImGui.button("Reset Profiling")) {
+        if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reset Profiling")) {
             for (ScriptRunner runner : runners) {
                 runner.getProfiler().reset();
             }
@@ -246,7 +253,6 @@ public class SettingsPanel implements GuiPanel {
     }
 
     private void renderConfigSection(CliContext ctx) {
-        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                "Use the Console tab with 'config show' or 'config set <key> <value>' commands.");
+        GuiHelpers.textMuted("Use the Console tab with 'config show' or 'config set <key> <value>' commands.");
     }
 }

@@ -64,7 +64,7 @@ public class ConsolePanel implements GuiPanel {
     private void renderOutput(float height) {
         // Copy button row above output
         copyFeedbackTimer = ClipboardHelper.renderCopyFeedback(copyFeedbackTimer);
-        if (copyFeedbackTimer <= 0f && ImGui.smallButton("Copy Console")) {
+        if (copyFeedbackTimer <= 0f && GuiHelpers.buttonSecondary(Icons.COPY + "  Copy Console")) {
             copyConsoleToClipboard(null);
         }
 
@@ -160,7 +160,8 @@ public class ConsolePanel implements GuiPanel {
     }
 
     private void renderInputBar(CliContext ctx) {
-        ImGui.separator();
+        GuiHelpers.subtleSeparator();
+        ImGui.spacing();
 
         // Prompt
         boolean connected = ctx.hasActiveConnection();
@@ -169,25 +170,25 @@ public class ConsolePanel implements GuiPanel {
         String mountedName = ctx.getMountedConnectionName();
 
         if (connected && connName != null) {
-            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "*");
-            ImGui.sameLine(0, 4);
-            ImGui.text("bwu:");
+            ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.8f, ">");
+            ImGui.sameLine(0, 6);
+            GuiHelpers.textSecondary("bwu:");
             ImGui.sameLine(0, 0);
-            ImGui.textColored(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G, ImGuiTheme.CYAN_B, 1f, connName);
+            ImGui.textColored(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G, ImGuiTheme.CYAN_B, 0.9f, connName);
             if (count > 1) {
-                ImGui.sameLine(0, 0);
-                ImGui.text(" [" + count + "]");
+                ImGui.sameLine(0, 2);
+                GuiHelpers.textMuted("[" + count + "]");
             }
             if (mountedName != null) {
-                ImGui.sameLine(0, 4);
-                ImGui.textColored(ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B, 1f, "[mounted]");
+                ImGui.sameLine(0, 6);
+                ImGui.textColored(ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B, 0.7f, "[mounted]");
             }
-            ImGui.sameLine(0, 0);
-            ImGui.text("> ");
+            ImGui.sameLine(0, 2);
+            GuiHelpers.textMuted(">");
         } else {
-            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f, "o");
-            ImGui.sameLine(0, 4);
-            ImGui.text("bwu> ");
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.6f, "o");
+            ImGui.sameLine(0, 6);
+            GuiHelpers.textMuted("bwu>");
         }
 
         ImGui.sameLine();

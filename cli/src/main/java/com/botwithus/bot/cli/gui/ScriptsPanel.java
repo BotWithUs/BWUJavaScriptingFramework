@@ -39,42 +39,40 @@ public class ScriptsPanel implements GuiPanel {
     @Override
     public void render(CliContext ctx) {
         // Top controls
-        if (ImGui.button("Reload Scripts")) {
+        if (GuiHelpers.buttonPrimary(Icons.ROTATE + "  Reload Scripts")) {
             boolean startAfter = autoStartOnReload.get();
             executor.submit(() -> reloadScripts(ctx, startAfter));
         }
-        ImGui.sameLine();
+        ImGui.sameLine(0, 8);
         ImGui.checkbox("Auto-start", autoStartOnReload);
 
-        ImGui.sameLine(0, 20);
+        ImGui.sameLine(0, 24);
         boolean watcherRunning = ctx.isWatcherRunning();
         if (watcherRunning) {
-            if (ImGui.button("Stop Watcher")) {
+            if (GuiHelpers.buttonDanger(Icons.STOP + "  Stop Watcher")) {
                 ctx.stopScriptWatcher();
             }
-            ImGui.sameLine();
-            ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 1f, "Watching...");
+            ImGui.sameLine(0, 8);
+            GuiHelpers.statusBadge(Icons.EYE + " Watching",
+                    ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B);
         } else {
-            if (ImGui.button("Start Watcher")) {
+            if (GuiHelpers.buttonSecondary(Icons.EYE + "  Start Watcher")) {
                 ctx.startScriptWatcher();
             }
         }
 
-        ImGui.spacing();
-        ImGui.separator();
-        ImGui.spacing();
-
         // Connection selector if multiple connections
         var connections = new ArrayList<>(ctx.getConnections());
         if (connections.isEmpty()) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                    "No active connections. Connect first via the Connections tab.");
+            ImGui.spacing();
+            GuiHelpers.textMuted("No active connections. Connect first via the Connections tab.");
             return;
         }
 
         if (connections.size() > 1) {
+            GuiHelpers.sectionHeader("Connection");
             String[] connNames = connections.stream().map(Connection::getName).toArray(String[]::new);
-            ImGui.text("Connection:");
+            GuiHelpers.textSecondary("Target:");
             ImGui.sameLine();
             ImGui.pushItemWidth(200);
             if (selectedConnection.get() >= connNames.length) {
@@ -82,7 +80,6 @@ public class ScriptsPanel implements GuiPanel {
             }
             ImGui.combo("##connSelector", selectedConnection, connNames);
             ImGui.popItemWidth();
-            ImGui.spacing();
         } else {
             selectedConnection.set(0);
         }
@@ -93,10 +90,12 @@ public class ScriptsPanel implements GuiPanel {
         runners.sort(Comparator.comparing(ScriptRunner::getScriptName, String.CASE_INSENSITIVE_ORDER));
 
         if (runners.isEmpty()) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                    "No scripts loaded on " + conn.getName() + ". Click 'Reload Scripts' to discover scripts.");
+            ImGui.spacing();
+            GuiHelpers.textMuted("No scripts loaded on " + conn.getName() + ". Click 'Reload Scripts' to discover scripts.");
             return;
         }
+
+        GuiHelpers.sectionHeader("Loaded Scripts");
 
         // Scripts table
         int flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
@@ -147,11 +146,11 @@ public class ScriptsPanel implements GuiPanel {
                 ImGui.pushID("script_actions_" + i);
 
                 if (runner.isRunning()) {
-                    if (ImGui.smallButton("Stop")) {
+                    if (GuiHelpers.smallButtonDanger(Icons.STOP + " Stop")) {
                         runner.stop();
                     }
                     ImGui.sameLine();
-                    if (ImGui.smallButton("Restart")) {
+                    if (ImGui.smallButton(Icons.REDO + " Restart")) {
                         executor.submit(() -> {
                             runner.stop();
                             try { Thread.sleep(100); } catch (InterruptedException ignored) {}
@@ -159,7 +158,7 @@ public class ScriptsPanel implements GuiPanel {
                         });
                     }
                 } else {
-                    if (ImGui.smallButton("Start")) {
+                    if (ImGui.smallButton(Icons.PLAY + " Start")) {
                         runner.start();
                     }
                 }
@@ -169,7 +168,7 @@ public class ScriptsPanel implements GuiPanel {
                 boolean hasConfig = (configFields != null && !configFields.isEmpty()) || runner.getScript().getUI() != null;
                 if (hasConfig) {
                     ImGui.sameLine();
-                    if (ImGui.smallButton("Config")) {
+                    if (ImGui.smallButton(Icons.SLIDERS + " Config")) {
                         ctx.openConfigPanel(runner);
                     }
                 }

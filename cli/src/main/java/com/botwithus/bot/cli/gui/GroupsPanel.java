@@ -30,13 +30,13 @@ public class GroupsPanel implements GuiPanel {
     @Override
     public void render(CliContext ctx) {
         // Create group controls
-        ImGui.text("Create Group:");
+        GuiHelpers.textSecondary("Create Group:");
         ImGui.sameLine();
         ImGui.pushItemWidth(200);
         ImGui.inputText("##newGroupName", newGroupName);
         ImGui.popItemWidth();
-        ImGui.sameLine();
-        if (ImGui.button("Create")) {
+        ImGui.sameLine(0, 8);
+        if (GuiHelpers.buttonPrimary(Icons.PLUS + "  Create")) {
             String name = newGroupName.get().trim();
             if (!name.isEmpty()) {
                 ctx.createGroup(name);
@@ -44,17 +44,15 @@ public class GroupsPanel implements GuiPanel {
             }
         }
 
-        ImGui.spacing();
-        ImGui.separator();
-        ImGui.spacing();
-
         // Groups list
         Map<String, ConnectionGroup> groups = ctx.getGroups();
         if (groups.isEmpty()) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                    "No groups created. Use the form above to create one.");
+            ImGui.spacing();
+            GuiHelpers.textMuted("No groups created. Use the form above to create one.");
             return;
         }
+
+        GuiHelpers.sectionHeader("Groups");
 
         int flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
         if (ImGui.beginTable("groupsTable", 4, flags)) {
@@ -83,7 +81,7 @@ public class GroupsPanel implements GuiPanel {
 
                 ImGui.tableSetColumnIndex(3);
                 ImGui.pushID("grp_del_" + groupIdx);
-                if (ImGui.smallButton("Delete")) {
+                if (GuiHelpers.smallButtonDanger(Icons.TRASH + " Delete")) {
                     ctx.deleteGroup(groupName);
                 }
                 ImGui.popID();
@@ -95,11 +93,7 @@ public class GroupsPanel implements GuiPanel {
         }
 
         // Member details per group
-        ImGui.spacing();
-        ImGui.separator();
-        ImGui.spacing();
-        ImGui.text("Group Members:");
-        ImGui.spacing();
+        GuiHelpers.sectionHeader("Group Members");
 
         int grpIdx = 0;
         for (var entry : groups.entrySet()) {

@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
+import imgui.ImDrawList;
 import imgui.ImGui;
 import imgui.flag.ImGuiCol;
 
@@ -13,7 +14,15 @@ import imgui.flag.ImGuiCol;
 public class StatusBar {
 
     public void render(CliContext ctx) {
-        ImGui.separator();
+        // Draw a subtle top border
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY();
+        float w = ImGui.getContentRegionAvailX();
+        int borderCol = ImGuiTheme.imCol32(ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.3f);
+        draw.addLine(x, y, x + w, y, borderCol);
+
+        ImGui.spacing();
 
         boolean connected = ctx.hasActiveConnection();
         String activeName = ctx.getActiveConnectionName();
@@ -30,57 +39,57 @@ public class StatusBar {
             }
         }
 
-        // Connection indicator
+        // Connection status with dot indicator
         if (connected) {
-            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "\u25CF");
+            GuiHelpers.statusDot(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B);
         } else {
-            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f, "\u25CF");
+            GuiHelpers.statusDot(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
         }
-
-        ImGui.sameLine(0, 6);
+        ImGui.sameLine(0, 4);
 
         // Active connection name
         if (activeName != null) {
-            ImGui.textColored(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G, ImGuiTheme.CYAN_B, 1f, activeName);
+            ImGui.textColored(ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.9f, activeName);
         } else {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f, "disconnected");
+            GuiHelpers.textMuted("disconnected");
         }
 
-        ImGui.sameLine(0, 12);
-        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f, "|");
-        ImGui.sameLine(0, 12);
+        // Separator
+        ImGui.sameLine(0, 16);
+        GuiHelpers.textMuted("|");
+        ImGui.sameLine(0, 16);
 
         // Connection count
-        ImGui.text(connCount + " conn");
+        GuiHelpers.textSecondary(connCount + " conn");
 
         // Mounted status
         if (mounted) {
-            ImGui.sameLine(0, 12);
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f, "|");
-            ImGui.sameLine(0, 12);
-            ImGui.textColored(ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B, 1f,
-                    "mounted:" + mountedName);
+            ImGui.sameLine(0, 16);
+            GuiHelpers.textMuted("|");
+            ImGui.sameLine(0, 16);
+            GuiHelpers.statusBadge("mounted:" + mountedName,
+                    ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B);
         }
 
-        ImGui.sameLine(0, 12);
-        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f, "|");
-        ImGui.sameLine(0, 12);
+        ImGui.sameLine(0, 16);
+        GuiHelpers.textMuted("|");
+        ImGui.sameLine(0, 16);
 
-        // Running scripts count
+        // Running scripts
         if (runningScripts > 0) {
-            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f,
-                    runningScripts + " script" + (runningScripts != 1 ? "s" : "") + " running");
+            GuiHelpers.statusBadge(runningScripts + " script" + (runningScripts != 1 ? "s" : ""),
+                    ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B);
         } else {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                    "no scripts");
+            GuiHelpers.textMuted("no scripts");
         }
 
         // Watcher status
         if (watcherRunning) {
-            ImGui.sameLine(0, 12);
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f, "|");
-            ImGui.sameLine(0, 12);
-            ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 1f, "watching");
+            ImGui.sameLine(0, 16);
+            GuiHelpers.textMuted("|");
+            ImGui.sameLine(0, 16);
+            GuiHelpers.statusBadge("watching",
+                    ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B);
         }
     }
 }

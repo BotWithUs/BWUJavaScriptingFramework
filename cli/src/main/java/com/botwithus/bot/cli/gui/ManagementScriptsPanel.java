@@ -47,26 +47,23 @@ public class ManagementScriptsPanel implements GuiPanel {
         }
 
         // Top controls
-        if (ImGui.button("Load Scripts")) {
+        if (GuiHelpers.buttonPrimary(Icons.DOWNLOAD + "  Load Scripts")) {
             executor.submit(() -> loadManagementScripts(ctx));
         }
-        ImGui.sameLine();
-        if (ImGui.button("Reload")) {
+        ImGui.sameLine(0, 8);
+        if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reload")) {
             executor.submit(() -> reloadManagementScripts(ctx));
         }
-        ImGui.sameLine();
-        if (ImGui.button("Stop All")) {
+        ImGui.sameLine(0, 8);
+        if (GuiHelpers.buttonDanger(Icons.STOP + "  Stop All")) {
             runtime.stopAll();
             ctx.out().println("Stopped all management scripts.");
         }
 
         ImGui.sameLine(0, 20);
-        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                "Scripts in scripts/management/");
+        GuiHelpers.textMuted("scripts/management/");
 
-        ImGui.spacing();
-        ImGui.separator();
-        ImGui.spacing();
+        GuiHelpers.sectionHeader("Management Scripts");
 
         List<ManagementScriptRunner> runners = new ArrayList<>(runtime.getRunners());
         runners.sort(Comparator.comparing(ManagementScriptRunner::getScriptName, String.CASE_INSENSITIVE_ORDER));
@@ -117,11 +114,11 @@ public class ManagementScriptsPanel implements GuiPanel {
                 ImGui.pushID("mgmt_actions_" + i);
 
                 if (runner.isRunning()) {
-                    if (ImGui.smallButton("Stop")) {
+                    if (GuiHelpers.smallButtonDanger(Icons.STOP + " Stop")) {
                         runner.stop();
                     }
                     ImGui.sameLine();
-                    if (ImGui.smallButton("Restart")) {
+                    if (ImGui.smallButton(Icons.REDO + " Restart")) {
                         executor.submit(() -> {
                             runner.stop();
                             runner.awaitStop(2000);
@@ -129,7 +126,7 @@ public class ManagementScriptsPanel implements GuiPanel {
                         });
                     }
                 } else {
-                    if (ImGui.smallButton("Start")) {
+                    if (ImGui.smallButton(Icons.PLAY + " Start")) {
                         runner.start();
                     }
                 }
@@ -140,7 +137,7 @@ public class ManagementScriptsPanel implements GuiPanel {
                         || runner.getScript().getUI() != null;
                 if (hasConfig) {
                     ImGui.sameLine();
-                    if (ImGui.smallButton("Config")) {
+                    if (ImGui.smallButton(Icons.SLIDERS + " Config")) {
                         if (configOpener != null) {
                             configOpener.accept(runner);
                         }

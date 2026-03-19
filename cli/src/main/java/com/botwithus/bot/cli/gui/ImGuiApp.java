@@ -100,20 +100,40 @@ public class ImGuiApp extends Application {
         }
         dpiScale = Math.max(xScale[0], 1.0f);
 
-        float uiSize = (float) Math.round(19f * dpiScale);
+        float uiSize = (float) Math.round(17f * dpiScale);
         ImFontAtlas atlas = ImGui.getIO().getFonts();
         atlas.clear();
-        byte[] ttf = loadSystemFont("segoeui.ttf", "arial.ttf", "verdana.ttf");
+
+        // Primary UI font: Inter (bundled), fallback to system font
+        byte[] uiFont = loadResourceFont("/fonts/Inter-Regular.ttf");
+        if (uiFont == null) {
+            uiFont = loadSystemFont("segoeui.ttf", "arial.ttf", "verdana.ttf");
+        }
         ImFontConfig cfg = new ImFontConfig();
         cfg.setOversampleH(3);
         cfg.setOversampleV(3);
         cfg.setPixelSnapH(true);
-        if (ttf != null) {
-            atlas.addFontFromMemoryTTF(ttf, uiSize, cfg);
+        if (uiFont != null) {
+            atlas.addFontFromMemoryTTF(uiFont, uiSize, cfg);
         } else {
             cfg.setSizePixels(uiSize);
             atlas.addFontDefault(cfg);
         }
+
+        // Merge Font Awesome icons into the primary font
+        byte[] iconFont = loadResourceFont("/fonts/fa-solid-900.ttf");
+        if (iconFont != null) {
+            ImFontConfig iconCfg = new ImFontConfig();
+            iconCfg.setMergeMode(true);
+            iconCfg.setPixelSnapH(true);
+            iconCfg.setOversampleH(2);
+            iconCfg.setOversampleV(2);
+            // FA6 solid range: U+F000..U+F8FF + extended U+E000..U+E4FF
+            short[] iconRanges = {(short) 0xE000, (short) 0xF8FF, 0};
+            atlas.addFontFromMemoryTTF(iconFont, uiSize * 0.85f, iconCfg, iconRanges);
+            iconCfg.destroy();
+        }
+
         cfg.destroy();
         atlas.build();
 
@@ -273,15 +293,18 @@ public class ImGuiApp extends Application {
             }
         } else {
             // Reserve space for status bar at the bottom
-            float statusBarHeight = ImGui.getFrameHeightWithSpacing() + 4f;
-            float sidebarWidth = ImGui.calcTextSize("  EXTENSIONS  ").x + ImGui.getStyle().getWindowPaddingX() * 2;
+            float statusBarHeight = ImGui.getFrameHeightWithSpacing() + 8f;
+            // Sidebar width: icon + longest label + padding
+            float sidebarWidth = ImGui.getFrameHeight() + ImGui.calcTextSize("Management").x + ImGui.getStyle().getWindowPaddingX() * 2 + 48f;
             float contentHeight = ImGui.getContentRegionAvailY() - statusBarHeight;
 
             // --- Sidebar Navigation ---
             ImGui.pushStyleColor(ImGuiCol.ChildBg,
                     ImGuiTheme.SIDEBAR_BG_R, ImGuiTheme.SIDEBAR_BG_G, ImGuiTheme.SIDEBAR_BG_B, 1f);
+            ImGui.pushStyleColor(ImGuiCol.Border,
+                    ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.3f);
             ImGui.beginChild("##sidebar", sidebarWidth, contentHeight, true);
-            ImGui.popStyleColor();
+            ImGui.popStyleColor(2);
             renderSidebar();
             ImGui.endChild();
 
@@ -289,12 +312,14 @@ public class ImGuiApp extends Application {
 
             // --- Content Area ---
             ImGui.beginChild("##content", 0, contentHeight, false);
+            ImGui.spacing();
             if (selectedPanel >= 0 && selectedPanel < panels.size()) {
                 panels.get(selectedPanel).render(ctx);
             }
             ImGui.endChild();
 
             // Status bar at the bottom
+            ImGui.spacing();
             statusBar.render(ctx);
         }
 
@@ -321,25 +346,54 @@ public class ImGuiApp extends Application {
         {3, 4, 5},      // Management, Script UI, Groups
         {6, 7}           // Logs, Settings
     };
+    // Font Awesome icons for each panel (matching panel order in the panels list)
+    private static final String[] NAV_ICONS = {
+        Icons.TERMINAL,     // Console
+        Icons.PLUG,         // Connections
+        Icons.CODE,         // Scripts
+        Icons.ROBOT,        // Management
+        Icons.WINDOW,       // Script UI
+        Icons.LAYER_GROUP,  // Groups
+        Icons.LIST,         // Logs
+        Icons.GEAR,         // Settings
+    };
 
     private void renderSidebar() {
         // Brand header
         ImGui.spacing();
-        ImGui.pushStyleColor(ImGuiCol.Text,
-                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
-        ImGui.text("  BotWithUs");
-        ImGui.popStyleColor();
         ImGui.spacing();
-        ImGui.separator();
 
+        // Logo mark
+        var draw = ImGui.getWindowDrawList();
+        float logoX = ImGui.getCursorScreenPosX() + 10f;
+        float logoY = ImGui.getCursorScreenPosY();
         int accentCol = ImGuiTheme.imCol32(
                 ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
+        int accentDim = ImGuiTheme.imCol32(
+                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f);
+
+        // Brand mark — small accent square
+        draw.addRectFilled(logoX, logoY, logoX + 4f, logoY + ImGui.getTextLineHeight(), accentCol, 2f);
+        ImGui.setCursorPosX(ImGui.getCursorPosX() + 20f);
+        ImGui.pushStyleColor(ImGuiCol.Text,
+                ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f);
+        ImGui.text("BotWithUs");
+        ImGui.popStyleColor();
+        ImGui.setCursorPosX(ImGui.getCursorPosX() + 20f);
+        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.5f,
+                "Script Manager");
+
+        ImGui.spacing();
+        ImGui.spacing();
+        GuiHelpers.subtleSeparator();
 
         for (int s = 0; s < NAV_SECTION_LABELS.length; s++) {
             ImGui.spacing();
+            ImGui.spacing();
+            ImGui.setCursorPosX(ImGui.getCursorPosX() + 10f);
             ImGui.textColored(
-                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.6f,
-                    "  " + NAV_SECTION_LABELS[s]);
+                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.5f,
+                    NAV_SECTION_LABELS[s]);
             ImGui.spacing();
 
             for (int p : NAV_SECTION_PANELS[s]) {
@@ -348,38 +402,57 @@ public class ImGuiApp extends Application {
 
                 if (isActive) {
                     ImGui.pushStyleColor(ImGuiCol.Header,
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.15f);
+                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.10f);
                     ImGui.pushStyleColor(ImGuiCol.HeaderHovered,
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.25f);
+                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.18f);
                     ImGui.pushStyleColor(ImGuiCol.HeaderActive,
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f);
+                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.25f);
+                } else {
+                    ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
+                    ImGui.pushStyleColor(ImGuiCol.HeaderHovered,
+                            ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.05f);
+                    ImGui.pushStyleColor(ImGuiCol.HeaderActive,
+                            ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.08f);
                 }
 
-                if (ImGui.selectable("   " + panels.get(p).title() + "##nav" + p, isActive)) {
+                String icon = p < NAV_ICONS.length ? NAV_ICONS[p] : "";
+                String label = "  " + icon + "  " + panels.get(p).title() + "##nav" + p;
+
+                if (ImGui.selectable(label, isActive)) {
                     selectedPanel = p;
                 }
 
                 if (isActive) {
-                    // Draw accent indicator bar on left edge of active item
+                    // Draw accent indicator bar on left edge
                     var drawList = ImGui.getWindowDrawList();
                     drawList.addRectFilled(
-                            ImGui.getItemRectMinX(), ImGui.getItemRectMinY(),
-                            ImGui.getItemRectMinX() + ImGui.getStyle().getFrameRounding() + 1f, ImGui.getItemRectMaxY(),
-                            accentCol);
-                    ImGui.popStyleColor(3);
+                            ImGui.getItemRectMinX(), ImGui.getItemRectMinY() + 2f,
+                            ImGui.getItemRectMinX() + 3f, ImGui.getItemRectMaxY() - 2f,
+                            accentCol, 2f);
                 }
+
+                ImGui.popStyleColor(3);
             }
         }
 
         // Bottom hint — pushed to bottom of sidebar
-        float bottomY = ImGui.getWindowHeight() - ImGui.getFrameHeightWithSpacing() * 2;
+        float bottomY = ImGui.getWindowHeight() - ImGui.getFrameHeightWithSpacing() * 3;
         if (bottomY > ImGui.getCursorPosY()) {
             ImGui.setCursorPosY(bottomY);
-            ImGui.separator();
+            GuiHelpers.subtleSeparator();
+            ImGui.spacing();
+            ImGui.setCursorPosX(ImGui.getCursorPosX() + 10f);
             ImGui.textColored(
-                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.5f,
-                    "  F2: Blueprint Editor");
+                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.4f,
+                    Icons.DIAGRAM + "  F2  Blueprint");
         }
+    }
+
+    private static byte[] loadResourceFont(String resourcePath) {
+        try (var in = ImGuiApp.class.getResourceAsStream(resourcePath)) {
+            if (in != null) return in.readAllBytes();
+        } catch (Exception ignored) {}
+        return null;
     }
 
     private static byte[] loadSystemFont(String... candidates) {
