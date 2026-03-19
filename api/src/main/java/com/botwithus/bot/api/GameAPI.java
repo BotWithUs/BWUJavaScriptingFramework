@@ -893,6 +893,29 @@ public interface GameAPI {
     void walkWorldPathAsync(int x, int y, int plane);
 
     /**
+     * Starts a world-scale walk with exact destination tile control.
+     *
+     * @param x             target world tile X
+     * @param y             target world tile Y
+     * @param plane         target plane (height level)
+     * @param exactDestTile if {@code true}, click the exact destination tile with no variance when in range
+     */
+    default void walkWorldPathAsync(int x, int y, int plane, boolean exactDestTile) {
+        walkWorldPathAsync(x, y, plane, exactDestTile, null);
+    }
+
+    /**
+     * Starts a world-scale walk with full pathfinder configuration.
+     *
+     * @param x             target world tile X
+     * @param y             target world tile Y
+     * @param plane         target plane (height level)
+     * @param exactDestTile if {@code true}, click the exact destination tile with no variance when in range
+     * @param config        pathfinder config overrides, or {@code null} for defaults
+     */
+    void walkWorldPathAsync(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config);
+
+    /**
      * Cancels any active walk. Emits {@code walk_cancelled} if a walk was in progress.
      */
     void walkCancel();

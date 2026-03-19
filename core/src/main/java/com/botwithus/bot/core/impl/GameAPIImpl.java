@@ -854,10 +854,35 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void walkWorldPathAsync(int x, int y, int plane) {
+        walkWorldPathAsync(x, y, plane, false, null);
+    }
+
+    @Override
+    public void walkWorldPathAsync(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("x", x);
         params.put("y", y);
         if (plane != 0) params.put("plane", plane);
+        if (exactDestTile) params.put("exact_dest_tile", true);
+        if (config != null && config != WorldPathConfig.DEFAULT) {
+            Map<String, Object> cfg = new LinkedHashMap<>();
+            if (config.agilityLevel() > 1) cfg.put("agility_level", config.agilityLevel());
+            if (config.maxIterations() != 500_000) cfg.put("max_iterations", config.maxIterations());
+            if (!config.allowDoors()) cfg.put("allow_doors", false);
+            if (!config.allowShortcuts()) cfg.put("allow_shortcuts", false);
+            if (!config.allowPlaneTransitions()) cfg.put("allow_plane_transitions", false);
+            if (!config.allowClimbovers()) cfg.put("allow_climbovers", false);
+            if (!config.allowTransports()) cfg.put("allow_transports", false);
+            if (!config.allowTeleports()) cfg.put("allow_teleports", false);
+            if (config.doorCost() != 5.0f) cfg.put("door_cost", config.doorCost());
+            if (config.transitionCost() != 10.0f) cfg.put("transition_cost", config.transitionCost());
+            if (config.shortcutCost() != 3.0f) cfg.put("shortcut_cost", config.shortcutCost());
+            if (config.climboverCost() != 3.0f) cfg.put("climbover_cost", config.climboverCost());
+            if (config.transportCost() != 15.0f) cfg.put("transport_cost", config.transportCost());
+            if (config.globalTeleportMinHeuristic() != 100.0f) cfg.put("global_teleport_min_heuristic", config.globalTeleportMinHeuristic());
+            if (config.heuristicWeight() != 1.0f) cfg.put("heuristic_weight", config.heuristicWeight());
+            if (!cfg.isEmpty()) params.put("config", cfg);
+        }
         rpc.callSync("walk_world_path", params);
     }
 

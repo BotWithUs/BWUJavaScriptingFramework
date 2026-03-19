@@ -77,6 +77,44 @@ public interface Navigation {
         return walkWorldPath(x, y, 0);
     }
 
+    /**
+     * Walks a world path with exact destination tile control and blocks until completion.
+     *
+     * @param x             target world tile X
+     * @param y             target world tile Y
+     * @param plane         target plane
+     * @param exactDestTile if {@code true}, click the exact destination tile with no variance
+     * @return the walk result
+     */
+    default WalkResult walkWorldPath(int x, int y, int plane, boolean exactDestTile) {
+        return walkWorldPath(x, y, plane, exactDestTile, null);
+    }
+
+    /**
+     * Walks a world path with full pathfinder configuration and blocks until completion.
+     *
+     * @param x             target world tile X
+     * @param y             target world tile Y
+     * @param plane         target plane
+     * @param exactDestTile if {@code true}, click the exact destination tile with no variance
+     * @param config        pathfinder config overrides, or {@code null} for defaults
+     * @return the walk result
+     */
+    WalkResult walkWorldPath(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config);
+
+    /**
+     * Walks a world path with full pathfinder configuration and blocks until completion or timeout.
+     *
+     * @param x             target world tile X
+     * @param y             target world tile Y
+     * @param plane         target plane
+     * @param exactDestTile if {@code true}, click the exact destination tile with no variance
+     * @param config        pathfinder config overrides, or {@code null} for defaults
+     * @param timeoutMs     maximum time to wait in milliseconds
+     * @return the walk result
+     */
+    WalkResult walkWorldPath(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config, long timeoutMs);
+
     // ============================== Walk Control ==============================
 
     /**

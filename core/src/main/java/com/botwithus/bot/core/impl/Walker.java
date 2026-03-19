@@ -61,6 +61,16 @@ public class Walker implements com.botwithus.bot.api.Navigation {
         return doBlockingWalk(() -> api.walkWorldPathAsync(x, y, plane), timeoutMs);
     }
 
+    @Override
+    public WalkResult walkWorldPath(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config) {
+        return walkWorldPath(x, y, plane, exactDestTile, config, DEFAULT_TIMEOUT_MS);
+    }
+
+    @Override
+    public WalkResult walkWorldPath(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config, long timeoutMs) {
+        return doBlockingWalk(() -> api.walkWorldPathAsync(x, y, plane, exactDestTile, config), timeoutMs);
+    }
+
     // ============================== Walk Control ==============================
 
     @Override
