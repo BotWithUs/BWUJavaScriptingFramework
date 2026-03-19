@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptManifest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -169,6 +170,7 @@ public class ScriptManagerImpl implements ScriptManager {
                 m != null ? m.version() : "?",
                 m != null && !m.author().isEmpty() ? m.author() : "unknown",
                 m != null && !m.description().isEmpty() ? m.description() : "",
+                m != null ? m.category() : ScriptCategory.UNCATEGORIZED,
                 runner.isRunning(),
                 runner.getScript().getClass().getName()
         );

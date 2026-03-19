@@ -2,6 +2,7 @@ package com.botwithus.bot.scripts.example;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.entities.SceneObject;
@@ -23,7 +24,8 @@ import org.slf4j.LoggerFactory;
         name = "Woodcutting Fletcher",
         version = "1.0",
         author = "BotWithUs",
-        description = "Chops trees and fletches logs into arrow shafts"
+        description = "Chops trees and fletches logs into arrow shafts",
+        category = ScriptCategory.WOODCUTTING
 )
 public class WoodcuttingFletcherScript implements BotScript {
 

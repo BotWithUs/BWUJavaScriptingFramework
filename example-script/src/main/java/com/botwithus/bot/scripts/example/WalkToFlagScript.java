@@ -19,7 +19,8 @@ import org.slf4j.LoggerFactory;
         name = "Walk to Flag",
         version = "1.0",
         author = "BotWithUs",
-        description = "Walks to the blue world-map marker using world pathfinding"
+        description = "Walks to the blue world-map marker using world pathfinding",
+        category = ScriptCategory.UTILITY
 )
 public class WalkToFlagScript implements BotScript {
 

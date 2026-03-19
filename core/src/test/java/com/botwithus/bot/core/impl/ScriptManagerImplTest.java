@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
@@ -300,11 +301,12 @@ class ScriptManagerImplTest {
 
     @Test
     void scriptInfoRecordFields() {
-        ScriptInfo info = new ScriptInfo("Test", "1.0", "me", "desc", true, "com.Test");
+        ScriptInfo info = new ScriptInfo("Test", "1.0", "me", "desc", ScriptCategory.COMBAT, true, "com.Test");
         assertEquals("Test", info.name());
         assertEquals("1.0", info.version());
         assertEquals("me", info.author());
         assertEquals("desc", info.description());
+        assertEquals(ScriptCategory.COMBAT, info.category());
         assertTrue(info.running());
         assertEquals("com.Test", info.className());
     }

@@ -2,6 +2,7 @@ package com.botwithus.bot.scripts.example;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
@@ -24,7 +25,8 @@ import java.util.List;
         name = "Example Script",
         version = "1.0",
         author = "BotWithUs",
-        description = "A demo script showing the entity query API"
+        description = "A demo script showing the entity query API",
+        category = ScriptCategory.UTILITY
 )
 public class ExampleScript implements BotScript {
 

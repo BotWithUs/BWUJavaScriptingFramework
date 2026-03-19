@@ -74,4 +74,38 @@ public final class Icons {
     public static final String CROWN       = "\uF521";  // fa-crown
     public static final String TAG         = "\uF02B";  // fa-tag
     public static final String BOOKMARK    = "\uF02E";  // fa-bookmark
+    public static final String SORT        = "\uF0DC";  // fa-sort
+    public static final String SORT_AZ     = "\uF15D";  // fa-sort-alpha-down
+    public static final String SORT_ZA     = "\uF881";  // fa-sort-alpha-down-alt
+    public static final String LAYER       = "\uF5FD";  // fa-layer-group (alias)
+
+    // Script category icons
+    public static final String QUESTION    = "\uF128";  // fa-question
+    public static final String HAMMER      = "\uF6E3";  // fa-hammer
+    public static final String CROSSHAIRS  = "\uF05B";  // fa-crosshairs
+    public static final String FISH        = "\uF578";  // fa-fish
+    public static final String GEM         = "\uF3A5";  // fa-gem
+    public static final String TREE        = "\uF1BB";  // fa-tree
+    public static final String RUNNING     = "\uF70C";  // fa-person-running
+    public static final String FIRE        = "\uF06D";  // fa-fire
+    public static final String SCISSORS    = "\uF0C4";  // fa-scissors
+    public static final String SEEDLING    = "\uF4D8";  // fa-seedling
+    public static final String FLASK       = "\uF0C3";  // fa-flask
+    public static final String BULLSEYE    = "\uF140";  // fa-bullseye
+    public static final String PRAY        = "\uF684";  // fa-hands-praying
+    public static final String HAT_WIZARD  = "\uF6E8";  // fa-hat-wizard
+    public static final String SKULL       = "\uF54C";  // fa-skull
+    public static final String GAVEL       = "\uF0E3";  // fa-gavel
+    public static final String MASK        = "\uF6FA";  // fa-mask
+    public static final String FEATHER     = "\uF52D";  // fa-feather-pointed
+    public static final String HOUSE       = "\uF015";  // fa-house
+    public static final String LIGHTBULB   = "\uF0EB";  // fa-lightbulb
+    public static final String BONE        = "\uF5D7";  // fa-bone
+    public static final String GHOST       = "\uF6E2";  // fa-ghost
+    public static final String PAW         = "\uF1B0";  // fa-paw
+    public static final String DUNGEON     = "\uF6D9";  // fa-dungeon
+    public static final String GAMEPAD     = "\uF11B";  // fa-gamepad
+    public static final String COINS       = "\uF51E";  // fa-coins
+    public static final String MAP         = "\uF279";  // fa-map
+    public static final String STAR        = "\uF005";  // fa-star
 }

@@ -47,4 +47,11 @@ public @interface ScriptManifest {
      * @return the description, defaults to empty
      */
     String description() default "";
+
+    /**
+     * The category this script belongs to.
+     *
+     * @return the script category, defaults to {@link ScriptCategory#UNCATEGORIZED}
+     */
+    ScriptCategory category() default ScriptCategory.UNCATEGORIZED;
 }
