@@ -73,7 +73,7 @@ public class ScriptRuntime {
 
     public void stopAll() {
         for (ScriptRunner runner : runners) {
-            runner.stop();
+            runner.dispose();
             log.info("Stopped script: {}", runner.getScriptName());
         }
         runners.clear();
@@ -103,6 +103,7 @@ public class ScriptRuntime {
     public boolean removeScript(String name) {
         ScriptRunner runner = findRunner(name);
         if (runner != null && !runner.isRunning()) {
+            runner.dispose();
             runners.remove(runner);
             return true;
         }

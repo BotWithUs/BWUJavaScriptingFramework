@@ -27,6 +27,7 @@ public class ManagementScriptRunner implements Runnable {
     private final ManagementScript script;
     private final ManagementContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean disposed = new AtomicBoolean(false);
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
     private volatile CountDownLatch stopLatch;
     private Thread thread;
@@ -60,6 +61,15 @@ public class ManagementScriptRunner implements Runnable {
         if (thread != null) {
             thread.interrupt();
         }
+    }
+
+    public void dispose() {
+        disposed.set(true);
+        stop();
+    }
+
+    public boolean isDisposed() {
+        return disposed.get();
     }
 
     public boolean awaitStop(long timeoutMs) {

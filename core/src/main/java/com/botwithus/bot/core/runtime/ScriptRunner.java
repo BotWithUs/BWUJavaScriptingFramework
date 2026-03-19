@@ -30,6 +30,7 @@ public class ScriptRunner implements Runnable {
     private final BotScript script;
     private final ScriptContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean disposed = new AtomicBoolean(false);
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
     private volatile CountDownLatch stopLatch;
     private Thread thread;
@@ -69,6 +70,19 @@ public class ScriptRunner implements Runnable {
         if (thread != null) {
             thread.interrupt();
         }
+    }
+
+    /**
+     * Marks this runner as disposed (removed from the runtime).
+     * GUI panels should check {@link #isDisposed()} and close when true.
+     */
+    public void dispose() {
+        disposed.set(true);
+        stop();
+    }
+
+    public boolean isDisposed() {
+        return disposed.get();
     }
 
     /**

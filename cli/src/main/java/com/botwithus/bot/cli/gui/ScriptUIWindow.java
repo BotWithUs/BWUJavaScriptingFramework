@@ -25,6 +25,11 @@ public class ScriptUIWindow {
 
     public void render() {
         if (!open.get() || runner == null) return;
+        if (runner.isDisposed()) {
+            open.set(false);
+            runner = null;
+            return;
+        }
 
         ScriptUI ui = runner.getScript().getUI();
         if (ui == null) { open.set(false); return; }

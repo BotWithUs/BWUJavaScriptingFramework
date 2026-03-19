@@ -82,6 +82,11 @@ public class ManagementConfigPanel {
 
     public void render() {
         if (!open.get() || runner == null) return;
+        if (runner.isDisposed()) {
+            open.set(false);
+            runner = null;
+            return;
+        }
 
         // Custom UI mode
         ScriptUI ui = runner.getScript().getUI();

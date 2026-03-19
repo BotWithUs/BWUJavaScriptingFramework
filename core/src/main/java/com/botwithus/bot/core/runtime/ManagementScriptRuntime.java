@@ -79,6 +79,7 @@ public class ManagementScriptRuntime {
     public boolean removeScript(String name) {
         ManagementScriptRunner runner = findRunner(name);
         if (runner != null && !runner.isRunning()) {
+            runner.dispose();
             runners.remove(runner);
             return true;
         }
@@ -88,7 +89,7 @@ public class ManagementScriptRuntime {
     /** Stops all management scripts and clears the registry. */
     public void stopAll() {
         for (ManagementScriptRunner runner : runners) {
-            runner.stop();
+            runner.dispose();
             log.info("Stopped: {}", runner.getScriptName());
         }
         runners.clear();
