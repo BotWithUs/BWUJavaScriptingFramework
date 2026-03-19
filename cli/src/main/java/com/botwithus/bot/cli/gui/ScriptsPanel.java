@@ -195,10 +195,8 @@ public class ScriptsPanel implements GuiPanel {
             draw.addRectFilled(startX, startY + 2f, startX + 3f, startY + cardH - 2f, accentCol, 2f);
         }
 
-        // Hover highlight
-        ImGui.setCursorScreenPos(startX, startY);
-        ImGui.invisibleButton("##cardHit", availW, cardH);
-        if (ImGui.isItemHovered()) {
+        // Hover highlight (use mouse rect check so buttons remain clickable)
+        if (ImGui.isMouseHoveringRect(startX, startY, startX + availW, startY + cardH)) {
             int hoverCol = ImGuiTheme.imCol32(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.05f);
             draw.addRectFilled(startX, startY, startX + availW, startY + cardH, hoverCol, 6f);
         }
