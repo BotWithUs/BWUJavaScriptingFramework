@@ -9,6 +9,7 @@ import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.model.Personality;
 import com.botwithus.bot.core.blueprint.execution.BlueprintBotScript;
 import com.botwithus.bot.core.config.ScriptConfigStore;
+import com.botwithus.bot.core.impl.ScriptContextImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -42,6 +43,7 @@ public class ScriptRunner implements Runnable {
     }
 
     private ErrorHandler errorHandler;
+    private volatile boolean autoStart;
     private final ScriptProfiler profiler = new ScriptProfiler();
 
     public void setErrorHandler(ErrorHandler errorHandler) {
@@ -130,6 +132,10 @@ public class ScriptRunner implements Runnable {
         return connectionName;
     }
 
+    /** Marks this runner for auto-start — the script will activate without the UI Start button. */
+    public void setAutoStart(boolean autoStart) { this.autoStart = autoStart; }
+    public boolean isAutoStart() { return autoStart; }
+
     public List<ConfigField> getConfigFields() {
         return script.getConfigFields();
     }
@@ -163,6 +169,9 @@ public class ScriptRunner implements Runnable {
         String name = getScriptName();
         MDC.put("script.name", name);
         if (connectionName != null) MDC.put("connection.name", connectionName);
+        if (autoStart && context instanceof ScriptContextImpl ctxImpl) {
+            ctxImpl.setAutoStart(true);
+        }
         try {
             script.onStart(context);
         } catch (Exception e) {

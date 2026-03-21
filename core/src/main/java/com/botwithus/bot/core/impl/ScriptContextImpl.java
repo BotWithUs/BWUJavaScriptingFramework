@@ -18,6 +18,7 @@ public class ScriptContextImpl implements ScriptContext {
     private final SharedState sharedState;
     private final Navigation navigation;
     private volatile ScriptManager scriptManager;
+    private volatile boolean autoStart;
 
     public ScriptContextImpl(GameAPI gameAPI, EventBus eventBus, MessageBus messageBus, ClientProvider clientProvider, SharedState sharedState) {
         this.gameAPI = gameAPI;
@@ -64,4 +65,9 @@ public class ScriptContextImpl implements ScriptContext {
 
     @Override
     public Navigation getNavigation() { return navigation; }
+
+    @Override
+    public boolean isAutoStart() { return autoStart; }
+
+    public void setAutoStart(boolean autoStart) { this.autoStart = autoStart; }
 }

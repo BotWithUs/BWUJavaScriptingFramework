@@ -146,6 +146,11 @@ public class ClientManager implements ClientOrchestrator {
 
     @Override
     public OpResult startScript(String clientName, String scriptName) {
+        return startScript(clientName, scriptName, false);
+    }
+
+    @Override
+    public OpResult startScript(String clientName, String scriptName, boolean autoStart) {
         Connection conn = getClient(clientName);
         if (conn == null) return new OpResult(false, clientName, scriptName, "client not found");
         if (!conn.isAlive()) return new OpResult(false, clientName, scriptName, "client disconnected");
@@ -154,7 +159,13 @@ public class ClientManager implements ClientOrchestrator {
         if (runner == null) return new OpResult(false, clientName, scriptName, "script not found");
         if (runner.isRunning()) return new OpResult(false, clientName, scriptName, "already running");
 
+        if (autoStart) {
+            runner.setAutoStart(true);
+        }
         runner.start();
+        if (autoStart) {
+            ctx.openConfigPanel(runner);
+        }
         return new OpResult(true, clientName, scriptName, "started");
     }
 

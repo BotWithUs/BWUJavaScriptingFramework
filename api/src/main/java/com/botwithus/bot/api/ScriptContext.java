@@ -66,4 +66,12 @@ public interface ScriptContext {
      * @return the {@link Navigation} instance
      */
     Navigation getNavigation();
+
+    /**
+     * Returns whether the script was started programmatically (e.g. by the manager)
+     * and should auto-activate without requiring the user to click Start in the UI.
+     *
+     * @return {@code true} if the script should auto-start
+     */
+    default boolean isAutoStart() { return false; }
 }

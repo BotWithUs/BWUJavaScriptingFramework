@@ -58,6 +58,11 @@ public interface ClientOrchestrator {
     /** Starts a script on a specific client. */
     OpResult startScript(String clientName, String scriptName);
 
+    /** Starts a script on a specific client with auto-start (activates without UI Start button and opens config). */
+    default OpResult startScript(String clientName, String scriptName, boolean autoStart) {
+        return startScript(clientName, scriptName);
+    }
+
     /** Stops a script on a specific client. */
     OpResult stopScript(String clientName, String scriptName);
 
