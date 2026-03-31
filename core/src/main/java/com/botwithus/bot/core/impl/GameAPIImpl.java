@@ -171,7 +171,8 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "health"), getInt(r, "max_health"),
                 getInt(r, "animation_id"), getInt(r, "stance_id"),
                 getInt(r, "following_index"),
-                getString(r, "overhead_text"), getInt(r, "combat_level")
+                getString(r, "overhead_text"), getInt(r, "combat_level"),
+                mapHitmarks(r), mapHeadbars(r)
         );
     }
 
@@ -203,6 +204,13 @@ public class GameAPIImpl implements GameAPI {
     public List<Hitmark> getEntityHitmarks(int handle) {
         return rpc.callSyncList("get_entity_hitmarks", Map.of("handle", handle)).stream()
                 .map(m -> new Hitmark(getInt(m, "damage"), getInt(m, "type"), getInt(m, "cycle")))
+                .toList();
+    }
+
+    @Override
+    public List<Headbar> getEntityHeadbars(int handle) {
+        return rpc.callSyncList("get_entity_headbars", Map.of("handle", handle)).stream()
+                .map(m -> new Headbar(getInt(m, "id"), getInt(m, "width")))
                 .toList();
     }
 
@@ -503,7 +511,8 @@ public class GameAPIImpl implements GameAPI {
                 getBool(r, "is_member"), getBool(r, "is_moving"),
                 getInt(r, "animation_id"), getInt(r, "stance_id"),
                 getInt(r, "health"), getInt(r, "max_health"), getInt(r, "combat_level"),
-                getString(r, "overhead_text"), getInt(r, "target_index"), getInt(r, "target_type")
+                getString(r, "overhead_text"), getInt(r, "target_index"), getInt(r, "target_type"),
+                mapHitmarks(r), mapHeadbars(r)
         );
     }
 
@@ -1261,8 +1270,21 @@ public class GameAPIImpl implements GameAPI {
                 getInt(m, "handle"), getInt(m, "server_index"), getInt(m, "type_id"),
                 getInt(m, "tile_x"), getInt(m, "tile_y"), getInt(m, "tile_z"),
                 getString(m, "name"), getInt(m, "name_hash"),
-                getBool(m, "is_moving"), getBool(m, "is_hidden")
+                getBool(m, "is_moving"), getBool(m, "is_hidden"),
+                mapHitmarks(m), mapHeadbars(m)
         );
+    }
+
+    private List<Hitmark> mapHitmarks(Map<String, Object> m) {
+        return getMapList(m, "hitmarks").stream()
+                .map(h -> new Hitmark(getInt(h, "damage"), getInt(h, "type"), getInt(h, "cycle")))
+                .toList();
+    }
+
+    private List<Headbar> mapHeadbars(Map<String, Object> m) {
+        return getMapList(m, "headbars").stream()
+                .map(h -> new Headbar(getInt(h, "id"), getInt(h, "width")))
+                .toList();
     }
 
     private Component mapComponent(Map<String, Object> m) {

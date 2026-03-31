@@ -167,9 +167,19 @@ public class EntityContext {
         return api.getEntityHitmarks(raw.handle());
     }
 
+    /** Active headbars (HP bars) on this entity. */
+    public List<Headbar> getHeadbars() {
+        return api.getEntityHeadbars(raw.handle());
+    }
+
     /** Whether this entity is currently being hit (has recent hitmarks). */
     public boolean isUnderAttack() {
         return !getHitmarks().isEmpty();
+    }
+
+    /** Whether this entity currently has visible HP bars. */
+    public boolean hasHeadbars() {
+        return !getHeadbars().isEmpty();
     }
 
     /** The combat level (from extended info). */

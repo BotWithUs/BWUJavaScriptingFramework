@@ -1,7 +1,11 @@
 package com.botwithus.bot.api.util;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.model.Headbar;
+import com.botwithus.bot.api.model.Hitmark;
 import com.botwithus.bot.api.model.LocalPlayer;
+
+import java.util.List;
 
 /**
  * Convenience wrapper around {@link GameAPI#getLocalPlayer()}.
@@ -154,5 +158,41 @@ public final class LocalPlayerHelper {
     public boolean isIdle() {
         LocalPlayer p = lp();
         return p.animationId() == -1 && !p.isMoving() && p.targetIndex() == -1;
+    }
+
+    /**
+     * Returns active hitmarks (damage splats) on the local player.
+     *
+     * @return a list of hitmarks, empty if none
+     */
+    public List<Hitmark> getHitmarks() {
+        return lp().hitmarks();
+    }
+
+    /**
+     * Returns active headbars (HP bars) on the local player.
+     *
+     * @return a list of headbars, empty if none
+     */
+    public List<Headbar> getHeadbars() {
+        return lp().headbars();
+    }
+
+    /**
+     * Checks whether the local player currently has visible HP bars.
+     *
+     * @return {@code true} if headbars are active
+     */
+    public boolean hasHeadbars() {
+        return !lp().headbars().isEmpty();
+    }
+
+    /**
+     * Checks whether the local player is currently being hit (has recent hitmarks).
+     *
+     * @return {@code true} if under attack
+     */
+    public boolean isUnderAttack() {
+        return !lp().hitmarks().isEmpty();
     }
 }

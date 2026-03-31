@@ -1,5 +1,7 @@
 package com.botwithus.bot.api.model;
 
+import java.util.List;
+
 /**
  * Extended information about an entity, including health, animation, and combat state.
  *
@@ -20,6 +22,8 @@ package com.botwithus.bot.api.model;
  * @param followingIndex the server index of the entity being followed, or {@code -1}
  * @param overheadText   any overhead text displayed, or {@code null}
  * @param combatLevel    the combat level of the entity
+ * @param hitmarks       active hitmarks (damage splats) on this entity, empty if none
+ * @param headbars       active headbars (HP bars) on this entity, empty if none
  * @see com.botwithus.bot.api.GameAPI#getEntityInfo
  */
 public record EntityInfo(
@@ -30,5 +34,6 @@ public record EntityInfo(
         int health, int maxHealth,
         int animationId, int stanceId,
         int followingIndex,
-        String overheadText, int combatLevel
+        String overheadText, int combatLevel,
+        List<Hitmark> hitmarks, List<Headbar> headbars
 ) {}

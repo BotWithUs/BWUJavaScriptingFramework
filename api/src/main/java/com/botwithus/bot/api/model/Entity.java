@@ -1,5 +1,7 @@
 package com.botwithus.bot.api.model;
 
+import java.util.List;
+
 /**
  * Represents a game entity (NPC, player, or object) returned by entity queries.
  *
@@ -13,11 +15,14 @@ package com.botwithus.bot.api.model;
  * @param nameHash    the pre-computed hash of the entity name
  * @param isMoving    {@code true} if the entity is currently moving
  * @param isHidden    {@code true} if the entity is hidden/invisible
+ * @param hitmarks    active hitmarks (damage splats) on this entity, empty if none
+ * @param headbars    active headbars (HP bars) on this entity, empty if none
  * @see com.botwithus.bot.api.GameAPI#queryEntities
  */
 public record Entity(
         int handle, int serverIndex, int typeId,
         int tileX, int tileY, int tileZ,
         String name, int nameHash,
-        boolean isMoving, boolean isHidden
+        boolean isMoving, boolean isHidden,
+        List<Hitmark> hitmarks, List<Headbar> headbars
 ) {}
