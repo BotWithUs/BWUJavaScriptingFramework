@@ -213,6 +213,14 @@ public interface GameAPI {
     List<Hitmark> getEntityHitmarks(int handle);
 
     /**
+     * Returns the active headbars (HP bars) on an entity.
+     *
+     * @param handle the entity handle
+     * @return a list of headbars
+     */
+    List<Headbar> getEntityHeadbars(int handle);
+
+    /**
      * Returns the current animation ID of an entity.
      *
      * @param handle the entity handle
