@@ -24,6 +24,7 @@ import java.util.List;
  * @param combatLevel    the combat level of the entity
  * @param hitmarks       active hitmarks (damage splats) on this entity, empty if none
  * @param headbars       active headbars (HP bars) on this entity, empty if none
+ * @param spotAnims      active spot animation IDs on this entity, empty if none
  * @see com.botwithus.bot.api.GameAPI#getEntityInfo
  */
 public record EntityInfo(
@@ -35,5 +36,6 @@ public record EntityInfo(
         int animationId, int stanceId,
         int followingIndex,
         String overheadText, int combatLevel,
-        List<Hitmark> hitmarks, List<Headbar> headbars
+        List<Hitmark> hitmarks, List<Headbar> headbars,
+        List<Integer> spotAnims
 ) {}

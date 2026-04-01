@@ -10,8 +10,13 @@ import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.entities.*;
 import com.botwithus.bot.api.event.ActionExecutedEvent;
 import com.botwithus.bot.api.event.EventBus;
+import com.botwithus.bot.api.model.Headbar;
+import com.botwithus.bot.api.model.LocalPlayer;
+import com.botwithus.bot.api.script.ScriptInfo;
+import com.botwithus.bot.api.script.ScriptManager;
 import com.botwithus.bot.api.ui.ScriptUI;
 
+import com.botwithus.bot.api.util.LocalPlayerHelper;
 import imgui.ImGui;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,6 +92,16 @@ public class ExampleScript implements BotScript {
     @Override
     public int onLoop() {
         loopCount++;
+        LocalPlayer lp = ctx.getGameAPI().getLocalPlayer();
+
+        for (Headbar headbar : lp.headbars()) {
+            System.out.println("ID: " + headbar.id() + " Width: " + headbar.width());
+        }
+
+        ScriptContext ctx = this.ctx;
+        ScriptManager sm = ctx.getScriptManager();
+
+
         return loopDelay;
     }
 

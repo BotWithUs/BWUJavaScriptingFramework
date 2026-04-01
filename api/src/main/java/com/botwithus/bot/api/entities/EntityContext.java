@@ -182,6 +182,21 @@ public class EntityContext {
         return !getHeadbars().isEmpty();
     }
 
+    /** Active spot animation IDs on this entity (prayers, curses, poison, etc.). */
+    public List<Integer> getSpotAnims() {
+        return api.getEntitySpotAnims(raw.handle());
+    }
+
+    /** Whether this entity has any active spot animations. */
+    public boolean hasSpotAnims() {
+        return !getSpotAnims().isEmpty();
+    }
+
+    /** Whether this entity has a specific spot animation active. */
+    public boolean hasSpotAnim(int spotAnimId) {
+        return getSpotAnims().contains(spotAnimId);
+    }
+
     /** The combat level (from extended info). */
     public int getCombatLevel() {
         return getInfo().combatLevel();

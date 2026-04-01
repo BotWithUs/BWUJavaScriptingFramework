@@ -17,6 +17,7 @@ import java.util.List;
  * @param isHidden    {@code true} if the entity is hidden/invisible
  * @param hitmarks    active hitmarks (damage splats) on this entity, empty if none
  * @param headbars    active headbars (HP bars) on this entity, empty if none
+ * @param spotAnims   active spot animation IDs on this entity, empty if none
  * @see com.botwithus.bot.api.GameAPI#queryEntities
  */
 public record Entity(
@@ -24,5 +25,6 @@ public record Entity(
         int tileX, int tileY, int tileZ,
         String name, int nameHash,
         boolean isMoving, boolean isHidden,
-        List<Hitmark> hitmarks, List<Headbar> headbars
+        List<Hitmark> hitmarks, List<Headbar> headbars,
+        List<Integer> spotAnims
 ) {}

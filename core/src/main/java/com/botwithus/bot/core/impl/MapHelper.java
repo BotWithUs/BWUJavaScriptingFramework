@@ -72,14 +72,17 @@ public final class MapHelper {
         return List.of();
     }
 
-    public static List<Integer> getIntList(Map<String, Object> map, String key) {
-        Object v = map.get(key);
+    public static List<Integer> toIntList(Object v) {
         if (v instanceof List<?> list) {
             return list.stream()
                     .map(o -> o instanceof Number n ? n.intValue() : 0)
                     .toList();
         }
         return List.of();
+    }
+
+    public static List<Integer> getIntList(Map<String, Object> map, String key) {
+        return toIntList(map.get(key));
     }
 
     @SuppressWarnings("unchecked")

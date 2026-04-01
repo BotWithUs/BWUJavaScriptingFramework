@@ -172,7 +172,7 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "animation_id"), getInt(r, "stance_id"),
                 getInt(r, "following_index"),
                 getString(r, "overhead_text"), getInt(r, "combat_level"),
-                mapHitmarks(r), mapHeadbars(r)
+                mapHitmarks(r), mapHeadbars(r), getIntList(r, "spot_anims")
         );
     }
 
@@ -212,6 +212,11 @@ public class GameAPIImpl implements GameAPI {
         return rpc.callSyncList("get_entity_headbars", Map.of("handle", handle)).stream()
                 .map(m -> new Headbar(getInt(m, "id"), getInt(m, "width")))
                 .toList();
+    }
+
+    @Override
+    public List<Integer> getEntitySpotAnims(int handle) {
+        return toIntList(rpc.callSyncRaw("get_entity_spot_anims", Map.of("handle", handle)));
     }
 
     @Override
@@ -512,7 +517,7 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "animation_id"), getInt(r, "stance_id"),
                 getInt(r, "health"), getInt(r, "max_health"), getInt(r, "combat_level"),
                 getString(r, "overhead_text"), getInt(r, "target_index"), getInt(r, "target_type"),
-                mapHitmarks(r), mapHeadbars(r)
+                mapHitmarks(r), mapHeadbars(r), getIntList(r, "spot_anims")
         );
     }
 
@@ -1271,7 +1276,7 @@ public class GameAPIImpl implements GameAPI {
                 getInt(m, "tile_x"), getInt(m, "tile_y"), getInt(m, "tile_z"),
                 getString(m, "name"), getInt(m, "name_hash"),
                 getBool(m, "is_moving"), getBool(m, "is_hidden"),
-                mapHitmarks(m), mapHeadbars(m)
+                mapHitmarks(m), mapHeadbars(m), getIntList(m, "spot_anims")
         );
     }
 

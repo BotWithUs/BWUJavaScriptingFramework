@@ -22,6 +22,7 @@ import java.util.List;
  * @param targetType   the type of the current target (0 = none)
  * @param hitmarks     active hitmarks (damage splats) on this player, empty if none
  * @param headbars     active headbars (HP bars) on this player, empty if none
+ * @param spotAnims    active spot animation IDs on this player, empty if none
  * @see com.botwithus.bot.api.GameAPI#getLocalPlayer
  */
 public record LocalPlayer(
@@ -31,5 +32,6 @@ public record LocalPlayer(
         int animationId, int stanceId,
         int health, int maxHealth, int combatLevel,
         String overheadText, int targetIndex, int targetType,
-        List<Hitmark> hitmarks, List<Headbar> headbars
+        List<Hitmark> hitmarks, List<Headbar> headbars,
+        List<Integer> spotAnims
 ) {}
