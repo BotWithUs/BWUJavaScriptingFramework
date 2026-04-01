@@ -221,6 +221,15 @@ public interface GameAPI {
     List<Headbar> getEntityHeadbars(int handle);
 
     /**
+     * Returns the active spot animation IDs on an entity.
+     * These are entity-attached effects like prayers, curses, poison, etc.
+     *
+     * @param handle the entity handle
+     * @return a list of spot animation type IDs
+     */
+    List<Integer> getEntitySpotAnims(int handle);
+
+    /**
      * Returns the current animation ID of an entity.
      *
      * @param handle the entity handle

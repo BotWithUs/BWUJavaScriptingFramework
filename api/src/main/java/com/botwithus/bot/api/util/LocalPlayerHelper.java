@@ -195,4 +195,32 @@ public final class LocalPlayerHelper {
     public boolean isUnderAttack() {
         return !lp().hitmarks().isEmpty();
     }
+
+    /**
+     * Returns active spot animation IDs on the local player (prayers, curses, poison, etc.).
+     *
+     * @return a list of spot anim type IDs, empty if none
+     */
+    public List<Integer> getSpotAnims() {
+        return lp().spotAnims();
+    }
+
+    /**
+     * Checks whether the local player has any active spot animations.
+     *
+     * @return {@code true} if spot anims are active
+     */
+    public boolean hasSpotAnims() {
+        return !lp().spotAnims().isEmpty();
+    }
+
+    /**
+     * Checks whether the local player has a specific spot animation active.
+     *
+     * @param spotAnimId the spot animation type ID to check for
+     * @return {@code true} if the spot anim is active
+     */
+    public boolean hasSpotAnim(int spotAnimId) {
+        return lp().spotAnims().contains(spotAnimId);
+    }
 }
