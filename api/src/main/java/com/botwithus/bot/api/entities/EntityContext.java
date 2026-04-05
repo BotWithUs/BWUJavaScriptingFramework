@@ -21,8 +21,6 @@ public class EntityContext {
     protected final GameAPI api;
     protected final Entity raw;
 
-    private EntityInfo cachedInfo;
-
     public EntityContext(GameAPI api, Entity raw) {
         this.api = api;
         this.raw = raw;
@@ -106,22 +104,20 @@ public class EntityContext {
     /** Whether this handle still refers to a valid in-game entity. */
     public boolean isValid() { return api.isEntityValid(raw.handle()); }
 
-    // ========================== Extended Info (lazy) ==========================
+    // ========================== Extended Info ==========================
 
     /**
-     * Returns extended entity info, fetching it lazily on first call.
-     * Call {@link #refresh()} to re-fetch.
+     * Fetches extended entity info fresh from the client. This includes health,
+     * animation, combat state, hitmarks, headbars, and spot anims.
+     *
+     * <p>This is <b>not cached</b> — each call queries the client, making it safe
+     * for combat loops where state changes every tick. Use this when you need
+     * multiple fields from one snapshot to avoid redundant RPC calls.</p>
+     *
+     * @return the entity info snapshot
      */
     public EntityInfo getInfo() {
-        if (cachedInfo == null) {
-            cachedInfo = api.getEntityInfo(raw.handle());
-        }
-        return cachedInfo;
-    }
-
-    /** Clears cached info so the next access re-fetches from the client. */
-    public void refresh() {
-        cachedInfo = null;
+        return api.getEntityInfo(raw.handle());
     }
 
     // ========================== Health ==========================
