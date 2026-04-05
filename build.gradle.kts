@@ -1,5 +1,5 @@
 plugins {
-    id("java")
+    id("java") apply false
     id("org.beryx.jlink") version "3.2.1" apply false
 }
 

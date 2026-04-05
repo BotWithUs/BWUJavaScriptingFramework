@@ -94,13 +94,14 @@ public class ExampleScript implements BotScript {
         loopCount++;
         LocalPlayer lp = ctx.getGameAPI().getLocalPlayer();
 
-        for (Headbar headbar : lp.headbars()) {
-            System.out.println("ID: " + headbar.id() + " Width: " + headbar.width());
+        List<Headbar> hbs = lp.headbars();
+        if (hbs.isEmpty()) {
+            log.debug("No headbars!");
         }
 
-        ScriptContext ctx = this.ctx;
-        ScriptManager sm = ctx.getScriptManager();
-
+        for (Headbar headbar : hbs) {
+            log.debug("ID: {} Width: {}", headbar.id(), headbar.width());
+        }
 
         return loopDelay;
     }
