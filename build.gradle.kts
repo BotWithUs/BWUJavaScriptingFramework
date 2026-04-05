@@ -1,5 +1,4 @@
 plugins {
-    id("java") apply false
     id("org.beryx.jlink") version "3.2.1" apply false
 }
 
@@ -12,7 +11,7 @@ subprojects {
     group = "com.botwithus"
     version = "1.0-SNAPSHOT"
 
-    java {
+    configure<JavaPluginExtension> {
         toolchain {
             languageVersion = JavaLanguageVersion.of(25)
         }
@@ -24,14 +23,14 @@ subprojects {
     }
 
     dependencies {
-        testImplementation(platform("org.junit:junit-bom:5.10.0"))
-        testImplementation("org.junit.jupiter:junit-jupiter")
-        testImplementation("org.mockito:mockito-core:5.20.0")
-        testImplementation("org.mockito:mockito-junit-jupiter:5.20.0")
-        testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+        "testImplementation"(platform("org.junit:junit-bom:5.10.0"))
+        "testImplementation"("org.junit.jupiter:junit-jupiter")
+        "testImplementation"("org.mockito:mockito-core:5.20.0")
+        "testImplementation"("org.mockito:mockito-junit-jupiter:5.20.0")
+        "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
     }
 
-    tasks.test {
+    tasks.named<Test>("test") {
         useJUnitPlatform()
     }
 }

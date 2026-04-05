@@ -60,6 +60,15 @@ public final class EntityFilter {
         public Builder type(String type) { params.put("type", type); return this; }
 
         /**
+         * Filters by entity type using the type-safe enum.
+         *
+         * @param type the entity type
+         * @return this builder
+         * @see EntityType
+         */
+        public Builder type(EntityType type) { params.put("type", type.wireValue()); return this; }
+
+        /**
          * Filters by entity type ID (e.g., NPC definition ID).
          *
          * @param id the type ID
@@ -91,6 +100,15 @@ public final class EntityFilter {
          * @return this builder
          */
         public Builder matchType(String matchType) { params.put("match_type", matchType); return this; }
+
+        /**
+         * Sets the matching mode for name patterns using the type-safe enum.
+         *
+         * @param matchType the match type
+         * @return this builder
+         * @see MatchType
+         */
+        public Builder matchType(MatchType matchType) { params.put("match_type", matchType.wireValue()); return this; }
 
         /**
          * Sets whether name matching is case-sensitive.

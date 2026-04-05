@@ -2,6 +2,7 @@ package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.Entity;
+import com.botwithus.bot.api.query.EntityType;
 
 import java.util.List;
 import java.util.function.Function;
@@ -87,7 +88,7 @@ public class Npcs {
     public static class Query extends EntityQuery<Npc, Query> {
 
         Query(GameAPI api) {
-            super(api, "npc");
+            super(api, EntityType.NPC);
         }
 
         @Override

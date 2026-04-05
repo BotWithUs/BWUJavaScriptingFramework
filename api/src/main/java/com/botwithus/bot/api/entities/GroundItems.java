@@ -8,6 +8,7 @@ import com.botwithus.bot.api.query.EntityFilter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Predicate;
 
 /**
@@ -281,10 +282,20 @@ public class GroundItems {
                     .orElse(null);
         }
 
+        /** Returns the nearest matching ground item entry as an {@link Optional}. */
+        public Optional<Entry> findNearest() {
+            return Optional.ofNullable(nearest());
+        }
+
         /** Returns the first matching ground item entry (no distance sort), or null. */
         public Entry first() {
             List<Entry> entries = all();
             return entries.isEmpty() ? null : entries.getFirst();
+        }
+
+        /** Returns the first matching ground item entry as an {@link Optional}. */
+        public Optional<Entry> findFirst() {
+            return Optional.ofNullable(first());
         }
 
         /** Returns true if at least one matching ground item exists. */

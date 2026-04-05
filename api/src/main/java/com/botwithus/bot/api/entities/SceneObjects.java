@@ -2,6 +2,7 @@ package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.Entity;
+import com.botwithus.bot.api.query.EntityType;
 
 import java.util.List;
 import java.util.function.Function;
@@ -88,7 +89,7 @@ public class SceneObjects {
     public static class Query extends EntityQuery<SceneObject, Query> {
 
         Query(GameAPI api) {
-            super(api, "location");
+            super(api, EntityType.LOCATION);
         }
 
         @Override
