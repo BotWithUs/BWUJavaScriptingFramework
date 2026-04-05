@@ -99,6 +99,15 @@ public final class ComponentFilter {
         public Builder matchType(String matchType) { params.put("match_type", matchType); return this; }
 
         /**
+         * Sets the matching mode for text patterns using the type-safe enum.
+         *
+         * @param matchType the match type
+         * @return this builder
+         * @see MatchType
+         */
+        public Builder matchType(MatchType matchType) { params.put("match_type", matchType.wireValue()); return this; }
+
+        /**
          * Sets whether text matching is case-sensitive.
          *
          * @param cs {@code true} for case-sensitive matching
@@ -121,6 +130,15 @@ public final class ComponentFilter {
          * @return this builder
          */
         public Builder optionMatchType(String matchType) { params.put("option_match_type", matchType); return this; }
+
+        /**
+         * Sets the matching mode for option patterns using the type-safe enum.
+         *
+         * @param matchType the match type
+         * @return this builder
+         * @see MatchType
+         */
+        public Builder optionMatchType(MatchType matchType) { params.put("option_match_type", matchType.wireValue()); return this; }
 
         /**
          * If {@code true}, only returns components that are currently visible.

@@ -5,6 +5,7 @@ import com.botwithus.bot.api.model.InventoryItem;
 import com.botwithus.bot.api.query.InventoryFilter;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Wraps a game inventory (backpack, bank, equipment, etc.) and provides
@@ -149,6 +150,32 @@ public class InventoryContainer {
     }
 
     /**
+     * Checks if the inventory contains at least one of the given item IDs.
+     *
+     * @param itemIds the item IDs to check
+     * @return {@code true} if any of the items are present
+     */
+    public boolean containsAny(int... itemIds) {
+        for (int itemId : itemIds) {
+            if (contains(itemId)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Checks if the inventory contains all of the given item IDs.
+     *
+     * @param itemIds the item IDs to check
+     * @return {@code true} if every item is present
+     */
+    public boolean containsAll(int... itemIds) {
+        for (int itemId : itemIds) {
+            if (!contains(itemId)) return false;
+        }
+        return true;
+    }
+
+    /**
      * Check if the inventory contains an item whose name contains the given string (case-insensitive).
      * Uses {@link com.botwithus.bot.api.GameAPI#getItemType} to resolve item names.
      *
@@ -191,6 +218,16 @@ public class InventoryContainer {
     }
 
     /**
+     * Returns the first item matching the given ID as an {@link Optional}.
+     *
+     * @param itemId the item ID to find
+     * @return an Optional containing the matching item, or empty
+     */
+    public Optional<InventoryItem> findFirst(int itemId) {
+        return Optional.ofNullable(getFirst(itemId));
+    }
+
+    /**
      * Returns the first item whose name contains the given string (case-insensitive),
      * or {@code null} if not found.
      *
@@ -202,6 +239,16 @@ public class InventoryContainer {
         return getItems().stream()
                 .filter(item -> matchesName(item, lowerName))
                 .findFirst().orElse(null);
+    }
+
+    /**
+     * Returns the first item whose name contains the given string as an {@link Optional}.
+     *
+     * @param name the name substring to search for
+     * @return an Optional containing the matching item, or empty
+     */
+    public Optional<InventoryItem> findFirst(String name) {
+        return Optional.ofNullable(getFirst(name));
     }
 
     /**

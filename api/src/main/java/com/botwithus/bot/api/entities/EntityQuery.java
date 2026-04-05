@@ -3,8 +3,11 @@ package com.botwithus.bot.api.entities;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.Entity;
 import com.botwithus.bot.api.query.EntityFilter;
+import com.botwithus.bot.api.query.EntityType;
+import com.botwithus.bot.api.query.MatchType;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.PatternSyntaxException;
@@ -32,6 +35,11 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
         this.filterBuilder = EntityFilter.builder().type(entityType);
     }
 
+    protected EntityQuery(GameAPI api, EntityType entityType) {
+        this.api = api;
+        this.filterBuilder = EntityFilter.builder().type(entityType);
+    }
+
     /** Filter by name (contains match, case-insensitive). */
     public Q named(String name) {
         filterBuilder.namePattern(name);
@@ -40,7 +48,7 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
 
     /** Filter by name with exact match. */
     public Q namedExact(String name) {
-        filterBuilder.namePattern(name).matchType("exact");
+        filterBuilder.namePattern(name).matchType(MatchType.EXACT);
         return self();
     }
 
@@ -52,7 +60,7 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
     public Q nameMatching(String regex) {
         // Validate regex to prevent ReDoS and catch errors early
         java.util.regex.Pattern.compile(regex);
-        filterBuilder.namePattern(regex).matchType("regex");
+        filterBuilder.namePattern(regex).matchType(MatchType.REGEX);
         return self();
     }
 
@@ -160,6 +168,13 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
     }
 
     /**
+     * Returns the nearest matching entity as an {@link Optional}.
+     */
+    public Optional<T> findNearest() {
+        return Optional.ofNullable(nearest());
+    }
+
+    /**
      * Returns the first matching entity (no distance sort), or null.
      */
     public T first() {
@@ -168,6 +183,13 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
         }
         List<T> results = all();
         return results.isEmpty() ? null : results.getFirst();
+    }
+
+    /**
+     * Returns the first matching entity as an {@link Optional} (no distance sort).
+     */
+    public Optional<T> findFirst() {
+        return Optional.ofNullable(first());
     }
 
     /**

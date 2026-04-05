@@ -1,5 +1,6 @@
 package com.botwithus.bot.api;
 
+import com.botwithus.bot.api.domain.*;
 import com.botwithus.bot.api.model.*;
 import com.botwithus.bot.api.query.ComponentFilter;
 import com.botwithus.bot.api.query.EntityFilter;
@@ -13,12 +14,26 @@ import java.util.List;
  * <p>Provides methods for querying game state, entities, inventories, components,
  * and variables, as well as queuing actions and executing client scripts.</p>
  *
+ * <p>This interface extends domain-specific sub-interfaces for better discoverability.
+ * Scripts that only need a subset of functionality can accept the narrower type
+ * (e.g., {@link EntityQueryAPI} or {@link InventoryAPI}) instead of the full
+ * {@code GameAPI}.</p>
+ *
  * <p>Obtain an instance through {@link ScriptContext#getGameAPI()}.</p>
  *
  * @see ScriptContext
  * @see BotScript
+ * @see SystemAPI
+ * @see ActionAPI
+ * @see EntityQueryAPI
+ * @see ComponentAPI
+ * @see VariableAPI
+ * @see GameStateAPI
+ * @see InventoryAPI
+ * @see NavigationAPI
  */
-public interface GameAPI {
+public interface GameAPI extends SystemAPI, ActionAPI, EntityQueryAPI, ComponentAPI,
+        VariableAPI, GameStateAPI, InventoryAPI, NavigationAPI {
 
     // ============================== System ==============================
 

@@ -126,23 +126,36 @@ public class EntityContext {
 
     // ========================== Health ==========================
 
-    /** Current health points. */
+    /**
+     * Fetches the entity's health data fresh from the client. Use this when you
+     * need both health and maxHealth to avoid two separate RPC calls.
+     *
+     * <p>This is <b>not cached</b> — each call queries the client, making it safe
+     * for combat loops where health changes every tick.</p>
+     *
+     * @return the entity health snapshot
+     */
+    public EntityHealth getEntityHealth() {
+        return api.getEntityHealth(raw.handle());
+    }
+
+    /** Current health points (fresh per call). */
     public int getHealth() {
         return api.getEntityHealth(raw.handle()).health();
     }
 
-    /** Maximum health points. */
+    /** Maximum health points (fresh per call). */
     public int getMaxHealth() {
         return api.getEntityHealth(raw.handle()).maxHealth();
     }
 
-    /** Health as a percentage (0.0 – 1.0). */
+    /** Health as a percentage (0.0 – 1.0). Single RPC call. */
     public double getHealthPercent() {
         EntityHealth h = api.getEntityHealth(raw.handle());
         return h.maxHealth() == 0 ? 1.0 : (double) h.health() / h.maxHealth();
     }
 
-    /** Whether this entity is dead (health == 0 and maxHealth > 0). */
+    /** Whether this entity is dead (health == 0 and maxHealth > 0). Single RPC call. */
     public boolean isDead() {
         EntityHealth h = api.getEntityHealth(raw.handle());
         return h.maxHealth() > 0 && h.health() == 0;

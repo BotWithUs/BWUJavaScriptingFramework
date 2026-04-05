@@ -112,6 +112,26 @@ public final class Backpack {
     }
 
     /**
+     * Checks if the backpack contains at least one of the given item IDs.
+     *
+     * @param itemIds the item IDs to check
+     * @return {@code true} if any of the items are present
+     */
+    public boolean containsAny(int... itemIds) {
+        return container.containsAny(itemIds);
+    }
+
+    /**
+     * Checks if the backpack contains all of the given item IDs.
+     *
+     * @param itemIds the item IDs to check
+     * @return {@code true} if every item is present
+     */
+    public boolean containsAll(int... itemIds) {
+        return container.containsAll(itemIds);
+    }
+
+    /**
      * Counts the total quantity of an item across all backpack slots.
      *
      * @param itemId the item ID to count
