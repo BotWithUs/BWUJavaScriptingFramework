@@ -57,3 +57,17 @@ jlink {
         additive = true
     }
 }
+
+val packageJre by tasks.registering(Zip::class) {
+    dependsOn(tasks.named("jlink"))
+    archiveFileName.set("jre.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+    from(layout.buildDirectory.dir("image"))
+    val navDataDir = providers.gradleProperty("navDataDir")
+        .orElse(providers.environmentVariable("NAV_DATA_DIR"))
+    if (navDataDir.isPresent) {
+        from(navDataDir.get()) {
+            into("nav_data")
+        }
+    }
+}
