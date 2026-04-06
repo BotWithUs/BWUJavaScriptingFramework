@@ -5,6 +5,7 @@ import com.botwithus.bot.api.model.*;
 import com.botwithus.bot.api.query.ComponentFilter;
 import com.botwithus.bot.api.query.EntityFilter;
 import com.botwithus.bot.api.query.InventoryFilter;
+import com.botwithus.bot.api.query.WorldMapElementFilter;
 
 import java.util.List;
 
@@ -344,6 +345,33 @@ public interface GameAPI extends SystemAPI, ActionAPI, EntityQueryAPI, Component
      * @return the current world
      */
     World getCurrentWorld();
+
+    // ============================== World Map Elements ==============================
+
+    /**
+     * Queries world map elements (icons) from the game cache with optional filters.
+     * These are static map features like banks, altars, and dungeons.
+     *
+     * @param filter the world map element filter criteria
+     * @return a list of matching world map elements
+     * @see WorldMapElementFilter
+     */
+    List<WorldMapElement> queryWorldMapElements(WorldMapElementFilter filter);
+
+    /**
+     * Returns a single world map element by its ID.
+     *
+     * @param id the world map element ID
+     * @return the world map element, or {@code null} if not found
+     */
+    WorldMapElement getWorldMapElement(int id);
+
+    /**
+     * Returns the total number of loaded world map elements.
+     *
+     * @return the element count
+     */
+    int getWorldMapElementCount();
 
     /**
      * Computes a name hash from a display name string.
