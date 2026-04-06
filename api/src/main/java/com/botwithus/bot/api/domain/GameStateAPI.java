@@ -1,6 +1,7 @@
 package com.botwithus.bot.api.domain;
 
 import com.botwithus.bot.api.model.*;
+import com.botwithus.bot.api.query.WorldMapElementFilter;
 
 import java.util.List;
 
@@ -163,6 +164,33 @@ public interface GameStateAPI {
      * @param enabled {@code true} to enable, {@code false} to disable
      */
     void setAutoLogin(boolean enabled);
+
+    // ============================== World Map Elements ==============================
+
+    /**
+     * Queries world map elements (icons) from the game cache with optional filters.
+     * These are static map features like banks, altars, and dungeons.
+     *
+     * @param filter the world map element filter criteria
+     * @return a list of matching world map elements
+     * @see WorldMapElementFilter
+     */
+    List<WorldMapElement> queryWorldMapElements(WorldMapElementFilter filter);
+
+    /**
+     * Returns a single world map element by its ID.
+     *
+     * @param id the world map element ID
+     * @return the world map element, or {@code null} if not found
+     */
+    WorldMapElement getWorldMapElement(int id);
+
+    /**
+     * Returns the total number of loaded world map elements.
+     *
+     * @return the element count
+     */
+    int getWorldMapElementCount();
 
     // ============================== Cache ==============================
 

@@ -5,6 +5,7 @@ import com.botwithus.bot.api.model.*;
 import com.botwithus.bot.api.query.ComponentFilter;
 import com.botwithus.bot.api.query.EntityFilter;
 import com.botwithus.bot.api.query.InventoryFilter;
+import com.botwithus.bot.api.query.WorldMapElementFilter;
 import com.botwithus.bot.core.rpc.RpcClient;
 
 import java.util.*;
@@ -333,6 +334,28 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public void invalidateQueryContext() {
         rpc.callSync("invalidate_query_context", Map.of());
+    }
+
+    // ========================== World Map Elements ==========================
+
+    @Override
+    public List<WorldMapElement> queryWorldMapElements(WorldMapElementFilter filter) {
+        Map<String, Object> r = rpc.callSync("query_world_map_elements", filter.toParams());
+        List<Map<String, Object>> elements = getList(r, "elements");
+        return elements.stream().map(this::mapWorldMapElement).toList();
+    }
+
+    @Override
+    public WorldMapElement getWorldMapElement(int id) {
+        Map<String, Object> r = rpc.callSync("get_world_map_element", Map.of("id", id));
+        if (r == null || r.containsKey("error")) return null;
+        return mapWorldMapElement(r);
+    }
+
+    @Override
+    public int getWorldMapElementCount() {
+        Map<String, Object> r = rpc.callSync("get_world_map_element_count", Map.of());
+        return getInt(r, "count");
     }
 
     // ========================== Components & Interfaces ==========================
@@ -1324,6 +1347,14 @@ public class GameAPIImpl implements GameAPI {
                 .map(p -> new int[]{getInt(p, "x"), getInt(p, "y")})
                 .toList();
         return new PathResult(found, pathLength, path);
+    }
+
+    private WorldMapElement mapWorldMapElement(Map<String, Object> m) {
+        return new WorldMapElement(
+                getInt(m, "id"), getInt(m, "tile_x"), getInt(m, "tile_y"),
+                getInt(m, "plane"), getInt(m, "category"), getInt(m, "sprite_id"),
+                getInt(m, "element_id"), getString(m, "name"), getString(m, "tooltip")
+        );
     }
 
     @SuppressWarnings("unchecked")
