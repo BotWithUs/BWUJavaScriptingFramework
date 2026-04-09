@@ -41,3 +41,4 @@ bin/
 ### Runtime/Generated ###
 imgui.ini
 scripts/**/*.jar
+jre.zip
