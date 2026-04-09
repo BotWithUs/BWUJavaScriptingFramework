@@ -45,9 +45,17 @@ public class SceneObject extends EntityContext {
         return cachedType;
     }
 
-    /** The right-click interaction options for this object. */
+    /**
+     * The right-click interaction options for this object, resolved through any active transformation.
+     * Prefers the pre-resolved options from the entity query (C++ side) when available,
+     * falling back to the resolved location type definition.
+     */
     public List<String> getOptions() {
-        return getType().options();
+        List<String> entityOptions = raw.options();
+        if (entityOptions != null && !entityOptions.isEmpty()) {
+            return entityOptions;
+        }
+        return resolveTransform().options();
     }
 
     /** Whether this object has a specific right-click option (case-insensitive). */

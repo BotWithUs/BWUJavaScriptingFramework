@@ -1294,12 +1294,16 @@ public class GameAPIImpl implements GameAPI {
     // ========================== Helpers ==========================
 
     private Entity mapEntity(Map<String, Object> m) {
+        int typeId = getInt(m, "type_id");
+        int transformedTypeId = m.containsKey("transformed_type_id")
+                ? getInt(m, "transformed_type_id") : typeId;
         return new Entity(
-                getInt(m, "handle"), getInt(m, "server_index"), getInt(m, "type_id"),
+                getInt(m, "handle"), getInt(m, "server_index"), typeId,
                 getInt(m, "tile_x"), getInt(m, "tile_y"), getInt(m, "tile_z"),
                 getString(m, "name"), getInt(m, "name_hash"),
                 getBool(m, "is_moving"), getBool(m, "is_hidden"),
-                mapHitmarks(m), mapHeadbars(m), getIntList(m, "spot_anims")
+                mapHitmarks(m), mapHeadbars(m), getIntList(m, "spot_anims"),
+                getStringList(m, "options"), transformedTypeId
         );
     }
 
