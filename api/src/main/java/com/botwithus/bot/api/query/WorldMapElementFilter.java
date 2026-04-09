@@ -113,6 +113,46 @@ public final class WorldMapElementFilter {
         public Builder sortByDistance(boolean sort) { params.put("sort_by_distance", sort); return this; }
 
         /**
+         * Filters by skill requirement. Only returns elements that require the specified skill.
+         *
+         * @param skillId the skill ID (e.g., 13 for Mining, 15 for Fishing)
+         * @return this builder
+         */
+        public Builder skillId(int skillId) { params.put("skill_id", skillId); return this; }
+
+        /**
+         * Filters by minimum skill level. Requires {@link #skillId(int)} to be set.
+         *
+         * @param minLevel the minimum skill level
+         * @return this builder
+         */
+        public Builder minLevel(int minLevel) { params.put("min_level", minLevel); return this; }
+
+        /**
+         * Filters by maximum skill level. Requires {@link #skillId(int)} to be set.
+         *
+         * @param maxLevel the maximum skill level
+         * @return this builder
+         */
+        public Builder maxLevel(int maxLevel) { params.put("max_level", maxLevel); return this; }
+
+        /**
+         * Only returns elements that have a description.
+         *
+         * @param hasDescription {@code true} to filter to elements with descriptions
+         * @return this builder
+         */
+        public Builder hasDescription(boolean hasDescription) { params.put("has_description", hasDescription); return this; }
+
+        /**
+         * Only returns elements that have resource data (ores, fish, logs, etc.).
+         *
+         * @param hasResources {@code true} to filter to elements with resources
+         * @return this builder
+         */
+        public Builder hasResources(boolean hasResources) { params.put("has_resources", hasResources); return this; }
+
+        /**
          * Builds the immutable filter.
          *
          * @return a new {@link WorldMapElementFilter}

@@ -1350,11 +1350,30 @@ public class GameAPIImpl implements GameAPI {
     }
 
     private WorldMapElement mapWorldMapElement(Map<String, Object> m) {
+        List<Map<String, Object>> rawReqs = getList(m, "skill_requirements");
+        List<SkillRequirement> skillReqs = rawReqs.stream()
+                .map(r -> new SkillRequirement(getInt(r, "skill_id"), getInt(r, "level"), getString(r, "skill_name")))
+                .toList();
+        List<Map<String, Object>> rawResources = getList(m, "resources");
+        List<ResourceSection> resources = rawResources.stream()
+                .map(this::mapResourceSection)
+                .toList();
         return new WorldMapElement(
                 getInt(m, "id"), getInt(m, "tile_x"), getInt(m, "tile_y"),
                 getInt(m, "plane"), getInt(m, "category"), getInt(m, "sprite_id"),
-                getInt(m, "element_id"), getString(m, "name"), getString(m, "tooltip")
+                getInt(m, "element_id"), getString(m, "name"), getString(m, "tooltip"),
+                getString(m, "description"), getInt(m, "min_level"),
+                getInt(m, "level_tier_1"), getInt(m, "level_tier_2"), getInt(m, "level_tier_3"),
+                skillReqs, resources
         );
+    }
+
+    private ResourceSection mapResourceSection(Map<String, Object> m) {
+        List<Map<String, Object>> rawItems = getList(m, "items");
+        List<ResourceItem> items = rawItems.stream()
+                .map(i -> new ResourceItem(getInt(i, "item_id"), getInt(i, "level"), getInt(i, "quantity")))
+                .toList();
+        return new ResourceSection(getString(m, "title"), items);
     }
 
     @SuppressWarnings("unchecked")
