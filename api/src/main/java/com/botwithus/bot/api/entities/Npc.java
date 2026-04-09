@@ -34,7 +34,7 @@ public class Npc extends EntityContext {
     }
 
     /**
-     * Returns the NPC cache definition, fetched lazily.
+     * Returns the NPC cache definition for the base (parent) type, fetched lazily.
      */
     public NpcType getType() {
         if (cachedType == null) {
@@ -43,9 +43,17 @@ public class Npc extends EntityContext {
         return cachedType;
     }
 
-    /** The NPC's right-click interaction options. */
+    /**
+     * The NPC's right-click interaction options, resolved through any active transformation.
+     * Prefers the pre-resolved options from the entity query (C++ side) when available,
+     * falling back to the resolved NPC type definition.
+     */
     public List<String> getOptions() {
-        return getType().options();
+        List<String> entityOptions = raw.options();
+        if (entityOptions != null && !entityOptions.isEmpty()) {
+            return entityOptions;
+        }
+        return resolveTransform().options();
     }
 
     /** Whether this NPC has a specific right-click option (case-insensitive). */
@@ -61,6 +69,62 @@ public class Npc extends EntityContext {
     /** Whether this NPC is clickable according to its definition. */
     public boolean isClickable() {
         return getType().clickable();
+    }
+
+    // ========================== Transformation ==========================
+
+    /**
+     * Whether this NPC can transform based on a varbit/varp value.
+     */
+    public boolean canTransform() {
+        return getType().varbitId() != -1 || getType().varpId() != -1;
+    }
+
+    /** The varbit controlling transformation, or -1. */
+    public int getVarbitId() {
+        return getType().varbitId();
+    }
+
+    /** The varp controlling transformation, or -1. */
+    public int getVarpId() {
+        return getType().varpId();
+    }
+
+    /** The possible type IDs this NPC can transform into. */
+    public List<Integer> getTransforms() {
+        return getType().transforms();
+    }
+
+    /**
+     * Resolves the current transform of this NPC based on varbit/varp state.
+     * Returns this NPC's base type ID if no transformation is active,
+     * or the transformed type ID.
+     */
+    public int resolveTransformId() {
+        NpcType type = getType();
+        int value = -1;
+        if (type.varbitId() != -1) {
+            value = api.getVarbit(type.varbitId());
+        } else if (type.varpId() != -1) {
+            value = api.getVarp(type.varpId());
+        }
+        if (value < 0 || type.transforms().isEmpty()) {
+            return typeId();
+        }
+        if (value < type.transforms().size()) {
+            int transformed = type.transforms().get(value);
+            return transformed != -1 ? transformed : typeId();
+        }
+        int last = type.transforms().getLast();
+        return last != -1 ? last : typeId();
+    }
+
+    /**
+     * Returns the resolved {@link NpcType} after applying any varbit/varp transformation.
+     */
+    public NpcType resolveTransform() {
+        int id = resolveTransformId();
+        return id == typeId() ? getType() : api.getNpcType(id);
     }
 
     // ========================== Interaction ==========================

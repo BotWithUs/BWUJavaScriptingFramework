@@ -44,6 +44,9 @@ public class EntityContext {
     /** The entity type/definition ID (NPC ID, object ID, etc.). */
     public int typeId() { return raw.typeId(); }
 
+    /** The resolved type ID after varbit/varp transformation, or same as typeId if no transform. */
+    public int transformedTypeId() { return raw.transformedTypeId(); }
+
     /** The display name. */
     public String name() { return raw.name(); }
 
