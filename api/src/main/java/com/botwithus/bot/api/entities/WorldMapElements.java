@@ -2,6 +2,7 @@ package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.LocalPlayer;
+import com.botwithus.bot.api.model.ResourceSection;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.query.WorldMapElementFilter;
 
@@ -68,7 +69,7 @@ public class WorldMapElements {
      * Returns the nearest world map element matching the given name to the player.
      */
     public WorldMapElement nearest(String name) {
-        return query().named(name).nearPlayer().sortByDistance(true).nearest();
+        return query().named(name).nearPlayer().sortByDistance().nearest();
     }
 
     /**
@@ -136,9 +137,58 @@ public class WorldMapElements {
             return this;
         }
 
-        /** Sort results by distance from center tile. */
-        public Query sortByDistance(boolean sort) {
-            filterBuilder.sortByDistance(sort);
+        /** Filter by skill requirement (e.g., 13 for Mining, 15 for Fishing). */
+        public Query withSkill(int skillId) {
+            filterBuilder.skillId(skillId);
+            return this;
+        }
+
+        /** Filter by skill requirement with a level range. */
+        public Query withSkill(int skillId, int minLevel, int maxLevel) {
+            filterBuilder.skillId(skillId);
+            if (minLevel >= 0) filterBuilder.minLevel(minLevel);
+            if (maxLevel >= 0) filterBuilder.maxLevel(maxLevel);
+            return this;
+        }
+
+        /** Only return elements that have a description. */
+        public Query withDescription() {
+            filterBuilder.hasDescription(true);
+            return this;
+        }
+
+        /** Only return elements that have resource data (ores, fish, logs, etc.). */
+        public Query withResources() {
+            filterBuilder.hasResources(true);
+            return this;
+        }
+
+        /**
+         * Filter to elements containing a resource with the given item ID (e.g., 383 for raw shark).
+         * Automatically enables the {@code has_resources} server-side filter.
+         */
+        public Query withItemId(int itemId) {
+            return filterResources(s -> s.items().stream().anyMatch(i -> i.itemId() == itemId));
+        }
+
+        /**
+         * Filter to elements containing a resource whose title matches the given name
+         * (case-insensitive substring, e.g., "Shark", "Coal", "Yew").
+         * Automatically enables the {@code has_resources} server-side filter.
+         */
+        public Query withResourceNamed(String name) {
+            String lower = name.toLowerCase();
+            return filterResources(s -> s.title().toLowerCase().contains(lower));
+        }
+
+        private Query filterResources(Predicate<ResourceSection> sectionPredicate) {
+            filterBuilder.hasResources(true);
+            return filter(e -> e.resources().stream().anyMatch(sectionPredicate));
+        }
+
+        /** Sort results by distance from center tile. Requires a spatial filter (e.g., {@link #near} or {@link #nearPlayer}). */
+        public Query sortByDistance() {
+            filterBuilder.sortByDistance(true);
             return this;
         }
 
