@@ -6,6 +6,7 @@ import com.botwithus.bot.api.query.ComponentFilter;
 import com.botwithus.bot.api.query.EntityFilter;
 import com.botwithus.bot.api.query.InventoryFilter;
 import com.botwithus.bot.api.query.WorldMapElementFilter;
+import com.botwithus.bot.api.query.WorldMapIconFilter;
 import com.botwithus.bot.core.rpc.RpcClient;
 
 import java.util.*;
@@ -356,6 +357,27 @@ public class GameAPIImpl implements GameAPI {
     public int getWorldMapElementCount() {
         Map<String, Object> r = rpc.callSync("get_world_map_element_count", Map.of());
         return getInt(r, "count");
+    }
+
+    @Override
+    public List<WorldMapIconResult> queryWorldMapIcons(WorldMapIconFilter filter) {
+        Map<String, Object> r = rpc.callSync("query_world_map_icons", filter.toParams());
+        List<Map<String, Object>> icons = getList(r, "icons");
+        return icons.stream().map(this::mapWorldMapIcon).toList();
+    }
+
+    private WorldMapIconResult mapWorldMapIcon(Map<String, Object> m) {
+        return new WorldMapIconResult(
+                getInt(m, "world_map_element_id"),
+                getInt(m, "plane"),
+                getInt(m, "world_x"),
+                getInt(m, "world_y"),
+                getBool(m, "members_only"),
+                m.containsKey("sprite_id") ? getInt(m, "sprite_id") : -1,
+                m.containsKey("category") ? getInt(m, "category") : -1,
+                getString(m, "name"),
+                getString(m, "tooltip")
+        );
     }
 
     // ========================== Components & Interfaces ==========================
