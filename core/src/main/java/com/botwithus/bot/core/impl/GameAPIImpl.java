@@ -1362,13 +1362,17 @@ public class GameAPIImpl implements GameAPI {
         List<ResourceSection> resources = rawResources.stream()
                 .map(this::mapResourceSection)
                 .toList();
+        List<Map<String, Object>> rawPlacements = getList(m, "placements");
+        List<WorldMapPlacement> placements = rawPlacements.stream()
+                .map(p -> new WorldMapPlacement(getInt(p, "plane"), getInt(p, "tile_x"), getInt(p, "tile_y"), getBool(p, "members_only")))
+                .toList();
         return new WorldMapElement(
                 getInt(m, "id"), getInt(m, "tile_x"), getInt(m, "tile_y"),
                 getInt(m, "plane"), getInt(m, "category"), getInt(m, "sprite_id"),
                 getInt(m, "element_id"), getString(m, "name"), getString(m, "tooltip"),
                 getString(m, "description"), getInt(m, "min_level"),
                 getInt(m, "level_tier_1"), getInt(m, "level_tier_2"), getInt(m, "level_tier_3"),
-                skillReqs, resources
+                skillReqs, resources, placements
         );
     }
 

@@ -23,8 +23,10 @@ import java.util.List;
  * @param levelTier3        the third level tier, or -1 if none
  * @param skillRequirements the skill requirements for this element, may be empty
  * @param resources         the resource sections available at this element (ores, fish, logs, etc.), may be empty
+ * @param placements        every absolute tile placement for this element (an element may exist at multiple tiles)
  * @see SkillRequirement
  * @see ResourceSection
+ * @see WorldMapPlacement
  * @see com.botwithus.bot.api.GameAPI#queryWorldMapElements
  * @see com.botwithus.bot.api.GameAPI#getWorldMapElement
  */
@@ -44,5 +46,6 @@ public record WorldMapElement(
         int levelTier2,
         int levelTier3,
         List<SkillRequirement> skillRequirements,
-        List<ResourceSection> resources
+        List<ResourceSection> resources,
+        List<WorldMapPlacement> placements
 ) {}
