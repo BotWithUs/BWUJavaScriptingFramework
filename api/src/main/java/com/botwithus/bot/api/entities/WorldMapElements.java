@@ -4,7 +4,9 @@ import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.LocalPlayer;
 import com.botwithus.bot.api.model.ResourceSection;
 import com.botwithus.bot.api.model.WorldMapElement;
+import com.botwithus.bot.api.model.WorldMapIconResult;
 import com.botwithus.bot.api.query.WorldMapElementFilter;
+import com.botwithus.bot.api.query.WorldMapIconFilter;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,6 +51,15 @@ public class WorldMapElements {
      */
     public Query query() {
         return new Query(api);
+    }
+
+    /**
+     * Start a fluent world map icon query. Unlike {@link #query()}, each
+     * result is one placement, so an element with many map locations yields
+     * many entries. Useful for "every bank icon near me" style lookups.
+     */
+    public IconQuery icons() {
+        return new IconQuery(api);
     }
 
     /**
@@ -247,6 +258,132 @@ public class WorldMapElements {
         }
 
         /** Returns the count of matching elements. */
+        public int count() {
+            return all().size();
+        }
+    }
+
+    // ========================== IconQuery ==========================
+
+    /**
+     * Fluent query builder for world map icon placements.
+     */
+    public static class IconQuery {
+
+        private final GameAPI api;
+        private final WorldMapIconFilter.Builder filterBuilder = WorldMapIconFilter.builder();
+        private Predicate<WorldMapIconResult> postFilter;
+
+        IconQuery(GameAPI api) {
+            this.api = api;
+        }
+
+        /** Filter by element category id. */
+        public IconQuery withCategory(int category) {
+            filterBuilder.category(category);
+            return this;
+        }
+
+        /** Restrict results to placements of a single world map element. */
+        public IconQuery forElement(int worldMapElementId) {
+            filterBuilder.worldMapElementId(worldMapElementId);
+            return this;
+        }
+
+        /** Filter to placements near a specific tile within a radius. */
+        public IconQuery near(int tileX, int tileY, int radius) {
+            filterBuilder.near(tileX, tileY, radius);
+            return this;
+        }
+
+        /** Filter to placements near the local player within a radius. */
+        public IconQuery nearPlayer(int radius) {
+            LocalPlayer lp = api.getLocalPlayer();
+            filterBuilder.near(lp.tileX(), lp.tileY(), radius);
+            return this;
+        }
+
+        /** Filter to placements near the local player with a 500-tile radius. */
+        public IconQuery nearPlayer() {
+            return nearPlayer(500);
+        }
+
+        /** Filter by plane. */
+        public IconQuery onPlane(int plane) {
+            filterBuilder.plane(plane);
+            return this;
+        }
+
+        /** Exclude members-only placements. */
+        public IconQuery freeToPlay() {
+            filterBuilder.includeMembers(false);
+            return this;
+        }
+
+        /** Disable sprite/category/name/tooltip enrichment for a lighter payload. */
+        public IconQuery withoutEnrichment() {
+            filterBuilder.enrich(false);
+            return this;
+        }
+
+        /** Sort results by distance from the center tile. Requires a spatial filter. */
+        public IconQuery sortByDistance() {
+            filterBuilder.sortByDistance(true);
+            return this;
+        }
+
+        /** Limit the maximum number of results. */
+        public IconQuery limit(int max) {
+            filterBuilder.maxResults(max);
+            return this;
+        }
+
+        /** Add a post-query filter predicate applied after results are returned. */
+        public IconQuery filter(Predicate<WorldMapIconResult> predicate) {
+            this.postFilter = this.postFilter == null ? predicate : this.postFilter.and(predicate);
+            return this;
+        }
+
+        /** Returns all matching icon placements. */
+        public List<WorldMapIconResult> all() {
+            List<WorldMapIconResult> results = api.queryWorldMapIcons(filterBuilder.build());
+            if (postFilter != null) {
+                results = results.stream().filter(postFilter).toList();
+            }
+            return results;
+        }
+
+        /** Returns the nearest matching placement to the center, or null. */
+        public WorldMapIconResult nearest() {
+            List<WorldMapIconResult> results = all();
+            return results.isEmpty() ? null : results.getFirst();
+        }
+
+        /** Returns the nearest matching placement as an {@link Optional}. */
+        public Optional<WorldMapIconResult> findNearest() {
+            return Optional.ofNullable(nearest());
+        }
+
+        /** Returns the first matching placement, or null. */
+        public WorldMapIconResult first() {
+            List<WorldMapIconResult> results = all();
+            return results.isEmpty() ? null : results.getFirst();
+        }
+
+        /** Returns the first matching placement as an {@link Optional}. */
+        public Optional<WorldMapIconResult> findFirst() {
+            return Optional.ofNullable(first());
+        }
+
+        /** Returns true if at least one matching placement exists. */
+        public boolean exists() {
+            if (postFilter == null) {
+                filterBuilder.maxResults(1);
+            }
+            return !all().isEmpty();
+        }
+
+        /** Returns the count of matching placements. */
         public int count() {
             return all().size();
         }

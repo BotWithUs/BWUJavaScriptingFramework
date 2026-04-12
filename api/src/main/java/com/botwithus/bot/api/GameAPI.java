@@ -6,6 +6,7 @@ import com.botwithus.bot.api.query.ComponentFilter;
 import com.botwithus.bot.api.query.EntityFilter;
 import com.botwithus.bot.api.query.InventoryFilter;
 import com.botwithus.bot.api.query.WorldMapElementFilter;
+import com.botwithus.bot.api.query.WorldMapIconFilter;
 
 import java.util.List;
 
@@ -372,6 +373,20 @@ public interface GameAPI extends SystemAPI, ActionAPI, EntityQueryAPI, Component
      * @return the element count
      */
     int getWorldMapElementCount();
+
+    /**
+     * Enumerates world map icon placements from cache archive 41. Unlike
+     * {@link #queryWorldMapElements(WorldMapElementFilter)}, each result in
+     * the returned list is one placement, so an element present at many
+     * tiles yields many entries. Supports filtering by sprite id, category,
+     * owning element id, plane, radius, and members-only flag.
+     *
+     * @param filter the icon filter criteria
+     * @return a list of matching icon placements
+     * @see WorldMapIconFilter
+     * @see WorldMapIconResult
+     */
+    List<WorldMapIconResult> queryWorldMapIcons(WorldMapIconFilter filter);
 
     /**
      * Computes a name hash from a display name string.
