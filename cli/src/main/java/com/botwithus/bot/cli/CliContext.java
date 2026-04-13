@@ -40,9 +40,12 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -119,11 +122,18 @@ public class CliContext {
         var sharedState = new SharedStateImpl();
 
         // Optionally load the native game launcher (bwu.dll)
+        // 1) Check filesystem (covers jlink/prod where DLL sits next to the executable)
+        // 2) Fall back to extracting from bundled resources (covers Gradle dev runs)
         GameLauncher launcher = null;
-        var bwuClient = BwuClient.load(Path.of("bwu.dll"));
-        if (bwuClient.isPresent()) {
-            launcher = new BwuGameLauncher(bwuClient.get());
-            log.info("Game launcher (bwu.dll) available for management scripts");
+        Path dllPath = resolveBwuDll();
+        if (dllPath != null) {
+            var bwuClient = BwuClient.load(dllPath);
+            if (bwuClient.isPresent()) {
+                launcher = new BwuGameLauncher(bwuClient.get());
+                log.info("Game launcher (bwu.dll) loaded from {}", dllPath);
+            } else {
+                log.debug("Game launcher (bwu.dll) found but failed to load from {}", dllPath);
+            }
         } else {
             log.debug("Game launcher (bwu.dll) not available — management scripts will not have launcher access");
         }
@@ -478,5 +488,32 @@ public class CliContext {
 
     public boolean isWatcherRunning() {
         return scriptWatcher != null && scriptWatcher.isRunning();
+    }
+
+    /**
+     * Resolves bwu.dll: checks the filesystem first (for jlink/prod), then
+     * extracts from bundled resources to a temp file (for Gradle dev runs).
+     *
+     * @return path to the DLL, or {@code null} if unavailable
+     */
+    private Path resolveBwuDll() {
+        // Filesystem — DLL next to the executable or in the working directory
+        Path fsPath = Path.of("bwu.dll");
+        if (Files.isRegularFile(fsPath)) {
+            return fsPath;
+        }
+
+        // Bundled resource — extract to temp
+        try (InputStream in = getClass().getResourceAsStream("/native/bwu.dll")) {
+            if (in == null) return null;
+            Path tmp = Files.createTempFile("bwu", ".dll");
+            tmp.toFile().deleteOnExit();
+            Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+            log.debug("Extracted bwu.dll from resources to {}", tmp);
+            return tmp;
+        } catch (IOException e) {
+            log.warn("Failed to extract bwu.dll from resources: {}", e.getMessage());
+            return null;
+        }
     }
 }
