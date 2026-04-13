@@ -27,8 +27,9 @@ import static java.lang.foreign.ValueLayout.*;
  * if (client.isPresent()) {
  *     try (BwuClient bwu = client.get()) {
  *         bwu.init();
- *         bwu.login();
- *         // ...
+ *         bwu.login();           // auto-starts module download
+ *         bwu.addAccount(account);
+ *         bwu.launchDefault(accountUuid);  // background: launch + inject
  *     }
  * }
  * }</pre>
@@ -121,6 +122,7 @@ public final class BwuClient implements AutoCloseable {
     /**
      * Start the BotWithUs SSO login flow. Opens the default browser and
      * <strong>blocks</strong> until callback or timeout (5 min).
+     * On success, automatically begins downloading the module in the background.
      */
     public void login() {
         check(callInt(n.bwu_login));
@@ -175,29 +177,12 @@ public final class BwuClient implements AutoCloseable {
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Download the agent module. Requires login. <strong>Blocks</strong> until complete.
+     * Trigger a module refresh. Checks the server for a newer version and
+     * downloads it if the checksum differs. Runs in a background thread;
+     * track progress via {@link #getStatus()}.
      */
-    public void downloadModule() {
-        check(callInt(n.bwu_download_module));
-    }
-
-    public boolean hasModule() {
-        return callInt(n.bwu_has_module) != 0;
-    }
-
-    /**
-     * Get a copy of the downloaded module bytes.
-     */
-    public byte[] getModuleBytes() {
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment pData = arena.allocate(ADDRESS);
-            MemorySegment pSize = arena.allocate(JAVA_INT);
-            check(callInt2(n.bwu_get_module_bytes, pData, pSize));
-
-            MemorySegment dataPtr = pData.get(ADDRESS, 0);
-            int size = pSize.get(JAVA_INT, 0);
-            return dataPtr.reinterpret(size).toArray(JAVA_BYTE);
-        }
+    public void refreshModule() {
+        check(callInt(n.bwu_refresh_module));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -247,23 +232,45 @@ public final class BwuClient implements AutoCloseable {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  Process Management
+    //  Launch (Non-blocking Triggers)
     // ═══════════════════════════════════════════════════════════════════════
 
-    public void launchDefault() {
-        check(callInt(n.bwu_launch_default));
+    /**
+     * Launch the game client via direct executable. Non-blocking — runs in a
+     * background thread that handles launch, process detection, credential
+     * writing, and module injection.
+     *
+     * @param accountUuid UUID of the BwuAccount providing injection credentials
+     */
+    public void launchDefault(String accountUuid) {
+        try (Arena arena = Arena.ofConfined()) {
+            check(callInt(n.bwu_launch_default, arena.allocateFrom(accountUuid)));
+        }
     }
 
-    public void launchPlatform() {
-        check(callInt(n.bwu_launch_platform));
+    /**
+     * Launch the game client via Steam protocol URL. Non-blocking.
+     *
+     * @param accountUuid UUID of the BwuAccount providing injection credentials
+     */
+    public void launchPlatform(String accountUuid) {
+        try (Arena arena = Arena.ofConfined()) {
+            check(callInt(n.bwu_launch_platform, arena.allocateFrom(accountUuid)));
+        }
     }
 
-    public void launchManaged(String accountName) {
+    /**
+     * Launch the game client through the Jagex Launcher CLI. Non-blocking.
+     *
+     * @param accountName launcher account name, or {@code null} for default
+     * @param accountUuid UUID of the BwuAccount providing injection credentials
+     */
+    public void launchManaged(String accountName, String accountUuid) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment nameSeg = (accountName != null && !accountName.isEmpty())
                     ? arena.allocateFrom(accountName)
                     : MemorySegment.NULL;
-            check(callInt(n.bwu_launch_managed, nameSeg));
+            check(callInt2(n.bwu_launch_managed, nameSeg, arena.allocateFrom(accountUuid)));
         }
     }
 
@@ -278,60 +285,6 @@ public final class BwuClient implements AutoCloseable {
 
     public String getProviderPath() {
         return readReturnedString(callPtr(n.bwu_get_provider_path));
-    }
-
-    /**
-     * Find all running game client processes (rs2client.exe / RuneScape.exe).
-     *
-     * @param maxCount maximum PIDs to return
-     * @return array of process IDs
-     */
-    public int[] findProcesses(int maxCount) {
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment pids = arena.allocate(JAVA_INT, maxCount);
-            MemorySegment outCount = arena.allocate(JAVA_INT);
-            check(callIntSIS(n.bwu_find_processes, pids, maxCount, outCount));
-            int count = outCount.get(JAVA_INT, 0);
-            int[] result = new int[count];
-            for (int i = 0; i < count; i++) {
-                result[i] = pids.get(JAVA_INT, (long) i * JAVA_INT.byteSize());
-            }
-            return result;
-        }
-    }
-
-    /**
-     * Poll for the next process event. Non-blocking.
-     *
-     * @return the event, or empty if the queue is empty
-     */
-    public Optional<BwuProcessEvent> pollProcessEvent() {
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment out = arena.allocate(BwuLayouts.BWU_PROCESS_EVENT);
-            int rc = callInt(n.bwu_poll_process_event, out);
-            if (rc == BwuError.NOT_FOUND.code()) {
-                return Optional.empty();
-            }
-            check(rc);
-            return Optional.of(BwuProcessEvent.read(out));
-        }
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    //  Module Loading
-    // ═══════════════════════════════════════════════════════════════════════
-
-    public void loadModule(int pid, BwuLoadParams params) {
-        try (Arena arena = Arena.ofConfined()) {
-            check(callIntIS(n.bwu_load_module, pid, params.writeTo(arena)));
-        }
-    }
-
-    public void loadModuleRaw(int pid, byte[] data, BwuLoadParams params) {
-        try (Arena arena = Arena.ofConfined()) {
-            MemorySegment dataSeg = arena.allocateFrom(JAVA_BYTE, data);
-            check(callIntISIS(n.bwu_load_module_raw, pid, dataSeg, data.length, params.writeTo(arena)));
-        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -418,9 +371,16 @@ public final class BwuClient implements AutoCloseable {
         }
     }
 
-    public void jagexLaunch(String uuid) {
+    /**
+     * Launch rs2client.exe using a Jagex account's active session and inject the module.
+     * Non-blocking — runs in a background thread.
+     *
+     * @param jagexUuid   Jagex account UUID (for session/character)
+     * @param accountUuid BwuAccount UUID (for injection credentials)
+     */
+    public void jagexLaunch(String jagexUuid, String accountUuid) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_jagex_launch, arena.allocateFrom(uuid)));
+            check(callInt2(n.bwu_jagex_launch, arena.allocateFrom(jagexUuid), arena.allocateFrom(accountUuid)));
         }
     }
 
@@ -506,12 +466,6 @@ public final class BwuClient implements AutoCloseable {
     /** (MemorySegment, int, MemorySegment) -> int */
     private static int callIntSIS(MethodHandle mh, MemorySegment a0, int a1, MemorySegment a2) {
         try { return (int) mh.invokeExact(a0, a1, a2); }
-        catch (Throwable t) { throw rethrow(t); }
-    }
-
-    /** (int, MemorySegment, int, MemorySegment) -> int */
-    private static int callIntISIS(MethodHandle mh, int a0, MemorySegment a1, int a2, MemorySegment a3) {
-        try { return (int) mh.invokeExact(a0, a1, a2, a3); }
         catch (Throwable t) { throw rethrow(t); }
     }
 

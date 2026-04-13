@@ -22,7 +22,9 @@ public enum BwuError {
     SUB_EXPIRED(15, "User subscription has expired"),
     SOCKET(16, "Socket/network operation failed"),
     IO(17, "File read/write failed"),
-    ALREADY(18, "Operation already in progress or completed");
+    ALREADY(18, "Operation already in progress or completed"),
+    BUSY(19, "A conflicting operation is already running"),
+    MODULE_NOT_READY(20, "Module has not been downloaded yet");
 
     private static final BwuError[] BY_CODE;
 
