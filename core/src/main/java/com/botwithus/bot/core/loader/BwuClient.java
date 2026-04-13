@@ -359,6 +359,27 @@ public final class BwuClient implements AutoCloseable {
         }
     }
 
+    /**
+     * Restore previously authenticated Jagex accounts from the Windows Credential Manager.
+     * Refreshes OAuth tokens and rebuilds sessions for each saved account.
+     * <strong>Blocks</strong> while making network requests.
+     */
+    public void jagexRestoreAccounts() {
+        check(callInt(n.bwu_jagex_restore_accounts));
+    }
+
+    /**
+     * Re-fetch the character list for a Jagex account using its current session.
+     * Requires a valid session — call {@link #jagexEnsureSession} first.
+     *
+     * @param uuid Jagex account UUID
+     */
+    public void jagexRefreshCharacters(String uuid) {
+        try (Arena arena = Arena.ofConfined()) {
+            check(callInt(n.bwu_jagex_refresh_characters, arena.allocateFrom(uuid)));
+        }
+    }
+
     public void jagexSelectCharacter(String uuid, int characterIndex) {
         try (Arena arena = Arena.ofConfined()) {
             check(callIntSI(n.bwu_jagex_select_character, arena.allocateFrom(uuid), characterIndex));
@@ -375,12 +396,14 @@ public final class BwuClient implements AutoCloseable {
      * Launch rs2client.exe using a Jagex account's active session and inject the module.
      * Non-blocking — runs in a background thread.
      *
-     * @param jagexUuid   Jagex account UUID (for session/character)
-     * @param accountUuid BwuAccount UUID (for injection credentials)
+     * @param jagexUuid      Jagex account UUID (for session/character)
+     * @param accountUuid    BwuAccount UUID (for injection credentials)
+     * @param characterIndex zero-based index into the account's character list
      */
-    public void jagexLaunch(String jagexUuid, String accountUuid) {
+    public void jagexLaunch(String jagexUuid, String accountUuid, int characterIndex) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt2(n.bwu_jagex_launch, arena.allocateFrom(jagexUuid), arena.allocateFrom(accountUuid)));
+            check(callIntSSI(n.bwu_jagex_launch,
+                    arena.allocateFrom(jagexUuid), arena.allocateFrom(accountUuid), characterIndex));
         }
     }
 
@@ -465,6 +488,12 @@ public final class BwuClient implements AutoCloseable {
 
     /** (MemorySegment, int, MemorySegment) -> int */
     private static int callIntSIS(MethodHandle mh, MemorySegment a0, int a1, MemorySegment a2) {
+        try { return (int) mh.invokeExact(a0, a1, a2); }
+        catch (Throwable t) { throw rethrow(t); }
+    }
+
+    /** (MemorySegment, MemorySegment, int) -> int */
+    private static int callIntSSI(MethodHandle mh, MemorySegment a0, MemorySegment a1, int a2) {
         try { return (int) mh.invokeExact(a0, a1, a2); }
         catch (Throwable t) { throw rethrow(t); }
     }

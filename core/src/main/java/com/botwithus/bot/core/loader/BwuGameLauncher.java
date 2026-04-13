@@ -122,11 +122,13 @@ public final class BwuGameLauncher implements GameLauncher {
                 .toList();
     }
 
-    @Override public int jagexAccountCount()                                  { return client.jagexAccountCount(); }
-    @Override public void jagexRemoveAccount(String uuid)                     { client.jagexRemoveAccount(uuid); }
-    @Override public void jagexSelectCharacter(String uuid, int charIdx)      { client.jagexSelectCharacter(uuid, charIdx); }
-    @Override public void jagexEnsureSession(String uuid)                     { client.jagexEnsureSession(uuid); }
-    @Override public void jagexLaunch(String jagexUuid, String accountUuid)   { client.jagexLaunch(jagexUuid, accountUuid); }
+    @Override public int jagexAccountCount()                                                    { return client.jagexAccountCount(); }
+    @Override public void jagexRemoveAccount(String uuid)                                       { client.jagexRemoveAccount(uuid); }
+    @Override public void jagexRestoreAccounts()                                                 { client.jagexRestoreAccounts(); }
+    @Override public void jagexRefreshCharacters(String uuid)                                    { client.jagexRefreshCharacters(uuid); }
+    @Override public void jagexSelectCharacter(String uuid, int charIdx)                         { client.jagexSelectCharacter(uuid, charIdx); }
+    @Override public void jagexEnsureSession(String uuid)                                        { client.jagexEnsureSession(uuid); }
+    @Override public void jagexLaunch(String jagexUuid, String accountUuid, int characterIndex)  { client.jagexLaunch(jagexUuid, accountUuid, characterIndex); }
 
     // ── Utility ────────────────────────────────────────────────────────────
 

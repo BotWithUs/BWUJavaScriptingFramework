@@ -25,10 +25,9 @@ import java.util.List;
  * launcher.init();
  * launcher.login();                                // BotWithUs auth + auto-download
  * JagexAccount acct = launcher.jagexLogin();        // OAuth browser flow
- * launcher.jagexSelectCharacter(acct.uuid(), 0);
  * launcher.jagexEnsureSession(acct.uuid());
  * launcher.addAccount(new Account(...));            // BWU account with worlds/pin
- * launcher.jagexLaunch(acct.uuid(), accountUuid);   // background: launch + inject
+ * launcher.jagexLaunch(acct.uuid(), accountUuid, 0); // launch character 0
  * }</pre>
  */
 public interface GameLauncher extends AutoCloseable {
@@ -146,12 +145,18 @@ public interface GameLauncher extends AutoCloseable {
 
     void jagexRemoveAccount(String uuid);
 
+    /** Restore Jagex accounts from Windows Credential Manager. <strong>Blocks</strong> during network requests. */
+    void jagexRestoreAccounts();
+
+    /** Re-fetch the character list for a Jagex account. Requires a valid session. */
+    void jagexRefreshCharacters(String uuid);
+
     void jagexSelectCharacter(String uuid, int characterIndex);
 
     void jagexEnsureSession(String uuid);
 
-    /** Launch rs2client.exe with Jagex session. Non-blocking. */
-    void jagexLaunch(String jagexUuid, String accountUuid);
+    /** Launch rs2client.exe with Jagex session. Non-blocking. {@code characterIndex} selects which character to launch. */
+    void jagexLaunch(String jagexUuid, String accountUuid, int characterIndex);
 
     // ── Utility ────────────────────────────────────────────────────────────
 
