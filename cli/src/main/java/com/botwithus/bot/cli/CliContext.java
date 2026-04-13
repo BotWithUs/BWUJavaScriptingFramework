@@ -15,7 +15,9 @@ import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
+import com.botwithus.bot.core.impl.EventDispatcher;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
+import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.config.ScriptProfileStore;
@@ -23,6 +25,15 @@ import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
 import com.botwithus.bot.core.runtime.ScriptRunner;
+import com.botwithus.bot.cli.watch.ScriptWatcher;
+import com.botwithus.bot.api.launcher.GameLauncher;
+import com.botwithus.bot.core.loader.BwuClient;
+import com.botwithus.bot.core.loader.BwuGameLauncher;
+import com.botwithus.bot.core.impl.ManagementContextImpl;
+import com.botwithus.bot.core.impl.SharedStateImpl;
+import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
+import com.botwithus.bot.core.runtime.ManagementScriptLoader;
+import com.botwithus.bot.api.script.ManagementScript;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -74,7 +85,7 @@ public class CliContext {
     private ScriptProfileStore profileStore;
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
-    private com.botwithus.bot.core.runtime.ManagementScriptRuntime managementRuntime;
+    private ManagementScriptRuntime managementRuntime;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
@@ -93,7 +104,7 @@ public class CliContext {
 
     public ClientManager getClientManager() { return clientManager; }
 
-    public com.botwithus.bot.core.runtime.ManagementScriptRuntime getManagementRuntime() {
+    public ManagementScriptRuntime getManagementRuntime() {
         return managementRuntime;
     }
 
@@ -105,19 +116,30 @@ public class CliContext {
     public void initManagementRuntime() {
         if (managementRuntime != null) return;
         var messageBus = new MessageBusImpl();
-        var sharedState = new com.botwithus.bot.core.impl.SharedStateImpl();
-        var mgmtContext = new com.botwithus.bot.core.impl.ManagementContextImpl(
-                clientManager, clientProvider, messageBus, sharedState);
-        managementRuntime = new com.botwithus.bot.core.runtime.ManagementScriptRuntime(mgmtContext);
+        var sharedState = new SharedStateImpl();
+
+        // Optionally load the native game launcher (bwu.dll)
+        GameLauncher launcher = null;
+        var bwuClient = BwuClient.load(Path.of("bwu.dll"));
+        if (bwuClient.isPresent()) {
+            launcher = new BwuGameLauncher(bwuClient.get());
+            log.info("Game launcher (bwu.dll) available for management scripts");
+        } else {
+            log.debug("Game launcher (bwu.dll) not available — management scripts will not have launcher access");
+        }
+
+        var mgmtContext = new ManagementContextImpl(
+                clientManager, clientProvider, messageBus, sharedState, launcher);
+        managementRuntime = new ManagementScriptRuntime(mgmtContext);
     }
 
     /**
      * Loads management scripts from {@code scripts/management/} and registers
      * them in the management runtime.
      */
-    public List<com.botwithus.bot.api.script.ManagementScript> loadManagementScripts() {
+    public List<ManagementScript> loadManagementScripts() {
         if (managementRuntime == null) initManagementRuntime();
-        return com.botwithus.bot.core.runtime.ManagementScriptLoader.loadScripts();
+        return ManagementScriptLoader.loadScripts();
     }
 
     public void connect(String pipeName) {
@@ -137,7 +159,7 @@ public class CliContext {
             clientProvider.putClient(connName, client);
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
-            var dispatcher = new com.botwithus.bot.core.impl.EventDispatcher(eventBus);
+            var dispatcher = new EventDispatcher(eventBus);
             dispatcher.bindAutoSubscription(gameAPI);
             rpc.setEventHandler(dispatcher::dispatch);
             rpc.start();
@@ -146,7 +168,7 @@ public class CliContext {
             runtime.setConnectionName(connName);
 
             // Wire up ScriptManager so scripts can manage other scripts
-            var scriptManager = new com.botwithus.bot.core.impl.ScriptManagerImpl(runtime);
+            var scriptManager = new ScriptManagerImpl(runtime);
             context.setScriptManager(scriptManager);
 
             Connection conn = new Connection(connName, pipe, rpc, runtime);
@@ -429,7 +451,7 @@ public class CliContext {
         if (scriptWatcher != null && scriptWatcher.isRunning()) return;
         java.nio.file.Path scriptsDir = java.nio.file.Path.of("scripts");
         if (!java.nio.file.Files.isDirectory(scriptsDir)) return;
-        scriptWatcher = new com.botwithus.bot.cli.watch.ScriptWatcher(scriptsDir, () -> {
+        scriptWatcher = new ScriptWatcher(scriptsDir, () -> {
             out().println("[ScriptWatcher] Script files changed — reloading...");
             for (Connection conn : connections.values()) {
                 if (conn.isAlive()) {
