@@ -5,12 +5,15 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.blueprint.BlueprintEditor;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.impl.*;
+import com.botwithus.bot.cli.gui.loader.LoaderScreen;
+import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.core.loader.BwuClient;
 
 import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
@@ -79,6 +82,14 @@ public class ImGuiApp extends Application {
 
     // GLFW window handle for title updates
     private long glfwWindow;
+
+    // Mode switching
+    private AppMode currentMode = AppMode.USER;
+    private TopBar topBar;
+    private UserModeRenderer userModeRenderer;
+
+    // Loader screen (shown before main app)
+    private LoaderScreen loaderScreen;
 
     @Override
     protected void configure(Configuration config) {
@@ -225,6 +236,36 @@ public class ImGuiApp extends Application {
         // Start auto-connect scanning if enabled
         autoStartManager.start();
 
+        // Load bwu.dll for authentication and module management
+        BwuClient bwu = null;
+        java.nio.file.Path dllPath = java.nio.file.Path.of("bwu.dll");
+        if (java.nio.file.Files.isRegularFile(dllPath)) {
+            bwu = BwuClient.load(dllPath).orElse(null);
+        } else {
+            // Try extracting from bundled resources
+            try (var in = getClass().getResourceAsStream("/native/bwu.dll")) {
+                if (in != null) {
+                    java.nio.file.Path tmp = java.nio.file.Files.createTempFile("bwu", ".dll");
+                    tmp.toFile().deleteOnExit();
+                    java.nio.file.Files.copy(in, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    bwu = BwuClient.load(tmp).orElse(null);
+                }
+            } catch (java.io.IOException ignored) {
+                // LoaderScreen will show "offline mode" if bwu is null
+            }
+        }
+        if (bwu != null) {
+            bwu.init();
+        }
+
+        // Initialize loader screen with native auth client
+        loaderScreen = new LoaderScreen(bwu);
+
+        // Initialize top bar and mode toggle
+        topBar = new TopBar();
+        userModeRenderer = new UserModeRenderer();
+        userModeRenderer.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
+
         // Initialize blueprint editor
         blueprintEditor = new BlueprintEditor();
 
@@ -260,12 +301,32 @@ public class ImGuiApp extends Application {
         // Execute queued GL operations (texture create/delete)
         textureManager.processPending();
 
-        // Toggle editor mode with F2
-        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F2)) {
+        // --- Loader screen (shown before main app) ---
+        if (loaderScreen != null && !loaderScreen.isComplete()) {
+            var viewport = ImGui.getMainViewport();
+            ImGui.setNextWindowPos(viewport.getPosX(), viewport.getPosY(), ImGuiCond.Always);
+            ImGui.setNextWindowSize(viewport.getSizeX(), viewport.getSizeY(), ImGuiCond.Always);
+
+            int loaderFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove
+                    | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoBringToFrontOnFocus;
+            ImGui.begin("##loader", loaderFlags);
+            loaderScreen.render();
+            ImGui.end();
+            return;
+        }
+
+        // Toggle editor mode with F2 (only in developer mode)
+        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F2) && currentMode == AppMode.DEVELOPER) {
             editorMode = !editorMode;
             if (!editorMode && blueprintEditor != null) {
                 blueprintEditor.dispose();
             }
+        }
+
+        // Toggle app mode with F12
+        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F12)) {
+            currentMode = (currentMode == AppMode.USER) ? AppMode.DEVELOPER : AppMode.USER;
+            editorMode = false; // exit editor when switching modes
         }
 
         // Full-window imgui window — use main viewport pos for correct placement with viewports enabled
@@ -276,13 +337,22 @@ public class ImGuiApp extends Application {
         int windowFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove
                 | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoBringToFrontOnFocus;
 
-        if (editorMode) {
+        if (editorMode && currentMode == AppMode.DEVELOPER) {
             windowFlags |= ImGuiWindowFlags.MenuBar;
         }
 
         ImGui.begin("##main", windowFlags);
 
-        if (editorMode) {
+        // Top bar with mode toggle (always visible, unless in blueprint editor)
+        if (!editorMode) {
+            AppMode toggled = topBar.render(currentMode, dpiScale);
+            if (toggled != null && toggled != currentMode) {
+                currentMode = toggled;
+            }
+        }
+
+        // Route to the appropriate mode renderer
+        if (editorMode && currentMode == AppMode.DEVELOPER) {
             try {
                 blueprintEditor.render();
             } catch (Exception e) {
@@ -291,36 +361,10 @@ public class ImGuiApp extends Application {
                 e.printStackTrace();
                 blueprintEditor.dispose();
             }
+        } else if (currentMode == AppMode.DEVELOPER) {
+            renderDeveloperMode();
         } else {
-            // Reserve space for status bar at the bottom
-            float statusBarHeight = ImGui.getFrameHeightWithSpacing() + 8f;
-            // Sidebar width: icon + longest label + padding
-            float sidebarWidth = ImGui.getFrameHeight() + ImGui.calcTextSize("Management").x + ImGui.getStyle().getWindowPaddingX() * 2 + 48f;
-            float contentHeight = ImGui.getContentRegionAvailY() - statusBarHeight;
-
-            // --- Sidebar Navigation ---
-            ImGui.pushStyleColor(ImGuiCol.ChildBg,
-                    ImGuiTheme.SIDEBAR_BG_R, ImGuiTheme.SIDEBAR_BG_G, ImGuiTheme.SIDEBAR_BG_B, 1f);
-            ImGui.pushStyleColor(ImGuiCol.Border,
-                    ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.3f);
-            ImGui.beginChild("##sidebar", sidebarWidth, contentHeight, true);
-            ImGui.popStyleColor(2);
-            renderSidebar();
-            ImGui.endChild();
-
-            ImGui.sameLine(0, 0);
-
-            // --- Content Area ---
-            ImGui.beginChild("##content", 0, contentHeight, false);
-            ImGui.spacing();
-            if (selectedPanel >= 0 && selectedPanel < panels.size()) {
-                panels.get(selectedPanel).render(ctx);
-            }
-            ImGui.endChild();
-
-            // Status bar at the bottom
-            ImGui.spacing();
-            statusBar.render(ctx);
+            renderUserMode();
         }
 
         ImGui.end();
@@ -337,6 +381,49 @@ public class ImGuiApp extends Application {
 
         // Update window title based on connection state
         updateTitle();
+    }
+
+    /**
+     * Render the full developer mode UI with sidebar navigation and panels.
+     */
+    private void renderDeveloperMode() {
+        // Reserve space for status bar at the bottom
+        float statusBarHeight = ImGui.getFrameHeightWithSpacing() + 8f;
+        // Sidebar width: icon + longest label + padding
+        float sidebarWidth = ImGui.getFrameHeight() + ImGui.calcTextSize("Management").x
+                + ImGui.getStyle().getWindowPaddingX() * 2 + 48f;
+        float contentHeight = ImGui.getContentRegionAvailY() - statusBarHeight;
+
+        // --- Sidebar Navigation ---
+        ImGui.pushStyleColor(ImGuiCol.ChildBg,
+                ImGuiTheme.SIDEBAR_BG_R, ImGuiTheme.SIDEBAR_BG_G, ImGuiTheme.SIDEBAR_BG_B, 1f);
+        ImGui.pushStyleColor(ImGuiCol.Border,
+                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.3f);
+        ImGui.beginChild("##sidebar", sidebarWidth, contentHeight, true);
+        ImGui.popStyleColor(2);
+        renderSidebar();
+        ImGui.endChild();
+
+        ImGui.sameLine(0, 0);
+
+        // --- Content Area ---
+        ImGui.beginChild("##content", 0, contentHeight, false);
+        ImGui.spacing();
+        if (selectedPanel >= 0 && selectedPanel < panels.size()) {
+            panels.get(selectedPanel).render(ctx);
+        }
+        ImGui.endChild();
+
+        // Status bar at the bottom
+        ImGui.spacing();
+        statusBar.render(ctx);
+    }
+
+    /**
+     * Render the simplified user mode dashboard with client cards.
+     */
+    private void renderUserMode() {
+        userModeRenderer.render(ctx);
     }
 
     // Sidebar navigation section definitions
