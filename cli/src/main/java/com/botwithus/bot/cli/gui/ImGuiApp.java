@@ -6,6 +6,7 @@ import com.botwithus.bot.cli.blueprint.BlueprintEditor;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.impl.*;
 import com.botwithus.bot.cli.gui.loader.LoaderScreen;
+import com.botwithus.bot.cli.gui.usermode.UserAccountsRenderer;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
@@ -84,9 +85,10 @@ public class ImGuiApp extends Application {
     private long glfwWindow;
 
     // Mode switching
-    private AppMode currentMode = AppMode.USER;
+    private AppMode currentMode = AppMode.LAUNCHER;
     private TopBar topBar;
     private UserModeRenderer userModeRenderer;
+    private UserAccountsRenderer launcherRenderer;
 
     // Loader screen (shown before main app)
     private LoaderScreen loaderScreen;
@@ -230,13 +232,7 @@ public class ImGuiApp extends Application {
         // Print banner
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
 
-        // Initialize management script runtime
-        ctx.initManagementRuntime();
-
-        // Start auto-connect scanning if enabled
-        autoStartManager.start();
-
-        // Load bwu.dll for authentication and module management
+        // Load bwu.dll once — shared between LoaderScreen and management runtime
         BwuClient bwu = null;
         java.nio.file.Path dllPath = java.nio.file.Path.of("bwu.dll");
         if (java.nio.file.Files.isRegularFile(dllPath)) {
@@ -258,13 +254,24 @@ public class ImGuiApp extends Application {
             bwu.init();
         }
 
-        // Initialize loader screen with native auth client
+        // Initialize management script runtime with the shared BwuClient
+        ctx.initManagementRuntime(bwu);
+
+        // Start auto-connect scanning if enabled
+        autoStartManager.start();
+
+        // Initialize loader screen with the same BwuClient instance
         loaderScreen = new LoaderScreen(bwu);
 
-        // Initialize top bar and mode toggle
+        // Initialize top bar and mode renderers
         topBar = new TopBar();
         userModeRenderer = new UserModeRenderer();
         userModeRenderer.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
+
+        // Launcher mode (account management)
+        launcherRenderer = new UserAccountsRenderer();
+        launcherRenderer.setBwuClient(bwu);
+        launcherRenderer.setExecutor(executor);
 
         // Initialize blueprint editor
         blueprintEditor = new BlueprintEditor();
@@ -279,6 +286,7 @@ public class ImGuiApp extends Application {
         // Initialize panels
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
         panels.add(new ConnectionsPanel(executor, registry));
+        panels.add(new AccountsPanel(bwu, executor));
         panels.add(new ScriptsPanel(executor));
         ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
         mgmtPanel.setConfigOpener(runner -> managementConfigPanel.open(runner));
@@ -315,17 +323,21 @@ public class ImGuiApp extends Application {
             return;
         }
 
-        // Toggle editor mode with F2 (only in developer mode)
-        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F2) && currentMode == AppMode.DEVELOPER) {
+        // Toggle editor mode with F2 (only in advanced mode)
+        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F2) && currentMode == AppMode.ADVANCED) {
             editorMode = !editorMode;
             if (!editorMode && blueprintEditor != null) {
                 blueprintEditor.dispose();
             }
         }
 
-        // Toggle app mode with F12
+        // Cycle app mode with F12: Launcher → Normal → Advanced → Launcher
         if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F12)) {
-            currentMode = (currentMode == AppMode.USER) ? AppMode.DEVELOPER : AppMode.USER;
+            currentMode = switch (currentMode) {
+                case LAUNCHER -> AppMode.NORMAL;
+                case NORMAL -> AppMode.ADVANCED;
+                case ADVANCED -> AppMode.LAUNCHER;
+            };
             editorMode = false; // exit editor when switching modes
         }
 
@@ -337,13 +349,13 @@ public class ImGuiApp extends Application {
         int windowFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove
                 | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoBringToFrontOnFocus;
 
-        if (editorMode && currentMode == AppMode.DEVELOPER) {
+        if (editorMode && currentMode == AppMode.ADVANCED) {
             windowFlags |= ImGuiWindowFlags.MenuBar;
         }
 
         ImGui.begin("##main", windowFlags);
 
-        // Top bar with mode toggle (always visible, unless in blueprint editor)
+        // Top bar with mode tabs (always visible, unless in blueprint editor)
         if (!editorMode) {
             AppMode toggled = topBar.render(currentMode, dpiScale);
             if (toggled != null && toggled != currentMode) {
@@ -352,7 +364,7 @@ public class ImGuiApp extends Application {
         }
 
         // Route to the appropriate mode renderer
-        if (editorMode && currentMode == AppMode.DEVELOPER) {
+        if (editorMode && currentMode == AppMode.ADVANCED) {
             try {
                 blueprintEditor.render();
             } catch (Exception e) {
@@ -361,10 +373,12 @@ public class ImGuiApp extends Application {
                 e.printStackTrace();
                 blueprintEditor.dispose();
             }
-        } else if (currentMode == AppMode.DEVELOPER) {
-            renderDeveloperMode();
         } else {
-            renderUserMode();
+            switch (currentMode) {
+                case LAUNCHER -> renderLauncherMode();
+                case NORMAL -> renderUserMode();
+                case ADVANCED -> renderDeveloperMode();
+            }
         }
 
         ImGui.end();
@@ -384,7 +398,17 @@ public class ImGuiApp extends Application {
     }
 
     /**
-     * Render the full developer mode UI with sidebar navigation and panels.
+     * Render the Launcher tab — account management (add/launch game accounts).
+     */
+    private void renderLauncherMode() {
+        float availHeight = ImGui.getContentRegionAvailY();
+        ImGui.beginChild("##launcher", 0, availHeight, false);
+        launcherRenderer.render();
+        ImGui.endChild();
+    }
+
+    /**
+     * Render the full Advanced mode UI with sidebar navigation and panels.
      */
     private void renderDeveloperMode() {
         // Reserve space for status bar at the bottom
@@ -429,14 +453,15 @@ public class ImGuiApp extends Application {
     // Sidebar navigation section definitions
     private static final String[] NAV_SECTION_LABELS = {"CORE", "EXTENSIONS", "SYSTEM"};
     private static final int[][] NAV_SECTION_PANELS = {
-        {0, 1, 2},      // Console, Connections, Scripts
-        {3, 4, 5},      // Management, Script UI, Groups
-        {6, 7}           // Logs, Settings
+        {0, 1, 2, 3},   // Console, Connections, Accounts, Scripts
+        {4, 5, 6},      // Management, Script UI, Groups
+        {7, 8}           // Logs, Settings
     };
     // Font Awesome icons for each panel (matching panel order in the panels list)
     private static final String[] NAV_ICONS = {
         Icons.TERMINAL,     // Console
         Icons.PLUG,         // Connections
+        Icons.USERS,        // Accounts
         Icons.CODE,         // Scripts
         Icons.ROBOT,        // Management
         Icons.WINDOW,       // Script UI

@@ -65,9 +65,11 @@ final class BwuNative {
     final MethodHandle bwu_jagex_get_accounts;         // (ptr, u32, ptr) -> int
     final MethodHandle bwu_jagex_account_count;        // () -> int
     final MethodHandle bwu_jagex_remove_account;       // (ptr) -> int
+    final MethodHandle bwu_jagex_restore_accounts;     // () -> int
+    final MethodHandle bwu_jagex_refresh_characters;   // (ptr) -> int
     final MethodHandle bwu_jagex_select_character;     // (ptr, int) -> int
     final MethodHandle bwu_jagex_ensure_session;       // (ptr) -> int
-    final MethodHandle bwu_jagex_launch;               // (ptr, ptr) -> int
+    final MethodHandle bwu_jagex_launch;               // (ptr, ptr, int) -> int
 
     // ── Utility ────────────────────────────────────────────────────────────
 
@@ -155,12 +157,16 @@ final class BwuNative {
                 FunctionDescriptor.of(JAVA_INT));
         bwu_jagex_remove_account = downcall(linker, lookup, "bwu_jagex_remove_account",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
+        bwu_jagex_restore_accounts = downcall(linker, lookup, "bwu_jagex_restore_accounts",
+                FunctionDescriptor.of(JAVA_INT));
+        bwu_jagex_refresh_characters = downcall(linker, lookup, "bwu_jagex_refresh_characters",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS));
         bwu_jagex_select_character = downcall(linker, lookup, "bwu_jagex_select_character",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT));
         bwu_jagex_ensure_session = downcall(linker, lookup, "bwu_jagex_ensure_session",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
         bwu_jagex_launch = downcall(linker, lookup, "bwu_jagex_launch",
-                FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
 
         // ── Utility ──
         bwu_generate_uuid = downcall(linker, lookup, "bwu_generate_uuid",

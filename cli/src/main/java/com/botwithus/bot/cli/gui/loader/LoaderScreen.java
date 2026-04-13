@@ -11,9 +11,7 @@ import com.botwithus.bot.core.loader.BwuUser;
 import imgui.ImDrawList;
 import imgui.ImGui;
 import imgui.flag.ImGuiCol;
-import imgui.flag.ImGuiInputTextFlags;
 import imgui.flag.ImGuiStyleVar;
-import imgui.flag.ImGuiWindowFlags;
 import imgui.type.ImBoolean;
 import imgui.type.ImString;
 
@@ -33,7 +31,7 @@ public class LoaderScreen {
 
     private static final Logger log = LoggerFactory.getLogger(LoaderScreen.class);
     private static final String APP_VERSION = "2.0.0";
-    private static final Path TOKEN_PATH = Path.of(System.getProperty("user.home"), ".botwithus", "token.dat");
+    // Token path: null tells the DLL to use its default location
 
     // State machine
     private LoaderState state = LoaderState.LOGIN;
@@ -135,6 +133,12 @@ public class LoaderScreen {
         // Background decoration
         renderBackground(winW, winH);
 
+        // Vertically center all content: logo + form as a single block
+        float formWidth = winW * 0.4f;
+        float totalContentH = estimateContentHeight(formWidth);
+        float startY = Math.max(20, (winH - totalContentH) / 2f);
+        ImGui.setCursorPosY(startY);
+
         // Logo area
         renderLogo(winW, deltaTime);
 
@@ -145,7 +149,7 @@ public class LoaderScreen {
         ImGui.pushStyleVar(ImGuiStyleVar.Alpha, contentAlpha * (exitAlpha < 1f ? exitAlpha : 1f));
 
         switch (state) {
-            case LOGIN -> renderLogin(winW);
+            case LOGIN -> renderLogin(winW, formWidth);
             case AUTHENTICATING -> renderAuthenticating(winW);
             case UPDATING -> renderUpdating(winW);
             case LOADING -> renderLoading(winW);
@@ -174,6 +178,25 @@ public class LoaderScreen {
         if (state == LoaderState.UPDATING && bwuClient != null) {
             pollUpdateProgress();
         }
+    }
+
+    private float estimateContentHeight(float formWidth) {
+        float lineH = ImGui.getTextLineHeightWithSpacing();
+        float frameH = ImGui.getFrameHeightWithSpacing();
+        float spacing = ImGui.getStyle().getItemSpacingY();
+        float logoH = lineH * 3 + spacing * 4; // brand + version + spacing
+        float formH;
+        if (state == LoaderState.LOGIN) {
+            formH = lineH * 2   // description text (approx 2 lines)
+                    + frameH    // checkbox
+                    + frameH    // main button
+                    + lineH     // separator text
+                    + frameH    // secondary button
+                    + spacing * 8; // spacing between elements
+        } else {
+            formH = lineH * 4 + frameH * 2 + spacing * 6; // spinner/progress + text + button
+        }
+        return logoH + formH;
     }
 
     // --- Background ---
@@ -255,15 +278,8 @@ public class LoaderScreen {
 
     // --- Login ---
 
-    private void renderLogin(float winW) {
-        float formWidth = Math.min(320, winW - 48);
-
-        // Scrollable content region so form never gets clipped
-        float availH = ImGui.getContentRegionAvailY() - ImGui.getTextLineHeightWithSpacing() - 20f;
-        ImGui.beginChild("##loginContent", 0, availH, false);
-
-        float innerW = ImGui.getContentRegionAvailX();
-        float innerStartX = (innerW - formWidth) / 2f;
+    private void renderLogin(float winW, float formWidth) {
+        float startX = (winW - formWidth) / 2f;
 
         // Apply shake offset
         float shakeOffset = 0f;
@@ -272,26 +288,22 @@ public class LoaderScreen {
         }
 
         if (!dllAvailable) {
-            renderNoDllMessage(innerW, formWidth, innerStartX);
+            renderNoDllMessage(winW, formWidth, startX);
         } else if (showTokenInput) {
-            renderTokenForm(innerW, formWidth, innerStartX, shakeOffset);
+            renderTokenForm(winW, formWidth, startX, shakeOffset);
         } else {
-            renderSsoForm(innerW, formWidth, innerStartX, shakeOffset);
+            renderSsoForm(winW, formWidth, startX, shakeOffset);
         }
-
-        ImGui.endChild();
     }
 
     private void renderSsoForm(float winW, float formWidth, float startX, float shakeOffset) {
-        ImGui.spacing();
-        ImGui.spacing();
-
-        // Explanation text
+        // Centered description text
         ImGui.setCursorPosX(startX + shakeOffset);
-        ImGui.pushTextWrapPos(startX + formWidth);
-        GuiHelpers.textSecondary("Click the button below to sign in. Your default browser will open for secure authentication.");
+        ImGui.pushTextWrapPos(ImGui.getCursorPosX() + formWidth);
+        GuiHelpers.textSecondary("Sign in to your BotWithUs account. Your browser will open for secure authentication.");
         ImGui.popTextWrapPos();
 
+        ImGui.spacing();
         ImGui.spacing();
         ImGui.spacing();
 
@@ -300,11 +312,12 @@ public class LoaderScreen {
         ImGui.checkbox("Remember session", rememberMe);
 
         ImGui.spacing();
+        ImGui.spacing();
 
-        // SSO Login button (full width, dark text on emerald bg)
+        // SSO Login button (full form width, dark text on emerald bg)
         ImGui.setCursorPosX(startX);
         ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
-        boolean loginClicked = ImGui.button(Icons.ARROW_RIGHT + "  SIGN IN WITH BROWSER", formWidth, 42);
+        boolean loginClicked = ImGui.button(Icons.ARROW_RIGHT + "  Sign In", formWidth, 0);
         ImGui.popStyleColor();
 
         if (loginClicked) {
@@ -313,35 +326,31 @@ public class LoaderScreen {
 
         ImGui.spacing();
         ImGui.spacing();
-
-        // Separator with "or" text
-        float sepY = ImGui.getCursorScreenPosY();
-        ImDrawList draw = ImGui.getWindowDrawList();
-        float wx = ImGui.getWindowPosX();
-        String orText = "or connect with token";
-        float orWidth = ImGui.calcTextSize(orText).x;
-        float midX = wx + winW / 2f;
-        int borderCol = ImGuiTheme.imCol32(ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.5f);
-        draw.addLine(wx + startX, sepY + 8, midX - orWidth / 2f - 12, sepY + 8, borderCol, 1);
-        draw.addLine(midX + orWidth / 2f + 12, sepY + 8, wx + startX + formWidth, sepY + 8, borderCol, 1);
-        ImGui.setCursorPosX((winW - orWidth) / 2f);
-        GuiHelpers.textMuted(orText);
-
         ImGui.spacing();
 
-        // Token login button (secondary style)
+        // Separator with "or" text using screen-space coordinates
+        renderOrSeparator(winW, formWidth, startX, "or connect with token");
+
+        ImGui.spacing();
+        ImGui.spacing();
+
+        // Token login button (full form width, secondary style)
         ImGui.setCursorPosX(startX);
-        if (GuiHelpers.buttonSecondary(Icons.BOLT + "  Token Login##tokenBtn")) {
+        ImGui.pushStyleColor(ImGuiCol.Button, ImGuiTheme.ELEVATED_R, ImGuiTheme.ELEVATED_G, ImGuiTheme.ELEVATED_B, 1f);
+        ImGui.pushStyleColor(ImGuiCol.ButtonHovered, ImGuiTheme.ELEVATED_R + 0.05f, ImGuiTheme.ELEVATED_G + 0.05f, ImGuiTheme.ELEVATED_B + 0.05f, 1f);
+        ImGui.pushStyleColor(ImGuiCol.ButtonActive, ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f);
+        if (ImGui.button(Icons.BOLT + "  Token Login##tokenBtn", formWidth, 0)) {
             showTokenInput = true;
             tokenInput.set("");
         }
+        ImGui.popStyleColor(3);
     }
 
     private void renderTokenForm(float winW, float formWidth, float startX, float shakeOffset) {
-        ImGui.spacing();
-
         ImGui.setCursorPosX(startX + shakeOffset);
         ImGui.text(Icons.BOLT + "  Auth Token");
+
+        ImGui.spacing();
 
         ImGui.setCursorPosX(startX + shakeOffset);
         ImGui.pushItemWidth(formWidth);
@@ -349,17 +358,19 @@ public class LoaderScreen {
         ImGui.popItemWidth();
 
         ImGui.spacing();
+        ImGui.spacing();
 
         // Remember me
         ImGui.setCursorPosX(startX);
         ImGui.checkbox("Remember session", rememberMe);
 
         ImGui.spacing();
+        ImGui.spacing();
 
-        // Login with token button
+        // Login with token button (full form width)
         ImGui.setCursorPosX(startX);
         ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
-        boolean tokenLoginClicked = ImGui.button(Icons.ARROW_RIGHT + "  LOGIN WITH TOKEN", formWidth, 38);
+        boolean tokenLoginClicked = ImGui.button(Icons.ARROW_RIGHT + "  Login With Token", formWidth, 0);
         ImGui.popStyleColor();
 
         if (ImGui.isKeyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER) || tokenLoginClicked) {
@@ -370,31 +381,56 @@ public class LoaderScreen {
         }
 
         ImGui.spacing();
-
-        // Separator
-        float sepY = ImGui.getCursorScreenPosY();
-        ImDrawList draw = ImGui.getWindowDrawList();
-        float wx = ImGui.getWindowPosX();
-        String orText = "or sign in with browser";
-        float orWidth = ImGui.calcTextSize(orText).x;
-        float midX = wx + winW / 2f;
-        int borderCol = ImGuiTheme.imCol32(ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.5f);
-        draw.addLine(wx + startX, sepY + 8, midX - orWidth / 2f - 12, sepY + 8, borderCol, 1);
-        draw.addLine(midX + orWidth / 2f + 12, sepY + 8, wx + startX + formWidth, sepY + 8, borderCol, 1);
-        ImGui.setCursorPosX((winW - orWidth) / 2f);
-        GuiHelpers.textMuted(orText);
-
+        ImGui.spacing();
         ImGui.spacing();
 
-        // Back to SSO button
+        // Separator
+        renderOrSeparator(winW, formWidth, startX, "or sign in with browser");
+
+        ImGui.spacing();
+        ImGui.spacing();
+
+        // Back to SSO button (full form width, secondary style)
         ImGui.setCursorPosX(startX);
-        if (GuiHelpers.buttonSecondary(Icons.NETWORK + "  Sign In With Browser##backBtn")) {
+        ImGui.pushStyleColor(ImGuiCol.Button, ImGuiTheme.ELEVATED_R, ImGuiTheme.ELEVATED_G, ImGuiTheme.ELEVATED_B, 1f);
+        ImGui.pushStyleColor(ImGuiCol.ButtonHovered, ImGuiTheme.ELEVATED_R + 0.05f, ImGuiTheme.ELEVATED_G + 0.05f, ImGuiTheme.ELEVATED_B + 0.05f, 1f);
+        ImGui.pushStyleColor(ImGuiCol.ButtonActive, ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f);
+        if (ImGui.button(Icons.NETWORK + "  Sign In With Browser##backBtn", formWidth, 0)) {
             showTokenInput = false;
         }
+        ImGui.popStyleColor(3);
+    }
+
+    /**
+     * Renders "---- or text ----" separator centered in the form.
+     */
+    private void renderOrSeparator(float winW, float formWidth, float startX, String text) {
+        float textWidth = ImGui.calcTextSize(text).x;
+        float textCenterX = (winW - textWidth) / 2f;
+
+        // Draw lines using screen-space draw list
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float screenX = ImGui.getCursorScreenPosX();
+        float screenY = ImGui.getCursorScreenPosY() + ImGui.getTextLineHeight() / 2f;
+        float lineLeftStart = screenX + startX;
+        float lineLeftEnd = screenX + textCenterX - 12;
+        float lineRightStart = screenX + textCenterX + textWidth + 12;
+        float lineRightEnd = screenX + startX + formWidth;
+
+        int lineCol = ImGuiTheme.imCol32(ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.4f);
+        if (lineLeftEnd > lineLeftStart) {
+            draw.addLine(lineLeftStart, screenY, lineLeftEnd, screenY, lineCol, 1f);
+        }
+        if (lineRightEnd > lineRightStart) {
+            draw.addLine(lineRightStart, screenY, lineRightEnd, screenY, lineCol, 1f);
+        }
+
+        // Centered text
+        ImGui.setCursorPosX(textCenterX);
+        GuiHelpers.textMuted(text);
     }
 
     private void renderNoDllMessage(float winW, float formWidth, float startX) {
-        ImGui.spacing();
         ImGui.spacing();
         ImGui.spacing();
 
@@ -414,7 +450,7 @@ public class LoaderScreen {
         ImGui.spacing();
 
         ImGui.setCursorPosX(startX);
-        ImGui.pushTextWrapPos(startX + formWidth);
+        ImGui.pushTextWrapPos(ImGui.getCursorPosX() + formWidth);
         GuiHelpers.textSecondary(
                 "The native loader (bwu.dll) could not be loaded. " +
                 "Authentication and module updates are not available. " +
@@ -424,10 +460,10 @@ public class LoaderScreen {
         ImGui.spacing();
         ImGui.spacing();
 
-        // Continue without auth button
+        // Continue without auth button (full form width)
         ImGui.setCursorPosX(startX);
         ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
-        if (ImGui.button(Icons.ARROW_RIGHT + "  CONTINUE OFFLINE", formWidth, 42)) {
+        if (ImGui.button(Icons.ARROW_RIGHT + "  Continue Offline", formWidth, 0)) {
             transitionTo(LoaderState.LOADING);
             startLoading();
         }
@@ -460,13 +496,13 @@ public class LoaderScreen {
         ImGui.spacing();
         ImGui.spacing();
 
-        // Cancel button
-        float cancelWidth = 100;
+        // Cancel button — let ImGui auto-size, just center it
+        float cancelWidth = ImGui.calcTextSize("Cancel").x + ImGui.getStyle().getFramePaddingX() * 2;
         ImGui.setCursorPosX((winW - cancelWidth) / 2f);
         ImGui.pushStyleColor(ImGuiCol.Button, 0f, 0f, 0f, 0f);
         ImGui.pushStyleColor(ImGuiCol.ButtonHovered, ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.05f);
         ImGui.pushStyleColor(ImGuiCol.Text, ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f);
-        if (ImGui.button("Cancel", cancelWidth, 0)) {
+        if (ImGui.button("Cancel")) {
             if (pendingOperation != null) {
                 pendingOperation.cancel(true);
             }
@@ -483,7 +519,7 @@ public class LoaderScreen {
     // --- Updating ---
 
     private void renderUpdating(float winW) {
-        float contentWidth = Math.min(350, winW - 48);
+        float contentWidth = winW * 0.5f;
         float startX = (winW - contentWidth) / 2f;
 
         ImGui.spacing();
@@ -526,7 +562,7 @@ public class LoaderScreen {
     // --- Loading ---
 
     private void renderLoading(float winW) {
-        float contentWidth = Math.min(350, winW - 48);
+        float contentWidth = winW * 0.5f;
         float startX = (winW - contentWidth) / 2f;
 
         ImGui.spacing();
@@ -564,7 +600,7 @@ public class LoaderScreen {
     // --- Error ---
 
     private void renderError(float winW) {
-        float contentWidth = Math.min(320, winW - 48);
+        float contentWidth = winW * 0.5f;
         float startX = (winW - contentWidth) / 2f;
 
         ImGui.spacing();
@@ -604,7 +640,7 @@ public class LoaderScreen {
         // Try Again button
         ImGui.setCursorPosX(startX);
         ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
-        if (ImGui.button(Icons.REDO + "  TRY AGAIN", contentWidth, 42)) {
+        if (ImGui.button(Icons.REDO + "  Try Again", contentWidth, 0)) {
             transitionTo(errorReturnState != null ? errorReturnState : LoaderState.LOGIN);
         }
         ImGui.popStyleColor();
@@ -613,16 +649,20 @@ public class LoaderScreen {
     // --- Footer ---
 
     private void renderFooter(float winW, float winH) {
-        float footerY = winH - ImGui.getTextLineHeightWithSpacing() - 10;
+        float padding = ImGui.getStyle().getWindowPaddingY();
+        float footerY = winH - ImGui.getTextLineHeightWithSpacing() - padding;
         if (footerY > ImGui.getCursorPosY()) {
             ImGui.setCursorPosY(footerY);
             GuiHelpers.subtleSeparator();
             ImGui.spacing();
 
-            ImGui.setCursorPosX(12);
+            ImGui.setCursorPosX(padding);
             GuiHelpers.textMuted("v" + APP_VERSION);
 
-            ImGui.sameLine(winW - ImGui.calcTextSize("Discord | Website").x - 20);
+            float linksW = ImGui.calcTextSize("Discord | Website").x
+                    + ImGui.getStyle().getItemSpacingX() * 2
+                    + ImGui.getStyle().getFramePaddingX() * 4;
+            ImGui.sameLine(winW - linksW - padding);
             ImGui.pushStyleColor(ImGuiCol.Button, 0, 0, 0, 0);
             ImGui.pushStyleColor(ImGuiCol.Text,
                     ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f);
@@ -702,50 +742,45 @@ public class LoaderScreen {
     private void tryAutoLogin() {
         if (!dllAvailable) return;
 
-        // Try loading a saved token from disk
-        try {
-            if (Files.exists(TOKEN_PATH)) {
-                bwuClient.loadToken(TOKEN_PATH);
-                if (bwuClient.isLoggedIn()) {
-                    BwuUser user = bwuClient.getUser();
-                    authenticatedUsername = user.name();
-                    log.info("Auto-login successful for {}", authenticatedUsername);
-                    transitionTo(LoaderState.UPDATING);
-                    startModuleRefresh();
-                    return;
-                }
+        // loadToken(null) uses the DLL's default path, validates the token
+        // against the API, sets logged_in, populates user info, and triggers
+        // module download — all in one call.
+        transitionTo(LoaderState.AUTHENTICATING);
+        pendingOperation = CompletableFuture.runAsync(() -> {
+            try {
+                bwuClient.loadToken(null);
+                // BWU_OK — session fully restored, module download already started
+                BwuUser user = bwuClient.getUser();
+                authenticatedUsername = user.name();
+                log.info("Session restored for {}", authenticatedUsername);
+                transitionTo(LoaderState.UPDATING);
+                // Module download was already triggered by loadToken, just poll status
+            } catch (BwuException e) {
+                // BWU_ERR_NOT_FOUND (no saved token) or BWU_ERR_AUTH_FAILED (expired)
+                log.debug("No saved session: {}", e.getMessage());
+                transitionTo(LoaderState.LOGIN);
             }
-        } catch (BwuException e) {
-            log.debug("Auto-login with saved token failed: {}", e.getMessage());
-        }
-        // No saved token or token invalid — stay on LOGIN screen
+        });
     }
 
     private void startSsoAuthentication() {
         transitionTo(LoaderState.AUTHENTICATING);
         pendingOperation = CompletableFuture.runAsync(() -> {
             try {
-                // bwu.login() opens browser and blocks until callback or timeout (5 min)
+                // bwu.login() opens browser, blocks until callback or timeout (5 min),
+                // and automatically triggers module download on success
                 bwuClient.login();
 
-                if (bwuClient.isLoggedIn()) {
-                    BwuUser user = bwuClient.getUser();
-                    authenticatedUsername = user.name();
-                    log.info("SSO login successful for {}", authenticatedUsername);
+                BwuUser user = bwuClient.getUser();
+                authenticatedUsername = user.name();
+                log.info("SSO login successful for {}", authenticatedUsername);
 
-                    if (rememberMe.get()) {
-                        saveToken();
-                    }
-
-                    transitionTo(LoaderState.UPDATING);
-                    startModuleRefresh();
-                } else {
-                    errorTitle = "Authentication Failed";
-                    errorMessage = "Browser sign-in did not complete. Please try again.";
-                    errorReturnState = LoaderState.LOGIN;
-                    shakeTimer = 0.4f;
-                    transitionTo(LoaderState.ERROR);
+                if (rememberMe.get()) {
+                    bwuClient.saveToken(null); // DLL default path
                 }
+
+                // Module download already triggered by login()
+                transitionTo(LoaderState.UPDATING);
             } catch (BwuException e) {
                 log.error("SSO login error: {}", e.getMessage());
                 errorTitle = "Authentication Failed";
@@ -761,26 +796,20 @@ public class LoaderScreen {
         transitionTo(LoaderState.AUTHENTICATING);
         pendingOperation = CompletableFuture.runAsync(() -> {
             try {
+                // loginWithToken validates against API, sets logged_in,
+                // populates user info, and triggers module download
                 bwuClient.loginWithToken(token);
 
-                if (bwuClient.isLoggedIn()) {
-                    BwuUser user = bwuClient.getUser();
-                    authenticatedUsername = user.name();
-                    log.info("Token login successful for {}", authenticatedUsername);
+                BwuUser user = bwuClient.getUser();
+                authenticatedUsername = user.name();
+                log.info("Token login successful for {}", authenticatedUsername);
 
-                    if (rememberMe.get()) {
-                        saveToken();
-                    }
-
-                    transitionTo(LoaderState.UPDATING);
-                    startModuleRefresh();
-                } else {
-                    errorTitle = "Authentication Failed";
-                    errorMessage = "The token is invalid or expired. Please try again.";
-                    errorReturnState = LoaderState.LOGIN;
-                    shakeTimer = 0.4f;
-                    transitionTo(LoaderState.ERROR);
+                if (rememberMe.get()) {
+                    bwuClient.saveToken(null); // DLL default path
                 }
+
+                // Module download already triggered by loginWithToken()
+                transitionTo(LoaderState.UPDATING);
             } catch (BwuException e) {
                 log.error("Token login error: {}", e.getMessage());
                 errorTitle = "Authentication Failed";
@@ -792,30 +821,7 @@ public class LoaderScreen {
         });
     }
 
-    private void saveToken() {
-        try {
-            Files.createDirectories(TOKEN_PATH.getParent());
-            bwuClient.saveToken(TOKEN_PATH);
-            log.debug("Token saved to {}", TOKEN_PATH);
-        } catch (Exception e) {
-            log.warn("Failed to save auth token: {}", e.getMessage());
-        }
-    }
 
-    private void startModuleRefresh() {
-        updateStatus = "Checking for updates...";
-        updateProgress = -1f;
-
-        try {
-            // Triggers a background download if a newer module is available
-            bwuClient.refreshModule();
-        } catch (BwuException e) {
-            log.warn("Module refresh failed, proceeding anyway: {}", e.getMessage());
-            updateStatus = "Skipping update check.";
-            updateProgress = 1.0f;
-        }
-        // Progress is polled from render() via pollUpdateProgress()
-    }
 
     /**
      * Called every frame while in UPDATING state. Reads BwuStatus to track
@@ -874,13 +880,28 @@ public class LoaderScreen {
 
             // Verify config directory exists
             loadingStatus = "Checking configuration...";
-            loadingProgress = 0.6f;
+            loadingProgress = 0.5f;
             Path configDir = Path.of(System.getProperty("user.home"), ".botwithus");
             if (!Files.isDirectory(configDir)) {
                 try {
                     Files.createDirectories(configDir);
                 } catch (java.io.IOException e) {
                     log.warn("Could not create config directory: {}", e.getMessage());
+                }
+            }
+
+            // Restore Jagex accounts from Windows Credential Manager
+            if (dllAvailable) {
+                loadingStatus = "Restoring accounts...";
+                loadingProgress = 0.75f;
+                try {
+                    bwuClient.jagexRestoreAccounts();
+                    int count = bwuClient.jagexAccountCount();
+                    if (count > 0) {
+                        log.info("Restored {} Jagex account(s)", count);
+                    }
+                } catch (BwuException e) {
+                    log.debug("No accounts to restore: {}", e.getMessage());
                 }
             }
 

@@ -117,25 +117,39 @@ public class CliContext {
      * SharedState shared across all management scripts.
      */
     public void initManagementRuntime() {
+        initManagementRuntime(null);
+    }
+
+    /**
+     * Initialises the management script runtime with an optional pre-loaded
+     * BwuClient. If {@code existingClient} is non-null it is reused instead
+     * of loading a second copy of bwu.dll (which would conflict).
+     */
+    public void initManagementRuntime(BwuClient existingClient) {
         if (managementRuntime != null) return;
         var messageBus = new MessageBusImpl();
         var sharedState = new SharedStateImpl();
 
-        // Optionally load the native game launcher (bwu.dll)
-        // 1) Check filesystem (covers jlink/prod where DLL sits next to the executable)
-        // 2) Fall back to extracting from bundled resources (covers Gradle dev runs)
         GameLauncher launcher = null;
-        Path dllPath = resolveBwuDll();
-        if (dllPath != null) {
-            var bwuClient = BwuClient.load(dllPath);
-            if (bwuClient.isPresent()) {
-                launcher = new BwuGameLauncher(bwuClient.get());
-                log.info("Game launcher (bwu.dll) loaded from {}", dllPath);
-            } else {
-                log.debug("Game launcher (bwu.dll) found but failed to load from {}", dllPath);
-            }
+        if (existingClient != null) {
+            launcher = new BwuGameLauncher(existingClient);
+            log.info("Game launcher reusing existing BwuClient instance");
         } else {
-            log.debug("Game launcher (bwu.dll) not available — management scripts will not have launcher access");
+            // Optionally load the native game launcher (bwu.dll)
+            // 1) Check filesystem (covers jlink/prod where DLL sits next to the executable)
+            // 2) Fall back to extracting from bundled resources (covers Gradle dev runs)
+            Path dllPath = resolveBwuDll();
+            if (dllPath != null) {
+                var bwuClient = BwuClient.load(dllPath);
+                if (bwuClient.isPresent()) {
+                    launcher = new BwuGameLauncher(bwuClient.get());
+                    log.info("Game launcher (bwu.dll) loaded from {}", dllPath);
+                } else {
+                    log.debug("Game launcher (bwu.dll) found but failed to load from {}", dllPath);
+                }
+            } else {
+                log.debug("Game launcher (bwu.dll) not available — management scripts will not have launcher access");
+            }
         }
 
         var mgmtContext = new ManagementContextImpl(

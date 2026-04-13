@@ -6,19 +6,18 @@ import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.gui.GuiHelpers;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.core.loader.BwuClient;
 
 import imgui.ImGui;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 
 /**
- * Renders the simplified User Mode dashboard — a responsive card grid
+ * Renders the Normal Mode dashboard — a responsive card grid
  * showing each connected client with script controls.
+ * Account management is handled separately in the Launcher tab.
  */
 public class UserModeRenderer {
 
@@ -27,34 +26,22 @@ public class UserModeRenderer {
 
     private final ClientCard clientCard = new ClientCard();
     private final ScriptPickerPopup scriptPicker = new ScriptPickerPopup();
-    private final UserAccountsRenderer accountsRenderer = new UserAccountsRenderer();
     private Consumer<com.botwithus.bot.core.runtime.ScriptRunner> configPanelOpener;
 
     /**
      * Set the callback that opens the script config panel (floating window).
-     * This should be wired to the same opener used in developer mode.
+     * This should be wired to the same opener used in Advanced mode.
      */
     public void setConfigPanelOpener(Consumer<com.botwithus.bot.core.runtime.ScriptRunner> opener) {
         this.configPanelOpener = opener;
     }
 
-    public void setBwuClient(BwuClient bwu) {
-        accountsRenderer.setBwuClient(bwu);
-    }
-
-    public void setExecutor(ExecutorService executor) {
-        accountsRenderer.setExecutor(executor);
-    }
-
     /**
-     * Render the User Mode dashboard.
+     * Render the Normal Mode dashboard.
      */
     public void render(CliContext ctx) {
         float availHeight = ImGui.getContentRegionAvailY();
         ImGui.beginChild("##usermode", 0, availHeight, false);
-
-        // Account launcher section (Jagex + classic accounts)
-        accountsRenderer.render();
 
         Collection<Connection> connections = ctx.getConnections();
 
@@ -136,7 +123,7 @@ public class UserModeRenderer {
         String title = "No game clients connected";
         String subtitle = "Launch your game client and it will";
         String subtitle2 = "appear here automatically.";
-        String hint = "Press F12 for Developer Mode with manual connection controls";
+        String hint = "Press F12 to cycle modes \u2022 Use Launcher tab to add accounts";
 
         // Center vertically
         float totalHeight = ImGui.getTextLineHeight() * 5 + 40f;
