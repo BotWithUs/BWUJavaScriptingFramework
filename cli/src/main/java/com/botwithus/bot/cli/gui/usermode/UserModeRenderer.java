@@ -6,12 +6,14 @@ import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.gui.GuiHelpers;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
+import com.botwithus.bot.core.loader.BwuClient;
 
 import imgui.ImGui;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 
 /**
@@ -25,6 +27,7 @@ public class UserModeRenderer {
 
     private final ClientCard clientCard = new ClientCard();
     private final ScriptPickerPopup scriptPicker = new ScriptPickerPopup();
+    private final UserAccountsRenderer accountsRenderer = new UserAccountsRenderer();
     private Consumer<com.botwithus.bot.core.runtime.ScriptRunner> configPanelOpener;
 
     /**
@@ -35,12 +38,23 @@ public class UserModeRenderer {
         this.configPanelOpener = opener;
     }
 
+    public void setBwuClient(BwuClient bwu) {
+        accountsRenderer.setBwuClient(bwu);
+    }
+
+    public void setExecutor(ExecutorService executor) {
+        accountsRenderer.setExecutor(executor);
+    }
+
     /**
      * Render the User Mode dashboard.
      */
     public void render(CliContext ctx) {
         float availHeight = ImGui.getContentRegionAvailY();
         ImGui.beginChild("##usermode", 0, availHeight, false);
+
+        // Account launcher section (Jagex + classic accounts)
+        accountsRenderer.render();
 
         Collection<Connection> connections = ctx.getConnections();
 
