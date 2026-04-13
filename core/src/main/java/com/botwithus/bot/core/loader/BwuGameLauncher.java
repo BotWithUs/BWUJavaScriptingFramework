@@ -4,7 +4,6 @@ import com.botwithus.bot.api.launcher.GameLauncher;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Adapts {@link BwuClient} to the {@link GameLauncher} interface so that
@@ -35,7 +34,8 @@ public final class BwuGameLauncher implements GameLauncher {
     public Status getStatus() {
         var s = client.getStatus();
         return new Status(s.loginStage(), s.maxLoginStage(), s.loggedIn(),
-                s.downloading(), s.downloadRate(), s.lastError());
+                s.downloading(), s.downloadProgress(), s.moduleReady(),
+                s.activeLaunches(), s.lastError());
     }
 
     // ── Authentication ─────────────────────────────────────────────────────
@@ -56,9 +56,7 @@ public final class BwuGameLauncher implements GameLauncher {
 
     // ── Module Management ──────────────────────────────────────────────────
 
-    @Override public void downloadModule()   { client.downloadModule(); }
-    @Override public boolean hasModule()      { return client.hasModule(); }
-    @Override public byte[] getModuleBytes() { return client.getModuleBytes(); }
+    @Override public void refreshModule() { client.refreshModule(); }
 
     // ── Classic Account Management ─────────────────────────────────────────
 
@@ -86,32 +84,13 @@ public final class BwuGameLauncher implements GameLauncher {
         client.updateAccount(toNative(account));
     }
 
-    // ── Process Management ─────────────────────────────────────────────────
+    // ── Launch (Non-blocking Triggers) ─────────────────────────────────────
 
-    @Override public void launchDefault()                    { client.launchDefault(); }
-    @Override public void launchPlatform()                   { client.launchPlatform(); }
-    @Override public void launchManaged(String accountName)  { client.launchManaged(accountName); }
-    @Override public void setProviderPath(Path path)        { client.setProviderPath(path); }
-    @Override public String getProviderPath()                { return client.getProviderPath(); }
-    @Override public int[] findProcesses(int maxCount)      { return client.findProcesses(maxCount); }
-
-    @Override
-    public Optional<ProcessEvent> pollProcessEvent() {
-        return client.pollProcessEvent().map(e -> new ProcessEvent(
-                e.pid(), ProcessEventType.valueOf(e.eventType().name())));
-    }
-
-    // ── Module Loading ─────────────────────────────────────────────────────
-
-    @Override
-    public void loadModule(int pid, LoadParams params) {
-        client.loadModule(pid, toNative(params));
-    }
-
-    @Override
-    public void loadModuleRaw(int pid, byte[] data, LoadParams params) {
-        client.loadModuleRaw(pid, data, toNative(params));
-    }
+    @Override public void launchDefault(String accountUuid)                        { client.launchDefault(accountUuid); }
+    @Override public void launchPlatform(String accountUuid)                       { client.launchPlatform(accountUuid); }
+    @Override public void launchManaged(String accountName, String accountUuid)    { client.launchManaged(accountName, accountUuid); }
+    @Override public void setProviderPath(Path path)                              { client.setProviderPath(path); }
+    @Override public String getProviderPath()                                      { return client.getProviderPath(); }
 
     // ── Provider Account Discovery ─────────────────────────────────────────
 
@@ -147,7 +126,7 @@ public final class BwuGameLauncher implements GameLauncher {
     @Override public void jagexRemoveAccount(String uuid)                     { client.jagexRemoveAccount(uuid); }
     @Override public void jagexSelectCharacter(String uuid, int charIdx)      { client.jagexSelectCharacter(uuid, charIdx); }
     @Override public void jagexEnsureSession(String uuid)                     { client.jagexEnsureSession(uuid); }
-    @Override public void jagexLaunch(String uuid)                            { client.jagexLaunch(uuid); }
+    @Override public void jagexLaunch(String jagexUuid, String accountUuid)   { client.jagexLaunch(jagexUuid, accountUuid); }
 
     // ── Utility ────────────────────────────────────────────────────────────
 
@@ -176,12 +155,6 @@ public final class BwuGameLauncher implements GameLauncher {
                 TargetType.valueOf(a.targetType().name()),
                 AccountType.valueOf(a.accountType().name()),
                 a.autoLogin(), a.autoRestart());
-    }
-
-    private static BwuLoadParams toNative(LoadParams p) {
-        return new BwuLoadParams(
-                p.pin(), p.email(), p.password(), p.uuid(),
-                p.worldA(), p.worldB(), p.autoLogin());
     }
 
     private static JagexAccount fromNative(BwuJagexAccount a) {

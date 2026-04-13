@@ -23,7 +23,6 @@ final class BwuLayouts {
     static final int PATH_LEN         = 512;
     static final int ERROR_MSG_LEN    = 512;
     static final int SESSION_LEN      = 512;
-    static final int DOWNLOAD_RATE_LEN = 64;
 
     static final int MAX_ACCOUNTS       = 128;
     static final int MAX_JAGEX_ACCOUNTS = 32;
@@ -51,21 +50,6 @@ final class BwuLayouts {
             ValueLayout.JAVA_INT.withName("auto_restart")
     );
 
-    static final StructLayout BWU_PROCESS_EVENT = MemoryLayout.structLayout(
-            ValueLayout.JAVA_INT.withName("pid"),
-            ValueLayout.JAVA_INT.withName("event_type")
-    );
-
-    static final StructLayout BWU_LOAD_PARAMS = MemoryLayout.structLayout(
-            MemoryLayout.sequenceLayout(PIN_LEN, ValueLayout.JAVA_BYTE).withName("pin"),
-            MemoryLayout.sequenceLayout(PASSWORD_LEN, ValueLayout.JAVA_BYTE).withName("email"),
-            MemoryLayout.sequenceLayout(PASSWORD_LEN, ValueLayout.JAVA_BYTE).withName("password"),
-            MemoryLayout.sequenceLayout(UUID_LEN, ValueLayout.JAVA_BYTE).withName("uuid"),
-            ValueLayout.JAVA_INT.withName("world_a"),
-            ValueLayout.JAVA_INT.withName("world_b"),
-            ValueLayout.JAVA_INT.withName("auto_login")
-    );
-
     static final StructLayout BWU_PROVIDER_ACCOUNT = MemoryLayout.structLayout(
             MemoryLayout.sequenceLayout(NAME_LEN, ValueLayout.JAVA_BYTE).withName("name"),
             ValueLayout.JAVA_INT.withName("selected")
@@ -76,7 +60,9 @@ final class BwuLayouts {
             ValueLayout.JAVA_INT.withName("max_login_stage"),
             ValueLayout.JAVA_INT.withName("is_logged_in"),
             ValueLayout.JAVA_INT.withName("is_downloading"),
-            MemoryLayout.sequenceLayout(DOWNLOAD_RATE_LEN, ValueLayout.JAVA_BYTE).withName("download_rate"),
+            ValueLayout.JAVA_INT.withName("download_progress"),
+            ValueLayout.JAVA_INT.withName("module_ready"),
+            ValueLayout.JAVA_INT.withName("active_launches"),
             MemoryLayout.sequenceLayout(ERROR_MSG_LEN, ValueLayout.JAVA_BYTE).withName("last_error")
     );
 

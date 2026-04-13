@@ -2,38 +2,33 @@ package com.botwithus.bot.api.launcher;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Optional interface for launching game clients and managing accounts via
  * the BotWithUs loader DLL.
  *
  * <p>Obtained from {@link com.botwithus.bot.api.script.ManagementContext#getLauncher()}.
- * Returns {@link Optional#empty()} when the native loader is unavailable.
+ * Returns {@link java.util.Optional#empty()} when the native loader is unavailable.
  *
  * <h3>Typical flow (classic account)</h3>
  * <pre>{@code
  * launcher.init();
- * launcher.login();                                // BotWithUs SSO
- * launcher.downloadModule();
- * launcher.addAccount(new Account("", "user@example.com", "pass", "", 1, 2,
- *                     TargetType.PRIMARY, AccountType.DEFAULT, true, false));
- * launcher.launchDefault();
- * int[] pids = launcher.findProcesses(10);
- * launcher.loadModule(pids[0], new LoadParams("", "user@example.com", "pass", "", 1, 2, true));
+ * launcher.login();                                // BotWithUs SSO + auto-download
+ * // poll getStatus() for download_progress / module_ready
+ * launcher.addAccount(new Account(...));
+ * launcher.launchDefault(accountUuid);             // background: launch + inject
+ * // Java discovers injected client via named pipe
  * }</pre>
  *
  * <h3>Typical flow (Jagex account)</h3>
  * <pre>{@code
  * launcher.init();
- * launcher.login();
- * launcher.downloadModule();
+ * launcher.login();                                // BotWithUs auth + auto-download
  * JagexAccount acct = launcher.jagexLogin();        // OAuth browser flow
  * launcher.jagexSelectCharacter(acct.uuid(), 0);
  * launcher.jagexEnsureSession(acct.uuid());
- * launcher.jagexLaunch(acct.uuid());
- * int[] pids = launcher.findProcesses(10);
- * launcher.loadModule(pids[0], new LoadParams(...));
+ * launcher.addAccount(new Account(...));            // BWU account with worlds/pin
+ * launcher.jagexLaunch(acct.uuid(), accountUuid);   // background: launch + inject
  * }</pre>
  */
 public interface GameLauncher extends AutoCloseable {
@@ -44,24 +39,17 @@ public interface GameLauncher extends AutoCloseable {
 
     enum AccountType { DEFAULT, MANAGED, PLATFORM }
 
-    enum ProcessEventType { NONE, START, EXIT }
-
     record UserInfo(String id, String name, long sessionLimit, long expirationTs) {}
 
     record Status(int loginStage, int maxLoginStage, boolean loggedIn,
-                  boolean downloading, String downloadRate, String lastError) {}
+                  boolean downloading, int downloadProgress, boolean moduleReady,
+                  int activeLaunches, String lastError) {}
 
     record Account(
             String uuid, String name, String password, String pin,
             int worldA, int worldB,
             TargetType targetType, AccountType accountType,
             boolean autoLogin, boolean autoRestart) {}
-
-    record LoadParams(
-            String pin, String email, String password, String uuid,
-            int worldA, int worldB, boolean autoLogin) {}
-
-    record ProcessEvent(int pid, ProcessEventType eventType) {}
 
     record ProviderAccount(String name, boolean selected) {}
 
@@ -86,7 +74,7 @@ public interface GameLauncher extends AutoCloseable {
 
     // ── Authentication (BotWithUs) ─────────────────────────────────────────
 
-    /** Start SSO login flow. Opens browser, <strong>blocks</strong> up to 5 min. */
+    /** Start SSO login flow. Opens browser, <strong>blocks</strong> up to 5 min. Auto-starts module download on success. */
     void login();
 
     void loginWithToken(String token);
@@ -105,12 +93,8 @@ public interface GameLauncher extends AutoCloseable {
 
     // ── Module Management ──────────────────────────────────────────────────
 
-    /** Download the agent module. Requires login. <strong>Blocks</strong>. */
-    void downloadModule();
-
-    boolean hasModule();
-
-    byte[] getModuleBytes();
+    /** Trigger a module refresh. Checks for a newer version in a background thread. */
+    void refreshModule();
 
     // ── Classic Account Management ─────────────────────────────────────────
 
@@ -128,27 +112,20 @@ public interface GameLauncher extends AutoCloseable {
 
     void clearAccounts();
 
-    // ── Process Management ─────────────────────────────────────────────────
+    // ── Launch (Non-blocking Triggers) ─────────────────────────────────────
 
-    void launchDefault();
+    /** Launch via direct executable. Non-blocking. */
+    void launchDefault(String accountUuid);
 
-    void launchPlatform();
+    /** Launch via Steam protocol URL. Non-blocking. */
+    void launchPlatform(String accountUuid);
 
-    void launchManaged(String accountName);
+    /** Launch via Jagex Launcher CLI. Non-blocking. */
+    void launchManaged(String accountName, String accountUuid);
 
     void setProviderPath(Path path);
 
     String getProviderPath();
-
-    int[] findProcesses(int maxCount);
-
-    Optional<ProcessEvent> pollProcessEvent();
-
-    // ── Module Loading ─────────────────────────────────────────────────────
-
-    void loadModule(int pid, LoadParams params);
-
-    void loadModuleRaw(int pid, byte[] data, LoadParams params);
 
     // ── Provider Account Discovery ─────────────────────────────────────────
 
@@ -173,7 +150,8 @@ public interface GameLauncher extends AutoCloseable {
 
     void jagexEnsureSession(String uuid);
 
-    void jagexLaunch(String uuid);
+    /** Launch rs2client.exe with Jagex session. Non-blocking. */
+    void jagexLaunch(String jagexUuid, String accountUuid);
 
     // ── Utility ────────────────────────────────────────────────────────────
 

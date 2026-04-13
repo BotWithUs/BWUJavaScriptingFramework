@@ -33,9 +33,7 @@ final class BwuNative {
 
     // ── Module Management ──────────────────────────────────────────────────
 
-    final MethodHandle bwu_download_module;      // () -> int
-    final MethodHandle bwu_has_module;           // () -> int
-    final MethodHandle bwu_get_module_bytes;     // (ptr, ptr) -> int
+    final MethodHandle bwu_refresh_module;       // () -> int
 
     // ── Account Management (Classic) ───────────────────────────────────────
 
@@ -47,20 +45,13 @@ final class BwuNative {
     final MethodHandle bwu_update_account;       // (ptr) -> int
     final MethodHandle bwu_clear_accounts;       // () -> void
 
-    // ── Process Management ─────────────────────────────────────────────────
+    // ── Launch (Non-blocking Triggers) ─────────────────────────────────────
 
-    final MethodHandle bwu_launch_default;       // () -> int
-    final MethodHandle bwu_launch_platform;      // () -> int
-    final MethodHandle bwu_launch_managed;       // (ptr) -> int
+    final MethodHandle bwu_launch_default;       // (ptr) -> int
+    final MethodHandle bwu_launch_platform;      // (ptr) -> int
+    final MethodHandle bwu_launch_managed;       // (ptr, ptr) -> int
     final MethodHandle bwu_set_provider_path;    // (ptr) -> int
     final MethodHandle bwu_get_provider_path;    // () -> ptr
-    final MethodHandle bwu_find_processes;       // (ptr, u32, ptr) -> int
-    final MethodHandle bwu_poll_process_event;   // (ptr) -> int
-
-    // ── Module Loading ─────────────────────────────────────────────────────
-
-    final MethodHandle bwu_load_module;          // (u32, ptr) -> int
-    final MethodHandle bwu_load_module_raw;      // (u32, ptr, u32, ptr) -> int
 
     // ── Provider Account Discovery ─────────────────────────────────────────
 
@@ -76,7 +67,7 @@ final class BwuNative {
     final MethodHandle bwu_jagex_remove_account;       // (ptr) -> int
     final MethodHandle bwu_jagex_select_character;     // (ptr, int) -> int
     final MethodHandle bwu_jagex_ensure_session;       // (ptr) -> int
-    final MethodHandle bwu_jagex_launch;               // (ptr) -> int
+    final MethodHandle bwu_jagex_launch;               // (ptr, ptr) -> int
 
     // ── Utility ────────────────────────────────────────────────────────────
 
@@ -116,12 +107,8 @@ final class BwuNative {
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
 
         // ── Module Management ──
-        bwu_download_module = downcall(linker, lookup, "bwu_download_module",
+        bwu_refresh_module = downcall(linker, lookup, "bwu_refresh_module",
                 FunctionDescriptor.of(JAVA_INT));
-        bwu_has_module = downcall(linker, lookup, "bwu_has_module",
-                FunctionDescriptor.of(JAVA_INT));
-        bwu_get_module_bytes = downcall(linker, lookup, "bwu_get_module_bytes",
-                FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
 
         // ── Account Management (Classic) ──
         bwu_add_account = downcall(linker, lookup, "bwu_add_account",
@@ -139,27 +126,17 @@ final class BwuNative {
         bwu_clear_accounts = downcall(linker, lookup, "bwu_clear_accounts",
                 FunctionDescriptor.ofVoid());
 
-        // ── Process Management ──
+        // ── Launch (Non-blocking Triggers) ──
         bwu_launch_default = downcall(linker, lookup, "bwu_launch_default",
-                FunctionDescriptor.of(JAVA_INT));
-        bwu_launch_platform = downcall(linker, lookup, "bwu_launch_platform",
-                FunctionDescriptor.of(JAVA_INT));
-        bwu_launch_managed = downcall(linker, lookup, "bwu_launch_managed",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
+        bwu_launch_platform = downcall(linker, lookup, "bwu_launch_platform",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS));
+        bwu_launch_managed = downcall(linker, lookup, "bwu_launch_managed",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
         bwu_set_provider_path = downcall(linker, lookup, "bwu_set_provider_path",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
         bwu_get_provider_path = downcall(linker, lookup, "bwu_get_provider_path",
                 FunctionDescriptor.of(ADDRESS));
-        bwu_find_processes = downcall(linker, lookup, "bwu_find_processes",
-                FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS));
-        bwu_poll_process_event = downcall(linker, lookup, "bwu_poll_process_event",
-                FunctionDescriptor.of(JAVA_INT, ADDRESS));
-
-        // ── Module Loading ──
-        bwu_load_module = downcall(linker, lookup, "bwu_load_module",
-                FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS));
-        bwu_load_module_raw = downcall(linker, lookup, "bwu_load_module_raw",
-                FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS, JAVA_INT, ADDRESS));
 
         // ── Provider Account Discovery ──
         bwu_refresh_provider_accounts = downcall(linker, lookup, "bwu_refresh_provider_accounts",
@@ -183,7 +160,7 @@ final class BwuNative {
         bwu_jagex_ensure_session = downcall(linker, lookup, "bwu_jagex_ensure_session",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
         bwu_jagex_launch = downcall(linker, lookup, "bwu_jagex_launch",
-                FunctionDescriptor.of(JAVA_INT, ADDRESS));
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
 
         // ── Utility ──
         bwu_generate_uuid = downcall(linker, lookup, "bwu_generate_uuid",
