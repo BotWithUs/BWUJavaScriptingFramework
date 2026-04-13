@@ -1,0 +1,164 @@
+package com.botwithus.bot.cli.gui.usermode;
+
+import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.cli.CliContext;
+import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.gui.GuiHelpers;
+import com.botwithus.bot.cli.gui.Icons;
+import com.botwithus.bot.cli.gui.ImGuiTheme;
+
+import imgui.ImGui;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.function.Consumer;
+
+/**
+ * Renders the simplified User Mode dashboard — a responsive card grid
+ * showing each connected client with script controls.
+ */
+public class UserModeRenderer {
+
+    private static final float MIN_CARD_WIDTH = 320f;
+    private static final float CARD_SPACING = 10f;
+
+    private final ClientCard clientCard = new ClientCard();
+    private final ScriptPickerPopup scriptPicker = new ScriptPickerPopup();
+    private Consumer<com.botwithus.bot.core.runtime.ScriptRunner> configPanelOpener;
+
+    /**
+     * Set the callback that opens the script config panel (floating window).
+     * This should be wired to the same opener used in developer mode.
+     */
+    public void setConfigPanelOpener(Consumer<com.botwithus.bot.core.runtime.ScriptRunner> opener) {
+        this.configPanelOpener = opener;
+    }
+
+    /**
+     * Render the User Mode dashboard.
+     */
+    public void render(CliContext ctx) {
+        float availHeight = ImGui.getContentRegionAvailY();
+        ImGui.beginChild("##usermode", 0, availHeight, false);
+
+        Collection<Connection> connections = ctx.getConnections();
+
+        if (connections.isEmpty()) {
+            renderEmptyState();
+        } else {
+            renderCardGrid(ctx, new ArrayList<>(connections));
+        }
+
+        // Always render the script picker popup (it's a no-op when closed)
+        scriptPicker.render(ctx);
+
+        ImGui.endChild();
+    }
+
+    private void renderCardGrid(CliContext ctx, List<Connection> connections) {
+        float availWidth = ImGui.getContentRegionAvailX();
+        int columns = Math.max(1, (int) (availWidth / MIN_CARD_WIDTH));
+        float cardWidth = (availWidth - (columns - 1) * CARD_SPACING) / columns;
+
+        ImGui.spacing();
+
+        int col = 0;
+        for (int i = 0; i < connections.size(); i++) {
+            Connection connection = connections.get(i);
+
+            if (col > 0) {
+                ImGui.sameLine(0, CARD_SPACING);
+            }
+
+            ClientCard.CardAction action = clientCard.render(connection, cardWidth, i);
+
+            if (action != null) {
+                handleAction(ctx, action);
+            }
+
+            col++;
+            if (col >= columns) {
+                col = 0;
+                ImGui.spacing();
+            }
+        }
+    }
+
+    private void handleAction(CliContext ctx, ClientCard.CardAction action) {
+        switch (action.type()) {
+            case START_SCRIPT -> {
+                // Load available scripts and open the picker
+                List<BotScript> scripts = ctx.loadScripts();
+                List<BotScript> blueprints = ctx.loadBlueprints();
+                List<BotScript> all = new ArrayList<>(scripts);
+                all.addAll(blueprints);
+                scriptPicker.open(action.connection(), all);
+            }
+            case STOP -> {
+                if (action.runner() != null) {
+                    action.runner().stop();
+                }
+            }
+            case CONFIGURE -> {
+                if (action.runner() != null && configPanelOpener != null) {
+                    configPanelOpener.accept(action.runner());
+                }
+            }
+            case RECONNECT -> {
+                // Close the dead connection and reconnect with the same pipe name
+                String pipeName = action.connection().getName();
+                ctx.disconnect(pipeName, true);
+                ctx.connect(pipeName);
+            }
+        }
+    }
+
+    private void renderEmptyState() {
+        float windowWidth = ImGui.getWindowWidth();
+        float windowHeight = ImGui.getWindowHeight();
+
+        String icon = Icons.GAMEPAD;
+        String title = "No game clients connected";
+        String subtitle = "Launch your game client and it will";
+        String subtitle2 = "appear here automatically.";
+        String hint = "Press F12 for Developer Mode with manual connection controls";
+
+        // Center vertically
+        float totalHeight = ImGui.getTextLineHeight() * 5 + 40f;
+        ImGui.setCursorPosY((windowHeight - totalHeight) / 2f);
+
+        // Icon (large, dim accent)
+        float iconWidth = ImGui.calcTextSize(icon).x;
+        ImGui.setCursorPosX((windowWidth - iconWidth) / 2f);
+        ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f, icon);
+
+        ImGui.spacing();
+        ImGui.spacing();
+
+        // Title
+        float titleWidth = ImGui.calcTextSize(title).x;
+        ImGui.setCursorPosX((windowWidth - titleWidth) / 2f);
+        ImGui.text(title);
+
+        ImGui.spacing();
+
+        // Subtitle lines
+        float sub1Width = ImGui.calcTextSize(subtitle).x;
+        ImGui.setCursorPosX((windowWidth - sub1Width) / 2f);
+        GuiHelpers.textSecondary(subtitle);
+
+        float sub2Width = ImGui.calcTextSize(subtitle2).x;
+        ImGui.setCursorPosX((windowWidth - sub2Width) / 2f);
+        GuiHelpers.textSecondary(subtitle2);
+
+        ImGui.spacing();
+        ImGui.spacing();
+        ImGui.spacing();
+
+        // Hint
+        float hintWidth = ImGui.calcTextSize(hint).x;
+        ImGui.setCursorPosX((windowWidth - hintWidth) / 2f);
+        GuiHelpers.textMuted(hint);
+    }
+}
