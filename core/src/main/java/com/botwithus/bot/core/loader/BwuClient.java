@@ -402,8 +402,11 @@ public final class BwuClient implements AutoCloseable {
      */
     public void jagexLaunch(String jagexUuid, String accountUuid, int characterIndex) {
         try (Arena arena = Arena.ofConfined()) {
+            MemorySegment acctSeg = (accountUuid != null && !accountUuid.isEmpty())
+                    ? arena.allocateFrom(accountUuid)
+                    : MemorySegment.NULL;
             check(callIntSSI(n.bwu_jagex_launch,
-                    arena.allocateFrom(jagexUuid), arena.allocateFrom(accountUuid), characterIndex));
+                    arena.allocateFrom(jagexUuid), acctSeg, characterIndex));
         }
     }
 
