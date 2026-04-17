@@ -3,11 +3,14 @@ package com.botwithus.bot.core.loader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -81,6 +84,46 @@ public final class BwuClient implements AutoCloseable {
      */
     public static boolean isAvailable(Path dllPath) {
         return Files.isRegularFile(dllPath);
+    }
+
+    /**
+     * Resolve bwu.dll using a three-stage strategy:
+     * <ol>
+     *   <li>{@code BWU_DLL_PATH} env var (dev override)</li>
+     *   <li>Filesystem — DLL next to the executable or in the working directory</li>
+     *   <li>Bundled resource — extract {@code /native/bwu.dll} to a temp file</li>
+     * </ol>
+     *
+     * @param resourceAnchor class whose classloader contains the bundled resource
+     * @return path to the DLL, or {@code null} if unavailable
+     */
+    public static Path resolve(Class<?> resourceAnchor) {
+        String envPath = System.getenv("BWU_DLL_PATH");
+        if (envPath != null && !envPath.isBlank()) {
+            Path devPath = Path.of(envPath);
+            if (Files.isRegularFile(devPath)) {
+                log.info("Using debug bwu.dll from BWU_DLL_PATH: {}", devPath);
+                return devPath;
+            }
+            log.warn("BWU_DLL_PATH set but file not found: {}", devPath);
+        }
+
+        Path fsPath = Path.of("bwu.dll");
+        if (Files.isRegularFile(fsPath)) {
+            return fsPath;
+        }
+
+        try (InputStream in = resourceAnchor.getResourceAsStream("/native/bwu.dll")) {
+            if (in == null) return null;
+            Path tmp = Files.createTempFile("bwu", ".dll");
+            tmp.toFile().deleteOnExit();
+            Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+            log.debug("Extracted bwu.dll from resources to {}", tmp);
+            return tmp;
+        } catch (IOException e) {
+            log.warn("Failed to extract bwu.dll from resources: {}", e.getMessage());
+            return null;
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -183,6 +226,43 @@ public final class BwuClient implements AutoCloseable {
      */
     public void refreshModule() {
         check(callInt(n.bwu_refresh_module));
+    }
+
+    /**
+     * Whether the loaded DLL is a dev build that supports local module loading.
+     * Returns {@code false} for production (Release) builds.
+     */
+    public boolean isDevBuild() {
+        return n.bwu_load_local_module != null;
+    }
+
+    /**
+     * Returns the value of the {@code BWU_LOCAL_MODULE} environment variable,
+     * or {@code null} if it is not set. When set and the DLL is a dev build,
+     * the download phase will automatically load from this path instead of
+     * fetching from the server.
+     */
+    public static String getLocalModuleEnvPath() {
+        String val = System.getenv("BWU_LOCAL_MODULE");
+        return (val != null && !val.isBlank()) ? val : null;
+    }
+
+    /**
+     * Load the agent module from a local file instead of downloading from the
+     * server. Only available in dev (Debug) builds of the native DLL — check
+     * {@link #isDevBuild()} first.
+     *
+     * @param path absolute path to the DLL file on disk
+     * @throws UnsupportedOperationException if the DLL is a production build
+     */
+    public void loadLocalModule(Path path) {
+        if (n.bwu_load_local_module == null) {
+            throw new UnsupportedOperationException(
+                    "loadLocalModule is only available in dev builds of bwu.dll");
+        }
+        try (Arena arena = Arena.ofConfined()) {
+            check(callInt(n.bwu_load_local_module, arena.allocateFrom(path.toString())));
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
