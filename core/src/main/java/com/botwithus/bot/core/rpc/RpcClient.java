@@ -11,6 +11,11 @@ import java.util.List;
 import java.util.Map;
 import com.botwithus.bot.core.runtime.ConnectionContext;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -41,8 +46,15 @@ public class RpcClient implements AutoCloseable {
     private final AtomicInteger idCounter = new AtomicInteger(1);
     private final ReentrantLock pipeLock = new ReentrantLock();
     private final Condition dataAvailable = pipeLock.newCondition();
+    private final ScheduledExecutorService watchdog =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "rpc-watchdog");
+                t.setDaemon(true);
+                return t;
+            });
 
     private Consumer<Map<String, Object>> eventHandler;
+    private Consumer<Throwable> disconnectHandler;
     private volatile boolean running;
     private String connectionName;
 
@@ -80,6 +92,14 @@ public class RpcClient implements AutoCloseable {
 
     public void setEventHandler(Consumer<Map<String, Object>> handler) {
         this.eventHandler = handler;
+    }
+
+    /**
+     * Optional callback invoked when the reader loop detects the pipe has
+     * been closed/broken. Receives the originating exception (may be null).
+     */
+    public void setDisconnectHandler(Consumer<Throwable> handler) {
+        this.disconnectHandler = handler;
     }
 
     /**
@@ -142,6 +162,7 @@ public class RpcClient implements AutoCloseable {
     @Override
     public void close() {
         running = false;
+        watchdog.shutdownNow();
         pipe.close();
     }
 
@@ -152,13 +173,20 @@ public class RpcClient implements AutoCloseable {
      * for data without blocking the pipe handle. When data is available and
      * no RPC call holds the lock, reads and dispatches events.
      *
-     * <p>When no data is available, waits on the {@link #dataAvailable}
-     * condition with a short timeout instead of busy-polling with
-     * {@code Thread.sleep}. The RPC call path signals this condition after
-     * releasing the lock so the reader wakes immediately when the pipe
-     * becomes idle again.</p>
+     * <p>Idle-wait strategy: waits on the {@link #dataAvailable} condition
+     * with a short bounded timeout so we still re-check {@code available()}
+     * periodically for server-pushed events that arrive without a
+     * corresponding RPC. {@link #doCall} signals the condition before
+     * releasing the lock, so the reader wakes immediately after any RPC
+     * round-trip and picks up buffered events with no extra delay.</p>
      */
     private void readerLoop() {
+        // 1ms idle re-poll — bounded worst-case latency for unsolicited
+        // server events when no RPC is in flight. Tighter than the previous
+        // 5ms, still well under a syscall's cost to the OS scheduler.
+        final long idleWaitNanos = 1_000_000L;
+        Throwable disconnectCause = null;
+
         while (running && pipe.isOpen()) {
             try {
                 if (pipe.available() > 0 && pipeLock.tryLock()) {
@@ -176,19 +204,19 @@ public class RpcClient implements AutoCloseable {
                         pipeLock.unlock();
                     }
                 } else {
-                    // Wait for the RPC call to finish or data to arrive.
-                    // Uses a short timeout so we re-check pipe.available().
                     pipeLock.lock();
                     try {
-                        dataAvailable.awaitNanos(5_000_000L); // 5ms max wait
+                        // Re-check under the lock to avoid a lost-wakeup race
+                        // between the available() check above and the await.
+                        if (pipe.available() == 0) {
+                            dataAvailable.awaitNanos(idleWaitNanos);
+                        }
                     } finally {
                         pipeLock.unlock();
                     }
                 }
             } catch (PipeException e) {
-                if (running) {
-                    running = false;
-                }
+                disconnectCause = e;
                 break;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -199,6 +227,20 @@ public class RpcClient implements AutoCloseable {
                 }
             }
         }
+
+        boolean wasRunning = running;
+        running = false;
+        if (wasRunning) {
+            Consumer<Throwable> cb = this.disconnectHandler;
+            if (cb != null) {
+                Throwable cause = disconnectCause;
+                Thread.startVirtualThread(() -> {
+                    try { cb.accept(cause); } catch (RuntimeException ex) {
+                        log.warn("disconnectHandler threw: {}", ex.getMessage());
+                    }
+                });
+            }
+        }
     }
 
     /**
@@ -206,10 +248,11 @@ public class RpcClient implements AutoCloseable {
      * matching ID arrives. Events received in between are dispatched on
      * virtual threads. Holds the pipe lock for the entire duration.
      *
-     * <p>Uses blocking {@link PipeClient#readMessage()} directly rather than
-     * polling with {@code available()} + sleep, since we hold the lock
-     * exclusively and the server responds in microseconds. A watchdog thread
-     * enforces the timeout by closing the pipe if the deadline expires.</p>
+     * <p>Timeout enforcement uses a scheduled watchdog task that forcibly
+     * closes the pipe when the deadline expires. That unblocks any pending
+     * blocking {@code ReadFile} with an IOException, which is then translated
+     * to {@link RpcTimeoutException}. Without the watchdog, a server that
+     * simply stops responding would hang {@code readMessage()} forever.</p>
      */
     private Map<String, Object> doCall(String method, Map<String, Object> params) {
         int id = idCounter.getAndIncrement();
@@ -222,21 +265,34 @@ public class RpcClient implements AutoCloseable {
         }
 
         pipeLock.lock();
+        // settled wins the race between the watchdog and the completing call
+        // path: whichever CASes it from false -> true takes ownership of the
+        // "what happened" decision. Prevents a late-firing watchdog from
+        // closing the pipe after a successful response.
+        final AtomicBoolean settled = new AtomicBoolean(false);
+        ScheduledFuture<?> watchdogTask = null;
         try {
             pipe.send(MessagePackCodec.encode(request));
 
-            long deadlineNanos = System.nanoTime() + timeoutMs * 1_000_000L;
-
-            // Read messages until we get the response matching our request ID.
-            // Any event messages that arrive first are dispatched asynchronously.
-            // Blocking read is safe here — we hold the lock exclusively and the
-            // server typically responds within microseconds.
-            while (true) {
-                if (System.nanoTime() > deadlineNanos) {
-                    throw new RpcTimeoutException(method, timeoutMs);
+            watchdogTask = watchdog.schedule(() -> {
+                if (settled.compareAndSet(false, true)) {
+                    try { pipe.close(); } catch (RuntimeException ignored) {}
                 }
+            }, timeoutMs, TimeUnit.MILLISECONDS);
 
-                byte[] responseBytes = pipe.readMessage();
+            while (true) {
+                byte[] responseBytes;
+                try {
+                    responseBytes = pipe.readMessage();
+                } catch (PipeException e) {
+                    // If we lose the CAS, the watchdog already claimed the
+                    // outcome — translate to a timeout. Otherwise it's a
+                    // genuine pipe error.
+                    if (!settled.compareAndSet(false, true)) {
+                        throw new RpcTimeoutException(method, timeoutMs);
+                    }
+                    throw e;
+                }
                 Map<String, Object> msg = MessagePackCodec.decode(responseBytes);
 
                 if (msg.containsKey("event")) {
@@ -245,9 +301,9 @@ public class RpcClient implements AutoCloseable {
                 }
 
                 if (matchesId(msg, id)) {
+                    settled.set(true);
                     return msg;
                 }
-
                 // Unknown message (no event, wrong id) — skip it
             }
         } catch (RpcException e) {
@@ -255,6 +311,11 @@ public class RpcClient implements AutoCloseable {
         } catch (Exception e) {
             throw new RpcException("RPC call failed: " + method, e);
         } finally {
+            // Claim the outcome if neither read-success nor watchdog did.
+            settled.compareAndSet(false, true);
+            if (watchdogTask != null) {
+                watchdogTask.cancel(false);
+            }
             // Signal reader thread that the lock is about to be released
             dataAvailable.signal();
             pipeLock.unlock();
