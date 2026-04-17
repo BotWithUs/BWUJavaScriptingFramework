@@ -443,16 +443,13 @@ public class UserAccountsRenderer {
     }
 
     private void launchJagex(String jagexUuid, int charIndex) {
-        if (classicAccounts.isEmpty()) {
-            toast("Add a classic account first (needed for injection credentials)", true);
-            return;
-        }
-
         pendingLabel = "Launching...";
         pendingOp = CompletableFuture.runAsync(() -> {
             try {
                 bwu.jagexEnsureSession(jagexUuid);
-                String bwuUuid = classicAccounts.getFirst().uuid();
+                // Classic account UUID is not used for Jagex launches — the DLL
+                // passes session credentials (JX_SESSION_ID, etc.) via env vars.
+                String bwuUuid = classicAccounts.isEmpty() ? "" : classicAccounts.getFirst().uuid();
                 bwu.jagexLaunch(jagexUuid, bwuUuid, charIndex);
                 toast("Game client launching", false);
             } catch (BwuException e) {

@@ -859,23 +859,30 @@ public class AccountsPanel implements GuiPanel {
     }
 
     private void launchJagexAccount(BwuJagexAccount account) {
-        // Need a classic (BWU) account for injection credentials
-        if (classicAccounts.isEmpty()) {
-            setStatus("Add a classic account first (needed for injection credentials)", true);
-            return;
-        }
-
         pendingLabel = "Launching " + account.displayLabel() + "...";
         pendingOperation = CompletableFuture.runAsync(() -> {
             try {
                 bwu.jagexEnsureSession(account.uuid());
-                // Use the first classic account as the injection credential source
-                String bwuUuid = classicAccounts.getFirst().uuid();
+                // Classic account UUID is not used for Jagex launches — the DLL
+                // passes session credentials (JX_SESSION_ID, etc.) via env vars.
+                String bwuUuid = classicAccounts.isEmpty() ? "" : classicAccounts.getFirst().uuid();
                 bwu.jagexLaunch(account.uuid(), bwuUuid, account.selectedCharacter());
-                setStatus("Launch started for " + account.displayLabel(), false);
+                // Poll until the background launch thread finishes (DLL waits up to ~120s for game window)
+                while (bwu.getStatus().activeLaunches() > 0) {
+                    Thread.sleep(500);
+                }
+                String err = bwu.getLastError();
+                if (err != null && !err.isEmpty()) {
+                    setStatus("Launch failed: " + err, true);
+                } else {
+                    setStatus("Launched " + account.displayLabel(), false);
+                }
             } catch (BwuException e) {
                 log.error("Jagex launch failed: {}", e.getMessage());
                 setStatus("Launch failed: " + e.getMessage(), true);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                setStatus("Launch interrupted", true);
             }
         }, executor);
     }
@@ -966,10 +973,21 @@ public class AccountsPanel implements GuiPanel {
                     case PLATFORM -> bwu.launchPlatform(acct.uuid());
                     case MANAGED -> bwu.launchManaged(null, acct.uuid());
                 }
-                setStatus("Launch started for " + acct.name(), false);
+                while (bwu.getStatus().activeLaunches() > 0) {
+                    Thread.sleep(500);
+                }
+                String err = bwu.getLastError();
+                if (err != null && !err.isEmpty()) {
+                    setStatus("Launch failed: " + err, true);
+                } else {
+                    setStatus("Launched " + acct.name(), false);
+                }
             } catch (BwuException e) {
                 log.error("Classic launch failed: {}", e.getMessage());
                 setStatus("Launch failed: " + e.getMessage(), true);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                setStatus("Launch interrupted", true);
             }
         }, executor);
     }
