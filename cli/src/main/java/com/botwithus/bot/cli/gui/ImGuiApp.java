@@ -284,7 +284,7 @@ public class ImGuiApp extends Application {
         panels.add(new GroupsPanel());
         panels.add(new SettingsPanel());
 
-        statusBar = new StatusBar();
+        statusBar = new StatusBar(bwu);
 
         glfwWindow = GLFW.glfwGetCurrentContext();
 
