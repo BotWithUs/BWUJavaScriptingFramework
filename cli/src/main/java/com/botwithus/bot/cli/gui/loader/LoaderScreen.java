@@ -55,6 +55,10 @@ public class LoaderScreen {
     private String authenticatedUsername;
     private boolean dllAvailable;
 
+    // Dev build detection (local module override via BWU_LOCAL_MODULE env var)
+    private final boolean devBuild;
+    private final String localModulePath;
+
     // Error state
     private String errorTitle;
     private String errorMessage;
@@ -76,6 +80,8 @@ public class LoaderScreen {
     public LoaderScreen(BwuClient bwuClient) {
         this.bwuClient = bwuClient;
         this.dllAvailable = bwuClient != null;
+        this.devBuild = bwuClient != null && bwuClient.isDevBuild();
+        this.localModulePath = BwuClient.getLocalModuleEnvPath();
     }
 
     /**
@@ -185,6 +191,7 @@ public class LoaderScreen {
         float frameH = ImGui.getFrameHeightWithSpacing();
         float spacing = ImGui.getStyle().getItemSpacingY();
         float logoH = lineH * 3 + spacing * 4; // brand + version + spacing
+        if (devBuild && localModulePath != null) logoH += lineH; // local module path line
         float formH;
         if (state == LoaderState.LOGIN) {
             formH = lineH * 2   // description text (approx 2 lines)
@@ -268,10 +275,36 @@ public class LoaderScreen {
                 version = "v" + dllVersion;
             }
         }
+
+        // Calculate total width for centering (version + optional DEV badge)
         float versionWidth = ImGui.calcTextSize(version).x;
-        ImGui.setCursorPosX((winW - versionWidth) / 2f);
+        float devBadgeExtra = 0;
+        if (devBuild) {
+            float devTextW = ImGui.calcTextSize("DEV").x;
+            devBadgeExtra = 8f + devTextW + 12f; // gap + text + padX*2
+        }
+
+        ImGui.setCursorPosX((winW - versionWidth - devBadgeExtra) / 2f);
         ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, logoAlpha * 0.6f,
                 version);
+
+        if (devBuild) {
+            ImGui.sameLine(0, 8);
+            GuiHelpers.statusBadge("DEV", ImGuiTheme.ORANGE_R, ImGuiTheme.ORANGE_G, ImGuiTheme.ORANGE_B);
+        }
+
+        // Local module path indicator (visible when BWU_LOCAL_MODULE env var is set)
+        if (devBuild && localModulePath != null) {
+            String fileName = Path.of(localModulePath).getFileName().toString();
+            String pathLabel = Icons.FOLDER + "  " + fileName;
+            float pathWidth = ImGui.calcTextSize(pathLabel).x;
+            ImGui.setCursorPosX((winW - pathWidth) / 2f);
+            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, logoAlpha * 0.4f,
+                    pathLabel);
+            if (ImGui.isItemHovered()) {
+                ImGui.setTooltip(localModulePath);
+            }
+        }
 
         ImGui.popStyleVar(); // logoAlpha
     }

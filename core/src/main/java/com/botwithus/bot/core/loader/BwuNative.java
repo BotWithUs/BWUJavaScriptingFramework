@@ -34,6 +34,7 @@ final class BwuNative {
     // ── Module Management ──────────────────────────────────────────────────
 
     final MethodHandle bwu_refresh_module;       // () -> int
+    final MethodHandle bwu_load_local_module;    // (ptr) -> int  [dev builds only, may be null]
 
     // ── Account Management (Classic) ───────────────────────────────────────
 
@@ -111,6 +112,8 @@ final class BwuNative {
         // ── Module Management ──
         bwu_refresh_module = downcall(linker, lookup, "bwu_refresh_module",
                 FunctionDescriptor.of(JAVA_INT));
+        bwu_load_local_module = optionalDowncall(linker, lookup, "bwu_load_local_module",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS));
 
         // ── Account Management (Classic) ──
         bwu_add_account = downcall(linker, lookup, "bwu_add_account",
@@ -178,5 +181,12 @@ final class BwuNative {
         MemorySegment symbol = lookup.find(name)
                 .orElseThrow(() -> new UnsatisfiedLinkError("bwu.dll missing symbol: " + name));
         return linker.downcallHandle(symbol, fd);
+    }
+
+    private static MethodHandle optionalDowncall(Linker linker, SymbolLookup lookup,
+                                                  String name, FunctionDescriptor fd) {
+        return lookup.find(name)
+                .map(symbol -> linker.downcallHandle(symbol, fd))
+                .orElse(null);
     }
 }

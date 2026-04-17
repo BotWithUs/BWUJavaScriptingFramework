@@ -234,21 +234,9 @@ public class ImGuiApp extends Application {
 
         // Load bwu.dll once — shared between LoaderScreen and management runtime
         BwuClient bwu = null;
-        java.nio.file.Path dllPath = java.nio.file.Path.of("bwu.dll");
-        if (java.nio.file.Files.isRegularFile(dllPath)) {
+        var dllPath = BwuClient.resolve(getClass());
+        if (dllPath != null) {
             bwu = BwuClient.load(dllPath).orElse(null);
-        } else {
-            // Try extracting from bundled resources
-            try (var in = getClass().getResourceAsStream("/native/bwu.dll")) {
-                if (in != null) {
-                    java.nio.file.Path tmp = java.nio.file.Files.createTempFile("bwu", ".dll");
-                    tmp.toFile().deleteOnExit();
-                    java.nio.file.Files.copy(in, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    bwu = BwuClient.load(tmp).orElse(null);
-                }
-            } catch (java.io.IOException ignored) {
-                // LoaderScreen will show "offline mode" if bwu is null
-            }
         }
         if (bwu != null) {
             bwu.init();
