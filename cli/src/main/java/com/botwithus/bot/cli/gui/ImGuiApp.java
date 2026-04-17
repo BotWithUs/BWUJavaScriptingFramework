@@ -345,7 +345,7 @@ public class ImGuiApp extends Application {
 
         // Top bar with mode tabs (always visible, unless in blueprint editor)
         if (!editorMode) {
-            AppMode toggled = topBar.render(currentMode, dpiScale);
+            AppMode toggled = topBar.render(currentMode, dpiScale, ctx);
             if (toggled != null && toggled != currentMode) {
                 currentMode = toggled;
             }
@@ -459,92 +459,123 @@ public class ImGuiApp extends Application {
     };
 
     private void renderSidebar() {
-        // Brand header
-        ImGui.spacing();
-        ImGui.spacing();
+        float fontH = ImGui.getFontSize();
+        float padX = ImGui.getStyle().getWindowPaddingX();
+        float indent = padX * 0.5f;
 
-        // Logo mark
+        ImGui.dummy(0f, fontH * 0.4f);
+
         var draw = ImGui.getWindowDrawList();
-        float logoX = ImGui.getCursorScreenPosX() + 10f;
-        float logoY = ImGui.getCursorScreenPosY();
         int accentCol = ImGuiTheme.imCol32(
                 ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
         int accentDim = ImGuiTheme.imCol32(
-                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f);
+                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.35f);
 
-        // Brand mark — small accent square
-        draw.addRectFilled(logoX, logoY, logoX + 4f, logoY + ImGui.getTextLineHeight(), accentCol, 2f);
-        ImGui.setCursorPosX(ImGui.getCursorPosX() + 20f);
+        // ── Brand header ──────────────────────────────────────────────
+        float logoX = ImGui.getCursorScreenPosX() + indent;
+        float logoY = ImGui.getCursorScreenPosY();
+        float barW = Math.max(3f, fontH * 0.25f);
+        float textH = ImGui.getTextLineHeight();
+
+        // Two-bar brand mark
+        draw.addRectFilled(logoX, logoY, logoX + barW, logoY + textH, accentCol, barW * 0.4f);
+        draw.addRectFilled(logoX + barW + fontH * 0.15f, logoY + textH * 0.4f,
+                logoX + barW * 2f + fontH * 0.15f, logoY + textH, accentDim, barW * 0.4f);
+
+        ImGui.setCursorPosX(ImGui.getCursorPosX() + indent + barW * 2f + fontH * 0.75f);
         ImGui.pushStyleColor(ImGuiCol.Text,
                 ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f);
         ImGui.text("BotWithUs");
         ImGui.popStyleColor();
-        ImGui.setCursorPosX(ImGui.getCursorPosX() + 20f);
+
+        ImGui.setCursorPosX(ImGui.getCursorPosX() + indent + barW * 2f + fontH * 0.75f);
         ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.5f,
                 "Script Manager");
 
-        ImGui.spacing();
-        ImGui.spacing();
+        ImGui.dummy(0f, fontH * 0.4f);
         GuiHelpers.subtleSeparator();
 
+        // ── Navigation ────────────────────────────────────────────────
         for (int s = 0; s < NAV_SECTION_LABELS.length; s++) {
-            ImGui.spacing();
-            ImGui.spacing();
-            ImGui.setCursorPosX(ImGui.getCursorPosX() + 10f);
+            ImGui.dummy(0f, fontH * 0.6f);
+            ImGui.setCursorPosX(ImGui.getCursorPosX() + indent);
             ImGui.textColored(
-                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.5f,
+                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.55f,
                     NAV_SECTION_LABELS[s]);
-            ImGui.spacing();
+            ImGui.dummy(0f, fontH * 0.15f);
 
             for (int p : NAV_SECTION_PANELS[s]) {
                 if (p >= panels.size()) continue;
                 boolean isActive = (p == selectedPanel);
 
-                if (isActive) {
-                    ImGui.pushStyleColor(ImGuiCol.Header,
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.10f);
-                    ImGui.pushStyleColor(ImGuiCol.HeaderHovered,
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.18f);
-                    ImGui.pushStyleColor(ImGuiCol.HeaderActive,
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.25f);
-                } else {
-                    ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
-                    ImGui.pushStyleColor(ImGuiCol.HeaderHovered,
-                            ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.05f);
-                    ImGui.pushStyleColor(ImGuiCol.HeaderActive,
-                            ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.08f);
-                }
+                // Per-item animated hover weight, plus eased "active" animation
+                // for the left accent bar to slide into place.
+                String hoverKey = "nav:h:" + p;
+                String activeKey = "nav:a:" + p;
+
+                // Transparent selectable (we'll draw our own background + accent)
+                ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
+                ImGui.pushStyleColor(ImGuiCol.HeaderHovered, 0f, 0f, 0f, 0f);
+                ImGui.pushStyleColor(ImGuiCol.HeaderActive, 0f, 0f, 0f, 0f);
 
                 String icon = p < NAV_ICONS.length ? NAV_ICONS[p] : "";
-                String label = "  " + icon + "  " + panels.get(p).title() + "##nav" + p;
+                // leading space reserved for the accent bar + icon gutter
+                String label = "    " + icon + "   " + panels.get(p).title() + "##nav" + p;
 
                 if (ImGui.selectable(label, isActive)) {
                     selectedPanel = p;
                 }
-
-                if (isActive) {
-                    // Draw accent indicator bar on left edge
-                    var drawList = ImGui.getWindowDrawList();
-                    drawList.addRectFilled(
-                            ImGui.getItemRectMinX(), ImGui.getItemRectMinY() + 2f,
-                            ImGui.getItemRectMinX() + 3f, ImGui.getItemRectMaxY() - 2f,
-                            accentCol, 2f);
-                }
+                boolean hovered = ImGui.isItemHovered();
+                float hoverT = Motion.hover(hoverKey, hovered);
+                float activeT = Motion.step(activeKey, isActive ? 1f : 0f, 14f);
 
                 ImGui.popStyleColor(3);
+
+                // Custom-drawn row background
+                float x0 = ImGui.getItemRectMinX();
+                float y0 = ImGui.getItemRectMinY();
+                float x1 = ImGui.getItemRectMaxX();
+                float y1 = ImGui.getItemRectMaxY();
+                float rowH = y1 - y0;
+                float rounding = fontH * 0.3f;
+
+                // Hover wash (fades in), active tint (stronger)
+                float bgAlpha = 0.05f * hoverT + 0.12f * activeT;
+                if (bgAlpha > 0.001f) {
+                    int bg = ImGuiTheme.imCol32(
+                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, bgAlpha);
+                    draw.addRectFilled(x0 + indent * 0.25f, y0, x1 - indent * 0.25f, y1,
+                            bg, rounding);
+                }
+
+                // Left accent bar — height animates with activeT (Motion eases it in)
+                if (activeT > 0.02f) {
+                    float barPadY = rowH * 0.18f;
+                    float fullH = rowH - barPadY * 2f;
+                    float h = fullH * Motion.easeOutCubic(activeT);
+                    float by0 = y0 + (rowH - h) * 0.5f;
+                    float bw = Math.max(2.5f, fontH * 0.2f);
+                    int col = ImGuiTheme.imCol32(
+                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, activeT);
+                    draw.addRectFilled(x0 + indent * 0.25f, by0,
+                            x0 + indent * 0.25f + bw, by0 + h, col, bw * 0.5f);
+                }
             }
         }
 
-        // Bottom hint — pushed to bottom of sidebar
-        float bottomY = ImGui.getWindowHeight() - ImGui.getFrameHeightWithSpacing() * 3;
+        // ── Bottom hint: keyboard shortcut ────────────────────────────
+        float footerH = ImGui.getFrameHeightWithSpacing() * 2.6f;
+        float bottomY = ImGui.getWindowHeight() - footerH;
         if (bottomY > ImGui.getCursorPosY()) {
             ImGui.setCursorPosY(bottomY);
             GuiHelpers.subtleSeparator();
-            ImGui.spacing();
-            ImGui.setCursorPosX(ImGui.getCursorPosX() + 10f);
+            ImGui.dummy(0f, fontH * 0.25f);
+            ImGui.setCursorPosX(ImGui.getCursorPosX() + indent);
             ImGui.textColored(
-                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.4f,
-                    Icons.DIAGRAM + "  F2  Blueprint");
+                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.55f,
+                    Icons.DIAGRAM + "  Blueprint");
+            ImGui.sameLine(0, ImGui.getStyle().getItemSpacingX());
+            GuiHelpers.kbdHint("F2");
         }
     }
 
