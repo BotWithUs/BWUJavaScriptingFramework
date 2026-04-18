@@ -35,8 +35,9 @@ public class ScriptUIWindow {
         if (ui == null) { open.set(false); return; }
 
         ImGui.setNextWindowSize(925, 690, ImGuiCond.FirstUseEver);
+        ImGui.setNextWindowBgAlpha(0f);
         if (ImGui.begin(runner.getScriptName() + " Config###scriptUIWindow", open,
-                ImGuiWindowFlags.NoCollapse)) {
+                ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoBackground)) {
             try {
                 ui.render();
             } catch (Exception e) {

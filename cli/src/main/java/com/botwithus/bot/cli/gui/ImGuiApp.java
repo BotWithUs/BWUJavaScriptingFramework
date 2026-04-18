@@ -88,8 +88,31 @@ public class ImGuiApp extends Application {
     }
 
     @Override
+    protected void initWindow(Configuration config) {
+        // Enable per-pixel alpha on the GLFW framebuffer before the main window is created.
+        // GLFW hints are sticky and survive through super.initWindow's own glfwInit/hint calls,
+        // so they also apply to viewport-created secondary windows (ImGuiImplGlfw doesn't reset).
+        // The main ##main ImGui window still paints its full WindowBg, so the CLI stays opaque;
+        // only windows that don't paint bg (or paint at low alpha, like the script UI at uiAlpha=0)
+        // will let the desktop show through.
+        org.lwjgl.glfw.GLFWErrorCallback.createPrint(System.err).set();
+        if (!GLFW.glfwInit()) {
+            throw new IllegalStateException("Unable to initialize GLFW");
+        }
+        GLFW.glfwWindowHint(GLFW.GLFW_TRANSPARENT_FRAMEBUFFER, GLFW.GLFW_TRUE);
+        super.initWindow(config);
+    }
+
+    @Override
     protected void initImGui(Configuration config) {
         super.initImGui(config);
+
+        // Clear the main window's framebuffer with transparent alpha each frame. The ##main
+        // ImGui window paints its own opaque bg on top, so this is only visible where no widget
+        // paints — which is nowhere in the current CLI layout. Viewport (secondary) windows clear
+        // to (0,0,0,0) via imgui-java's default renderer callback, so they're fully transparent
+        // where the script UI doesn't paint.
+        getColorBg().set(0f, 0f, 0f, 0f);
 
         // Detect monitor DPI scale via GLFW content scale
         long monitor = GLFW.glfwGetPrimaryMonitor();
