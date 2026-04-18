@@ -132,12 +132,23 @@ public class Npc extends EntityContext {
     /**
      * Interacts with this NPC using the given right-click option name.
      *
+     * <p>The 1-based wire slot is resolved against the raw (non-compacted)
+     * {@link NpcType#options()} list, because the game's action protocol
+     * uses the raw option slot — {@code raw.options()} strips empty/null
+     * entries, which would produce off-by-one wire indices for NPCs whose
+     * raw layout begins with empty slots.</p>
+     *
      * @param option the option text (e.g. "Attack", "Talk-to"), case-insensitive
      * @return {@code true} if the option was found and the action was queued
      */
     public boolean interact(String option) {
-        int index = findOptionIndex(getOptions(), option);
-        if (index == -1) return false;
+        List<String> rawOpts = resolveTransform().options();
+        int index = (rawOpts != null) ? findOptionIndex(rawOpts, option) : -1;
+        if (index == -1) {
+            index = findOptionIndex(getOptions(), option);
+            if (index == -1) return false;
+        }
+        if (index >= ActionTypes.NPC_OPTIONS.length) return false;
         interact(index);
         return true;
     }

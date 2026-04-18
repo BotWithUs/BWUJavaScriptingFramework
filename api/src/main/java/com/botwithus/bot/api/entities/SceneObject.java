@@ -158,12 +158,23 @@ public class SceneObject extends EntityContext {
     /**
      * Interacts with this scene object using the given right-click option name.
      *
+     * <p>The 1-based wire slot is resolved against the raw (non-compacted)
+     * {@link LocationType#options()} list, because the game's action protocol
+     * uses the raw option slot — {@code raw.options()} strips empty/null
+     * entries, which would produce off-by-one wire indices for objects whose
+     * raw layout begins with empty slots (e.g. "Bank chest").</p>
+     *
      * @param option the option text (e.g. "Open", "Bank", "Mine"), case-insensitive
      * @return {@code true} if the option was found and the action was queued
      */
     public boolean interact(String option) {
-        int index = findOptionIndex(getOptions(), option);
-        if (index == -1) return false;
+        List<String> rawOpts = resolveTransform().options();
+        int index = (rawOpts != null) ? findOptionIndex(rawOpts, option) : -1;
+        if (index == -1) {
+            index = findOptionIndex(getOptions(), option);
+            if (index == -1) return false;
+        }
+        if (index >= ActionTypes.OBJECT_OPTIONS.length) return false;
         interact(index);
         return true;
     }
