@@ -31,7 +31,6 @@ import java.util.Map;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
 import static com.botwithus.bot.core.impl.MapHelper.getDouble;
-import static com.botwithus.bot.core.impl.MapHelper.getFloat;
 import static com.botwithus.bot.core.impl.MapHelper.getInt;
 import static com.botwithus.bot.core.impl.MapHelper.getIntList;
 import static com.botwithus.bot.core.impl.MapHelper.getList;
@@ -123,22 +122,6 @@ public class GameAPIImpl implements GameAPI {
     public long getLastActionTime() {
         Map<String, Object> r = rpc.callSync("get_last_action_time", Map.of());
         return getLong(r, "timestamp");
-    }
-
-    @Override
-    public void setBehaviorMod(int modId, float value) {
-        rpc.callSync("set_behavior_mod", Map.of("mod_id", modId, "value", value));
-    }
-
-    @Override
-    public void clearBehaviorMod(int modId) {
-        rpc.callSync("clear_behavior_mod", Map.of("mod_id", modId));
-    }
-
-    @Override
-    public float getBehaviorMod(int modId) {
-        Map<String, Object> r = rpc.callSync("get_behavior_mod", Map.of("mod_id", modId));
-        return getFloat(r, "value");
     }
 
     @Override

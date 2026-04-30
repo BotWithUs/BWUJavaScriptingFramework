@@ -22,12 +22,8 @@ public final class Layout {
     /** {@code 'N','X','T','S'} read as little-endian u32. */
     public static final int MAGIC = 0x5354584E;
 
-    /**
-     * Wire protocol version. Must equal {@code kProtocolVersion} in
-     * NXTLibrary's SharedLayout.h. v8 is the current target; older readers
-     * will mis-decode walk/break/key bodies whose shapes were rewritten.
-     */
-    public static final int PROTOCOL_VERSION = 8;
+    /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h. */
+    public static final int PROTOCOL_VERSION = 9;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -167,7 +163,17 @@ public final class Layout {
                                                      + INVENTORY_CAP * INV_HEADER_SIZE;
     public static final int SNAP_INVITEMS_OFFSET     = SNAP_INVITEMCOUNT_OFFSET + 4;
 
-    public static final int SNAPSHOT_SIZE = SNAP_INVITEMS_OFFSET + INVENTORY_ITEM_CAP * INV_ITEM_SIZE;
+    /** Producer-state tail block; layout matches SharedLayout.h::ProducerState. */
+    public static final int SNAP_PRODUCER_OFFSET = SNAP_INVITEMS_OFFSET + INVENTORY_ITEM_CAP * INV_ITEM_SIZE;
+
+    public static final int PRODUCER_SIZE                       = 32;
+    public static final int PRODUCER_ACTIONQUEUESIZE_OFFSET     = 0;    // u32
+    public static final int PRODUCER_ACTIONSBLOCKED_OFFSET      = 4;    // u8
+    public static final int PRODUCER_ONBREAK_OFFSET             = 5;    // u8
+    public static final int PRODUCER_LASTACTIONTIMEMS_OFFSET    = 8;    // u64
+    public static final int PRODUCER_BREAKUNTILMS_OFFSET        = 16;   // u64
+
+    public static final int SNAPSHOT_SIZE = SNAP_PRODUCER_OFFSET + PRODUCER_SIZE;
 
     // ------------------------------------------------------------------
     // Event ring
