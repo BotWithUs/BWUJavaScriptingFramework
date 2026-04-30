@@ -27,14 +27,19 @@ public class JBotApplication {
     private static final Logger log = LoggerFactory.getLogger(JBotApplication.class);
 
     public static void main(String[] args) {
-        log.info("Connecting to BotWithUs pipe...");
-        try (PipeClient pipe = new PipeClient()) {
+        // Producer publishes BotWithUs_<pid> per injected game — discover the
+        // first one rather than hard-coding the legacy single name. Failure
+        // here means no game has the DLL loaded, which we surface to the
+        // operator via the catch below.
+        String pipeName = PipeClient.firstAvailableOrThrow();
+        log.info("Connecting to pipe {}", pipeName);
+        try (PipeClient pipe = new PipeClient(pipeName)) {
             RpcClient rpc = new RpcClient(pipe);
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
             GameAPIImpl gameAPI = new GameAPIImpl(rpc);
             ClientProviderImpl clientProvider = new ClientProviderImpl();
-            clientProvider.putClient("BotWithUs", new ClientImpl("BotWithUs", gameAPI, eventBus, pipe::isOpen));
+            clientProvider.putClient(pipeName, new ClientImpl(pipeName, gameAPI, eventBus, pipe::isOpen));
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
             // Route pipe events to the typed event bus and enable auto-subscription

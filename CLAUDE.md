@@ -7,6 +7,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 JBotWithUsV2 is a Java 21 modular game scripting framework. It communicates with a game server via Windows named pipes using MessagePack-encoded JSON-RPC. Scripts are dynamically discovered at runtime via Java's ServiceLoader SPI and execute on virtual threads.
 
+## Producer-side coupling
+
+This repo is the **consumer** half of a tightly-coupled pair. The producer-side DLL lives at `E:\BotWithUsv2.5\NXTLibrary` (C++, freestanding, injected into the game). When changing anything that crosses the process boundary, grep both repos and update matching call sites in the same logical change:
+
+- **Pipe name**: producer publishes `\\.\pipe\BotWithUs_<pid>`. Java side: `core/.../pipe/PipeClient.java` (`NAME_PREFIX`, `firstAvailableOrThrow`), all `new PipeClient(...)` callers.
+- **SHM mapping**: producer publishes `Local\nxt_snapshot_<pid>`. Java side: `core/.../shm/Layout.java` (`MAPPING_NAME_PREFIX`), `SharedRegion`.
+- **Wire protocol version**: `Layout.PROTOCOL_VERSION` must equal `kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h`. SHM `open()` validates and refuses mismatched versions.
+- **Event-type discriminators**: `Layout.EVT_*` mirrors `kEvent*` enum in `NXTLibrary/src/ipc/Events.h`. Decoder switch arms in `EventRingReader` must cover every type the producer emits.
+- **Wire body shapes**: each `api/.../event/*Event.java` constructor mirrors a POD struct in `NXTLibrary/src/ipc/Events.h`. Field order is load-bearing for the byte-offset decoders.
+- **Snapshot field offsets**: `Layout.SNAP_*` / `LP_*` / `NPC_*` mirror `NXTLibrary/src/ipc/SharedLayout.h`. Static_asserts on the C++ side will catch divergent strides at compile time, but Java side is untyped — keep the offset constants in lockstep.
+- **RPC method names + param shapes**: each `rpc.callSync(<name>, ...)` in `GameAPIImpl` matches a handler in `NXTLibrary/src/rpc/Handlers.cpp`. New RPCs land in both files together.
+
 Group: `com.botwithus` | Java 21 | Gradle 8.14 (Kotlin DSL) | JUnit 5
 
 ## Build Commands
