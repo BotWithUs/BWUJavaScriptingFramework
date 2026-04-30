@@ -1,15 +1,12 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
-import com.botwithus.bot.api.blueprint.BlueprintGraph;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.stream.StreamManager;
-import com.botwithus.bot.core.blueprint.execution.BlueprintBotScript;
-import com.botwithus.bot.core.blueprint.serialization.BlueprintSerializer;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
@@ -283,23 +280,12 @@ public class CliContext {
     }
 
     /**
-     * Scans the {@code scripts/blueprints/} directory for {@code *.blueprint.json} files,
-     * deserializes each into a {@link BlueprintGraph}, and wraps them as {@link BlueprintBotScript} instances.
+     * Stub: blueprint loading was removed in slice 3 (the blueprint
+     * subsystem depended on the legacy RPC-shaped read surface). Returns
+     * an empty list so callers don't need a guard.
      */
     public List<BotScript> loadBlueprints() {
-        Path dir = Path.of("scripts", "blueprints");
-        if (!Files.isDirectory(dir)) return List.of();
-        try {
-            List<BlueprintGraph> graphs = BlueprintSerializer.loadAllFromDirectory(dir);
-            List<BotScript> scripts = new ArrayList<>();
-            for (BlueprintGraph graph : graphs) {
-                scripts.add(new BlueprintBotScript(graph));
-            }
-            return scripts;
-        } catch (Exception e) {
-            log.error("Failed to load blueprints", e);
-            return List.of();
-        }
+        return List.of();
     }
 
     /**

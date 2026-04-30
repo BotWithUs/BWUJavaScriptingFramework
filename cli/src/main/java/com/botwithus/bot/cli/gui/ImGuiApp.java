@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
-import com.botwithus.bot.cli.blueprint.BlueprintEditor;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.impl.*;
 import com.botwithus.bot.cli.gui.loader.LoaderScreen;
@@ -71,9 +70,6 @@ public class ImGuiApp extends Application {
     private int selectedPanel = 0;
     private float dpiScale = 1f;
 
-    // Blueprint editor mode
-    private boolean editorMode = false;
-    private BlueprintEditor blueprintEditor;
 
     // Script custom UI window (floating window)
     private ScriptUIWindow scriptUIWindow;
@@ -261,9 +257,6 @@ public class ImGuiApp extends Application {
         launcherRenderer.setBwuClient(bwu);
         launcherRenderer.setExecutor(executor);
 
-        // Initialize blueprint editor
-        blueprintEditor = new BlueprintEditor();
-
         // Initialize script UI window and wire opener
         scriptUIWindow = new ScriptUIWindow();
         ctx.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
@@ -311,14 +304,6 @@ public class ImGuiApp extends Application {
             return;
         }
 
-        // Toggle editor mode with F2 (only in advanced mode)
-        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F2) && currentMode == AppMode.ADVANCED) {
-            editorMode = !editorMode;
-            if (!editorMode && blueprintEditor != null) {
-                blueprintEditor.dispose();
-            }
-        }
-
         // Cycle app mode with F12: Launcher → Normal → Advanced → Launcher
         if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F12)) {
             currentMode = switch (currentMode) {
@@ -326,7 +311,6 @@ public class ImGuiApp extends Application {
                 case NORMAL -> AppMode.ADVANCED;
                 case ADVANCED -> AppMode.LAUNCHER;
             };
-            editorMode = false; // exit editor when switching modes
         }
 
         // Full-window imgui window — use main viewport pos for correct placement with viewports enabled
@@ -337,36 +321,17 @@ public class ImGuiApp extends Application {
         int windowFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove
                 | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoBringToFrontOnFocus;
 
-        if (editorMode && currentMode == AppMode.ADVANCED) {
-            windowFlags |= ImGuiWindowFlags.MenuBar;
-        }
-
         ImGui.begin("##main", windowFlags);
 
-        // Top bar with mode tabs (always visible, unless in blueprint editor)
-        if (!editorMode) {
-            AppMode toggled = topBar.render(currentMode, dpiScale, ctx);
-            if (toggled != null && toggled != currentMode) {
-                currentMode = toggled;
-            }
+        AppMode toggled = topBar.render(currentMode, dpiScale, ctx);
+        if (toggled != null && toggled != currentMode) {
+            currentMode = toggled;
         }
 
-        // Route to the appropriate mode renderer
-        if (editorMode && currentMode == AppMode.ADVANCED) {
-            try {
-                blueprintEditor.render();
-            } catch (Exception e) {
-                editorMode = false;
-                outputBuffer.getPrintStream().println("Blueprint editor error: " + e.getMessage());
-                e.printStackTrace();
-                blueprintEditor.dispose();
-            }
-        } else {
-            switch (currentMode) {
-                case LAUNCHER -> renderLauncherMode();
-                case NORMAL -> renderUserMode();
-                case ADVANCED -> renderDeveloperMode();
-            }
+        switch (currentMode) {
+            case LAUNCHER -> renderLauncherMode();
+            case NORMAL -> renderUserMode();
+            case ADVANCED -> renderDeveloperMode();
         }
 
         ImGui.end();
