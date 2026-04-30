@@ -5,6 +5,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.shm.SharedRegionEventPump;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,7 @@ public class Connection {
     private final RpcClient rpc;
     private final ScriptRuntime runtime;
     private EventBusImpl eventBus;
+    private SharedRegionEventPump eventPump;
     private String accountName;
     private java.util.Map<String, Object> accountInfo;
 
@@ -35,6 +37,9 @@ public class Connection {
 
     public void setEventBus(EventBusImpl eventBus) { this.eventBus = eventBus; }
     public EventBusImpl getEventBus() { return eventBus; }
+
+    public void setEventPump(SharedRegionEventPump pump) { this.eventPump = pump; }
+    public SharedRegionEventPump getEventPump() { return eventPump; }
 
     public void setAccountName(String accountName) { this.accountName = accountName; }
     public String getAccountName() { return accountName; }
@@ -56,6 +61,11 @@ public class Connection {
     public void close() {
         try { runtime.stopAll(); } catch (Exception e) {
             log.error("Error stopping scripts for {}", name, e);
+        }
+        if (eventPump != null) {
+            try { eventPump.close(); } catch (Exception e) {
+                log.error("Error stopping event pump for {}", name, e);
+            }
         }
         try { rpc.close(); } catch (Exception e) {
             log.error("Error closing RPC for {}", name, e);

@@ -1,6 +1,19 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.api.event.ActionExecutedEvent;
+import com.botwithus.bot.api.event.BreakEndedEvent;
+import com.botwithus.bot.api.event.BreakStartedEvent;
+import com.botwithus.bot.api.event.ChatMessageEvent;
 import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.KeyInputEvent;
+import com.botwithus.bot.api.event.LoginStateChangeEvent;
+import com.botwithus.bot.api.event.TickEvent;
+import com.botwithus.bot.api.event.VarChangeEvent;
+import com.botwithus.bot.api.event.VarbitChangeEvent;
+import com.botwithus.bot.api.event.VarcChangeEvent;
+import com.botwithus.bot.api.event.WalkArrivedEvent;
+import com.botwithus.bot.api.event.WalkCancelledEvent;
+import com.botwithus.bot.api.event.WalkFailedEvent;
 
 /**
  * Standalone smoke-test entry point for the shared-memory bridge. Validates
@@ -83,31 +96,33 @@ public final class SnapshotProbe {
     /** Small switch to render an inline event summary; better than relying on toString() since the event types don't override it. */
     private static String summarise(GameEvent ev) {
         return switch (ev) {
-            case com.botwithus.bot.api.event.LoginStateChangeEvent e ->
+            case LoginStateChangeEvent e ->
                     "old=" + e.getOldState() + " new=" + e.getNewState();
-            case com.botwithus.bot.api.event.TickEvent e ->
+            case TickEvent e ->
                     "tick=" + e.getTick();
-            case com.botwithus.bot.api.event.VarChangeEvent e ->
+            case VarChangeEvent e ->
                     "id=" + e.getVarId() + " " + e.getOldValue() + "->" + e.getNewValue();
-            case com.botwithus.bot.api.event.VarbitChangeEvent e ->
+            case VarcChangeEvent e ->
                     "id=" + e.getVarId() + " " + e.getOldValue() + "->" + e.getNewValue();
-            case com.botwithus.bot.api.event.ChatMessageEvent e ->
+            case VarbitChangeEvent e ->
+                    "id=" + e.getVarId() + " " + e.getOldValue() + "->" + e.getNewValue();
+            case ChatMessageEvent e ->
                     "type=" + e.getMessage().messageType()
                             + " from=" + e.getMessage().playerName()
                             + " text='" + e.getMessage().text() + "'";
-            case com.botwithus.bot.api.event.KeyInputEvent e ->
+            case KeyInputEvent e ->
                     "key=" + e.getKey() + " alt=" + e.isAlt() + " ctrl=" + e.isCtrl() + " shift=" + e.isShift();
-            case com.botwithus.bot.api.event.ActionExecutedEvent e ->
+            case ActionExecutedEvent e ->
                     "action=" + e.getActionId();
-            case com.botwithus.bot.api.event.BreakStartedEvent e ->
+            case BreakStartedEvent e ->
                     "duration=" + e.getDurationSeconds() + "s fatigue=" + e.getFatigue() + " risk=" + e.getRisk();
-            case com.botwithus.bot.api.event.BreakEndedEvent ignored ->
+            case BreakEndedEvent ignored ->
                     "";
-            case com.botwithus.bot.api.event.WalkArrivedEvent e ->
+            case WalkArrivedEvent e ->
                     "tile=(" + e.getTargetX() + "," + e.getTargetY() + ")";
-            case com.botwithus.bot.api.event.WalkCancelledEvent e ->
+            case WalkCancelledEvent e ->
                     "tile=(" + e.getTargetX() + "," + e.getTargetY() + ")";
-            case com.botwithus.bot.api.event.WalkFailedEvent e ->
+            case WalkFailedEvent e ->
                     "tile=(" + e.getTargetX() + "," + e.getTargetY() + ")";
             default -> "(no summary)";
         };
