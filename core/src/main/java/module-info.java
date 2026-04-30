@@ -19,4 +19,5 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.rpc;
     exports com.botwithus.bot.core.runtime;
     exports com.botwithus.bot.core.loader;
+    exports com.botwithus.bot.core.shm;
 }
