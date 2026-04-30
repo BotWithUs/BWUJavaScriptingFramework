@@ -144,14 +144,29 @@ public interface GameSnapshot {
 
 ---
 
-## Slice 4 — Mutation RPC handlers, C++ side (~3-5 days)
+## Slice 4 — Mutation RPC handlers, C++ side
+
+> **Status update**: when slice 4 was opened we found `NXTLibrary/src/`
+> has *none* of the legacy subsystems (no action queue, walker, nav
+> graph, login mgr, break mgr, humanizer) — they lived only in the old
+> legacy DLL. Slice 4 was therefore split:
+>
+> - **Slice 4-stubs (DONE)** — `NXTLibrary/src/rpc/Handlers.cpp`
+>   commit `3f2a10e`. Every RPC name listed below is registered with
+>   a sentinel response so Java's `GameAPIImpl` decodes without
+>   `method not found` and without NPE.
+> - **Slice 4-impl (deferred)** — design + build each producer
+>   subsystem in freestanding C++ and replace its stub. See
+>   `NXTLibrary/claudedocs/CPP_SUBSYSTEMS_PLAN.md` for the build-order
+>   roadmap, freestanding constraints, and per-subsystem effort
+>   estimates.
 
 **Goal**: implement the wire-side public contract for state-mutating operations. Each handler is a versioned API surface — names and shapes get pinned now.
 
 **Files to modify** (`NXTLibrary/src/`):
 - `rpc/Handlers.cpp` — add `Handle_*` functions and entries in `g_methods[]`
 - New `.cpp` files per logical group if Handlers.cpp gets too long (linker-pulled, see existing comment in `Handlers.cpp:90-96`)
-- Existing C++ subsystems likely need audit/repair: action queue, walker, nav graph, login control, break manager, humanizer
+- Existing C++ subsystems likely need audit/repair: action queue, walker, nav graph, login control, break manager, humanizer **(reality: subsystems do not exist; build from scratch — see CPP_SUBSYSTEMS_PLAN.md)**
 
 **Handler list** (each is `bool Handle_X(Reader&, Writer&)` + entry in `g_methods[]`):
 
