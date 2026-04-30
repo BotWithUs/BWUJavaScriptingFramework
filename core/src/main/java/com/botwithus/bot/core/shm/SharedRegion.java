@@ -1,11 +1,13 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.core.pipe.PipeClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.List;
+import java.util.OptionalLong;
 
 /**
  * Opens and owns the kernel-named file mapping
@@ -39,6 +41,57 @@ public final class SharedRegion implements AutoCloseable {
 
     private long expectedSize;
     private boolean closed;
+
+    /**
+     * Pipe-name prefix the producer uses; matches NXTLibrary's pipe-server
+     * format {@code BotWithUs_<pid>}. Discovery here piggy-backs on the same
+     * scan that {@link PipeClient#scanPipes(String)} does for the RPC side —
+     * if the DLL is up, both the pipe and the snapshot mapping exist.
+     */
+    public static final String PIPE_PREFIX = "BotWithUs_";
+
+    /**
+     * Scan running pipes whose names match the producer's prefix and return
+     * the embedded pids in scan order. Empty list if no game has the DLL
+     * injected. Each returned pid is plumbable into {@link #open(long)}.
+     */
+    public static List<Long> discoverPids() {
+        return PipeClient.scanPipes(PIPE_PREFIX).stream()
+                .map(SharedRegion::parsePid)
+                .filter(OptionalLong::isPresent)
+                .map(OptionalLong::getAsLong)
+                .toList();
+    }
+
+    /**
+     * Convenience for the single-game case: returns the first discovered
+     * pid wrapped in a region, or empty if none. Throws if the discovered
+     * pid exists but the mapping fails to bind.
+     */
+    public static java.util.Optional<SharedRegion> openFirstAvailable() {
+        return discoverPids().stream().findFirst().map(SharedRegion::open);
+    }
+
+    /**
+     * Parse the embedded pid out of a {@code BotWithUs_<pid>} pipe name as
+     * returned by {@link PipeClient#scanPipes(String)}. Returns empty if
+     * the suffix isn't a valid u32 decimal.
+     */
+    public static OptionalLong parsePid(String pipeName) {
+        if (pipeName == null || !pipeName.startsWith(PIPE_PREFIX)) {
+            return OptionalLong.empty();
+        }
+        String suffix = pipeName.substring(PIPE_PREFIX.length());
+        if (suffix.isEmpty()) return OptionalLong.empty();
+        for (int i = 0; i < suffix.length(); ++i) {
+            if (!Character.isDigit(suffix.charAt(i))) return OptionalLong.empty();
+        }
+        try {
+            return OptionalLong.of(Long.parseLong(suffix));
+        } catch (NumberFormatException e) {
+            return OptionalLong.empty();
+        }
+    }
 
     /**
      * Open the mapping for the game process with the given pid.

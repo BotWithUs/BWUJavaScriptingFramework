@@ -20,11 +20,25 @@ public final class SnapshotProbe {
     private SnapshotProbe() {}
 
     public static void main(String[] args) throws InterruptedException {
-        if (args.length < 1) {
-            System.err.println("usage: SnapshotProbe <pid>");
-            System.exit(2);
+        long pid;
+        if (args.length >= 1) {
+            pid = Long.parseLong(args[0]);
+        } else {
+            // No pid given — discover via pipe scan. Pipe + snapshot are
+            // created together by the DLL, so any visible pipe pairs with
+            // a bindable snapshot mapping.
+            var discovered = SharedRegion.discoverPids();
+            if (discovered.isEmpty()) {
+                System.err.println("No BotWithUs_<pid> pipes found. Is the DLL injected?");
+                System.err.println("usage: SnapshotProbe [<pid>]");
+                System.exit(2);
+                return;
+            }
+            if (discovered.size() > 1) {
+                System.err.println("Multiple games detected: " + discovered + " — picking first.");
+            }
+            pid = discovered.getFirst();
         }
-        long pid = Long.parseLong(args[0]);
 
         try (SharedRegion region = SharedRegion.open(pid)) {
             System.out.println("Bound to pid=" + pid + " (frontIdx=" + region.frontIdx() + ")");
