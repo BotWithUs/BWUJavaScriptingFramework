@@ -42,13 +42,16 @@ public class JBotApplication {
             MessageBusImpl messageBus = new MessageBusImpl();
             GameAPIImpl gameAPI = new GameAPIImpl(rpc);
             ClientProviderImpl clientProvider = new ClientProviderImpl();
-            clientProvider.putClient(pipeName, new ClientImpl(pipeName, gameAPI, eventBus, pipe::isOpen));
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
             rpc.start();
 
             // Game events arrive via the SHM ring; the pipe is RPC-only.
+            // Pump opens the SHM mapping and owns its lifetime — ClientImpl
+            // borrows the same region for snapshot reads.
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+            clientProvider.putClient(pipeName,
+                    new ClientImpl(pipeName, gameAPI, eventBus, pipe::isOpen, pump.region()));
 
             // Discover scripts from scripts/ directory (drop JARs there)
             List<BotScript> scripts = SDNScriptLoader.loadScripts();
