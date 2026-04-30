@@ -4,7 +4,6 @@ import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
-import com.botwithus.bot.core.impl.EventDispatcher;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
@@ -13,6 +12,8 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.shm.SharedRegionEventPump;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +33,9 @@ public class JBotApplication {
         // here means no game has the DLL loaded, which we surface to the
         // operator via the catch below.
         String pipeName = PipeClient.firstAvailableOrThrow();
-        log.info("Connecting to pipe {}", pipeName);
+        long pid = SharedRegion.parsePid(pipeName).orElseThrow(() ->
+                new IllegalStateException("Discovered pipe '" + pipeName + "' has no embedded pid"));
+        log.info("Connecting to pipe {} (pid={})", pipeName, pid);
         try (PipeClient pipe = new PipeClient(pipeName)) {
             RpcClient rpc = new RpcClient(pipe);
             EventBusImpl eventBus = new EventBusImpl();
@@ -42,11 +45,10 @@ public class JBotApplication {
             clientProvider.putClient(pipeName, new ClientImpl(pipeName, gameAPI, eventBus, pipe::isOpen));
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
-            // Route pipe events to the typed event bus and enable auto-subscription
-            EventDispatcher dispatcher = new EventDispatcher(eventBus);
-            dispatcher.bindAutoSubscription(gameAPI);
-            rpc.setEventHandler(dispatcher::dispatch);
             rpc.start();
+
+            // Game events arrive via the SHM ring; the pipe is RPC-only.
+            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
 
             // Discover scripts from scripts/ directory (drop JARs there)
             List<BotScript> scripts = SDNScriptLoader.loadScripts();
@@ -65,6 +67,7 @@ public class JBotApplication {
                 log.info("Shutting down...");
                 scriptManager.shutdown();
                 runtime.stopAll();
+                pump.close();
                 rpc.close();
             }));
 

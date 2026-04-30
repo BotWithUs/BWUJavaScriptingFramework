@@ -54,39 +54,11 @@ public interface GameAPI extends SystemAPI, ActionAPI, EntityQueryAPI, Component
     List<String> listMethods();
 
     /**
-     * Subscribes to a named game event so it is forwarded over the pipe.
-     *
-     * @param event the event name to subscribe to
-     */
-    void subscribe(String event);
-
-    /**
-     * Unsubscribes from a previously subscribed game event.
-     *
-     * @param event the event name to unsubscribe from
-     */
-    void unsubscribe(String event);
-
-    /**
      * Returns the number of clients currently connected to the pipe server.
      *
      * @return the connected client count
      */
     int getClientCount();
-
-    /**
-     * Lists all available event names that can be subscribed to.
-     *
-     * @return a list of event names
-     */
-    List<String> listEvents();
-
-    /**
-     * Returns the calling client's current event subscriptions.
-     *
-     * @return a list of subscribed event names
-     */
-    List<String> getSubscriptions();
 
     // ============================== Actions ==============================
 

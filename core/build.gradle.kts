@@ -20,3 +20,18 @@ tasks.register<JavaExec>("benchmark") {
     mainClass = "com.botwithus.bot.core.rpc.RpcBenchmark"
     // Pass CLI args: ./gradlew :core:benchmark --args="-n 2000 --markdown"
 }
+
+tasks.register<JavaExec>("snapshotProbe") {
+    description = "Smoke-test the shared-memory bridge against a live injected DLL"
+    group = "verification"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "com.botwithus.bot.core.shm.SnapshotProbe"
+    // Pass CLI args: ./gradlew :core:snapshotProbe --args="32784"
+}
+
+tasks.register<JavaExec>("eventPumpProbe") {
+    description = "End-to-end check of the slice-3 bridge: pump -> bus -> subscriber"
+    group = "verification"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "com.botwithus.bot.core.shm.EventPumpProbe"
+}

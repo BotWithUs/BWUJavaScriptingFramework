@@ -40,39 +40,9 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
-    public void subscribe(String event) {
-        rpc.callSync("rpc.subscribe", Map.of("event", event));
-    }
-
-    @Override
-    public void unsubscribe(String event) {
-        rpc.callSync("rpc.unsubscribe", Map.of("event", event));
-    }
-
-    @Override
     public int getClientCount() {
         Map<String, Object> r = rpc.callSync("rpc.client_count", Map.of());
         return getInt(r, "count");
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public List<String> listEvents() {
-        Object raw = rpc.callSyncRaw("rpc.list_events", Map.of());
-        if (raw instanceof List<?> list) {
-            return list.stream().map(Object::toString).toList();
-        }
-        return List.of();
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public List<String> getSubscriptions() {
-        Object raw = rpc.callSyncRaw("rpc.get_subscriptions", Map.of());
-        if (raw instanceof List<?> list) {
-            return list.stream().map(Object::toString).toList();
-        }
-        return List.of();
     }
 
     // ========================== Actions ==========================

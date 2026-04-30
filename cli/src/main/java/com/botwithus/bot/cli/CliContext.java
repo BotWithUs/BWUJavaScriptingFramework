@@ -15,7 +15,6 @@ import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
-import com.botwithus.bot.core.impl.EventDispatcher;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
@@ -23,6 +22,8 @@ import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.shm.SharedRegionEventPump;
 
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.cli.watch.ScriptWatcher;
@@ -164,41 +165,44 @@ public class CliContext {
     }
 
     public void connect(String pipeName) {
-        String connName = pipeName != null ? pipeName : "BotWithUs";
-        if (connections.containsKey(connName)) {
-            out().println("Already connected to '" + connName + "'. Use 'use " + connName + "' to switch.");
+        String resolvedName = pipeName != null ? pipeName : PipeClient.firstAvailableOrThrow();
+        if (connections.containsKey(resolvedName)) {
+            out().println("Already connected to '" + resolvedName + "'. Use 'use " + resolvedName + "' to switch.");
             return;
         }
+        long pid = SharedRegion.parsePid(resolvedName).orElseThrow(() ->
+                new IllegalStateException("Pipe '" + resolvedName + "' has no embedded pid"));
         try {
-            PipeClient pipe = pipeName != null ? new PipeClient(pipeName) : new PipeClient();
+            PipeClient pipe = new PipeClient(resolvedName);
             RpcClient rpc = new RpcClient(pipe);
-            rpc.setConnectionName(connName);
+            rpc.setConnectionName(resolvedName);
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
             GameAPIImpl gameAPI = new GameAPIImpl(rpc);
-            ClientImpl client = new ClientImpl(connName, gameAPI, eventBus, pipe::isOpen);
-            clientProvider.putClient(connName, client);
+            ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen);
+            clientProvider.putClient(resolvedName, client);
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
-            var dispatcher = new EventDispatcher(eventBus);
-            dispatcher.bindAutoSubscription(gameAPI);
-            rpc.setEventHandler(dispatcher::dispatch);
             rpc.start();
 
+            // Game events arrive via the SHM ring; the pipe is RPC-only.
+            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+
             ScriptRuntime runtime = new ScriptRuntime(context);
-            runtime.setConnectionName(connName);
+            runtime.setConnectionName(resolvedName);
 
             // Wire up ScriptManager so scripts can manage other scripts
             var scriptManager = new ScriptManagerImpl(runtime);
             context.setScriptManager(scriptManager);
 
-            Connection conn = new Connection(connName, pipe, rpc, runtime);
+            Connection conn = new Connection(resolvedName, pipe, rpc, runtime);
             conn.setEventBus(eventBus);
-            connections.put(connName, conn);
-            activeConnectionName = connName;
+            conn.setEventPump(pump);
+            connections.put(resolvedName, conn);
+            activeConnectionName = resolvedName;
             out().println("Connected to pipe: " + pipe.getPipePath());
             if (connections.size() > 1) {
-                out().println("Active connection set to '" + connName + "'.");
+                out().println("Active connection set to '" + resolvedName + "'.");
             }
         } catch (Exception e) {
             out().println("Connection failed: " + e.getMessage());

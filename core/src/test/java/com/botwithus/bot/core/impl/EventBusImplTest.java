@@ -68,14 +68,6 @@ class EventBusImplTest {
     }
 
     @Test
-    void firstSubscribeHook() {
-        AtomicReference<Class<?>> hookedType = new AtomicReference<>();
-        bus.setSubscriptionHooks(hookedType::set, t -> {});
-        bus.subscribe(TestEvent.class, e -> {});
-        assertEquals(TestEvent.class, hookedType.get());
-    }
-
-    @Test
     void eventCounts() {
         bus.subscribe(TestEvent.class, e -> {});
         bus.publish(new TestEvent("a"));

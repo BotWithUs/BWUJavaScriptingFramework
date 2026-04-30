@@ -139,7 +139,7 @@ public final class EventRingReader {
             case Layout.EVT_TICK               -> decodeTick(bodyOff, bodyLen);
             case Layout.EVT_VAR_CHANGE         -> decodeVarChange(bodyOff, bodyLen);
             case Layout.EVT_VARBIT_CHANGE      -> decodeVarbitChange(bodyOff, bodyLen);
-            case Layout.EVT_VARC_CHANGE        -> null;     // no Java event class yet
+            case Layout.EVT_VARC_CHANGE        -> decodeVarcChange(bodyOff, bodyLen);
             case Layout.EVT_CHAT_MESSAGE       -> decodeChatMessage(bodyOff, bodyLen);
             case Layout.EVT_KEY_INPUT          -> decodeKeyInput(bodyOff, bodyLen);
             case Layout.EVT_ACTION_EXECUTED    -> decodeActionExecuted(bodyOff, bodyLen);
@@ -171,6 +171,14 @@ public final class EventRingReader {
         int oldV  = ring.get(ValueLayout.JAVA_INT, off + 4);
         int newV  = ring.get(ValueLayout.JAVA_INT, off + 8);
         return new VarChangeEvent(id, oldV, newV);
+    }
+
+    private VarcChangeEvent decodeVarcChange(long off, int len) {
+        if (len < 12) return null;
+        int id    = ring.get(ValueLayout.JAVA_INT, off);
+        int oldV  = ring.get(ValueLayout.JAVA_INT, off + 4);
+        int newV  = ring.get(ValueLayout.JAVA_INT, off + 8);
+        return new VarcChangeEvent(id, oldV, newV);
     }
 
     private VarbitChangeEvent decodeVarbitChange(long off, int len) {
