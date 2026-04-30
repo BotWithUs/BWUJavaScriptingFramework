@@ -179,14 +179,16 @@ public class CliContext {
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
             GameAPIImpl gameAPI = new GameAPIImpl(rpc);
-            ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen);
-            clientProvider.putClient(resolvedName, client);
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
             rpc.start();
 
             // Game events arrive via the SHM ring; the pipe is RPC-only.
+            // Pump opens the SHM mapping and owns its lifetime — ClientImpl
+            // borrows the same region for snapshot reads.
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+            ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen, pump.region());
+            clientProvider.putClient(resolvedName, client);
 
             ScriptRuntime runtime = new ScriptRuntime(context);
             runtime.setConnectionName(resolvedName);

@@ -14,12 +14,15 @@ import com.botwithus.bot.api.event.VarcChangeEvent;
 import com.botwithus.bot.api.event.WalkArrivedEvent;
 import com.botwithus.bot.api.event.WalkCancelledEvent;
 import com.botwithus.bot.api.event.WalkFailedEvent;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 
 /**
- * Standalone smoke-test entry point for the shared-memory bridge. Validates
- * end-to-end that the producer side (NXTLibrary DLL) and consumer side
- * (this package) agree on the wire layout, before we rip out the existing
- * pipe-events path in {@code EventDispatcher}.
+ * Standalone smoke-test entry point for the shared-memory bridge. Exercises
+ * the public {@code api.snapshot} surface against a live injected DLL —
+ * confirms the producer side and the public consumer types agree on the
+ * wire layout.
  *
  * <pre>{@code
  *   java -p <classpath> -m com.botwithus.bot.core/com.botwithus.bot.core.shm.SnapshotProbe <pid>
@@ -65,21 +68,22 @@ public final class SnapshotProbe {
 
                 long now = System.currentTimeMillis();
                 if (now - lastSnapshotPrint >= 1000) {
-                    SnapshotView s = region.snapshot();
-                    if (s.tickId() != lastTick) {
+                    GameSnapshot snap = new GameSnapshotImpl(region.snapshot());
+                    if (snap.tickId() != lastTick) {
+                        LocalPlayer self = snap.self();
                         System.out.printf(
                                 "[t=%d] tick=%d state=%d ownIdx=%d npcs=%d players=%d invs=%d skills=%d (drops: writer=%d reader=%d)%n",
                                 now / 1000,
-                                s.tickId(),
-                                s.gameState(),
-                                s.ownIndex(),
-                                s.npcCount(),
-                                s.playerCount(),
-                                s.inventoryCount(),
-                                s.self().skillCount(),
+                                snap.tickId(),
+                                snap.gameState(),
+                                snap.ownIndex(),
+                                snap.npcs().count(),
+                                snap.players().count(),
+                                snap.inventories().count(),
+                                self == null ? 0 : self.skills().size(),
                                 events.writerSideDroppedCount(),
                                 events.droppedCount());
-                        lastTick = s.tickId();
+                        lastTick = snap.tickId();
                     }
                     lastSnapshotPrint = now;
                 }
