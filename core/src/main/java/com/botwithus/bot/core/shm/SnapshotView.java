@@ -25,7 +25,7 @@ public final class SnapshotView {
 
     private final MemorySegment seg;
 
-    SnapshotView(MemorySegment seg) {
+    public SnapshotView(MemorySegment seg) {
         this.seg = seg;
     }
 
