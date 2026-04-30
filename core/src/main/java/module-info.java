@@ -14,6 +14,7 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.config;
     exports com.botwithus.bot.core.crypto;
     exports com.botwithus.bot.core.impl;
+    exports com.botwithus.bot.core.impl.snapshot;
     exports com.botwithus.bot.core.msgpack;
     exports com.botwithus.bot.core.pipe;
     exports com.botwithus.bot.core.rpc;
