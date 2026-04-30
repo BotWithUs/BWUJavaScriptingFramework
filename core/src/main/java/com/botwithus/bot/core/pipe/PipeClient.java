@@ -25,19 +25,47 @@ public class PipeClient implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(PipeClient.class);
     static final String PIPE_PREFIX = "\\\\.\\pipe\\";
-    private static final String DEFAULT_PIPE_NAME = "BotWithUs";
+
+    /**
+     * Producer-side name prefix. NXTLibrary publishes one pipe per injected
+     * game as {@code BotWithUs_<pid>}; the legacy single {@code BotWithUs}
+     * name (no suffix) was retired so the suffix doubles as a discovery key
+     * for the snapshot mapping at {@code Local\nxt_snapshot_<pid>}.
+     */
+    public static final String NAME_PREFIX = "BotWithUs_";
 
     private final String pipePath;
     private volatile Transport transport;
     private volatile boolean open = true;
 
+    /**
+     * Auto-discover: scans for an available {@code BotWithUs_<pid>} pipe and
+     * connects to the first match. Throws {@link PipeException} if none is
+     * visible — i.e. the DLL isn't injected into any running game.
+     *
+     * <p>For multi-game setups, prefer the explicit-name constructor with a
+     * pid you've selected via {@link #scanPipes()}.</p>
+     */
     public PipeClient() {
-        this(DEFAULT_PIPE_NAME);
+        this(firstAvailableOrThrow());
     }
 
     public PipeClient(String pipeName) {
         this.pipePath = PIPE_PREFIX + pipeName;
         this.transport = openTransport(pipePath);
+    }
+
+    /**
+     * Returns the first pipe name matching {@link #NAME_PREFIX}, or throws
+     * {@link PipeException} if none is visible.
+     */
+    public static String firstAvailableOrThrow() {
+        List<String> candidates = scanPipes(NAME_PREFIX);
+        if (candidates.isEmpty()) {
+            throw new PipeException(
+                    "No " + NAME_PREFIX + "<pid> pipes visible — is the BotWithUs DLL injected?");
+        }
+        return candidates.getFirst();
     }
 
     static Transport openTransport(String pipePath) {
