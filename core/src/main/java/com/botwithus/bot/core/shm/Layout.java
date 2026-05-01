@@ -23,7 +23,7 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h. */
-    public static final int PROTOCOL_VERSION = 9;
+    public static final int PROTOCOL_VERSION = 10;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -144,10 +144,15 @@ public final class Layout {
     // them, so a layout audit can read the formulae directly.
     // ------------------------------------------------------------------
 
-    public static final int SNAP_TICKID_OFFSET     = 0;     // u64
-    public static final int SNAP_GAMESTATE_OFFSET  = 8;     // i32
-    public static final int SNAP_OWNINDEX_OFFSET   = 12;    // i32
-    public static final int SNAP_SELF_OFFSET       = 16;    // LocalPlayer
+    public static final int SNAP_TICKID_OFFSET       = 0;     // u64
+    public static final int SNAP_GAMESTATE_OFFSET    = 8;     // i32
+    public static final int SNAP_OWNINDEX_OFFSET     = 12;    // i32
+    /** Active root interface id (e.g. 1477 in resizable HUD mode); -1 when no root mounted. */
+    public static final int SNAP_ROOTIFACEID_OFFSET  = 16;    // i32
+    // Slot at +20 is _reserved0 (i32) — pad to keep the producer block 8-aligned;
+    // not accessed from Java but the offset must be reserved here so SNAP_SELF_OFFSET
+    // matches the C++ side. See SharedLayout.h Snapshot::_reserved0 for rationale.
+    public static final int SNAP_SELF_OFFSET         = 24;    // LocalPlayer
 
     public static final int SNAP_NPCCOUNT_OFFSET   = SNAP_SELF_OFFSET + LOCAL_PLAYER_SIZE;
     public static final int SNAP_NPCS_OFFSET       = SNAP_NPCCOUNT_OFFSET + 4;

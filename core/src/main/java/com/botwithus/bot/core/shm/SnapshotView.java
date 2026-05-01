@@ -29,9 +29,10 @@ public final class SnapshotView {
         this.seg = seg;
     }
 
-    public long tickId()    { return seg.get(ValueLayout.JAVA_LONG, Layout.SNAP_TICKID_OFFSET); }
-    public int  gameState() { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_GAMESTATE_OFFSET); }
-    public int  ownIndex()  { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_OWNINDEX_OFFSET); }
+    public long tickId()      { return seg.get(ValueLayout.JAVA_LONG, Layout.SNAP_TICKID_OFFSET); }
+    public int  gameState()   { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_GAMESTATE_OFFSET); }
+    public int  ownIndex()    { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_OWNINDEX_OFFSET); }
+    public int  rootIfaceId() { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_ROOTIFACEID_OFFSET); }
 
     public LocalPlayerView self() {
         return new LocalPlayerView(seg.asSlice(Layout.SNAP_SELF_OFFSET, Layout.LOCAL_PLAYER_SIZE));
