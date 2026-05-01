@@ -2,6 +2,7 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.ActionEntry;
+import Component;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.ItemType;
@@ -176,6 +177,29 @@ public class GameAPIImpl implements GameAPI {
     }
 
     // ---------------------------------------------------------------- Interface tree walk
+
+    @Override
+    public Component getComponent(int interfaceId, int componentId) {
+        Map<String, Object> r = rpc.callSync("get_component",
+                Map.of("iface", interfaceId, "comp", componentId));
+        // Producer signals "not found" by writing iface=-1 in an otherwise
+        // populated map; map to null on the consumer side.
+        int iface = getInt(r, "iface");
+        if (iface < 0) return null;
+        return new Component(
+                iface,
+                getInt(r, "comp"),
+                getInt(r, "sub"),
+                getInt(r, "x"),
+                getInt(r, "y"),
+                getInt(r, "w"),
+                getInt(r, "h"),
+                getInt(r, "raw_x"),
+                getInt(r, "raw_y"),
+                getInt(r, "width_mode"),
+                getInt(r, "height_mode"),
+                getInt(r, "pos_mode"));
+    }
 
     @Override
     public List<Integer> getStaticChildren(int interfaceId, int componentId) {
