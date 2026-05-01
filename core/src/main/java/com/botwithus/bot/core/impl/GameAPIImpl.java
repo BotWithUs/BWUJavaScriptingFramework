@@ -190,6 +190,7 @@ public class GameAPIImpl implements GameAPI {
                 iface,
                 getInt(r, "comp"),
                 getInt(r, "sub"),
+                getInt(r, "type"),
                 getInt(r, "x"),
                 getInt(r, "y"),
                 getInt(r, "w"),
