@@ -10,6 +10,7 @@ import com.botwithus.bot.api.model.LoginState;
 import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
+import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
 
@@ -111,6 +112,17 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
     void fireKeyTrigger(int interfaceId, int componentId, String input);
 
     // ---------------------------------------------------------------- Interface tree walk
+
+    /**
+     * Returns the component at {@code (interfaceId, componentId)} or
+     * {@code null} when no such component is loaded. Each call is a pipe
+     * round-trip — Phase 1 has no consumer-side cache.
+     *
+     * <p>Phase 1 starter set covers identity + post-layout geometry only;
+     * text, item, sprite, hidden, color, font and other per-type fields
+     * are not yet surfaced and arrive in later slices.</p>
+     */
+    Component getComponent(int interfaceId, int componentId);
 
     /**
      * Returns the static (cache-defined) child component ids of
