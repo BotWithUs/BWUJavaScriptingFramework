@@ -175,6 +175,22 @@ public class GameAPIImpl implements GameAPI {
                 "interface_id", interfaceId, "component_id", componentId, "input", input));
     }
 
+    // ---------------------------------------------------------------- Interface tree walk
+
+    @Override
+    public List<Integer> getStaticChildren(int interfaceId, int componentId) {
+        Map<String, Object> r = rpc.callSync("get_static_children",
+                Map.of("iface", interfaceId, "comp", componentId));
+        return getIntList(r, "children");
+    }
+
+    @Override
+    public List<Integer> getDynamicChildren(int interfaceId, int componentId) {
+        Map<String, Object> r = rpc.callSync("get_dynamic_children",
+                Map.of("iface", interfaceId, "comp", componentId));
+        return getIntList(r, "children");
+    }
+
     // ---------------------------------------------------------------- State probes
 
     @Override

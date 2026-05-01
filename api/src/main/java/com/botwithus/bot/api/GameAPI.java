@@ -13,6 +13,8 @@ import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
 
+import java.util.List;
+
 /**
  * Slim RPC-shaped surface for talking to the game producer. After the
  * GameAPI rewrite (Path B) most legacy reads moved to
@@ -107,6 +109,29 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
 
     /** Fires a key-input trigger on an interface component. */
     void fireKeyTrigger(int interfaceId, int componentId, String input);
+
+    // ---------------------------------------------------------------- Interface tree walk
+
+    /**
+     * Returns the static (cache-defined) child component ids of
+     * {@code (interfaceId, componentId)}. Each call is a pipe round-trip — Phase 1
+     * has no consumer-side cache, so don't loop this in tight code yet.
+     *
+     * <p>The list contains each child's own {@code componentId} within the same
+     * interface; entries equal to {@code -1} indicate a child whose packed
+     * address slot is unset (the producer surfaces the game's {@code 0xFFFF}
+     * sentinel as -1). Returns an empty list when the parent is unresolvable
+     * (interface not loaded, component slot empty, or no static children).</p>
+     */
+    List<Integer> getStaticChildren(int interfaceId, int componentId);
+
+    /**
+     * Returns the dynamic (script-spawned) child component ids of
+     * {@code (interfaceId, componentId)}. Same shape and caveats as
+     * {@link #getStaticChildren(int, int)}; this is the path embedded
+     * dropdowns and other transient sub-trees travel through.
+     */
+    List<Integer> getDynamicChildren(int interfaceId, int componentId);
 
     // ---------------------------------------------------------------- Config-type lookups (slice 5: stubs)
 
