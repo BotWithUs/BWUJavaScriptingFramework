@@ -17,6 +17,12 @@ package com.botwithus.bot.api.model;
  *                      {@code 0xFFFF} sentinel as {@code -1}
  * @param compId        this component's id within {@code ifaceId}
  * @param subId         sub-selector / option index (used by some component types)
+ * @param type          component type byte from {@code vtable[1](comp)}; -1
+ *                      on resolution failure. Different types stash their
+ *                      type-specific fields (text, sprite id, item slot,
+ *                      hidden bit) at different offsets, so this is the
+ *                      dispatch key any per-type read needs. Some known
+ *                      values: type 8 is ButtonComponent.
  * @param x             post-layout screen-space x (pixels)
  * @param y             post-layout screen-space y
  * @param width         post-layout computed width
@@ -42,6 +48,7 @@ public record Component(
         int ifaceId,
         int compId,
         int subId,
+        int type,
         int x,
         int y,
         int width,
