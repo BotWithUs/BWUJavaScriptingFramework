@@ -43,10 +43,19 @@ package com.botwithus.bot.api.model;
  * @param absScreenPos  flag — when nonzero, position is absolute screen
  *                      coordinates regardless of parent
  * @param text          embedded label text for components that carry one
- *                      (Button so far; Combo / Input / List / RadioGroup /
- *                      Slider / Carousel arrive in later slices). Empty
- *                      string when this category doesn't carry text or
- *                      when the embedded string is empty. Never null.
+ *                      (Button / List / Input / Slider / Carousel /
+ *                      Component19 / RadioGroup / GroupBox plus categories
+ *                      2 and 9). Empty string when this category doesn't
+ *                      carry text or when the embedded string is empty.
+ *                      Never null.
+ * @param hidden        tri-state visibility flag:
+ *                      {@code -1} = unsupported (category has no text
+ *                      region — Panel, Grid, Sprite, Box, Line, etc. —
+ *                      until those mechanisms are reverse-engineered);
+ *                      {@code 0} = visible;
+ *                      {@code 1} = hidden.
+ *                      Use {@link #isHidden()} for a forgiving boolean
+ *                      that treats unsupported as visible.
  * @see com.botwithus.bot.api.GameAPI#getComponent
  */
 public record Component(
@@ -67,4 +76,9 @@ public record Component(
         int xSizeMode,
         int ySizeMode,
         int absScreenPos,
-        String text) {}
+        String text,
+        int hidden) {
+
+    /** True iff the producer reported this component is hidden ({@code hidden == 1}). */
+    public boolean isHidden() { return hidden == 1; }
+}

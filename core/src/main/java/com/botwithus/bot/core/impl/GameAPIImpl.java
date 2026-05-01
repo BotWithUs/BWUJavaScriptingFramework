@@ -204,7 +204,8 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "x_size_mode"),
                 getInt(r, "y_size_mode"),
                 getInt(r, "abs_screen_pos"),
-                getString(r, "text"));
+                getString(r, "text"),
+                getInt(r, "hidden"));
     }
 
     @Override
