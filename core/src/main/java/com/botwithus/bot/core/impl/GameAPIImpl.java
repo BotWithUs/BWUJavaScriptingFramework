@@ -196,9 +196,13 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "h"),
                 getInt(r, "raw_x"),
                 getInt(r, "raw_y"),
-                getInt(r, "width_mode"),
-                getInt(r, "height_mode"),
-                getInt(r, "pos_mode"));
+                getInt(r, "raw_w"),
+                getInt(r, "raw_h"),
+                getInt(r, "x_pos_mode"),
+                getInt(r, "y_pos_mode"),
+                getInt(r, "x_size_mode"),
+                getInt(r, "y_size_mode"),
+                getInt(r, "abs_screen_pos"));
     }
 
     @Override
