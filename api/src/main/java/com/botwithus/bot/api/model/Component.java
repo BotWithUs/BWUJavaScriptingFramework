@@ -56,6 +56,12 @@ package com.botwithus.bot.api.model;
  *                      {@code 1} = hidden.
  *                      Use {@link #isHidden()} for a forgiving boolean
  *                      that treats unsupported as visible.
+ * @param spriteId      primary visual reference id — sprite id for Sprite,
+ *                      icon sprite for Button (distinct from the button's
+ *                      label text), and similarly for Input. {@code -1}
+ *                      means either the category carries no graphic
+ *                      sub-region (per sub_CA450's dispatch) or the
+ *                      field is set to "none" / 0xFFFFFFFF.
  * @see com.botwithus.bot.api.GameAPI#getComponent
  */
 public record Component(
@@ -77,7 +83,8 @@ public record Component(
         int ySizeMode,
         int absScreenPos,
         String text,
-        int hidden) {
+        int hidden,
+        int spriteId) {
 
     /** True iff the producer reported this component is hidden ({@code hidden == 1}). */
     public boolean isHidden() { return hidden == 1; }
