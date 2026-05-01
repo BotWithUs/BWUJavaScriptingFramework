@@ -42,6 +42,11 @@ package com.botwithus.bot.api.model;
  * @param ySizeMode     interpretation of {@code rawH}
  * @param absScreenPos  flag — when nonzero, position is absolute screen
  *                      coordinates regardless of parent
+ * @param text          embedded label text for components that carry one
+ *                      (Button so far; Combo / Input / List / RadioGroup /
+ *                      Slider / Carousel arrive in later slices). Empty
+ *                      string when this category doesn't carry text or
+ *                      when the embedded string is empty. Never null.
  * @see com.botwithus.bot.api.GameAPI#getComponent
  */
 public record Component(
@@ -61,4 +66,5 @@ public record Component(
         int yPosMode,
         int xSizeMode,
         int ySizeMode,
-        int absScreenPos) {}
+        int absScreenPos,
+        String text) {}
