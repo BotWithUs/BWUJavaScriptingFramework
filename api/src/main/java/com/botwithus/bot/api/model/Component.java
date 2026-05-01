@@ -62,6 +62,18 @@ package com.botwithus.bot.api.model;
  *                      means either the category carries no graphic
  *                      sub-region (per sub_CA450's dispatch) or the
  *                      field is set to "none" / 0xFFFFFFFF.
+ * @param itemId        ModelComponent (cat 4) primary id. For inventory-
+ *                      slot displays this is the displayed item's id; for
+ *                      NPC / object viewer interfaces it's a model_id.
+ *                      {@code -1} for non-ModelComponents. Always prefer
+ *                      the per-tick {@code Snapshot.inventoryAt(...)}
+ *                      path for actual backpack/bank reads — that comes
+ *                      from {@code InventoryManager} directly without an
+ *                      RPC round-trip and without depending on whether
+ *                      the inventory UI is currently open.
+ * @param itemAmount    paired with {@code itemId}: quantity for inventory
+ *                      slots, animation_id for model viewers. {@code -1}
+ *                      for non-ModelComponents.
  * @see com.botwithus.bot.api.GameAPI#getComponent
  */
 public record Component(
@@ -84,7 +96,9 @@ public record Component(
         int absScreenPos,
         String text,
         int hidden,
-        int spriteId) {
+        int spriteId,
+        int itemId,
+        int itemAmount) {
 
     /** True iff the producer reported this component is hidden ({@code hidden == 1}). */
     public boolean isHidden() { return hidden == 1; }
