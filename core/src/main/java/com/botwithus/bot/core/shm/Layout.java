@@ -23,7 +23,7 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h. */
-    public static final int PROTOCOL_VERSION = 10;
+    public static final int PROTOCOL_VERSION = 11;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -37,6 +37,10 @@ public final class Layout {
     public static final int SKILL_CAP          = 32;
     public static final int INVENTORY_CAP      = 32;
     public static final int INVENTORY_ITEM_CAP = 2048;
+    /** Per-interface invalidation token slots. ifaceIds at or above this cap
+     *  are not cacheable (see SnapshotView.ifaceVersion). Mirrors
+     *  {@code kIfaceVersionCap} in SharedLayout.h. */
+    public static final int IFACE_VERSION_CAP  = 4096;
 
     /** Bit flag shared between NpcEntry and PlayerEntry. */
     public static final int FLAG_MOVING = 1;
@@ -168,8 +172,14 @@ public final class Layout {
                                                      + INVENTORY_CAP * INV_HEADER_SIZE;
     public static final int SNAP_INVITEMS_OFFSET     = SNAP_INVITEMCOUNT_OFFSET + 4;
 
+    /** Per-interface invalidation tokens; {@code u32[IFACE_VERSION_CAP]}.
+     *  Slot[i] is the version counter for ifaceId == i. */
+    public static final int SNAP_IFACEVERSIONS_OFFSET = SNAP_INVITEMS_OFFSET
+                                                      + INVENTORY_ITEM_CAP * INV_ITEM_SIZE;
+
     /** Producer-state tail block; layout matches SharedLayout.h::ProducerState. */
-    public static final int SNAP_PRODUCER_OFFSET = SNAP_INVITEMS_OFFSET + INVENTORY_ITEM_CAP * INV_ITEM_SIZE;
+    public static final int SNAP_PRODUCER_OFFSET = SNAP_IFACEVERSIONS_OFFSET
+                                                 + IFACE_VERSION_CAP * 4;
 
     public static final int PRODUCER_SIZE                       = 32;
     public static final int PRODUCER_ACTIONQUEUESIZE_OFFSET     = 0;    // u32
