@@ -8,6 +8,7 @@ import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
+import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
@@ -40,16 +41,20 @@ public class JBotApplication {
             RpcClient rpc = new RpcClient(pipe);
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
-            GameAPIImpl gameAPI = new GameAPIImpl(rpc);
+            NXTCache nxtCache = openNxtCacheOrNull();
+
+            // Pump owns the SHM mapping; we open it before constructing
+            // GameAPIImpl so the component cache can read ifaceVersion
+            // tokens from the same region. ClientImpl borrows the same
+            // region for snapshot reads.
+            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+            GameAPIImpl gameAPI = new GameAPIImpl(rpc, nxtCache,
+                    iface -> pump.region().snapshot().ifaceVersion(iface));
             ClientProviderImpl clientProvider = new ClientProviderImpl();
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
             rpc.start();
 
-            // Game events arrive via the SHM ring; the pipe is RPC-only.
-            // Pump opens the SHM mapping and owns its lifetime — ClientImpl
-            // borrows the same region for snapshot reads.
-            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             clientProvider.putClient(pipeName,
                     new ClientImpl(pipeName, gameAPI, eventBus, pipe::isOpen, pump.region()));
 
@@ -79,6 +84,21 @@ public class JBotApplication {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.error("Fatal error: {}", e.getMessage(), e);
+        }
+    }
+
+    private static NXTCache openNxtCacheOrNull() {
+        try {
+            NXTCache c = NXTCache.tryOpenFromSystemProperty();
+            if (c != null) {
+                log.info("NXTCache opened (config-type lookups now cache-backed)");
+            } else {
+                log.debug("NXTCache not configured — set -Dnxtcache.path=<dir> to enable config-type lookups");
+            }
+            return c;
+        } catch (Throwable t) {
+            log.warn("NXTCache failed to open: {}", t.getMessage());
+            return null;
         }
     }
 }

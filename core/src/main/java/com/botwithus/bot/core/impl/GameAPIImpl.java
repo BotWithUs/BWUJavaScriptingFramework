@@ -2,7 +2,7 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.ActionEntry;
-import Component;
+import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.ItemType;
@@ -23,12 +23,16 @@ import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldPathConfig;
+import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.shm.Layout;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.IntUnaryOperator;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
 import static com.botwithus.bot.core.impl.MapHelper.getDouble;
@@ -44,9 +48,58 @@ import static com.botwithus.bot.core.impl.MapHelper.getStringList;
 public class GameAPIImpl implements GameAPI {
 
     private final RpcClient rpc;
+    private final NXTCache cache;
 
+    /**
+     * Source of per-iface invalidation tokens for the {@code getComponent}
+     * cache. Production wiring is {@code iface -> region.snapshot().ifaceVersion(iface)};
+     * tests pass a stub. {@code null} disables caching entirely — the legacy
+     * 1-/2-arg constructors take this path so existing callers and tests
+     * keep their RPC-every-call semantics.
+     */
+    private final IntUnaryOperator ifaceVersionSource;
+
+    /**
+     * Cache of {@code getComponent} results keyed on {@code (ifaceId, compId)}
+     * packed into a long. Each entry remembers the {@code ifaceVersion} the
+     * cached {@link Component} was fetched at; on lookup we re-read the
+     * current version and treat any mismatch as eviction. {@code null} when
+     * caching is disabled (no version source). Sized via the natural growth
+     * pattern — scripts touch only a handful of unique components, so we
+     * don't bound this and let the JVM's hash map auto-resize.
+     */
+    private final ConcurrentHashMap<Long, ComponentCacheEntry> componentCache;
+
+    /** Legacy constructor used by tests; config-type lookups will throw. */
     public GameAPIImpl(RpcClient rpc) {
+        this(rpc, null, null);
+    }
+
+    public GameAPIImpl(RpcClient rpc, NXTCache cache) {
+        this(rpc, cache, null);
+    }
+
+    /**
+     * Constructs a GameAPIImpl with an optional component cache. Caching is
+     * enabled iff {@code ifaceVersionSource} is non-null. Production callers
+     * should pass {@code iface -> sharedRegion.snapshot().ifaceVersion(iface)}.
+     */
+    public GameAPIImpl(RpcClient rpc, NXTCache cache, IntUnaryOperator ifaceVersionSource) {
         this.rpc = rpc;
+        this.cache = cache;
+        this.ifaceVersionSource = ifaceVersionSource;
+        this.componentCache = ifaceVersionSource != null ? new ConcurrentHashMap<>() : null;
+    }
+
+    private record ComponentCacheEntry(int version, Component component) {}
+
+    private NXTCache requireCache() {
+        if (cache == null) {
+            throw new IllegalStateException(
+                    "Config-type lookup requires NXTCache. Pass -Dnxtcache.path=<cache dir> "
+                            + "and -Dnxtcache.dll=<NXTCache.dll path> when launching.");
+        }
+        return cache;
     }
 
     // ---------------------------------------------------------------- System
@@ -180,6 +233,40 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public Component getComponent(int interfaceId, int componentId) {
+        // Bypass the cache when (a) it's disabled, (b) the iface id is outside
+        // the version-token array, or (c) compId is negative — none of these
+        // fit our (iface, comp, version) keying scheme. Out-of-range ids fall
+        // through to the RPC, which is responsible for "not found" responses.
+        if (componentCache == null
+                || interfaceId < 0
+                || interfaceId >= Layout.IFACE_VERSION_CAP
+                || componentId < 0) {
+            return rpcGetComponent(interfaceId, componentId);
+        }
+        long key = ((long) interfaceId << 32) | (componentId & 0xFFFFFFFFL);
+        // Read the version BEFORE the RPC. If the producer bumps mid-RPC the
+        // cached entry is stored under the older version, which the next
+        // lookup will detect as a mismatch and refresh. Caching under the
+        // older version is cheaper-but-correct vs reading post-RPC and
+        // potentially hiding a bump that happened during the call.
+        int version = ifaceVersionSource.applyAsInt(interfaceId);
+        ComponentCacheEntry cached = componentCache.get(key);
+        if (cached != null && cached.version == version) {
+            return cached.component;
+        }
+        Component fetched = rpcGetComponent(interfaceId, componentId);
+        if (fetched != null) {
+            componentCache.put(key, new ComponentCacheEntry(version, fetched));
+        } else {
+            // RPC said "not found" — drop any stale entry rather than caching
+            // a null sentinel. Future calls will RPC again, which is cheap
+            // for the not-found path and avoids carrying negative state.
+            componentCache.remove(key);
+        }
+        return fetched;
+    }
+
+    private Component rpcGetComponent(int interfaceId, int componentId) {
         Map<String, Object> r = rpc.callSync("get_component",
                 Map.of("iface", interfaceId, "comp", componentId));
         // Producer signals "not found" by writing iface=-1 in an otherwise
@@ -209,6 +296,16 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "sprite_id"),
                 getInt(r, "item_id"),
                 getInt(r, "item_amount"));
+    }
+
+    /** Diagnostics: number of cached (iface, comp) entries; 0 when caching is disabled. */
+    public int componentCacheSize() {
+        return componentCache == null ? 0 : componentCache.size();
+    }
+
+    /** Diagnostics/test hook: drop all cached components. */
+    public void clearComponentCache() {
+        if (componentCache != null) componentCache.clear();
     }
 
     @Override
@@ -557,100 +654,46 @@ public class GameAPIImpl implements GameAPI {
         )).toList();
     }
 
-    // ---------------------------------------------------------------- Config-type lookups (slice 5 stubs)
+    // ---------------------------------------------------------------- Config-type lookups (NXTCache-backed)
+    //
+    // Each lookup goes through the embedded NXTCache.dll (sqlite + live JS5
+    // fallback) instead of round-tripping over the pipe to a producer-side
+    // sentinel. The producer's get_*_type RPC handlers are dead code now —
+    // safe to delete in NXTLibrary's Handlers.cpp.
 
     @Override
     public ItemType getItemType(int id) {
-        Map<String, Object> r = rpc.callSync("get_item_type", Map.of("id", id));
-        return new ItemType(
-                getInt(r, "id"), getString(r, "name"),
-                getBool(r, "members"), getBool(r, "stackable"),
-                getInt(r, "shop_price"), getInt(r, "ge_buy_limit"),
-                getInt(r, "category"), getInt(r, "noted_id"), getInt(r, "wearpos"),
-                getBool(r, "exchangeable"),
-                getStringList(r, "ground_options"), getStringList(r, "inventory_options"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getItem(id);
     }
 
     @Override
     public NpcType getNpcType(int id) {
-        Map<String, Object> r = rpc.callSync("get_npc_type", Map.of("id", id));
-        return new NpcType(
-                getInt(r, "id"), getString(r, "name"), getInt(r, "combat_level"),
-                getBool(r, "visible"), getBool(r, "clickable"),
-                getStringList(r, "options"),
-                getInt(r, "varbit_id"), getInt(r, "varp_id"),
-                getIntList(r, "transforms"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getNpc(id);
     }
 
     @Override
     public LocationType getLocationType(int id) {
-        Map<String, Object> r = rpc.callSync("get_location_type", Map.of("id", id));
-        return new LocationType(
-                getInt(r, "id"), getString(r, "name"),
-                getInt(r, "size_x"), getInt(r, "size_y"),
-                getInt(r, "interact_type"), getInt(r, "solid_type"),
-                getBool(r, "members"),
-                getStringList(r, "options"),
-                getInt(r, "varbit_id"), getInt(r, "varp_id"),
-                getIntList(r, "transforms"),
-                getInt(r, "map_sprite_id"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getLocation(id);
     }
 
     @Override
     public EnumType getEnumType(int id) {
-        Map<String, Object> r = rpc.callSync("get_enum_type", Map.of("id", id));
-        return new EnumType(
-                getInt(r, "id"), getInt(r, "input_type_id"), getInt(r, "output_type_id"),
-                getInt(r, "int_default"), getString(r, "string_default"),
-                getInt(r, "entry_count"),
-                getObjectMap(r, "entries")
-        );
+        return requireCache().getEnum(id);
     }
 
     @Override
     public StructType getStructType(int id) {
-        Map<String, Object> r = rpc.callSync("get_struct_type", Map.of("id", id));
-        return new StructType(getInt(r, "id"), getObjectMap(r, "params"));
+        return requireCache().getStruct(id);
     }
 
     @Override
     public SequenceType getSequenceType(int id) {
-        Map<String, Object> r = rpc.callSync("get_sequence_type", Map.of("id", id));
-        return new SequenceType(
-                getInt(r, "id"), getInt(r, "frame_count"),
-                getIntList(r, "frame_lengths"),
-                getInt(r, "loop_offset"), getInt(r, "priority"),
-                getInt(r, "off_hand"), getInt(r, "main_hand"),
-                getInt(r, "max_loops"),
-                getInt(r, "animating_precedence"), getInt(r, "walking_precedence"),
-                getInt(r, "replay_mode"), getBool(r, "tweened"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getSequence(id);
     }
 
     @Override
     public QuestType getQuestType(int id) {
-        Map<String, Object> r = rpc.callSync("get_quest_type", Map.of("id", id));
-        return new QuestType(
-                getInt(r, "id"), getString(r, "name"), getString(r, "list_name"),
-                getInt(r, "category"), getInt(r, "difficulty"),
-                getBool(r, "members_only"),
-                getInt(r, "quest_points"), getInt(r, "quest_point_req"),
-                getInt(r, "quest_item_sprite"),
-                getIntList(r, "start_locations"),
-                getInt(r, "alternate_start_location"),
-                getIntList(r, "dependent_quest_ids"),
-                getMapList(r, "skill_requirements"),
-                getMapList(r, "progress_varps"),
-                getMapList(r, "progress_varbits"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getQuest(id);
     }
 
     // ---------------------------------------------------------------- Helpers
