@@ -7,12 +7,14 @@ import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.SceneObjects;
+import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.SceneObjectInfo;
+import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.LoginState;
@@ -121,6 +123,18 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
      * the producer-side iteration lands.
      */
     java.util.List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max);
+
+    /** World-map element query facade. Singleton per {@link GameAPI}. */
+    WorldMapElements mapElements();
+
+    /**
+     * Low-level RPC: ask the producer for cache-resident world map elements
+     * matching {@code filter}. The map shape is the same one
+     * {@link WorldMapElements.Query} accumulates. Most scripts go through
+     * {@link #mapElements()} instead. Stub-empty until producer iteration
+     * lands.
+     */
+    java.util.List<WorldMapElement> queryWorldMapElements(java.util.Map<String, Object> filter);
 
     // ---------------------------------------------------------------- Local player & skills
 
