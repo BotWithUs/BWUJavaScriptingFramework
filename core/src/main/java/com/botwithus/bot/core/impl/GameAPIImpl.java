@@ -3,6 +3,9 @@ package com.botwithus.bot.core.impl;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.inventory.Backpack;
+import com.botwithus.bot.api.inventory.Bank;
+import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.EnumType;
@@ -87,6 +90,9 @@ public class GameAPIImpl implements GameAPI {
 
     private final Npcs npcsFacade = new Npcs(this);
     private final Players playersFacade = new Players(this);
+    private final Backpack backpackFacade = new Backpack(this);
+    private final Bank bankFacade = new Bank(this);
+    private final Equipment equipmentFacade = new Equipment(this);
 
     /** Legacy constructor used by tests; config-type lookups will throw. */
     public GameAPIImpl(RpcClient rpc) {
@@ -142,6 +148,15 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public Players players() { return playersFacade; }
+
+    @Override
+    public Backpack backpack() { return backpackFacade; }
+
+    @Override
+    public Bank bank() { return bankFacade; }
+
+    @Override
+    public Equipment equipment() { return equipmentFacade; }
 
     @Override
     public LocalPlayer getLocalPlayer() {

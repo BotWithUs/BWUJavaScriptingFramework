@@ -5,6 +5,9 @@ import com.botwithus.bot.api.domain.NavigationAPI;
 import com.botwithus.bot.api.domain.SystemAPI;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.inventory.Backpack;
+import com.botwithus.bot.api.inventory.Bank;
+import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
@@ -75,6 +78,17 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
      * Player query facade. Singleton per {@link GameAPI}.
      */
     Players players();
+
+    // ---------------------------------------------------------------- Inventory facades
+
+    /** Backpack facade. Singleton per {@link GameAPI}. */
+    Backpack backpack();
+
+    /** Bank facade. Singleton per {@link GameAPI}. */
+    Bank bank();
+
+    /** Worn equipment facade. Singleton per {@link GameAPI}. */
+    Equipment equipment();
 
     // ---------------------------------------------------------------- Local player & skills
 
