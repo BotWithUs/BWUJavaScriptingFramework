@@ -35,3 +35,11 @@ tasks.register<JavaExec>("eventPumpProbe") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass = "com.botwithus.bot.core.shm.EventPumpProbe"
 }
+
+tasks.register<JavaExec>("componentCacheProbe") {
+    description = "Verify the slice-17 (iface, comp, version) component cache against a live DLL"
+    group = "verification"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "com.botwithus.bot.core.impl.ComponentCacheProbe"
+    // Pass CLI args: ./gradlew :core:componentCacheProbe --args="1473 0"
+}
