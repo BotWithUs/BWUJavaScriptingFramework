@@ -8,6 +8,7 @@ module com.botwithus.bot.core {
     requires ch.qos.logback.core;
 
     exports com.botwithus.bot.core;
+    exports com.botwithus.bot.core.cache;
     exports com.botwithus.bot.core.config;
     exports com.botwithus.bot.core.crypto;
     exports com.botwithus.bot.core.impl;

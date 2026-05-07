@@ -39,7 +39,26 @@ val extractNatives by tasks.registering(Copy::class) {
 tasks.named<JavaExec>("run") {
     dependsOn(extractNatives)
     workingDir = rootProject.projectDir
-    jvmArgs("-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}")
+    jvmArgs(
+        "-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}",
+        // FFM downcalls in com.botwithus.bot.core.cache.NXTCache hit the
+        // restricted Linker API; J22+ requires explicit native-access opt-in.
+        "--enable-native-access=com.botwithus.bot.core",
+    )
+    // Optional: point at the NXTCache DLL + cache directory to enable
+    // cache-backed config-type lookups (item/npc/loc/quest/etc.). Either
+    // export these as environment variables or pass them on the command
+    // line: ./gradlew :cli:run -Pnxtcache.dll=... -Pnxtcache.path=...
+    val nxtcacheDll = providers.gradleProperty("nxtcache.dll")
+        .orElse(providers.environmentVariable("NXTCACHE_DLL"))
+    val nxtcachePath = providers.gradleProperty("nxtcache.path")
+        .orElse(providers.environmentVariable("NXTCACHE_PATH"))
+    if (nxtcacheDll.isPresent) {
+        jvmArgs("-Dnxtcache.dll=${nxtcacheDll.get()}")
+    }
+    if (nxtcachePath.isPresent) {
+        jvmArgs("-Dnxtcache.path=${nxtcachePath.get()}")
+    }
 }
 
 jlink {
