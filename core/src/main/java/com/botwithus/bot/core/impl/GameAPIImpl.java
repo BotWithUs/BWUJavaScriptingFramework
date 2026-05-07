@@ -5,12 +5,18 @@ import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.SceneObjects;
+import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.GroundItemInfo;
+import com.botwithus.bot.api.model.ResourceItem;
+import com.botwithus.bot.api.model.ResourceSection;
 import com.botwithus.bot.api.model.SceneObjectInfo;
+import com.botwithus.bot.api.model.SkillRequirement;
+import com.botwithus.bot.api.model.WorldMapElement;
+import com.botwithus.bot.api.model.WorldMapPlacement;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
@@ -99,6 +105,7 @@ public class GameAPIImpl implements GameAPI {
     private final Equipment equipmentFacade = new Equipment(this);
     private final SceneObjects objectsFacade = new SceneObjects(this);
     private final GroundItems groundItemsFacade = new GroundItems(this);
+    private final WorldMapElements mapElementsFacade = new WorldMapElements(this);
 
     /** Legacy constructor used by tests; config-type lookups will throw. */
     public GameAPIImpl(RpcClient rpc) {
@@ -187,6 +194,54 @@ public class GameAPIImpl implements GameAPI {
                         getInt(m, "plane"),
                         getString(m, "name"),
                         getStringList(m, "options")))
+                .toList();
+    }
+
+    @Override
+    public WorldMapElements mapElements() { return mapElementsFacade; }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<WorldMapElement> queryWorldMapElements(Map<String, Object> filter) {
+        return rpc.callSyncList("query_world_map_elements", filter).stream()
+                .map(m -> new WorldMapElement(
+                        getInt(m, "id"),
+                        getInt(m, "tile_x"),
+                        getInt(m, "tile_y"),
+                        getInt(m, "plane"),
+                        getInt(m, "category"),
+                        getInt(m, "sprite_id"),
+                        getInt(m, "element_id"),
+                        getString(m, "name"),
+                        getString(m, "tooltip"),
+                        getString(m, "description"),
+                        getInt(m, "min_level"),
+                        getInt(m, "level_tier1"),
+                        getInt(m, "level_tier2"),
+                        getInt(m, "level_tier3"),
+                        getMapList(m, "skill_requirements").stream()
+                                .map(sr -> new SkillRequirement(
+                                        getInt(sr, "skill_id"),
+                                        getInt(sr, "level"),
+                                        getString(sr, "skill_name")))
+                                .toList(),
+                        getMapList(m, "resources").stream()
+                                .map(rs -> new ResourceSection(
+                                        getString(rs, "title"),
+                                        getMapList(rs, "items").stream()
+                                                .map(ri -> new ResourceItem(
+                                                        getInt(ri, "item_id"),
+                                                        getInt(ri, "level"),
+                                                        getInt(ri, "quantity")))
+                                                .toList()))
+                                .toList(),
+                        getMapList(m, "placements").stream()
+                                .map(pl -> new WorldMapPlacement(
+                                        getInt(pl, "plane"),
+                                        getInt(pl, "tile_x"),
+                                        getInt(pl, "tile_y"),
+                                        getBool(pl, "members_only")))
+                                .toList()))
                 .toList();
     }
 
