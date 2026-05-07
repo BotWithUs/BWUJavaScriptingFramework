@@ -32,6 +32,24 @@ public interface NavigationAPI {
     void walkWorldPathAsync(int x, int y, int plane);
 
     /**
+     * Convenience overload — walk to the local player's current plane.
+     * Equivalent to {@code walkWorldPathAsync(x, y, lp.plane())}, falling
+     * back to plane 0 when the player isn't in-game.
+     */
+    default void walkWorldPath(int x, int y) {
+        com.botwithus.bot.api.snapshot.LocalPlayer lp = null;
+        if (this instanceof com.botwithus.bot.api.GameAPI api) {
+            lp = api.getLocalPlayer();
+        }
+        walkWorldPathAsync(x, y, lp == null ? 0 : lp.plane());
+    }
+
+    /** Plane-aware overload of {@link #walkWorldPath(int, int)}. */
+    default void walkWorldPath(int x, int y, int plane) {
+        walkWorldPathAsync(x, y, plane);
+    }
+
+    /**
      * Starts a world-scale walk with exact destination tile control.
      *
      * @param x             target world tile X
