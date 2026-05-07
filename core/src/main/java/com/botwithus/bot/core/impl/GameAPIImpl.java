@@ -1,12 +1,16 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
+import com.botwithus.bot.api.model.GroundItemInfo;
+import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
@@ -93,6 +97,8 @@ public class GameAPIImpl implements GameAPI {
     private final Backpack backpackFacade = new Backpack(this);
     private final Bank bankFacade = new Bank(this);
     private final Equipment equipmentFacade = new Equipment(this);
+    private final SceneObjects objectsFacade = new SceneObjects(this);
+    private final GroundItems groundItemsFacade = new GroundItems(this);
 
     /** Legacy constructor used by tests; config-type lookups will throw. */
     public GameAPIImpl(RpcClient rpc) {
@@ -157,6 +163,51 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public Equipment equipment() { return equipmentFacade; }
+
+    @Override
+    public SceneObjects objects() { return objectsFacade; }
+
+    @Override
+    public GroundItems groundItems() { return groundItemsFacade; }
+
+    @Override
+    public List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("tile_x", centerX);
+        params.put("tile_y", centerY);
+        params.put("radius", radius);
+        params.put("plane", plane);
+        params.put("max", max);
+        return rpc.callSyncList("query_locations", params).stream()
+                .map(m -> new SceneObjectInfo(
+                        getInt(m, "handle"),
+                        getInt(m, "type_id"),
+                        getInt(m, "tile_x"),
+                        getInt(m, "tile_y"),
+                        getInt(m, "plane"),
+                        getString(m, "name"),
+                        getStringList(m, "options")))
+                .toList();
+    }
+
+    @Override
+    public List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("tile_x", centerX);
+        params.put("tile_y", centerY);
+        params.put("radius", radius);
+        params.put("plane", plane);
+        params.put("max", max);
+        return rpc.callSyncList("query_ground_items", params).stream()
+                .map(m -> new GroundItemInfo(
+                        getInt(m, "handle"),
+                        getInt(m, "item_id"),
+                        getInt(m, "quantity"),
+                        getInt(m, "tile_x"),
+                        getInt(m, "tile_y"),
+                        getInt(m, "plane")))
+                .toList();
+    }
 
     @Override
     public LocalPlayer getLocalPlayer() {

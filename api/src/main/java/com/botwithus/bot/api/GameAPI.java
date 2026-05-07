@@ -3,12 +3,16 @@ package com.botwithus.bot.api;
 import com.botwithus.bot.api.domain.ActionAPI;
 import com.botwithus.bot.api.domain.NavigationAPI;
 import com.botwithus.bot.api.domain.SystemAPI;
+import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.EnumType;
+import com.botwithus.bot.api.model.GroundItemInfo;
+import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.LoginState;
@@ -89,6 +93,34 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
 
     /** Worn equipment facade. Singleton per {@link GameAPI}. */
     Equipment equipment();
+
+    // ---------------------------------------------------------------- Scene queries
+
+    /** Scene-object query facade. Singleton per {@link GameAPI}. */
+    SceneObjects objects();
+
+    /** Ground-item query facade. Singleton per {@link GameAPI}. */
+    GroundItems groundItems();
+
+    /**
+     * Low-level RPC: ask the producer for live scene objects within
+     * {@code radius} of {@code (centerX, centerY)} on {@code plane}
+     * ({@code -1} for any). Cap is the maximum number to pull back. Most
+     * scripts go through {@link #objects()} instead — this is here for
+     * advanced callers and as the seam {@link SceneObjects} drives.
+     *
+     * <p>Currently returns an empty list; the producer-side iteration
+     * lands in a follow-up slice.</p>
+     */
+    java.util.List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max);
+
+    /**
+     * Low-level RPC: ask the producer for live ground items within
+     * {@code radius} of {@code (centerX, centerY)} on {@code plane}.
+     * Mirrors {@link #queryLocations} for ObjStackList. Stub-empty until
+     * the producer-side iteration lands.
+     */
+    java.util.List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max);
 
     // ---------------------------------------------------------------- Local player & skills
 
