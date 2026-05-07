@@ -32,6 +32,7 @@ import com.botwithus.bot.core.impl.SharedStateImpl;
 import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
 import com.botwithus.bot.api.script.ManagementScript;
+import com.botwithus.bot.core.cache.NXTCache;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -84,11 +85,37 @@ public class CliContext {
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
     private ManagementScriptRuntime managementRuntime;
+    private NXTCache nxtCache;
+    private boolean nxtCacheInitAttempted;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
         this.logCapture = logCapture;
         this.clientManager = new ClientManager(this);
+    }
+
+    /**
+     * Lazy-init the process-wide NXTCache handle the first time a connection
+     * is made. The same handle is shared across all GameAPIImpl instances —
+     * sqlite is safe to read from one connection, and reopening it per
+     * connection would waste startup time. Returns {@code null} when the
+     * cache isn't configured ({@code -Dnxtcache.path} unset) or fails to
+     * open; callers (i.e. config-type lookups) will surface a clear error.
+     */
+    private synchronized NXTCache getOrInitNxtCache() {
+        if (nxtCacheInitAttempted) return nxtCache;
+        nxtCacheInitAttempted = true;
+        try {
+            nxtCache = NXTCache.tryOpenFromSystemProperty();
+            if (nxtCache != null) {
+                log.info("NXTCache opened (config-type lookups now cache-backed)");
+            } else {
+                log.debug("NXTCache not configured — set -Dnxtcache.path=<dir> to enable config-type lookups");
+            }
+        } catch (Throwable t) {
+            log.warn("NXTCache failed to open: {}", t.getMessage());
+        }
+        return nxtCache;
     }
 
     public void setStreamManager(StreamManager sm) { this.streamManager = sm; }
@@ -175,15 +202,18 @@ public class CliContext {
             rpc.setConnectionName(resolvedName);
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
-            GameAPIImpl gameAPI = new GameAPIImpl(rpc);
+
+            // Pump owns the SHM mapping; we open it before constructing
+            // GameAPIImpl so the component cache can read ifaceVersion
+            // tokens from the same region. ClientImpl borrows the same
+            // region for snapshot reads.
+            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+            GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
+                    iface -> pump.region().snapshot().ifaceVersion(iface));
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
             rpc.start();
 
-            // Game events arrive via the SHM ring; the pipe is RPC-only.
-            // Pump opens the SHM mapping and owns its lifetime — ClientImpl
-            // borrows the same region for snapshot reads.
-            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen, pump.region());
             clientProvider.putClient(resolvedName, client);
 
