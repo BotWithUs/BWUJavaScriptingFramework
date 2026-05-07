@@ -1,6 +1,8 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.entities.Npcs;
+import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.EnumType;
@@ -17,12 +19,16 @@ import com.botwithus.bot.api.model.NavTeleport;
 import com.botwithus.bot.api.model.NavTransport;
 import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.PathResult;
+import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldPathConfig;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.Layout;
@@ -33,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntUnaryOperator;
+import java.util.function.Supplier;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
 import static com.botwithus.bot.core.impl.MapHelper.getDouble;
@@ -70,28 +77,89 @@ public class GameAPIImpl implements GameAPI {
      */
     private final ConcurrentHashMap<Long, ComponentCacheEntry> componentCache;
 
+    /**
+     * Snapshot supplier used by the entity facades and the local-player
+     * helpers. Production wiring is {@code () -> new GameSnapshotImpl(region.snapshot())};
+     * tests pass a stub. {@code null} means no SHM bound — entity queries
+     * yield empty, getLocalPlayer returns null, getPlayerStat returns null.
+     */
+    private final Supplier<GameSnapshot> snapshotSource;
+
+    private final Npcs npcsFacade = new Npcs(this);
+    private final Players playersFacade = new Players(this);
+
     /** Legacy constructor used by tests; config-type lookups will throw. */
     public GameAPIImpl(RpcClient rpc) {
-        this(rpc, null, null);
+        this(rpc, null, null, null);
     }
 
     public GameAPIImpl(RpcClient rpc, NXTCache cache) {
-        this(rpc, cache, null);
+        this(rpc, cache, null, null);
     }
 
     /**
-     * Constructs a GameAPIImpl with an optional component cache. Caching is
-     * enabled iff {@code ifaceVersionSource} is non-null. Production callers
-     * should pass {@code iface -> sharedRegion.snapshot().ifaceVersion(iface)}.
+     * Slice-17 ctor: cache enabled, no snapshot source. Kept for the existing
+     * cache test which doesn't need entity queries; new production callers
+     * should use the 4-arg form.
      */
     public GameAPIImpl(RpcClient rpc, NXTCache cache, IntUnaryOperator ifaceVersionSource) {
+        this(rpc, cache, ifaceVersionSource, null);
+    }
+
+    /**
+     * Full ctor — wires the component cache and the entity-facade snapshot
+     * source. {@code ifaceVersionSource} can be {@code null} to disable the
+     * cache only; {@code snapshotSource} can be {@code null} to disable
+     * snapshot-derived helpers (entity queries and {@code getLocalPlayer}).
+     * Production callers pass both:
+     * <pre>{@code
+     *   new GameAPIImpl(rpc, nxtCache,
+     *       iface -> region.snapshot().ifaceVersion(iface),
+     *       () -> new GameSnapshotImpl(region.snapshot()));
+     * }</pre>
+     */
+    public GameAPIImpl(RpcClient rpc, NXTCache cache,
+                       IntUnaryOperator ifaceVersionSource,
+                       Supplier<GameSnapshot> snapshotSource) {
         this.rpc = rpc;
         this.cache = cache;
         this.ifaceVersionSource = ifaceVersionSource;
         this.componentCache = ifaceVersionSource != null ? new ConcurrentHashMap<>() : null;
+        this.snapshotSource = snapshotSource;
     }
 
     private record ComponentCacheEntry(int version, Component component) {}
+
+    // ---------------------------------------------------------------- Snapshot + entities
+
+    @Override
+    public GameSnapshot snapshot() {
+        return snapshotSource != null ? snapshotSource.get() : null;
+    }
+
+    @Override
+    public Npcs npcs() { return npcsFacade; }
+
+    @Override
+    public Players players() { return playersFacade; }
+
+    @Override
+    public LocalPlayer getLocalPlayer() {
+        GameSnapshot snap = snapshot();
+        return snap == null ? null : snap.self();
+    }
+
+    @Override
+    public PlayerStat getPlayerStat(int skillId) {
+        LocalPlayer self = getLocalPlayer();
+        if (self == null) return null;
+        for (Skill s : self.skills()) {
+            if (s.typeId() == skillId) {
+                return new PlayerStat(s.typeId(), s.actualLevel(), s.boostedLevel(), s.experience());
+            }
+        }
+        return null;
+    }
 
     private NXTCache requireCache() {
         if (cache == null) {

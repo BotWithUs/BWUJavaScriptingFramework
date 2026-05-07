@@ -3,16 +3,21 @@ package com.botwithus.bot.api;
 import com.botwithus.bot.api.domain.ActionAPI;
 import com.botwithus.bot.api.domain.NavigationAPI;
 import com.botwithus.bot.api.domain.SystemAPI;
+import com.botwithus.bot.api.entities.Npcs;
+import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.LoginState;
 import com.botwithus.bot.api.model.NpcType;
+import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
 
 import java.util.List;
 
@@ -40,6 +45,56 @@ import java.util.List;
  * @see ScriptContext#getGameAPI()
  */
 public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
+
+    // ---------------------------------------------------------------- Snapshot
+
+    /**
+     * Returns a tick-scoped read view over the producer's published snapshot,
+     * or {@code null} if no shared-memory region is bound (e.g. tests using
+     * the legacy 1-/2-arg {@code GameAPIImpl} constructor). Same instance
+     * shape as {@link Client#snapshot()}; surfaced here so the entity query
+     * facades ({@link #npcs()}, {@link #players()}) and skill helpers
+     * ({@link #getLocalPlayer()}, {@link #getPlayerStat(int)}) can read
+     * snapshot fields without forcing scripts to thread {@code Client}
+     * through every helper.
+     *
+     * <p>The returned view is bounded to the current tick — don't cache it.
+     * Each call resolves the published front buffer.</p>
+     */
+    GameSnapshot snapshot();
+
+    // ---------------------------------------------------------------- Entity queries
+
+    /**
+     * NPC query facade. Singleton per {@link GameAPI}; returns the same
+     * instance every call so the underlying {@code NpcType} cache is shared.
+     */
+    Npcs npcs();
+
+    /**
+     * Player query facade. Singleton per {@link GameAPI}.
+     */
+    Players players();
+
+    // ---------------------------------------------------------------- Local player & skills
+
+    /**
+     * Convenience accessor — equivalent to {@code snapshot().self()} but
+     * named for ergonomics in scripts that don't otherwise touch the
+     * snapshot. Returns {@code null} when not in-game (matches snapshot
+     * semantics).
+     */
+    LocalPlayer getLocalPlayer();
+
+    /**
+     * Returns one of the local player's skill stats by skill type id.
+     * {@code null} when not in-game or the skill isn't in the published
+     * skills array. Ids match the in-game {@code StatType.id} (e.g. 26
+     * for Divination, 6 for Magic).
+     *
+     * <p>Read out of the snapshot — no RPC round-trip.</p>
+     */
+    PlayerStat getPlayerStat(int skillId);
 
     // ---------------------------------------------------------------- State probes
 
