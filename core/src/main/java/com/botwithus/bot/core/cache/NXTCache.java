@@ -9,6 +9,8 @@ import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -56,6 +58,8 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * externally or open one handle per worker thread.
  */
 public final class NXTCache implements AutoCloseable {
+
+    private static final Logger log = LoggerFactory.getLogger(NXTCache.class);
 
     public static final int NXT_OK            = 0;
     public static final int NXT_ERR_INVALID   = 1;
@@ -220,12 +224,15 @@ public final class NXTCache implements AutoCloseable {
 
     @Override
     public void close() {
-        if (closed) return;
+        if (closed) {
+            return;
+        }
         closed = true;
         try {
             MH_CLOSE.invokeExact(handle);
-        } catch (Throwable ignored) {
+        } catch (Throwable t) {
             // best-effort; close must not throw
+            log.debug("nxt_cache_close threw", t);
         }
     }
 
@@ -295,9 +302,11 @@ public final class NXTCache implements AutoCloseable {
             MemorySegment outPtr = tmp.allocate(ADDRESS);
             MemorySegment outLen = tmp.allocate(JAVA_LONG);
             int rc = (int) MH_GET_JSON_DISPATCH.invokeExact(handle, type, id, outPtr, outLen);
-            if (rc == NXT_ERR_NOT_FOUND) return null;
+            if (rc == NXT_ERR_NOT_FOUND) {
+                return null;
+            }
             if (rc != NXT_OK) {
-                throw new RuntimeException("get_json(" + typeName + ", " + id + ") rc=" + rc + ": " + lastError());
+                throw new NXTCacheException("get_json(" + typeName + ", " + id + ") rc=" + rc + ": " + lastError());
             }
             return readAndFree(outPtr, outLen);
         } catch (Throwable t) {
@@ -314,7 +323,7 @@ public final class NXTCache implements AutoCloseable {
             MemorySegment outLen = tmp.allocate(JAVA_LONG);
             int rc = (int) MH_DUMP_ALL.invokeExact(handle, type, limit, outPtr, outLen);
             if (rc != NXT_OK) {
-                throw new RuntimeException("dump_all_json(" + typeName + ") rc=" + rc + ": " + lastError());
+                throw new NXTCacheException("dump_all_json(" + typeName + ") rc=" + rc + ": " + lastError());
             }
             return readAndFree(outPtr, outLen);
         } catch (Throwable t) {
@@ -330,9 +339,11 @@ public final class NXTCache implements AutoCloseable {
             MemorySegment outLen = tmp.allocate(JAVA_LONG);
             int rc = (int) MH_READ_FILE_RAW.invokeExact(
                     handle, indexId, archiveId, fileId, outPtr, outLen);
-            if (rc == NXT_ERR_NOT_FOUND) return null;
+            if (rc == NXT_ERR_NOT_FOUND) {
+                return null;
+            }
             if (rc != NXT_OK) {
-                throw new RuntimeException("read_file_raw rc=" + rc + ": " + lastError());
+                throw new NXTCacheException("read_file_raw rc=" + rc + ": " + lastError());
             }
             MemorySegment buf = outPtr.get(ADDRESS, 0);
             long len = outLen.get(JAVA_LONG, 0);
@@ -354,9 +365,11 @@ public final class NXTCache implements AutoCloseable {
             MemorySegment outPtr = tmp.allocate(ADDRESS);
             MemorySegment outLen = tmp.allocate(JAVA_LONG);
             int rc = (int) mh.invokeExact(handle, id, outPtr, outLen);
-            if (rc == NXT_ERR_NOT_FOUND) return null;
+            if (rc == NXT_ERR_NOT_FOUND) {
+                return null;
+            }
             if (rc != NXT_OK) {
-                throw new RuntimeException("nxt_get_*_json rc=" + rc + ": " + lastError());
+                throw new NXTCacheException("nxt_get_*_json rc=" + rc + ": " + lastError());
             }
             return readAndFree(outPtr, outLen);
         } catch (Throwable t) {
@@ -376,7 +389,9 @@ public final class NXTCache implements AutoCloseable {
     }
 
     private void ensureOpen() {
-        if (closed) throw new IllegalStateException("NXTCache handle is closed");
+        if (closed) {
+            throw new IllegalStateException("NXTCache handle is closed");
+        }
     }
 
     private static Map<String, Object> parseObject(String json) {
@@ -386,7 +401,9 @@ public final class NXTCache implements AutoCloseable {
     private static String lastError() {
         try {
             MemorySegment p = (MemorySegment) MH_LAST_ERROR.invokeExact();
-            if (p.address() == 0) return "";
+            if (p.address() == 0) {
+                return "";
+            }
             return p.reinterpret(Long.MAX_VALUE).getString(0);
         } catch (Throwable t) {
             return "<lastError unavailable: " + t + ">";
@@ -394,8 +411,12 @@ public final class NXTCache implements AutoCloseable {
     }
 
     private static RuntimeException rethrow(Throwable t) {
-        if (t instanceof RuntimeException r) return r;
-        if (t instanceof Error e) throw e;
-        return new RuntimeException(t);
+        if (t instanceof RuntimeException r) {
+            return r;
+        }
+        if (t instanceof Error e) {
+            throw e;
+        }
+        return new NXTCacheException("NXTCache invocation failed", t);
     }
 }

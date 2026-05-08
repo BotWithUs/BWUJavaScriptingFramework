@@ -101,8 +101,12 @@ public class SettingsPanel implements GuiPanel {
     }
 
     private String formatCount(long n) {
-        if (n >= 1_000_000) return String.format("%.1fM", n / 1_000_000.0);
-        if (n >= 1_000) return String.format("%.1fk", n / 1_000.0);
+        if (n >= 1_000_000) {
+            return String.format("%.1fM", n / 1_000_000.0);
+        }
+        if (n >= 1_000) {
+            return String.format("%.1fk", n / 1_000.0);
+        }
         return String.valueOf(n);
     }
 

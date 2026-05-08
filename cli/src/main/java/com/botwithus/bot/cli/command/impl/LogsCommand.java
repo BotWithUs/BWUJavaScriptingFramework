@@ -69,7 +69,9 @@ public class LogsCommand implements Command {
                             lastCheck[0] = Instant.now();
                         }
                     }
-                } catch (InterruptedException ignored) {}
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             });
 
             // Block until user presses Enter

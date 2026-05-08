@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 /**
@@ -68,7 +69,7 @@ public final class SharedRegion implements AutoCloseable {
      * pid wrapped in a region, or empty if none. Throws if the discovered
      * pid exists but the mapping fails to bind.
      */
-    public static java.util.Optional<SharedRegion> openFirstAvailable() {
+    public static Optional<SharedRegion> openFirstAvailable() {
         return discoverPids().stream().findFirst().map(SharedRegion::open);
     }
 
@@ -82,9 +83,13 @@ public final class SharedRegion implements AutoCloseable {
             return OptionalLong.empty();
         }
         String suffix = pipeName.substring(PIPE_PREFIX.length());
-        if (suffix.isEmpty()) return OptionalLong.empty();
+        if (suffix.isEmpty()) {
+            return OptionalLong.empty();
+        }
         for (int i = 0; i < suffix.length(); ++i) {
-            if (!Character.isDigit(suffix.charAt(i))) return OptionalLong.empty();
+            if (!Character.isDigit(suffix.charAt(i))) {
+                return OptionalLong.empty();
+            }
         }
         try {
             return OptionalLong.of(Long.parseLong(suffix));
@@ -224,7 +229,9 @@ public final class SharedRegion implements AutoCloseable {
 
     @Override
     public void close() {
-        if (closed) return;
+        if (closed) {
+            return;
+        }
         closed = true;
         if (baseView != null && baseView.address() != 0) {
             Kernel32.unmapViewOfFile(baseView);

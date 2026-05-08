@@ -262,10 +262,14 @@ public class ScriptsPanel implements GuiPanel {
     }
 
     private int countForCategory(List<ScriptRunner> runners, ScriptCategory category) {
-        if (category == null) return runners.size();
+        if (category == null) {
+            return runners.size();
+        }
         int n = 0;
         for (ScriptRunner r : runners) {
-            if (getCategory(r) == category) n++;
+            if (getCategory(r) == category) {
+                n++;
+            }
         }
         return n;
     }
@@ -415,7 +419,11 @@ public class ScriptsPanel implements GuiPanel {
             if (ImGui.smallButton(Icons.REDO + "##restart")) {
                 executor.submit(() -> {
                     runner.stop();
-                    try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
                     runner.start();
                 });
             }

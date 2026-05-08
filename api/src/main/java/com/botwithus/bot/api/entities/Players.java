@@ -46,7 +46,9 @@ public final class Players {
         @Override
         protected Stream<Player> source() {
             GameSnapshot snap = api.snapshot();
-            if (snap == null) return Stream.empty();
+            if (snap == null) {
+                return Stream.empty();
+            }
             return snap.players().stream().map(raw -> new Player(api, raw));
         }
 

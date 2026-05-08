@@ -98,7 +98,9 @@ public class RpcClient implements AutoCloseable {
      * Starts the background reader thread. Must be called before any RPC calls.
      */
     public void start() {
-        if (running) return;
+        if (running) {
+            return;
+        }
         running = true;
         String connName = this.connectionName;
         Thread.ofVirtual().name("rpc-reader").start(() -> {
@@ -264,7 +266,11 @@ public class RpcClient implements AutoCloseable {
 
             watchdogTask = watchdog.schedule(() -> {
                 if (settled.compareAndSet(false, true)) {
-                    try { pipe.close(); } catch (RuntimeException ignored) {}
+                    try {
+                        pipe.close();
+                    } catch (RuntimeException e) {
+                        log.debug("watchdog pipe.close threw", e);
+                    }
                 }
             }, timeoutMs, TimeUnit.MILLISECONDS);
 
@@ -341,7 +347,9 @@ public class RpcClient implements AutoCloseable {
 
     private boolean matchesId(Map<String, Object> msg, int expectedId) {
         Object idObj = msg.get("id");
-        if (idObj instanceof Number n) return n.intValue() == expectedId;
+        if (idObj instanceof Number n) {
+            return n.intValue() == expectedId;
+        }
         return false;
     }
 }

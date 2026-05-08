@@ -123,7 +123,9 @@ public class StatusBar {
     }
 
     private void renderBwuError(float gap) {
-        if (bwu == null) return;
+        if (bwu == null) {
+            return;
+        }
         String err;
         try {
             err = bwu.getLastError();

@@ -17,6 +17,11 @@ public class BwuException extends RuntimeException {
         this.error = error;
     }
 
+    public BwuException(String message, Throwable cause) {
+        super(message, cause);
+        this.error = null;
+    }
+
     public BwuError error() {
         return error;
     }

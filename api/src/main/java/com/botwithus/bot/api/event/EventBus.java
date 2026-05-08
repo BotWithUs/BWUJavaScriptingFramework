@@ -11,7 +11,7 @@ import java.util.function.Consumer;
  * <p>Example usage:</p>
  * <pre>{@code
  * eventBus.subscribe(ChatMessageEvent.class, event -> {
- *     System.out.println("Chat: " + event.getMessage().text());
+ *     log.info("Chat: {}", event.getMessage().text());
  * });
  * }</pre>
  *

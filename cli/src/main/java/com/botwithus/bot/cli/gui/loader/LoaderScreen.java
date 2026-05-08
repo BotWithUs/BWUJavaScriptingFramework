@@ -18,6 +18,7 @@ import imgui.type.ImString;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
@@ -773,7 +774,9 @@ public class LoaderScreen {
     // --- Auth / Update / Loading Logic (via BwuClient) ---
 
     private void tryAutoLogin() {
-        if (!dllAvailable) return;
+        if (!dllAvailable) {
+            return;
+        }
 
         // loadToken(null) uses the DLL's default path, validates the token
         // against the API, sets logged_in, populates user info, and triggers
@@ -906,7 +909,7 @@ public class LoaderScreen {
             if (!Files.isDirectory(scriptsDir)) {
                 try {
                     Files.createDirectories(scriptsDir);
-                } catch (java.io.IOException e) {
+                } catch (IOException e) {
                     log.warn("Could not create scripts directory: {}", e.getMessage());
                 }
             }
@@ -918,7 +921,7 @@ public class LoaderScreen {
             if (!Files.isDirectory(configDir)) {
                 try {
                     Files.createDirectories(configDir);
-                } catch (java.io.IOException e) {
+                } catch (IOException e) {
                     log.warn("Could not create config directory: {}", e.getMessage());
                 }
             }

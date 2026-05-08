@@ -230,7 +230,9 @@ public class ScriptsCommand implements Command {
 
     private void warnDisconnected(String groupName, List<Connection> activeConns, CliContext ctx) {
         var group = ctx.getGroup(groupName);
-        if (group == null) return;
+        if (group == null) {
+            return;
+        }
         for (String connName : group.getConnectionNames()) {
             if (activeConns.stream().noneMatch(c -> c.getName().equals(connName))) {
                 ctx.out().println("[" + connName + "] " + AnsiCodes.colorize("Warning: disconnected, skipped.", AnsiCodes.YELLOW));

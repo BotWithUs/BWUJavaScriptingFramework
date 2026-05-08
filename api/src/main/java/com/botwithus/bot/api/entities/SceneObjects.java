@@ -3,6 +3,8 @@ package com.botwithus.bot.api.entities;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.SceneObjectInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -32,6 +34,8 @@ import java.util.stream.Stream;
  * }</pre>
  */
 public final class SceneObjects {
+
+    private static final Logger log = LoggerFactory.getLogger(SceneObjects.class);
 
     private final GameAPI api;
     private final ConcurrentHashMap<Integer, LocationType> defCache = new ConcurrentHashMap<>();
@@ -67,10 +71,16 @@ public final class SceneObjects {
 
     private LocationType lookupType(int typeId) {
         LocationType cached = defCache.get(typeId);
-        if (cached != null) return cached == NULL_DEF ? null : cached;
+        if (cached != null) {
+            return cached == NULL_DEF ? null : cached;
+        }
         LocationType fetched;
-        try { fetched = api.getLocationType(typeId); }
-        catch (RuntimeException e) { fetched = null; }
+        try {
+            fetched = api.getLocationType(typeId);
+        } catch (RuntimeException e) {
+            log.debug("getLocationType({}) failed; caching null sentinel", typeId, e);
+            fetched = null;
+        }
         defCache.put(typeId, fetched != null ? fetched : NULL_DEF);
         return fetched;
     }

@@ -1,12 +1,12 @@
 plugins {
-    id("org.gradlex.extra-java-module-info") version "1.11"
+    alias(libs.plugins.gradlex.extra.java.module.info)
 }
 
 dependencies {
     implementation(project(":api"))
-    implementation("org.msgpack:msgpack-core:0.9.8")
-    implementation("com.google.code.gson:gson:2.11.0")
-    implementation("ch.qos.logback:logback-classic:1.5.16")
+    implementation(libs.msgpack.core)
+    implementation(libs.gson)
+    implementation(libs.logback.classic)
 }
 
 extraJavaModuleInfo {

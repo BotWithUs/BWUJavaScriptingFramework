@@ -37,6 +37,17 @@ public class AccountsPanel implements GuiPanel {
 
     private static final Logger log = LoggerFactory.getLogger(AccountsPanel.class);
 
+    /** Refresh window for account-list polling (Jagex + classic). */
+    private static final long REFRESH_INTERVAL_MS = 2_000L;
+    /** Fade-out duration for status banners in seconds. */
+    private static final float STATUS_FADE_DURATION_S = 0.3f;
+    /** Pixels reserved on the right side of a Jagex card header for badges + counts. */
+    private static final float JAGEX_HEADER_BADGE_AREA = 200f;
+    /** Seconds remaining on a session below which it is shown as "Expiring". */
+    private static final long SESSION_EXPIRING_THRESHOLD_S = 300L;
+    /** Maximum visible characters of an account ID before truncation. */
+    private static final int ACCOUNT_ID_MAX_LEN = 8;
+
     private final BwuClient bwu;
     private final ExecutorService executor;
 
@@ -116,13 +127,13 @@ public class AccountsPanel implements GuiPanel {
             return;
         }
 
-        // Auto-refresh account lists periodically (every 2s)
+        // Auto-refresh account lists periodically
         long now = System.currentTimeMillis();
-        if (now - jagexAccountsLastRefresh > 2000) {
+        if (now - jagexAccountsLastRefresh > REFRESH_INTERVAL_MS) {
             refreshJagexAccounts();
             jagexAccountsLastRefresh = now;
         }
-        if (now - classicAccountsLastRefresh > 2000) {
+        if (now - classicAccountsLastRefresh > REFRESH_INTERVAL_MS) {
             refreshClassicAccounts();
             classicAccountsLastRefresh = now;
         }
@@ -188,7 +199,7 @@ public class AccountsPanel implements GuiPanel {
     // ═══════════════════════════════════════════════════════════════════════
 
     private void renderStatusBanner() {
-        float alpha = Math.min(1f, statusTimer / 0.3f); // fade out in last 0.3s
+        float alpha = Math.min(1f, statusTimer / STATUS_FADE_DURATION_S); // fade out near end
         float r = statusIsError ? ImGuiTheme.RED_R : ImGuiTheme.ACCENT_R;
         float g = statusIsError ? ImGuiTheme.RED_G : ImGuiTheme.ACCENT_G;
         float b = statusIsError ? ImGuiTheme.RED_B : ImGuiTheme.ACCENT_B;
@@ -315,14 +326,16 @@ public class AccountsPanel implements GuiPanel {
         String headerLabel = chevron + "  " + Icons.SHIELD + "  " + displayName
                 + "##header_" + account.uuid();
 
-        float headerW = ImGui.getContentRegionAvailX() - 200;
+        float headerW = ImGui.getContentRegionAvailX() - JAGEX_HEADER_BADGE_AREA;
         if (ImGui.selectable(headerLabel, isExpanded, 0, headerW, lineH)) {
             expandedJagexUuid = isExpanded ? null : account.uuid();
         }
         ImGui.popStyleColor(3);
 
-        // Session status badge (right-aligned within the child)
-        ImGui.sameLine(ImGui.getContentRegionAvailX() - 180);
+        // Session status badge (right-aligned within the child).
+        // Reserve a slightly narrower area than the header carve-out so the
+        // selectable does not overlap the badge.
+        ImGui.sameLine(ImGui.getContentRegionAvailX() - (JAGEX_HEADER_BADGE_AREA - 20f));
         renderSessionBadge(account);
 
         ImGui.sameLine(0, 8);
@@ -348,7 +361,7 @@ public class AccountsPanel implements GuiPanel {
             GuiHelpers.statusBadge("No Session", ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B);
         } else if (expires < now) {
             GuiHelpers.statusBadge("Expired", ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
-        } else if (expires - now < 300) {
+        } else if (expires - now < SESSION_EXPIRING_THRESHOLD_S) {
             GuiHelpers.statusBadge("Expiring", ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B);
         } else {
             GuiHelpers.statusBadge("Active", ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B);
@@ -388,8 +401,8 @@ public class AccountsPanel implements GuiPanel {
             // Account ID hint
             if (ch.accountId() != null && !ch.accountId().isEmpty()) {
                 ImGui.sameLine(0, 8);
-                String shortId = ch.accountId().length() > 8
-                        ? ch.accountId().substring(0, 8) + "..." : ch.accountId();
+                String shortId = ch.accountId().length() > ACCOUNT_ID_MAX_LEN
+                        ? ch.accountId().substring(0, ACCOUNT_ID_MAX_LEN) + "..." : ch.accountId();
                 GuiHelpers.textMuted(shortId);
             }
         }

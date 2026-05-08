@@ -19,7 +19,9 @@ public final class ScriptConfig {
     /** Falls back to default if absent or unparseable. */
     public int getInt(String key, int defaultValue) {
         String v = values.get(key);
-        if (v == null) return defaultValue;
+        if (v == null) {
+            return defaultValue;
+        }
         try {
             return Integer.parseInt(v);
         } catch (NumberFormatException e) {
@@ -33,7 +35,9 @@ public final class ScriptConfig {
 
     public boolean getBoolean(String key, boolean defaultValue) {
         String v = values.get(key);
-        if (v == null) return defaultValue;
+        if (v == null) {
+            return defaultValue;
+        }
         return Boolean.parseBoolean(v);
     }
 

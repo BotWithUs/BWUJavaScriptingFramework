@@ -273,7 +273,9 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public PlayerStat getPlayerStat(int skillId) {
         LocalPlayer self = getLocalPlayer();
-        if (self == null) return null;
+        if (self == null) {
+            return null;
+        }
         for (Skill s : self.skills()) {
             if (s.typeId() == skillId) {
                 return new PlayerStat(s.typeId(), s.actualLevel(), s.boostedLevel(), s.experience());
@@ -461,7 +463,9 @@ public class GameAPIImpl implements GameAPI {
         // Producer signals "not found" by writing iface=-1 in an otherwise
         // populated map; map to null on the consumer side.
         int iface = getInt(r, "iface");
-        if (iface < 0) return null;
+        if (iface < 0) {
+            return null;
+        }
         return new Component(
                 iface,
                 getInt(r, "comp"),
@@ -587,22 +591,55 @@ public class GameAPIImpl implements GameAPI {
         if (exactDestTile) params.put("exact_dest_tile", true);
         if (config != null && config != WorldPathConfig.DEFAULT) {
             Map<String, Object> cfg = new LinkedHashMap<>();
-            if (config.agilityLevel() > 1) cfg.put("agility_level", config.agilityLevel());
-            if (config.maxIterations() != 500_000) cfg.put("max_iterations", config.maxIterations());
-            if (!config.allowDoors()) cfg.put("allow_doors", false);
-            if (!config.allowShortcuts()) cfg.put("allow_shortcuts", false);
-            if (!config.allowPlaneTransitions()) cfg.put("allow_plane_transitions", false);
-            if (!config.allowClimbovers()) cfg.put("allow_climbovers", false);
-            if (!config.allowTransports()) cfg.put("allow_transports", false);
-            if (!config.allowTeleports()) cfg.put("allow_teleports", false);
-            if (config.doorCost() != 5.0f) cfg.put("door_cost", config.doorCost());
-            if (config.transitionCost() != 10.0f) cfg.put("transition_cost", config.transitionCost());
-            if (config.shortcutCost() != 3.0f) cfg.put("shortcut_cost", config.shortcutCost());
-            if (config.climboverCost() != 3.0f) cfg.put("climbover_cost", config.climboverCost());
-            if (config.transportCost() != 15.0f) cfg.put("transport_cost", config.transportCost());
-            if (config.globalTeleportMinHeuristic() != 100.0f) cfg.put("global_teleport_min_heuristic", config.globalTeleportMinHeuristic());
-            if (config.heuristicWeight() != 1.0f) cfg.put("heuristic_weight", config.heuristicWeight());
-            if (!cfg.isEmpty()) params.put("config", cfg);
+            WorldPathConfig defaults = WorldPathConfig.DEFAULT;
+            if (config.agilityLevel() > 1) {
+                cfg.put("agility_level", config.agilityLevel());
+            }
+            if (config.maxIterations() != defaults.maxIterations()) {
+                cfg.put("max_iterations", config.maxIterations());
+            }
+            if (!config.allowDoors()) {
+                cfg.put("allow_doors", false);
+            }
+            if (!config.allowShortcuts()) {
+                cfg.put("allow_shortcuts", false);
+            }
+            if (!config.allowPlaneTransitions()) {
+                cfg.put("allow_plane_transitions", false);
+            }
+            if (!config.allowClimbovers()) {
+                cfg.put("allow_climbovers", false);
+            }
+            if (!config.allowTransports()) {
+                cfg.put("allow_transports", false);
+            }
+            if (!config.allowTeleports()) {
+                cfg.put("allow_teleports", false);
+            }
+            if (config.doorCost() != defaults.doorCost()) {
+                cfg.put("door_cost", config.doorCost());
+            }
+            if (config.transitionCost() != defaults.transitionCost()) {
+                cfg.put("transition_cost", config.transitionCost());
+            }
+            if (config.shortcutCost() != defaults.shortcutCost()) {
+                cfg.put("shortcut_cost", config.shortcutCost());
+            }
+            if (config.climboverCost() != defaults.climboverCost()) {
+                cfg.put("climbover_cost", config.climboverCost());
+            }
+            if (config.transportCost() != defaults.transportCost()) {
+                cfg.put("transport_cost", config.transportCost());
+            }
+            if (config.globalTeleportMinHeuristic() != defaults.globalTeleportMinHeuristic()) {
+                cfg.put("global_teleport_min_heuristic", config.globalTeleportMinHeuristic());
+            }
+            if (config.heuristicWeight() != defaults.heuristicWeight()) {
+                cfg.put("heuristic_weight", config.heuristicWeight());
+            }
+            if (!cfg.isEmpty()) {
+                params.put("config", cfg);
+            }
         }
         rpc.callSync("walk_world_path", params);
     }

@@ -7,6 +7,8 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.util.Interfaces;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -35,43 +37,63 @@ import java.util.function.IntFunction;
  */
 public class InventoryContainer {
 
+    private static final Logger log = LoggerFactory.getLogger(InventoryContainer.class);
+
     protected final GameAPI api;
     protected final int invId;
     protected final int interfaceId;
     protected final int componentId;
+    /**
+     * Shared definition cache backing the {@link #itemTypeLookup} closure.
+     * Held on the abstraction so subclasses do not introduce hidden state
+     * — every container kind (backpack, bank, equipment, future inventories)
+     * gets the same cache contract for free.
+     */
+    private final ConcurrentHashMap<Integer, ItemType> defCache;
     private final IntFunction<ItemType> itemTypeLookup;
 
     /**
-     * @param api            game API for action queueing + snapshot reads
-     * @param invId          inventory id (matches {@link com.botwithus.bot.api.constants.InventoryIds})
-     * @param interfaceId    iface id of the slot-grid component used for click interactions
-     * @param componentId    component id of the slot-grid within {@code interfaceId}
-     * @param itemTypeLookup pluggable lookup so the base doesn't reach into
-     *                       the GameAPI cache directly — the subclass owns
-     *                       its own definition cache, shared across calls
+     * @param api         game API for action queueing + snapshot reads
+     * @param invId       inventory id (matches {@link com.botwithus.bot.api.constants.InventoryIds})
+     * @param interfaceId iface id of the slot-grid component used for click interactions
+     * @param componentId component id of the slot-grid within {@code interfaceId}
      */
     protected InventoryContainer(GameAPI api,
                                  int invId,
                                  int interfaceId,
-                                 int componentId,
-                                 IntFunction<ItemType> itemTypeLookup) {
+                                 int componentId) {
         this.api = api;
         this.invId = invId;
         this.interfaceId = interfaceId;
         this.componentId = componentId;
-        this.itemTypeLookup = itemTypeLookup;
+        this.defCache = new ConcurrentHashMap<>();
+        this.itemTypeLookup = cachedItemTypeLookup(api, defCache);
     }
 
     public int invId()        { return invId; }
     public int interfaceId()  { return interfaceId; }
     public int componentId()  { return componentId; }
 
+    // ---------------------------------------------------------------- Definition cache
+
+    /** Drop the ItemType cache. Useful between game updates or in tests. */
+    public final void clearDefinitionCache() {
+        defCache.clear();
+    }
+
+    /** Diagnostic — number of cached ItemType definitions. */
+    public final int definitionCacheSize() {
+        return defCache.size();
+    }
+
     // ---------------------------------------------------------------- Slot reads
 
     /** Resolves the inventory from the current snapshot, or {@code null} if not published. */
     private Inventory resolve() {
         GameSnapshot snap = api.snapshot();
-        if (snap == null) return null;
+        if (snap == null) {
+            return null;
+        }
         Optional<Inventory> opt = snap.inventories().byInvId(invId);
         return opt.orElse(null);
     }
@@ -85,10 +107,14 @@ public class InventoryContainer {
     /** Non-empty slots only. */
     public List<InventoryItem> getItems() {
         List<InventoryItem> all = getAllSlots();
-        if (all.isEmpty()) return all;
+        if (all.isEmpty()) {
+            return all;
+        }
         List<InventoryItem> filled = new ArrayList<>(all.size());
         for (InventoryItem it : all) {
-            if (!it.isEmpty()) filled.add(it);
+            if (!it.isEmpty()) {
+                filled.add(it);
+            }
         }
         return filled;
     }
@@ -107,7 +133,11 @@ public class InventoryContainer {
 
     public int occupiedSlots() {
         int n = 0;
-        for (InventoryItem it : getAllSlots()) if (!it.isEmpty()) ++n;
+        for (InventoryItem it : getAllSlots()) {
+            if (!it.isEmpty()) {
+                ++n;
+            }
+        }
         return n;
     }
 
@@ -124,7 +154,9 @@ public class InventoryContainer {
 
     public boolean contains(int itemId) {
         for (InventoryItem it : getAllSlots()) {
-            if (it.itemId() == itemId) return true;
+            if (it.itemId() == itemId) {
+                return true;
+            }
         }
         return false;
     }
@@ -135,12 +167,20 @@ public class InventoryContainer {
     }
 
     public boolean containsAny(int... itemIds) {
-        for (int id : itemIds) if (contains(id)) return true;
+        for (int id : itemIds) {
+            if (contains(id)) {
+                return true;
+            }
+        }
         return false;
     }
 
     public boolean containsAll(int... itemIds) {
-        for (int id : itemIds) if (!contains(id)) return false;
+        for (int id : itemIds) {
+            if (!contains(id)) {
+                return false;
+            }
+        }
         return true;
     }
 
@@ -152,7 +192,9 @@ public class InventoryContainer {
     public int count(int itemId) {
         int n = 0;
         for (InventoryItem it : getAllSlots()) {
-            if (it.itemId() == itemId) n += it.quantity();
+            if (it.itemId() == itemId) {
+                n += it.quantity();
+            }
         }
         return n;
     }
@@ -161,14 +203,18 @@ public class InventoryContainer {
     public int count(String name) {
         int n = 0;
         for (InventoryItem it : getAllSlots()) {
-            if (matchesName(it, name)) n += it.quantity();
+            if (matchesName(it, name)) {
+                n += it.quantity();
+            }
         }
         return n;
     }
 
     public InventoryItem getFirst(int itemId) {
         for (InventoryItem it : getAllSlots()) {
-            if (it.itemId() == itemId) return it;
+            if (it.itemId() == itemId) {
+                return it;
+            }
         }
         return null;
     }
@@ -179,7 +225,9 @@ public class InventoryContainer {
 
     public InventoryItem getFirst(String name) {
         for (InventoryItem it : getAllSlots()) {
-            if (matchesName(it, name)) return it;
+            if (matchesName(it, name)) {
+                return it;
+            }
         }
         return null;
     }
@@ -191,15 +239,21 @@ public class InventoryContainer {
     public List<InventoryItem> getAll(String name) {
         List<InventoryItem> out = new ArrayList<>();
         for (InventoryItem it : getAllSlots()) {
-            if (matchesName(it, name)) out.add(it);
+            if (matchesName(it, name)) {
+                out.add(it);
+            }
         }
         return out;
     }
 
     private boolean matchesName(InventoryItem it, String needle) {
-        if (it.isEmpty()) return false;
+        if (it.isEmpty()) {
+            return false;
+        }
         ItemType t = lookupType(it.itemId());
-        if (t == null || t.name() == null) return false;
+        if (t == null || t.name() == null) {
+            return false;
+        }
         return t.name().toLowerCase().contains(needle.toLowerCase());
     }
 
@@ -220,7 +274,9 @@ public class InventoryContainer {
      *         {@code false} when the slot index is out of range
      */
     public boolean interact(int slot, int optionIndex) {
-        if (slot < 0 || slot >= slotCount()) return false;
+        if (slot < 0 || slot >= slotCount()) {
+            return false;
+        }
         api.queueAction(new GameAction(
                 ActionTypes.COMPONENT,
                 optionIndex,
@@ -236,7 +292,9 @@ public class InventoryContainer {
      */
     public boolean interactFirst(int itemId, int optionIndex) {
         InventoryItem it = getFirst(itemId);
-        if (it == null) return false;
+        if (it == null) {
+            return false;
+        }
         return interact(it.slot(), optionIndex);
     }
 
@@ -248,43 +306,59 @@ public class InventoryContainer {
      */
     public boolean interactFirst(int itemId, String option) {
         InventoryItem it = getFirst(itemId);
-        if (it == null) return false;
+        if (it == null) {
+            return false;
+        }
         ItemType t = lookupType(itemId);
-        if (t == null) return false;
+        if (t == null) {
+            return false;
+        }
         int idx = findOptionIndex(t.inventoryOptions(), option);
-        if (idx < 1) return false;
+        if (idx < 1) {
+            return false;
+        }
         return interact(it.slot(), idx);
     }
 
     private static int findOptionIndex(List<String> options, String wanted) {
-        if (options == null || wanted == null) return -1;
+        if (options == null || wanted == null) {
+            return -1;
+        }
         for (int i = 0; i < options.size(); ++i) {
-            if (wanted.equalsIgnoreCase(options.get(i))) return i + 1;
+            if (wanted.equalsIgnoreCase(options.get(i))) {
+                return i + 1;
+            }
         }
         return -1;
     }
 
     /**
-     * Cache-managed shared map shape for subclasses. Keeping the sentinel
-     * out here so each subclass's cache uses the same "null was looked up"
-     * contract without duplicating code.
+     * Sentinel marking "lookup returned null" — ConcurrentHashMap rejects
+     * null values, so we cache failures as this constant and translate back
+     * to {@code null} at the read site.
      */
-    static final ItemType NULL_DEF = new ItemType(
+    private static final ItemType NULL_DEF = new ItemType(
             -1, "", false, false, 0, 0, 0, -1, -1, false, List.of(), List.of(), Map.of());
 
     /**
-     * Helper for subclasses: build an IntFunction&lt;ItemType&gt; backed by a
-     * ConcurrentHashMap that calls {@link GameAPI#getItemType} on first miss.
-     * Failed lookups cache as {@link #NULL_DEF} so we don't retry forever.
+     * Build an IntFunction&lt;ItemType&gt; backed by {@code cache} that calls
+     * {@link GameAPI#getItemType} on first miss. Failed lookups cache as
+     * {@link #NULL_DEF} so we don't retry forever.
      */
-    static IntFunction<ItemType> cachedItemTypeLookup(GameAPI api,
-                                                     ConcurrentHashMap<Integer, ItemType> cache) {
+    private static IntFunction<ItemType> cachedItemTypeLookup(GameAPI api,
+                                                              ConcurrentHashMap<Integer, ItemType> cache) {
         return id -> {
             ItemType c = cache.get(id);
-            if (c != null) return c == NULL_DEF ? null : c;
+            if (c != null) {
+                return c == NULL_DEF ? null : c;
+            }
             ItemType fetched;
-            try { fetched = api.getItemType(id); }
-            catch (RuntimeException e) { fetched = null; }
+            try {
+                fetched = api.getItemType(id);
+            } catch (RuntimeException e) {
+                log.debug("getItemType({}) failed; caching null sentinel", id, e);
+                fetched = null;
+            }
             cache.put(id, fetched != null ? fetched : NULL_DEF);
             return fetched;
         };

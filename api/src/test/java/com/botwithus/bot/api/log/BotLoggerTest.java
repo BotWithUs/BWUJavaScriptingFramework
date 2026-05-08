@@ -36,7 +36,7 @@ class BotLoggerTest {
     @Test
     void errorWithThrowableDoesNotThrow() {
         BotLogger logger = LoggerFactory.getLogger("TestLogger");
-        assertDoesNotThrow(() -> logger.error("oops", new RuntimeException("test")));
+        assertDoesNotThrow(() -> logger.error("oops", new IllegalStateException("test")));
     }
 
     @Test

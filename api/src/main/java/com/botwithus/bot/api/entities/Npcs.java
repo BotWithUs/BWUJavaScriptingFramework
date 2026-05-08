@@ -3,6 +3,8 @@ package com.botwithus.bot.api.entities;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -29,6 +31,8 @@ import java.util.stream.Stream;
  * }</pre>
  */
 public final class Npcs {
+
+    private static final Logger log = LoggerFactory.getLogger(Npcs.class);
 
     private final GameAPI api;
     private final ConcurrentHashMap<Integer, NpcType> defCache = new ConcurrentHashMap<>();
@@ -81,11 +85,14 @@ public final class Npcs {
      */
     private NpcType lookupType(int typeId) {
         NpcType cached = defCache.get(typeId);
-        if (cached != null) return cached == NULL_DEF ? null : cached;
+        if (cached != null) {
+            return cached == NULL_DEF ? null : cached;
+        }
         NpcType fetched;
         try {
             fetched = api.getNpcType(typeId);
         } catch (RuntimeException e) {
+            log.debug("getNpcType({}) failed; caching null sentinel", typeId, e);
             fetched = null;
         }
         defCache.put(typeId, fetched != null ? fetched : NULL_DEF);
@@ -104,7 +111,9 @@ public final class Npcs {
         @Override
         protected Stream<Npc> source() {
             GameSnapshot snap = api.snapshot();
-            if (snap == null) return Stream.empty();
+            if (snap == null) {
+                return Stream.empty();
+            }
             return snap.npcs().stream()
                     .map(raw -> new Npc(api, raw, typeLookup));
         }

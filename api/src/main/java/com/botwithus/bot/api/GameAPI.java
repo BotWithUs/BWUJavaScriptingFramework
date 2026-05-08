@@ -29,6 +29,7 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Slim RPC-shaped surface for talking to the game producer. After the
@@ -114,7 +115,7 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
      * <p>Currently returns an empty list; the producer-side iteration
      * lands in a follow-up slice.</p>
      */
-    java.util.List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max);
+    List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max);
 
     /**
      * Low-level RPC: ask the producer for live ground items within
@@ -122,7 +123,7 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
      * Mirrors {@link #queryLocations} for ObjStackList. Stub-empty until
      * the producer-side iteration lands.
      */
-    java.util.List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max);
+    List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max);
 
     /** World-map element query facade. Singleton per {@link GameAPI}. */
     WorldMapElements mapElements();
@@ -134,7 +135,7 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
      * {@link #mapElements()} instead. Stub-empty until producer iteration
      * lands.
      */
-    java.util.List<WorldMapElement> queryWorldMapElements(java.util.Map<String, Object> filter);
+    List<WorldMapElement> queryWorldMapElements(Map<String, Object> filter);
 
     // ---------------------------------------------------------------- Local player & skills
 

@@ -10,6 +10,8 @@ import com.botwithus.bot.core.shm.SharedRegionEventPump;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Map;
+
 public class Connection {
 
     private static final Logger log = LoggerFactory.getLogger(Connection.class);
@@ -21,7 +23,7 @@ public class Connection {
     private EventBusImpl eventBus;
     private SharedRegionEventPump eventPump;
     private String accountName;
-    private java.util.Map<String, Object> accountInfo;
+    private Map<String, Object> accountInfo;
 
     public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime) {
         this.name = name;
@@ -44,8 +46,8 @@ public class Connection {
     public void setAccountName(String accountName) { this.accountName = accountName; }
     public String getAccountName() { return accountName; }
 
-    public void setAccountInfo(java.util.Map<String, Object> accountInfo) { this.accountInfo = accountInfo; }
-    public java.util.Map<String, Object> getAccountInfo() { return accountInfo; }
+    public void setAccountInfo(Map<String, Object> accountInfo) { this.accountInfo = accountInfo; }
+    public Map<String, Object> getAccountInfo() { return accountInfo; }
 
     /** Returns true if the underlying pipe is still open. */
     public boolean isAlive() {
@@ -59,15 +61,21 @@ public class Connection {
 
     /** Stop all scripts AND close the connection. */
     public void close() {
-        try { runtime.stopAll(); } catch (Exception e) {
+        try {
+            runtime.stopAll();
+        } catch (RuntimeException e) {
             log.error("Error stopping scripts for {}", name, e);
         }
         if (eventPump != null) {
-            try { eventPump.close(); } catch (Exception e) {
+            try {
+                eventPump.close();
+            } catch (RuntimeException e) {
                 log.error("Error stopping event pump for {}", name, e);
             }
         }
-        try { rpc.close(); } catch (Exception e) {
+        try {
+            rpc.close();
+        } catch (RuntimeException e) {
             log.error("Error closing RPC for {}", name, e);
         }
     }

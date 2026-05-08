@@ -9,7 +9,7 @@ import com.botwithus.bot.api.model.ChatMessage;
  * <pre>{@code
  * eventBus.subscribe(ChatMessageEvent.class, event -> {
  *     ChatMessage msg = event.getMessage();
- *     System.out.println(msg.playerName() + ": " + msg.text());
+ *     log.info("{}: {}", msg.playerName(), msg.text());
  * });
  * }</pre>
  *

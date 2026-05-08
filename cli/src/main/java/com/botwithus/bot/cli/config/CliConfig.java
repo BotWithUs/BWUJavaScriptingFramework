@@ -19,14 +19,20 @@ public class CliConfig {
     private static final Path CONFIG_DIR = Path.of(System.getProperty("user.home"), ".botwithus");
     private static final Path CONFIG_FILE = CONFIG_DIR.resolve("config.properties");
 
+    /** Default RPC timeout in ms when none is configured (or the configured value is malformed). */
+    private static final long DEFAULT_TIMEOUT_MS = 10_000L;
+
     private final Properties props = new Properties();
 
     public String getAutoConnectPipes() { return props.getProperty("autoConnectPipes", ""); }
     public void setAutoConnectPipes(String pipes) { props.setProperty("autoConnectPipes", pipes); }
 
     public long getDefaultTimeout() {
-        try { return Long.parseLong(props.getProperty("defaultTimeout", "10000")); }
-        catch (NumberFormatException e) { return 10000; }
+        try {
+            return Long.parseLong(props.getProperty("defaultTimeout", String.valueOf(DEFAULT_TIMEOUT_MS)));
+        } catch (NumberFormatException e) {
+            return DEFAULT_TIMEOUT_MS;
+        }
     }
     public void setDefaultTimeout(long ms) { props.setProperty("defaultTimeout", String.valueOf(ms)); }
 

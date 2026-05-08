@@ -6,10 +6,15 @@ import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.core.rpc.RpcClient;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 import java.util.Map;
 
 public class ActionsCommand implements Command {
+
+    private static final Logger log = LoggerFactory.getLogger(ActionsCommand.class);
 
     @Override public String name() { return "actions"; }
     @Override public List<String> aliases() { return List.of(); }
@@ -33,7 +38,11 @@ public class ActionsCommand implements Command {
             int n = 10;
             String nStr = parsed.arg(1);
             if (nStr != null) {
-                try { n = Integer.parseInt(nStr); } catch (NumberFormatException ignored) {}
+                try {
+                    n = Integer.parseInt(nStr);
+                } catch (NumberFormatException e) {
+                    log.debug("could not parse '{}' as int, using fallback {}", nStr, n);
+                }
             }
             showHistory(rpc, n, ctx);
         } else if ("blocked".equals(sub)) {

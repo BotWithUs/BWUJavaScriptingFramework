@@ -82,14 +82,18 @@ public class UserAccountsRenderer {
      * so the caller can lay out content below.
      */
     public void render() {
-        if (bwu == null) return; // silently skip if no DLL
+        if (bwu == null) {
+            return; // silently skip if no DLL
+        }
 
         float dt = ImGui.getIO().getDeltaTime();
 
         // Decay toast
         if (toastTimer > 0) {
             toastTimer -= dt;
-            if (toastTimer <= 0) toastMessage = null;
+            if (toastTimer <= 0) {
+                toastMessage = null;
+            }
         }
 
         // Clear finished ops

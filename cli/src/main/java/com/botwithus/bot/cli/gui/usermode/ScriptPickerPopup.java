@@ -182,8 +182,12 @@ public class ScriptPickerPopup {
     }
 
     private void startSelected(CliContext ctx) {
-        if (selectedIndex < 0 || availableScripts == null || selectedIndex >= availableScripts.size()) return;
-        if (targetConnection == null) return;
+        if (selectedIndex < 0 || availableScripts == null || selectedIndex >= availableScripts.size()) {
+            return;
+        }
+        if (targetConnection == null) {
+            return;
+        }
 
         BotScript script = availableScripts.get(selectedIndex);
         targetConnection.getRuntime().startScript(script);

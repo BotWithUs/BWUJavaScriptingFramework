@@ -4,7 +4,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -25,7 +30,9 @@ public class ScriptWatcher {
     }
 
     public void start() {
-        if (!running.compareAndSet(false, true)) return;
+        if (!running.compareAndSet(false, true)) {
+            return;
+        }
         watchThread = Thread.ofVirtual().name("script-watcher").start(this::watchLoop);
     }
 
