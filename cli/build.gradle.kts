@@ -1,23 +1,25 @@
 plugins {
     application
-    id("org.beryx.jlink")
-    id("org.gradlex.extra-java-module-info") version "1.11"
+    alias(libs.plugins.beryx.jlink)
+    alias(libs.plugins.gradlex.extra.java.module.info)
 }
 
-val lwjglVersion = "3.3.6"
-val imguiVersion = "1.90.0"
+// LWJGL ships per-platform natives as classifier artifacts (foo:bar:VERSION:natives-windows).
+// Version-catalog entries cannot carry a classifier, so we resolve the version
+// from the catalog and apply the classifier here at the single use site.
+val lwjglVersion = libs.versions.lwjgl.get()
 val lwjglNatives = "natives-windows"
 
 dependencies {
     implementation(project(":api"))
     implementation(project(":core"))
-    implementation("com.google.code.gson:gson:2.11.0")
-    implementation("io.github.spair:imgui-java-app:$imguiVersion")
-    runtimeOnly("io.github.spair:imgui-java-natives-windows:$imguiVersion")
-    runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
-    runtimeOnly("org.lwjgl:lwjgl-glfw:$lwjglVersion:$lwjglNatives")
-    runtimeOnly("org.lwjgl:lwjgl-opengl:$lwjglVersion:$lwjglNatives")
-    implementation("ch.qos.logback:logback-classic:1.5.16")
+    implementation(libs.gson)
+    implementation(libs.imgui.java.app)
+    runtimeOnly(libs.imgui.java.natives.windows)
+    runtimeOnly("${libs.lwjgl.core.get().module}:$lwjglVersion:$lwjglNatives")
+    runtimeOnly("${libs.lwjgl.glfw.get().module}:$lwjglVersion:$lwjglNatives")
+    runtimeOnly("${libs.lwjgl.opengl.get().module}:$lwjglVersion:$lwjglNatives")
+    implementation(libs.logback.classic)
 }
 
 extraJavaModuleInfo {

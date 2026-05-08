@@ -1,10 +1,19 @@
 package com.botwithus.bot.core.msgpack;
 
-import org.msgpack.core.*;
-import org.msgpack.value.*;
+import org.msgpack.core.MessageBufferPacker;
+import org.msgpack.core.MessagePack;
+import org.msgpack.core.MessagePacker;
+import org.msgpack.core.MessageUnpacker;
+import org.msgpack.value.ArrayValue;
+import org.msgpack.value.IntegerValue;
+import org.msgpack.value.MapValue;
+import org.msgpack.value.Value;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Encodes Map to MessagePack bytes and decodes MessagePack bytes to Map.

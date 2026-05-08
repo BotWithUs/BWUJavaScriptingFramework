@@ -3,6 +3,8 @@ package com.botwithus.bot.api.entities;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.ItemType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -25,6 +27,8 @@ import java.util.stream.Stream;
  */
 public final class GroundItems {
 
+    private static final Logger log = LoggerFactory.getLogger(GroundItems.class);
+
     private final GameAPI api;
     private final ConcurrentHashMap<Integer, ItemType> defCache = new ConcurrentHashMap<>();
     private static final ItemType NULL_DEF = new ItemType(
@@ -43,10 +47,16 @@ public final class GroundItems {
 
     private ItemType lookupType(int itemId) {
         ItemType cached = defCache.get(itemId);
-        if (cached != null) return cached == NULL_DEF ? null : cached;
+        if (cached != null) {
+            return cached == NULL_DEF ? null : cached;
+        }
         ItemType fetched;
-        try { fetched = api.getItemType(itemId); }
-        catch (RuntimeException e) { fetched = null; }
+        try {
+            fetched = api.getItemType(itemId);
+        } catch (RuntimeException e) {
+            log.debug("getItemType({}) failed; caching null sentinel", itemId, e);
+            fetched = null;
+        }
         defCache.put(itemId, fetched != null ? fetched : NULL_DEF);
         return fetched;
     }

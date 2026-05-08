@@ -60,7 +60,9 @@ public final class MapHelper {
     @SuppressWarnings("unchecked")
     public static List<Map<String, Object>> getList(Map<String, Object> map, String key) {
         Object v = map.get(key);
-        if (v instanceof List<?> list) return (List<Map<String, Object>>) list;
+        if (v instanceof List<?> list) {
+            return (List<Map<String, Object>>) list;
+        }
         return List.of();
     }
 
@@ -88,7 +90,9 @@ public final class MapHelper {
     @SuppressWarnings("unchecked")
     public static Map<String, Object> getObjectMap(Map<String, Object> map, String key) {
         Object v = map.get(key);
-        if (v instanceof Map<?, ?> m) return (Map<String, Object>) m;
+        if (v instanceof Map<?, ?> m) {
+            return (Map<String, Object>) m;
+        }
         return Map.of();
     }
 

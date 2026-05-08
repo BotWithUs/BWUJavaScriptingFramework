@@ -67,9 +67,9 @@ public final class BwuClient implements AutoCloseable {
         try {
             Arena arena = Arena.ofShared();
             var lookup = libraryLookup(dllPath, arena);
-            BwuNative native_ = new BwuNative(lookup);
+            BwuNative bwuNative = new BwuNative(lookup);
             log.info("Loaded bwu.dll from {}", dllPath);
-            return Optional.of(new BwuClient(native_, arena));
+            return Optional.of(new BwuClient(bwuNative, arena));
         } catch (IllegalCallerException e) {
             log.warn("Native access not enabled for bwu.dll — add --enable-native-access=com.botwithus.bot.core");
             return Optional.empty();
@@ -594,8 +594,12 @@ public final class BwuClient implements AutoCloseable {
     }
 
     private static RuntimeException rethrow(Throwable t) {
-        if (t instanceof RuntimeException re) return re;
-        if (t instanceof Error e) throw e;
-        return new RuntimeException("Native call failed", t);
+        if (t instanceof RuntimeException re) {
+            return re;
+        }
+        if (t instanceof Error e) {
+            throw e;
+        }
+        return new BwuException("Native call failed", t);
     }
 }

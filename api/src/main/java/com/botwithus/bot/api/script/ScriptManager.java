@@ -14,7 +14,7 @@ import java.util.Map;
  *
  * // See what's available
  * mgr.listAll().forEach(s ->
- *     System.out.println(s.name() + " [" + (s.running() ? "RUNNING" : "STOPPED") + "]"));
+ *     log.info("{} [{}]", s.name(), s.running() ? "RUNNING" : "STOPPED"));
  *
  * // Start a script
  * mgr.start("Woodcutter");

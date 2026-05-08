@@ -1,6 +1,16 @@
 package com.botwithus.bot.api;
 
-import com.botwithus.bot.api.model.*;
+import com.botwithus.bot.api.model.NavClimbover;
+import com.botwithus.bot.api.model.NavDoor;
+import com.botwithus.bot.api.model.NavPlaneTransition;
+import com.botwithus.bot.api.model.NavShortcut;
+import com.botwithus.bot.api.model.NavStats;
+import com.botwithus.bot.api.model.NavTeleport;
+import com.botwithus.bot.api.model.NavTransport;
+import com.botwithus.bot.api.model.PathResult;
+import com.botwithus.bot.api.model.WalkResult;
+import com.botwithus.bot.api.model.WalkStatus;
+import com.botwithus.bot.api.model.WorldPathConfig;
 
 import java.util.List;
 

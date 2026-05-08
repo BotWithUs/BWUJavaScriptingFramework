@@ -11,6 +11,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 
@@ -106,8 +108,8 @@ public class ScreenshotCommand implements Command {
             } else {
                 Path screenshotsDir = Path.of("screenshots");
                 Files.createDirectories(screenshotsDir);
-                String timestamp = java.time.LocalDateTime.now()
-                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+                String timestamp = LocalDateTime.now()
+                        .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
                 outPath = screenshotsDir.resolve("screenshot_" + timestamp + ".png");
             }
             Files.write(outPath, pngBytes);

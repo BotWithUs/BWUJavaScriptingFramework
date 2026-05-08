@@ -12,7 +12,11 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.ServiceLoader;
+import java.util.Set;
 
 /**
  * Discovers {@link ManagementScript} implementations from JAR files

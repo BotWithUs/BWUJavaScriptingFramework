@@ -33,8 +33,12 @@ public class AutoStartManager {
      * Begins background pipe scanning if auto-connect is enabled.
      */
     public void start() {
-        if (running) return;
-        if (!profileStore.isAutoConnect()) return;
+        if (running) {
+            return;
+        }
+        if (!profileStore.isAutoConnect()) {
+            return;
+        }
         running = true;
         scanThread = Thread.ofVirtual().name("autostart-scan").start(this::scanLoop);
         out().println("[AutoStart] Background pipe scanning started.");

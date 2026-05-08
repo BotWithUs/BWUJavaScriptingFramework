@@ -3,7 +3,27 @@ package com.botwithus.bot.cli.gui;
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.command.CommandRegistry;
-import com.botwithus.bot.cli.command.impl.*;
+import com.botwithus.bot.cli.command.impl.ActionsCommand;
+import com.botwithus.bot.cli.command.impl.AutoStartCommand;
+import com.botwithus.bot.cli.command.impl.ClearCommand;
+import com.botwithus.bot.cli.command.impl.ClientCommand;
+import com.botwithus.bot.cli.command.impl.ConfigCommand;
+import com.botwithus.bot.cli.command.impl.ConnectCommand;
+import com.botwithus.bot.cli.command.impl.EventsCommand;
+import com.botwithus.bot.cli.command.impl.ExitCommand;
+import com.botwithus.bot.cli.command.impl.GroupCommand;
+import com.botwithus.bot.cli.command.impl.HelpCommand;
+import com.botwithus.bot.cli.command.impl.LogsCommand;
+import com.botwithus.bot.cli.command.impl.ManagementScriptsCommand;
+import com.botwithus.bot.cli.command.impl.MetricsCommand;
+import com.botwithus.bot.cli.command.impl.MountCommand;
+import com.botwithus.bot.cli.command.impl.PingCommand;
+import com.botwithus.bot.cli.command.impl.ProfileCommand;
+import com.botwithus.bot.cli.command.impl.ReloadCommand;
+import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
+import com.botwithus.bot.cli.command.impl.ScriptsCommand;
+import com.botwithus.bot.cli.command.impl.StreamCommand;
+import com.botwithus.bot.cli.command.impl.UnmountCommand;
 import com.botwithus.bot.cli.gui.loader.LoaderScreen;
 import com.botwithus.bot.cli.gui.usermode.UserAccountsRenderer;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
@@ -26,9 +46,15 @@ import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiWindowFlags;
 
 import org.lwjgl.glfw.GLFW;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -39,6 +65,8 @@ import java.util.concurrent.Executors;
  * Each tab renders via the {@link GuiPanel} interface.
  */
 public class ImGuiApp extends Application {
+
+    private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
 
     private static final String BANNER = """
 
@@ -546,26 +574,38 @@ public class ImGuiApp extends Application {
 
     private static byte[] loadResourceFont(String resourcePath) {
         try (var in = ImGuiApp.class.getResourceAsStream(resourcePath)) {
-            if (in != null) return in.readAllBytes();
-        } catch (Exception ignored) {}
+            if (in != null) {
+                return in.readAllBytes();
+            }
+        } catch (IOException e) {
+            log.debug("Could not read resource font {}", resourcePath, e);
+        }
         return null;
     }
 
     private static byte[] loadSystemFont(String... candidates) {
         String windir = System.getenv("WINDIR");
-        if (windir == null) windir = "C:\\Windows";
-        java.nio.file.Path fontsDir = java.nio.file.Paths.get(windir, "Fonts");
+        if (windir == null) {
+            windir = "C:\\Windows";
+        }
+        Path fontsDir = Paths.get(windir, "Fonts");
         for (String name : candidates) {
-            java.nio.file.Path p = fontsDir.resolve(name);
-            if (java.nio.file.Files.exists(p)) {
-                try { return java.nio.file.Files.readAllBytes(p); } catch (Exception ignored) {}
+            Path p = fontsDir.resolve(name);
+            if (Files.exists(p)) {
+                try {
+                    return Files.readAllBytes(p);
+                } catch (IOException e) {
+                    log.debug("Could not read system font {}", p, e);
+                }
             }
         }
         return null;
     }
 
     private void updateTitle() {
-        if (glfwWindow == 0) return;
+        if (glfwWindow == 0) {
+            return;
+        }
         boolean connected = ctx.hasActiveConnection();
         String connName = ctx.getActiveConnectionName();
         int count = ctx.getConnections().size();

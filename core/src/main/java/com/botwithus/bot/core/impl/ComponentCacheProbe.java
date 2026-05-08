@@ -7,6 +7,7 @@ import com.botwithus.bot.core.shm.Layout;
 import com.botwithus.bot.core.shm.SharedRegion;
 
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -62,8 +63,10 @@ public final class ComponentCacheProbe {
             AtomicLong getCompCalls = new AtomicLong(0);
             RpcClient rpc = new RpcClient(pipe) {
                 @Override
-                public java.util.Map<String, Object> callSync(String method, java.util.Map<String, Object> params) {
-                    if ("get_component".equals(method)) getCompCalls.incrementAndGet();
+                public Map<String, Object> callSync(String method, Map<String, Object> params) {
+                    if ("get_component".equals(method)) {
+                        getCompCalls.incrementAndGet();
+                    }
                     return super.callSync(method, params);
                 }
             };

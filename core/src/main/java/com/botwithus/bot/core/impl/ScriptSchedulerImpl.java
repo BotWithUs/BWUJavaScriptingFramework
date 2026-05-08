@@ -130,7 +130,9 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
     @Override
     public boolean cancel(String scheduleId) {
         ScheduleState state = schedules.remove(scheduleId);
-        if (state == null) return false;
+        if (state == null) {
+            return false;
+        }
 
         state.future.cancel(false);
         if (state.stopFuture != null) {

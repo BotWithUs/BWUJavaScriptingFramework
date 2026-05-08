@@ -104,7 +104,9 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
      */
     public Q withinDistance(int radius) {
         LocalPlayer lp = api.getLocalPlayer();
-        if (lp == null) return filter(t -> false);
+        if (lp == null) {
+            return filter(t -> false);
+        }
         int x = lp.tileX(), y = lp.tileY();
         return filter(t -> t.distanceTo(x, y) <= radius);
     }

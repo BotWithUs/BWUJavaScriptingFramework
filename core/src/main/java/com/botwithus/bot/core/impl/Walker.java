@@ -1,8 +1,21 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
-import com.botwithus.bot.api.event.*;
-import com.botwithus.bot.api.model.*;
+import com.botwithus.bot.api.Navigation;
+import com.botwithus.bot.api.event.WalkArrivedEvent;
+import com.botwithus.bot.api.event.WalkCancelledEvent;
+import com.botwithus.bot.api.event.WalkFailedEvent;
+import com.botwithus.bot.api.model.NavClimbover;
+import com.botwithus.bot.api.model.NavDoor;
+import com.botwithus.bot.api.model.NavPlaneTransition;
+import com.botwithus.bot.api.model.NavShortcut;
+import com.botwithus.bot.api.model.NavStats;
+import com.botwithus.bot.api.model.NavTeleport;
+import com.botwithus.bot.api.model.NavTransport;
+import com.botwithus.bot.api.model.PathResult;
+import com.botwithus.bot.api.model.WalkResult;
+import com.botwithus.bot.api.model.WalkStatus;
+import com.botwithus.bot.api.model.WorldPathConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +35,7 @@ import java.util.function.Consumer;
  * in a cleanup list. {@link #cleanup()} replays that list in reverse,
  * cancels any active walk, and resets the tracking state.</p>
  */
-public class Walker implements com.botwithus.bot.api.Navigation {
+public class Walker implements Navigation {
 
     private static final Logger log = LoggerFactory.getLogger(Walker.class);
     private static final long DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes

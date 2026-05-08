@@ -45,7 +45,9 @@ public final class SnapshotView {
      *         ifaceIds are not cacheable; callers must always RPC for them.
      */
     public int ifaceVersion(int ifaceId) {
-        if (ifaceId < 0 || ifaceId >= Layout.IFACE_VERSION_CAP) return 0;
+        if (ifaceId < 0 || ifaceId >= Layout.IFACE_VERSION_CAP) {
+            return 0;
+        }
         long offset = Layout.SNAP_IFACEVERSIONS_OFFSET + (long) ifaceId * 4;
         return seg.get(ValueLayout.JAVA_INT, offset);
     }
@@ -126,7 +128,9 @@ public final class SnapshotView {
             throw new IndexOutOfBoundsException(i);
         }
         long base = Layout.SNAP_INVENTORIES_OFFSET + (long) i * Layout.INV_HEADER_SIZE;
-        if (shortField) return seg.get(ValueLayout.JAVA_SHORT, base + fieldOffset);
+        if (shortField) {
+            return seg.get(ValueLayout.JAVA_SHORT, base + fieldOffset);
+        }
         return seg.get(ValueLayout.JAVA_INT, base + fieldOffset);
     }
 

@@ -173,7 +173,9 @@ public class StreamManager {
      */
     public void handleConnectionLost(String connectionName) {
         ActiveStream active = streams.remove(connectionName);
-        if (active == null) return;
+        if (active == null) {
+            return;
+        }
 
         active.reader.close();
         int texId = active.textureId[0];

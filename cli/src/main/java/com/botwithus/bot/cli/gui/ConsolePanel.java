@@ -274,9 +274,13 @@ public class ConsolePanel implements GuiPanel {
     }
 
     private void autoComplete() {
-        if (registry == null) return;
+        if (registry == null) {
+            return;
+        }
         String prefix = inputBuffer.get().toLowerCase();
-        if (prefix.isEmpty()) return;
+        if (prefix.isEmpty()) {
+            return;
+        }
 
         List<String> matches = new ArrayList<>();
         for (var cmd : registry.all()) {

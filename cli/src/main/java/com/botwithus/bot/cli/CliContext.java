@@ -80,7 +80,7 @@ public class CliContext {
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
-    private com.botwithus.bot.cli.watch.ScriptWatcher scriptWatcher;
+    private ScriptWatcher scriptWatcher;
     private ScriptProfileStore profileStore;
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
@@ -103,7 +103,9 @@ public class CliContext {
      * open; callers (i.e. config-type lookups) will surface a clear error.
      */
     private synchronized NXTCache getOrInitNxtCache() {
-        if (nxtCacheInitAttempted) return nxtCache;
+        if (nxtCacheInitAttempted) {
+            return nxtCache;
+        }
         nxtCacheInitAttempted = true;
         try {
             nxtCache = NXTCache.tryOpenFromSystemProperty();
@@ -148,7 +150,9 @@ public class CliContext {
      * of loading a second copy of bwu.dll (which would conflict).
      */
     public void initManagementRuntime(BwuClient existingClient) {
-        if (managementRuntime != null) return;
+        if (managementRuntime != null) {
+            return;
+        }
         var messageBus = new MessageBusImpl();
         var sharedState = new SharedStateImpl();
 
@@ -467,7 +471,9 @@ public class CliContext {
      */
     public List<Connection> getGroupConnections(String groupName) {
         ConnectionGroup group = groups.get(groupName);
-        if (group == null) return List.of();
+        if (group == null) {
+            return List.of();
+        }
         List<Connection> result = new ArrayList<>();
         for (String connName : group.getConnectionNames()) {
             Connection conn = connections.get(connName);
@@ -492,9 +498,13 @@ public class CliContext {
     public String getMountedConnectionName() { return mountedConnectionName; }
 
     public void startScriptWatcher() {
-        if (scriptWatcher != null && scriptWatcher.isRunning()) return;
-        java.nio.file.Path scriptsDir = java.nio.file.Path.of("scripts");
-        if (!java.nio.file.Files.isDirectory(scriptsDir)) return;
+        if (scriptWatcher != null && scriptWatcher.isRunning()) {
+            return;
+        }
+        Path scriptsDir = Path.of("scripts");
+        if (!Files.isDirectory(scriptsDir)) {
+            return;
+        }
         scriptWatcher = new ScriptWatcher(scriptsDir, () -> {
             out().println("[ScriptWatcher] Script files changed — reloading...");
             for (Connection conn : connections.values()) {

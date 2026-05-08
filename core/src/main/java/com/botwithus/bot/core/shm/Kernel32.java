@@ -7,6 +7,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
+import java.nio.charset.StandardCharsets;
 
 /**
  * Panama FFM downcall handles for the four kernel32 entrypoints we need to
@@ -75,7 +76,7 @@ final class Kernel32 {
      * doesn't include a NUL, so we add it explicitly.
      */
     static MemorySegment toWideString(Arena arena, String name) {
-        byte[] utf16 = name.getBytes(java.nio.charset.StandardCharsets.UTF_16LE);
+        byte[] utf16 = name.getBytes(StandardCharsets.UTF_16LE);
         MemorySegment seg = arena.allocate(utf16.length + 2L);
         MemorySegment.copy(utf16, 0, seg, ValueLayout.JAVA_BYTE, 0, utf16.length);
         // Append null wchar — allocate() zero-fills, but we set explicitly
@@ -92,7 +93,7 @@ final class Kernel32 {
             return (MemorySegment) OPEN_FILE_MAPPING.invokeExact(
                     desiredAccess, inherit ? 1 : 0, wname);
         } catch (Throwable t) {
-            throw new RuntimeException("OpenFileMappingW invocation failed", t);
+            throw new Kernel32Exception("OpenFileMappingW invocation failed", t);
         }
     }
 
@@ -107,7 +108,7 @@ final class Kernel32 {
             return (MemorySegment) MAP_VIEW_OF_FILE.invokeExact(
                     mappingHandle, desiredAccess, offHi, offLo, bytesToMap);
         } catch (Throwable t) {
-            throw new RuntimeException("MapViewOfFile invocation failed", t);
+            throw new Kernel32Exception("MapViewOfFile invocation failed", t);
         }
     }
 
@@ -116,7 +117,7 @@ final class Kernel32 {
             int rv = (int) UNMAP_VIEW_OF_FILE.invokeExact(view);
             return rv != 0;
         } catch (Throwable t) {
-            throw new RuntimeException("UnmapViewOfFile invocation failed", t);
+            throw new Kernel32Exception("UnmapViewOfFile invocation failed", t);
         }
     }
 
@@ -125,7 +126,7 @@ final class Kernel32 {
             int rv = (int) CLOSE_HANDLE.invokeExact(handle);
             return rv != 0;
         } catch (Throwable t) {
-            throw new RuntimeException("CloseHandle invocation failed", t);
+            throw new Kernel32Exception("CloseHandle invocation failed", t);
         }
     }
 
@@ -133,7 +134,7 @@ final class Kernel32 {
         try {
             return (int) GET_LAST_ERROR.invokeExact();
         } catch (Throwable t) {
-            throw new RuntimeException("GetLastError invocation failed", t);
+            throw new Kernel32Exception("GetLastError invocation failed", t);
         }
     }
 }

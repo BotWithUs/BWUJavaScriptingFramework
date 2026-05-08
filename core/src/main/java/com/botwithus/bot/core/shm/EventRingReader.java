@@ -1,6 +1,19 @@
 package com.botwithus.bot.core.shm;
 
-import com.botwithus.bot.api.event.*;
+import com.botwithus.bot.api.event.ActionExecutedEvent;
+import com.botwithus.bot.api.event.BreakEndedEvent;
+import com.botwithus.bot.api.event.BreakStartedEvent;
+import com.botwithus.bot.api.event.ChatMessageEvent;
+import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.KeyInputEvent;
+import com.botwithus.bot.api.event.LoginStateChangeEvent;
+import com.botwithus.bot.api.event.TickEvent;
+import com.botwithus.bot.api.event.VarChangeEvent;
+import com.botwithus.bot.api.event.VarbitChangeEvent;
+import com.botwithus.bot.api.event.VarcChangeEvent;
+import com.botwithus.bot.api.event.WalkArrivedEvent;
+import com.botwithus.bot.api.event.WalkCancelledEvent;
+import com.botwithus.bot.api.event.WalkFailedEvent;
 import com.botwithus.bot.api.model.ChatMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -153,20 +166,26 @@ public final class EventRingReader {
     }
 
     private LoginStateChangeEvent decodeLoginStateChange(long off, int len) {
-        if (len < 8) return null;
+        if (len < 8) {
+            return null;
+        }
         int oldState = ring.get(ValueLayout.JAVA_INT, off);
         int newState = ring.get(ValueLayout.JAVA_INT, off + 4);
         return new LoginStateChangeEvent(oldState, newState);
     }
 
     private TickEvent decodeTick(long off, int len) {
-        if (len < 4) return null;
+        if (len < 4) {
+            return null;
+        }
         int tick = ring.get(ValueLayout.JAVA_INT, off);
         return new TickEvent(tick);
     }
 
     private VarChangeEvent decodeVarChange(long off, int len) {
-        if (len < 12) return null;
+        if (len < 12) {
+            return null;
+        }
         int id    = ring.get(ValueLayout.JAVA_INT, off);
         int oldV  = ring.get(ValueLayout.JAVA_INT, off + 4);
         int newV  = ring.get(ValueLayout.JAVA_INT, off + 8);
@@ -174,7 +193,9 @@ public final class EventRingReader {
     }
 
     private VarcChangeEvent decodeVarcChange(long off, int len) {
-        if (len < 12) return null;
+        if (len < 12) {
+            return null;
+        }
         int id    = ring.get(ValueLayout.JAVA_INT, off);
         int oldV  = ring.get(ValueLayout.JAVA_INT, off + 4);
         int newV  = ring.get(ValueLayout.JAVA_INT, off + 8);
@@ -182,7 +203,9 @@ public final class EventRingReader {
     }
 
     private VarbitChangeEvent decodeVarbitChange(long off, int len) {
-        if (len < 12) return null;
+        if (len < 12) {
+            return null;
+        }
         int id    = ring.get(ValueLayout.JAVA_INT, off);
         int oldV  = ring.get(ValueLayout.JAVA_INT, off + 4);
         int newV  = ring.get(ValueLayout.JAVA_INT, off + 8);
@@ -191,14 +214,20 @@ public final class EventRingReader {
 
     private ChatMessageEvent decodeChatMessage(long off, int len) {
         // Body layout: i32 msgType, u16 senderLen, u16 textLen, u8 buf[..].
-        if (len < 8) return null;
+        if (len < 8) {
+            return null;
+        }
         int msgType   = ring.get(ValueLayout.JAVA_INT,   off);
         int senderLen = ring.get(ValueLayout.JAVA_SHORT, off + 4) & 0xFFFF;
         int textLen   = ring.get(ValueLayout.JAVA_SHORT, off + 6) & 0xFFFF;
         long bufOff   = off + 8;
         int bufCap    = Layout.EVENT_BODY_MAX - 8;
-        if (senderLen > bufCap) senderLen = bufCap;
-        if (textLen   > bufCap - senderLen) textLen = bufCap - senderLen;
+        if (senderLen > bufCap) {
+            senderLen = bufCap;
+        }
+        if (textLen   > bufCap - senderLen) {
+            textLen = bufCap - senderLen;
+        }
 
         String sender = readUtf8(bufOff, senderLen);
         String text   = readUtf8(bufOff + senderLen, textLen);
@@ -209,7 +238,9 @@ public final class EventRingReader {
     }
 
     private KeyInputEvent decodeKeyInput(long off, int len) {
-        if (len < 8) return null;
+        if (len < 8) {
+            return null;
+        }
         int key   = ring.get(ValueLayout.JAVA_INT,  off);
         boolean isAlt   = ring.get(ValueLayout.JAVA_BYTE, off + 4) != 0;
         boolean isCtrl  = ring.get(ValueLayout.JAVA_BYTE, off + 5) != 0;
@@ -218,7 +249,9 @@ public final class EventRingReader {
     }
 
     private ActionExecutedEvent decodeActionExecuted(long off, int len) {
-        if (len < 16) return null;
+        if (len < 16) {
+            return null;
+        }
         int actionId = ring.get(ValueLayout.JAVA_INT, off);
         int p1       = ring.get(ValueLayout.JAVA_INT, off + 4);
         int p2       = ring.get(ValueLayout.JAVA_INT, off + 8);
@@ -228,7 +261,9 @@ public final class EventRingReader {
 
     private BreakStartedEvent decodeBreakStarted(long off, int len) {
         // Layout: i32 duration, u32 _pad, f64 fatigue, f64 risk.
-        if (len < 24) return null;
+        if (len < 24) {
+            return null;
+        }
         int duration  = ring.get(ValueLayout.JAVA_INT,    off);
         double fatigue = ring.get(ValueLayout.JAVA_DOUBLE, off + 8);
         double risk    = ring.get(ValueLayout.JAVA_DOUBLE, off + 16);
@@ -236,7 +271,9 @@ public final class EventRingReader {
     }
 
     private GameEvent decodeWalk(long off, int len, int outcome) {
-        if (len < 8) return null;
+        if (len < 8) {
+            return null;
+        }
         int targetX = ring.get(ValueLayout.JAVA_INT, off);
         int targetY = ring.get(ValueLayout.JAVA_INT, off + 4);
         return switch (outcome) {
@@ -248,7 +285,9 @@ public final class EventRingReader {
     }
 
     private String readUtf8(long off, int len) {
-        if (len <= 0) return "";
+        if (len <= 0) {
+            return "";
+        }
         byte[] tmp = new byte[len];
         MemorySegment.copy(ring, ValueLayout.JAVA_BYTE, off, tmp, 0, len);
         return new String(tmp, StandardCharsets.UTF_8);

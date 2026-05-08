@@ -91,7 +91,9 @@ public class ScriptRunner implements Runnable {
      */
     public boolean awaitStop(long timeoutMs) {
         CountDownLatch latch = this.stopLatch;
-        if (latch == null) return true;
+        if (latch == null) {
+            return true;
+        }
         try {
             return latch.await(timeoutMs, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
@@ -157,7 +159,9 @@ public class ScriptRunner implements Runnable {
         }
         String name = getScriptName();
         MDC.put("script.name", name);
-        if (connectionName != null) MDC.put("connection.name", connectionName);
+        if (connectionName != null) {
+            MDC.put("connection.name", connectionName);
+        }
         try {
             script.onStart(context);
         } catch (Exception e) {
@@ -186,7 +190,9 @@ public class ScriptRunner implements Runnable {
                 long loopStart = System.nanoTime();
                 int delay = script.onLoop();
                 profiler.recordLoop(System.nanoTime() - loopStart);
-                if (delay < 0) break;
+                if (delay < 0) {
+                    break;
+                }
                 if (delay > 0) {
                     delay = adjustDelay(delay, gameAPI);
                     Thread.sleep(delay);
@@ -213,7 +219,9 @@ public class ScriptRunner implements Runnable {
             MDC.clear();
             ConnectionContext.clear();
             CountDownLatch latch = this.stopLatch;
-            if (latch != null) latch.countDown();
+            if (latch != null) {
+                latch.countDown();
+            }
         }
     }
 

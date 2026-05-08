@@ -317,7 +317,9 @@ public class ConnectCommand implements Command {
      */
     private void probeAndAutoStart(String connName, CliContext ctx) {
         AutoStartManager asm = ctx.getAutoStartManager();
-        if (asm == null) return;
+        if (asm == null) {
+            return;
+        }
 
         // Find the connection that was just created
         Connection found = null;
@@ -327,7 +329,9 @@ public class ConnectCommand implements Command {
                 break;
             }
         }
-        if (found == null) return;
+        if (found == null) {
+            return;
+        }
         final Connection conn = found;
 
         // Wire the state-change callback for auto-saving
@@ -403,13 +407,17 @@ public class ConnectCommand implements Command {
 
     private static int getInt(Map<String, Object> map, String key) {
         Object v = map.get(key);
-        if (v instanceof Number n) return n.intValue();
+        if (v instanceof Number n) {
+            return n.intValue();
+        }
         return -1;
     }
 
     private static boolean getBool(Map<String, Object> map, String key) {
         Object v = map.get(key);
-        if (v instanceof Boolean b) return b;
+        if (v instanceof Boolean b) {
+            return b;
+        }
         return false;
     }
 }

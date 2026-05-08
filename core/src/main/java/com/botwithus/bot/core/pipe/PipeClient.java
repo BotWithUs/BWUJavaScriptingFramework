@@ -3,10 +3,13 @@ package com.botwithus.bot.core.pipe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 /**
@@ -83,11 +86,11 @@ public class PipeClient implements AutoCloseable {
     }
 
     public static List<String> scanPipes(String prefix) {
-        String lowerPrefix = prefix.toLowerCase(java.util.Locale.ROOT);
+        String lowerPrefix = prefix.toLowerCase(Locale.ROOT);
         try (Stream<Path> stream = Files.list(Path.of(PIPE_PREFIX))) {
             return stream
                     .map(p -> p.getFileName().toString())
-                    .filter(name -> name.toLowerCase(java.util.Locale.ROOT).contains(lowerPrefix))
+                    .filter(name -> name.toLowerCase(Locale.ROOT).contains(lowerPrefix))
                     .toList();
         } catch (IOException e) {
             return List.of();
@@ -107,7 +110,9 @@ public class PipeClient implements AutoCloseable {
      * Uses {@code PeekNamedPipe} on Windows.
      */
     public int available() {
-        if (!open) return 0;
+        if (!open) {
+            return 0;
+        }
         try {
             return transport.input.available();
         } catch (IOException e) {
@@ -120,7 +125,9 @@ public class PipeClient implements AutoCloseable {
      * <p>Not thread-safe — caller must ensure exclusive pipe access.</p>
      */
     public void send(byte[] data) {
-        if (!open) throw new PipeException("Pipe is closed");
+        if (!open) {
+            throw new PipeException("Pipe is closed");
+        }
         int n = data.length;
         byte[] frame = new byte[4 + n];
         frame[0] = (byte) n;
@@ -145,7 +152,9 @@ public class PipeClient implements AutoCloseable {
      * <p>Not thread-safe — caller must ensure exclusive pipe access.</p>
      */
     public byte[] readMessage() {
-        if (!open) throw new PipeException("Pipe is closed");
+        if (!open) {
+            throw new PipeException("Pipe is closed");
+        }
         try {
             byte[] header = new byte[4];
             readFully(header);
@@ -168,7 +177,9 @@ public class PipeClient implements AutoCloseable {
         int off = 0;
         while (off < buf.length) {
             int n = transport.pipe.read(buf, off, buf.length - off);
-            if (n < 0) throw new IOException("Pipe closed");
+            if (n < 0) {
+                throw new IOException("Pipe closed");
+            }
             off += n;
         }
     }
@@ -189,17 +200,29 @@ public class PipeClient implements AutoCloseable {
     }
 
     private static void closeTransport(Transport t) {
-        if (t == null) return;
-        try { t.input.close(); } catch (IOException ignored) {}
+        if (t == null) {
+            return;
+        }
+        try {
+            t.input.close();
+        } catch (IOException e) {
+            log.debug("Pipe input close failed", e);
+        }
         // RandomAccessFile and FileInputStream share the same FD; closing the
         // input above already closed the native handle. Calling pipe.close()
         // here lets the Java-side object release its bookkeeping.
-        try { t.pipe.close(); } catch (IOException ignored) {}
+        try {
+            t.pipe.close();
+        } catch (IOException e) {
+            log.debug("Pipe handle close failed", e);
+        }
     }
 
     @Override
     public void close() {
-        if (!open) return;
+        if (!open) {
+            return;
+        }
         open = false;
         closeTransport(transport);
     }

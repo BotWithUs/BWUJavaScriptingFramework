@@ -1,0 +1,58 @@
+[versions]
+# Logging
+slf4j = "2.0.16"
+logback = "1.5.16"
+
+# Serialization / IPC
+gson = "2.11.0"
+msgpack = "0.9.8"
+
+# UI / GUI
+imgui = "1.90.0"
+lwjgl = "3.3.6"
+
+# Testing
+junit = "5.10.0"
+mockito = "5.20.0"
+
+# Plugins
+beryx-jlink = "3.2.1"
+gradlex-extra-java-module-info = "1.11"
+
+[libraries]
+# Logging
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+
+# Serialization / IPC
+gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
+msgpack-core = { module = "org.msgpack:msgpack-core", version.ref = "msgpack" }
+
+# UI / GUI
+imgui-java-app = { module = "io.github.spair:imgui-java-app", version.ref = "imgui" }
+imgui-java-natives-windows = { module = "io.github.spair:imgui-java-natives-windows", version.ref = "imgui" }
+lwjgl-core = { module = "org.lwjgl:lwjgl", version.ref = "lwjgl" }
+lwjgl-glfw = { module = "org.lwjgl:lwjgl-glfw", version.ref = "lwjgl" }
+lwjgl-opengl = { module = "org.lwjgl:lwjgl-opengl", version.ref = "lwjgl" }
+
+# Testing
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-jupiter = { module = "org.junit.jupiter:junit-jupiter" }
+junit-platform-launcher = { module = "org.junit.platform:junit-platform-launcher" }
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+mockito-junit-jupiter = { module = "org.mockito:mockito-junit-jupiter", version.ref = "mockito" }
+
+[bundles]
+# All Mockito artifacts the test classpath needs.
+mockito = ["mockito-core", "mockito-junit-jupiter"]
+
+# LWJGL base artifacts. Per-platform natives ship as classifier artifacts
+# (`...:VERSION:natives-windows`) and must be resolved at the use site —
+# version catalogs cannot express the classifier — so the base bundle is
+# kept here for completeness but the cli module appends the classifier
+# manually using `libs.versions.lwjgl`.
+lwjgl-base = ["lwjgl-core", "lwjgl-glfw", "lwjgl-opengl"]
+
+[plugins]
+beryx-jlink = { id = "org.beryx.jlink", version.ref = "beryx-jlink" }
+gradlex-extra-java-module-info = { id = "org.gradlex.extra-java-module-info", version.ref = "gradlex-extra-java-module-info" }

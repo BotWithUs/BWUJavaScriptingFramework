@@ -13,7 +13,12 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
+import java.util.ServiceLoader;
+import java.util.Set;
 
 /**
  * Discovers BotScript implementations from local JAR files in a scripts directory.
