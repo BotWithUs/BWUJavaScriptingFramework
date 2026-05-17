@@ -135,16 +135,46 @@ public class ImGuiApp extends Application {
     protected void initImGui(Configuration config) {
         super.initImGui(config);
 
-        // Detect monitor DPI scale via GLFW content scale
+        dpiScale = detectDpiScale();
+        loadFonts(Math.round(UI_FONT_BASE_PX * dpiScale));
+        setupTheme();
+
+        textureManager = new TextureManager();
+        outputBuffer = new AnsiOutputBuffer();
+        PrintStream guiOut = outputBuffer.getPrintStream();
+        installLogCapture(guiOut, outputBuffer.getPrintStream());
+
+        ScriptProfileStore profileStore = new ScriptProfileStore();
+        ctx.setProfileStore(profileStore);
+        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore);
+        ctx.setAutoStartManager(autoStartManager);
+
+        registry = new CommandRegistry();
+        registerCommands(registry, profileStore, autoStartManager);
+
+        wireDisplayHooks();
+        guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
+
+        BwuClient bwu = resolveBwuClient();
+        ctx.initManagementRuntime(bwu);
+        autoStartManager.start();
+
+        buildPanels(bwu);
+        setupStatusBar(bwu);
+        captureGlfwHandle();
+    }
+
+    private static float detectDpiScale() {
         long monitor = GLFW.glfwGetPrimaryMonitor();
         float[] xScale = new float[1];
         float[] yScale = new float[1];
         if (monitor != 0) {
             GLFW.glfwGetMonitorContentScale(monitor, xScale, yScale);
         }
-        dpiScale = Math.max(xScale[0], 1.0f);
+        return Math.max(xScale[0], 1.0f);
+    }
 
-        float uiSize = (float) Math.round(UI_FONT_BASE_PX * dpiScale);
+    private static void loadFonts(float uiSize) {
         ImFontAtlas atlas = ImGui.getIO().getFonts();
         atlas.clear();
 
@@ -180,17 +210,14 @@ public class ImGuiApp extends Application {
 
         cfg.destroy();
         atlas.build();
+    }
 
+    private void setupTheme() {
         ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable);
-
         ImGuiTheme.apply(dpiScale);
+    }
 
-        textureManager = new TextureManager();
-        outputBuffer = new AnsiOutputBuffer();
-
-        PrintStream guiOut = outputBuffer.getPrintStream();
-        PrintStream guiErr = outputBuffer.getPrintStream();
-
+    private void installLogCapture(PrintStream guiOut, PrintStream guiErr) {
         LogBuffer logBuffer = new LogBuffer();
         wireLogBufferAppender(logBuffer);
         LogCapture logCapture = new LogCapture(logBuffer, guiOut, guiErr);
@@ -199,42 +226,39 @@ public class ImGuiApp extends Application {
         ctx = new CliContext(logBuffer, logCapture);
         ctx.loadGroups();
         ctx.setStreamManager(new StreamManager(outputBuffer, textureManager, guiOut));
+    }
 
-        ScriptProfileStore profileStore = new ScriptProfileStore();
-        ctx.setProfileStore(profileStore);
-        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore);
-        ctx.setAutoStartManager(autoStartManager);
+    private void registerCommands(CommandRegistry r, ScriptProfileStore profileStore,
+                                  AutoStartManager autoStartManager) {
+        r.register(new HelpCommand(r));
+        r.register(new ConnectCommand());
+        r.register(new PingCommand());
+        r.register(new ScriptsCommand());
+        r.register(new LogsCommand());
+        r.register(new ReloadCommand());
+        r.register(new ScreenshotCommand());
+        r.register(new GroupCommand());
+        r.register(new MountCommand());
+        r.register(new UnmountCommand());
+        r.register(new StreamCommand());
+        r.register(new MetricsCommand());
+        r.register(new ProfileCommand());
+        r.register(new ConfigCommand(CliConfig.defaults()));
+        r.register(new ActionsCommand());
+        r.register(new EventsCommand());
+        r.register(new ClientCommand());
+        r.register(new AutoStartCommand(profileStore, autoStartManager));
+        r.register(new ManagementScriptsCommand());
+        r.register(new ClearCommand());
+        r.register(new ExitCommand());
+    }
 
-        registry = new CommandRegistry();
-        registry.register(new HelpCommand(registry));
-        registry.register(new ConnectCommand());
-        registry.register(new PingCommand());
-        registry.register(new ScriptsCommand());
-        registry.register(new LogsCommand());
-        registry.register(new ReloadCommand());
-        registry.register(new ScreenshotCommand());
-        registry.register(new GroupCommand());
-        registry.register(new MountCommand());
-        registry.register(new UnmountCommand());
-        registry.register(new StreamCommand());
-        registry.register(new MetricsCommand());
-        registry.register(new ProfileCommand());
-        registry.register(new ConfigCommand(CliConfig.defaults()));
-        registry.register(new ActionsCommand());
-        registry.register(new EventsCommand());
-        registry.register(new ClientCommand());
-        registry.register(new AutoStartCommand(profileStore, autoStartManager));
-        registry.register(new ManagementScriptsCommand());
-        registry.register(new ClearCommand());
-        registry.register(new ExitCommand());
-
+    private void wireDisplayHooks() {
         // Image display hook
-        ctx.setImageDisplay(image -> {
-            textureManager.queueOperation(() -> {
-                int texId = textureManager.createTexture(image);
-                outputBuffer.appendImage(texId, image.getWidth(), image.getHeight());
-            });
-        });
+        ctx.setImageDisplay(image -> textureManager.queueOperation(() -> {
+            int texId = textureManager.createTexture(image);
+            outputBuffer.appendImage(texId, image.getWidth(), image.getHeight());
+        }));
 
         // Progress display hook
         ctx.setProgressDisplay(new CliContext.ProgressDisplay() {
@@ -259,11 +283,13 @@ public class ImGuiApp extends Application {
                         ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
             }
         });
+    }
 
-        // Print banner
-        guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
-
-        // Load bwu.dll once — shared between LoaderScreen and management runtime
+    /**
+     * Load bwu.dll once (or return null when unavailable) so the same client
+     * instance is shared between LoaderScreen and the management runtime.
+     */
+    private BwuClient resolveBwuClient() {
         BwuClient bwu = null;
         var dllPath = BwuClient.resolve(getClass());
         if (dllPath != null) {
@@ -272,17 +298,12 @@ public class ImGuiApp extends Application {
         if (bwu != null) {
             bwu.init();
         }
+        return bwu;
+    }
 
-        // Initialize management script runtime with the shared BwuClient
-        ctx.initManagementRuntime(bwu);
-
-        // Start auto-connect scanning if enabled
-        autoStartManager.start();
-
-        // Initialize loader screen with the same BwuClient instance
+    private void buildPanels(BwuClient bwu) {
         loaderScreen = new LoaderScreen(bwu);
 
-        // Initialize top bar and mode renderers
         topBar = new TopBar();
         userModeRenderer = new UserModeRenderer();
         userModeRenderer.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
@@ -292,14 +313,11 @@ public class ImGuiApp extends Application {
         launcherRenderer.setBwuClient(bwu);
         launcherRenderer.setExecutor(executor);
 
-        // Initialize script UI window and wire opener
+        // Floating windows
         scriptUIWindow = new ScriptUIWindow();
         ctx.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
-
-        // Initialize management config panel
         managementConfigPanel = new ManagementConfigPanel();
 
-        // Initialize panels
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
         panels.add(new ConnectionsPanel(executor, registry));
         panels.add(new AccountsPanel(bwu, executor));
@@ -311,13 +329,18 @@ public class ImGuiApp extends Application {
         panels.add(new LogsPanel());
         panels.add(new GroupsPanel());
         panels.add(new SettingsPanel());
+    }
 
+    private void setupStatusBar(BwuClient bwu) {
         statusBar = new StatusBar(bwu);
+    }
 
+    private void captureGlfwHandle() {
         glfwWindow = GLFW.glfwGetCurrentContext();
-
         var oldSizeCb = GLFW.glfwSetWindowSizeCallback(glfwWindow, null);
-        if (oldSizeCb != null) oldSizeCb.free();
+        if (oldSizeCb != null) {
+            oldSizeCb.free();
+        }
     }
 
     @Override
