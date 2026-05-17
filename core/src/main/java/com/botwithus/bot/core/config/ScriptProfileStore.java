@@ -27,6 +27,8 @@ import java.util.stream.Stream;
 public final class ScriptProfileStore {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptProfileStore.class);
+    private static final long DEFAULT_SCAN_INTERVAL_MS = 5000L;
+    private static final String DEFAULT_SCAN_INTERVAL_MS_STR = Long.toString(DEFAULT_SCAN_INTERVAL_MS);
     private final Path baseDir;
     private final Path profilesDir;
     private final Path groupsDir;
@@ -89,9 +91,9 @@ public final class ScriptProfileStore {
 
     public long getScanIntervalMs() {
         try {
-            return Long.parseLong(globalSettings.getProperty("scanIntervalMs", "5000"));
+            return Long.parseLong(globalSettings.getProperty("scanIntervalMs", DEFAULT_SCAN_INTERVAL_MS_STR));
         } catch (NumberFormatException e) {
-            return 5000;
+            return DEFAULT_SCAN_INTERVAL_MS;
         }
     }
 

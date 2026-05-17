@@ -186,8 +186,6 @@ public class PipeClient implements AutoCloseable {
 
     /**
      * Swaps the underlying pipe transport atomically, closing the previous one.
-     * Used by {@link ReconnectablePipeClient} to replace a broken connection
-     * with a fresh one without forcing callers to hold a new {@code PipeClient}.
      *
      * <p>Caller must hold any external I/O lock (e.g. {@code RpcClient}'s pipe
      * lock) to ensure no thread is mid-read/write during the swap.</p>

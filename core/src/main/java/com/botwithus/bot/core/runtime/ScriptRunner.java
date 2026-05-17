@@ -17,6 +17,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * Runs a single BotScript on its own virtual thread.
@@ -27,6 +28,8 @@ public class ScriptRunner implements Runnable {
     private static final Logger log = LoggerFactory.getLogger(ScriptRunner.class);
     private final BotScript script;
     private final ScriptContext context;
+    private final Consumer<String> connectionTagger;
+    private final Runnable connectionCleaner;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean disposed = new AtomicBoolean(false);
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
@@ -50,9 +53,28 @@ public class ScriptRunner implements Runnable {
         return profiler;
     }
 
-    public ScriptRunner(BotScript script, ScriptContext context) {
+    /**
+     * Constructs a runner that tags / clears its thread via the supplied callbacks.
+     * The runner does not depend on any global state; the wiring code is responsible
+     * for passing in whatever connection-context propagator is appropriate
+     * (typically {@code ConnectionContext::set} and {@code ConnectionContext::clear}).
+     */
+    public ScriptRunner(BotScript script, ScriptContext context,
+                        Consumer<String> connectionTagger, Runnable connectionCleaner) {
         this.script = script;
         this.context = context;
+        this.connectionTagger = connectionTagger;
+        this.connectionCleaner = connectionCleaner;
+    }
+
+    /**
+     * Default-wiring constructor for callers that haven't been migrated to pass
+     * a tagger / cleaner explicitly. Routes through {@link ConnectionContext} so
+     * the CLI's stdout interception keeps seeing the connection tag on script
+     * threads.
+     */
+    public ScriptRunner(BotScript script, ScriptContext context) {
+        this(script, context, ConnectionContext::set, ConnectionContext::clear);
     }
 
     public void start() {
@@ -155,7 +177,7 @@ public class ScriptRunner implements Runnable {
     @Override
     public void run() {
         if (connectionName != null) {
-            ConnectionContext.set(connectionName);
+            connectionTagger.accept(connectionName);
         }
         String name = getScriptName();
         MDC.put("script.name", name);
@@ -168,7 +190,7 @@ public class ScriptRunner implements Runnable {
             log.error("onStart error in {}: {}", name, e.getMessage());
             notifyError(name, "onStart", e);
             running.set(false);
-            ConnectionContext.clear();
+            connectionCleaner.run();
             return;
         }
 
@@ -217,7 +239,7 @@ public class ScriptRunner implements Runnable {
                 log.debug("Navigation cleanup error in {}: {}", name, e.getMessage());
             }
             MDC.clear();
-            ConnectionContext.clear();
+            connectionCleaner.run();
             CountDownLatch latch = this.stopLatch;
             if (latch != null) {
                 latch.countDown();
