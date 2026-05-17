@@ -7,6 +7,8 @@ import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.command.impl.ExitCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
+import com.botwithus.bot.core.pipe.PipeException;
+import com.botwithus.bot.core.rpc.RpcException;
 
 import imgui.ImGui;
 import imgui.flag.ImGuiInputTextFlags;
@@ -261,7 +263,7 @@ public class ConsolePanel implements GuiPanel {
 
             try {
                 cmd.execute(parsed, ctx);
-            } catch (com.botwithus.bot.core.pipe.PipeException | com.botwithus.bot.core.rpc.RpcException e) {
+            } catch (PipeException | RpcException e) {
                 out.println("Connection error: " + e.getMessage());
                 String connName = ctx.getActiveConnectionName();
                 if (connName != null) {

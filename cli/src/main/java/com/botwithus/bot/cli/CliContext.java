@@ -12,6 +12,7 @@ import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
+import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
@@ -214,7 +215,7 @@ public class CliContext {
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
                     iface -> pump.region().snapshot().ifaceVersion(iface),
-                    () -> new com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl(pump.region().snapshot()));
+                    () -> new GameSnapshotImpl(pump.region().snapshot()));
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
             rpc.start();
