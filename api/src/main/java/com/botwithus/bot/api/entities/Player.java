@@ -10,10 +10,18 @@ import com.botwithus.bot.api.model.GameAction;
  * what would be on {@code NpcType} (name, options, ...) is per-instance and
  * lives in the snapshot or arrives as packets — so this wrapper is thinner
  * than {@link Npc}.
+ *
+ * <p>Name collision note: the snapshot type {@code com.botwithus.bot.api.snapshot.Player}
+ * shares the simple name {@code Player} with this wrapper, so the snapshot
+ * type is fully qualified at the field declaration below and reflected
+ * mechanically on the constructor parameter and {@link #raw()} accessor
+ * (Java has no import aliasing, and the enclosing class shadows any
+ * import of the snapshot type).</p>
  */
 public final class Player implements EntityContext {
 
     private final GameAPI api;
+    // FQN: disambiguates from this-class entity Player — see class-level note.
     private final com.botwithus.bot.api.snapshot.Player raw;
 
     Player(GameAPI api, com.botwithus.bot.api.snapshot.Player raw) {

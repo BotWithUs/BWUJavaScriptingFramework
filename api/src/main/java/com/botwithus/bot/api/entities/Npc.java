@@ -6,6 +6,7 @@ import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.NpcType;
 
 import java.util.List;
+import java.util.function.IntFunction;
 
 /**
  * Rich wrapper around a snapshot {@link com.botwithus.bot.api.snapshot.Npc}
@@ -15,18 +16,26 @@ import java.util.List;
  *
  * <p>Obtained via {@link Npcs#query()}. Don't construct directly — the
  * facade owns the definition cache that makes repeat lookups cheap.</p>
+ *
+ * <p>Name collision note: the snapshot type {@code com.botwithus.bot.api.snapshot.Npc}
+ * shares the simple name {@code Npc} with this wrapper, so the snapshot
+ * type is fully qualified at the field declaration below and reflected
+ * mechanically on the constructor parameter and {@link #raw()} accessor
+ * (Java has no import aliasing, and the enclosing class shadows any
+ * import of the snapshot type).</p>
  */
 public final class Npc implements EntityContext {
 
     private final GameAPI api;
+    // FQN: disambiguates from this-class entity Npc — see class-level note.
     private final com.botwithus.bot.api.snapshot.Npc raw;
     /** Definition cache shared across all Npc wrappers in the same Npcs facade. */
-    private final java.util.function.IntFunction<NpcType> typeLookup;
+    private final IntFunction<NpcType> typeLookup;
     private NpcType cachedType;
 
     Npc(GameAPI api,
         com.botwithus.bot.api.snapshot.Npc raw,
-        java.util.function.IntFunction<NpcType> typeLookup) {
+        IntFunction<NpcType> typeLookup) {
         this.api = api;
         this.raw = raw;
         this.typeLookup = typeLookup;
