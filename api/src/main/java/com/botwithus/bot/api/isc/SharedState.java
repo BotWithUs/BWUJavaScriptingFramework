@@ -26,15 +26,18 @@ public interface SharedState {
     /**
      * Retrieves and casts the value stored under the given key.
      *
+     * <p>This is the prescribed typed-key recovery idiom for the script blackboard:
+     * the store remains heterogeneous-by-design, but the lookup recovers the narrow
+     * type at the call site via the supplied class token.</p>
+     *
      * @param <T>  the expected value type
      * @param key  the key to look up
      * @param type the expected class of the value
      * @return the stored value cast to {@code T}, or {@code null} if not present or not an instance of {@code type}
      */
-    @SuppressWarnings("unchecked")
     default <T> T get(String key, Class<T> type) {
         Object value = get(key);
-        return type.isInstance(value) ? (T) value : null;
+        return type.isInstance(value) ? type.cast(value) : null;
     }
 
     /**

@@ -5,20 +5,15 @@ package com.botwithus.bot.api.event;
  * {@link VarChangeEvent} — varp and varc live in separate id namespaces and
  * separate VarDomain instances on the producer side, so subscribers must be
  * able to discriminate.
+ *
+ * @param varId     the varc ID that changed
+ * @param oldValue  the previous value
+ * @param newValue  the new value
+ * @param timestamp event creation time in milliseconds since epoch
  */
-public class VarcChangeEvent extends GameEvent {
-    private final int varId;
-    private final int oldValue;
-    private final int newValue;
+public record VarcChangeEvent(int varId, int oldValue, int newValue, long timestamp) implements GameEvent {
 
     public VarcChangeEvent(int varId, int oldValue, int newValue) {
-        super("varc_change");
-        this.varId = varId;
-        this.oldValue = oldValue;
-        this.newValue = newValue;
+        this(varId, oldValue, newValue, System.currentTimeMillis());
     }
-
-    public int getVarId() { return varId; }
-    public int getOldValue() { return oldValue; }
-    public int getNewValue() { return newValue; }
 }

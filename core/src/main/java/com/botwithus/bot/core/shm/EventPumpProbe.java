@@ -33,11 +33,11 @@ public final class EventPumpProbe {
         }
 
         EventBusImpl bus = new EventBusImpl();
-        bus.subscribe(TickEvent.class,             e -> System.out.println("Tick:  " + e.getTick()));
-        bus.subscribe(LoginStateChangeEvent.class, e -> System.out.println("Login: " + e.getOldState() + " -> " + e.getNewState()));
-        bus.subscribe(VarChangeEvent.class,        e -> System.out.println("Varp:  id=" + e.getVarId() + " " + e.getOldValue() + "->" + e.getNewValue()));
-        bus.subscribe(VarcChangeEvent.class,       e -> System.out.println("Varc:  id=" + e.getVarId() + " " + e.getOldValue() + "->" + e.getNewValue()));
-        bus.subscribe(ChatMessageEvent.class,      e -> System.out.println("Chat:  '" + e.getMessage().text() + "'"));
+        bus.subscribe(TickEvent.class,             e -> System.out.println("Tick:  " + e.tick()));
+        bus.subscribe(LoginStateChangeEvent.class, e -> System.out.println("Login: " + e.oldState() + " -> " + e.newState()));
+        bus.subscribe(VarChangeEvent.class,        e -> System.out.println("Varp:  id=" + e.varId() + " " + e.oldValue() + "->" + e.newValue()));
+        bus.subscribe(VarcChangeEvent.class,       e -> System.out.println("Varc:  id=" + e.varId() + " " + e.oldValue() + "->" + e.newValue()));
+        bus.subscribe(ChatMessageEvent.class,      e -> System.out.println("Chat:  '" + e.message().text() + "'"));
 
         try (SharedRegionEventPump pump = new SharedRegionEventPump(pid, bus::publish)) {
             System.out.println("Pump running for pid=" + pid + ". Ctrl+C to stop.");
