@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.IntFunction;
 import java.util.stream.Stream;
 
 /**
@@ -101,9 +102,9 @@ public final class Npcs {
 
     /** Query subclass — wires the snapshot stream + name resolution to {@link EntityQuery}. */
     public static final class Query extends EntityQuery<Npc, Query> {
-        private final java.util.function.IntFunction<NpcType> typeLookup;
+        private final IntFunction<NpcType> typeLookup;
 
-        Query(GameAPI api, java.util.function.IntFunction<NpcType> typeLookup) {
+        Query(GameAPI api, IntFunction<NpcType> typeLookup) {
             super(api);
             this.typeLookup = typeLookup;
         }
