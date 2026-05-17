@@ -8,6 +8,7 @@ import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
+import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -51,7 +52,7 @@ public class JBotApplication {
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, nxtCache,
                     iface -> pump.region().snapshot().ifaceVersion(iface),
-                    () -> new com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl(pump.region().snapshot()));
+                    () -> new GameSnapshotImpl(pump.region().snapshot()));
             ClientProviderImpl clientProvider = new ClientProviderImpl();
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
