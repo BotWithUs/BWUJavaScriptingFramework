@@ -101,34 +101,33 @@ public final class SnapshotProbe {
     private static String summarise(GameEvent ev) {
         return switch (ev) {
             case LoginStateChangeEvent e ->
-                    "old=" + e.getOldState() + " new=" + e.getNewState();
+                    "old=" + e.oldState() + " new=" + e.newState();
             case TickEvent e ->
-                    "tick=" + e.getTick();
+                    "tick=" + e.tick();
             case VarChangeEvent e ->
-                    "id=" + e.getVarId() + " " + e.getOldValue() + "->" + e.getNewValue();
+                    "id=" + e.varId() + " " + e.oldValue() + "->" + e.newValue();
             case VarcChangeEvent e ->
-                    "id=" + e.getVarId() + " " + e.getOldValue() + "->" + e.getNewValue();
+                    "id=" + e.varId() + " " + e.oldValue() + "->" + e.newValue();
             case VarbitChangeEvent e ->
-                    "id=" + e.getVarId() + " " + e.getOldValue() + "->" + e.getNewValue();
+                    "id=" + e.varId() + " " + e.oldValue() + "->" + e.newValue();
             case ChatMessageEvent e ->
-                    "type=" + e.getMessage().messageType()
-                            + " from=" + e.getMessage().playerName()
-                            + " text='" + e.getMessage().text() + "'";
+                    "type=" + e.message().messageType()
+                            + " from=" + e.message().playerName()
+                            + " text='" + e.message().text() + "'";
             case KeyInputEvent e ->
-                    "key=" + e.getKey() + " alt=" + e.isAlt() + " ctrl=" + e.isCtrl() + " shift=" + e.isShift();
+                    "key=" + e.key() + " alt=" + e.alt() + " ctrl=" + e.ctrl() + " shift=" + e.shift();
             case ActionExecutedEvent e ->
-                    "action=" + e.getActionId();
+                    "action=" + e.actionId();
             case BreakStartedEvent e ->
-                    "duration=" + e.getDurationSeconds() + "s fatigue=" + e.getFatigue() + " risk=" + e.getRisk();
+                    "duration=" + e.durationSeconds() + "s fatigue=" + e.fatigue() + " risk=" + e.risk();
             case BreakEndedEvent ignored ->
                     "";
             case WalkArrivedEvent e ->
-                    "tile=(" + e.getTargetX() + "," + e.getTargetY() + ")";
+                    "tile=(" + e.targetX() + "," + e.targetY() + ")";
             case WalkCancelledEvent e ->
-                    "tile=(" + e.getTargetX() + "," + e.getTargetY() + ")";
+                    "tile=(" + e.targetX() + "," + e.targetY() + ")";
             case WalkFailedEvent e ->
-                    "tile=(" + e.getTargetX() + "," + e.getTargetY() + ")";
-            default -> "(no summary)";
+                    "tile=(" + e.targetX() + "," + e.targetY() + ")";
         };
     }
 }
