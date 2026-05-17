@@ -55,7 +55,7 @@ Runtime and communication layer. Handles Windows named pipe I/O (`PipeClient`), 
 
 Key features:
 - **RPC timeouts** — Configurable per-call timeouts with `RpcTimeoutException`
-- **Retry & reconnect** — `RetryPolicy` with exponential backoff, `ReconnectablePipeClient` for auto-reconnect
+- **Retry** — `RetryPolicy` with exponential backoff for transient RPC failures
 - **Metrics** — `RpcMetrics` tracks call count, latency, and error rate per method
 - **Profiling** — `ScriptProfiler` tracks loop timing (avg/min/max/last)
 - **Error isolation** — Per-phase error handling in `ScriptRunner` (onStart/onLoop/onStop)
