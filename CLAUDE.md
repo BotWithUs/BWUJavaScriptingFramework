@@ -79,3 +79,18 @@ Reference implementations: `ExampleScript`, `WoodcuttingFletcherScript`. Build a
 **Script installation**: Script JARs go in the `scripts/` directory at project root. The `example-script` build task does this automatically via `installScript`.
 
 **Logging**: Use `private static final Logger log = LoggerFactory.getLogger(ClassName.class);` (from `org.slf4j`). Never use `System.out/err.println` for logging — all output goes through SLF4J. Scripts get SLF4J transitively from the API module. MDC keys `script.name` and `connection.name` are set automatically by `ScriptRunner`.
+
+## Java rules exceptions
+
+The user's `java-rules` skill defines a banned set; the project follows it everywhere **except** the deliberate carve-outs documented here. Every violation site carries a `// rule-exception:` comment pointing back at this section so future audits see the explicit waiver.
+
+### `core/.../crypto/SdnLoader.java` and `core/.../runtime/SDNScriptLoader.java`
+
+These two files bridge into `jdk.internal.sdn.SdnClassLoader` — a class injected into a custom-built JDK that ships with the loader. The class is **not on the module path**, **not on the classpath**, and **not in any artifact the build sees** — it only exists inside the running JVM. None of the prescribed `java-rules` fixes (ServiceLoader, sealed `switch`, constructor injection) can reach a target that the build doesn't know about, so this is the one boundary where the framework must reflect.
+
+Intentionally violated rules:
+
+- **§Banned 1 (Reflection)** — `Class.forName("jdk.internal.sdn.SdnClassLoader")`, `MethodHandles.privateLookupIn(...)`, `getDeclaredConstructor(...).setAccessible(true)`, `MethodHandle.invoke(...)`. The class is identified by name only; there is no compile-time symbol to import. The reflection is wrapped in three named methods (`getSdnClass`, `getPubkey0Handle`, `getLockdown0Handle`) so the bridge is small and inspectable.
+- **§Banned 5 (Mutable static)** — the `pubkey0Handle`, `lockdown0Handle`, and `sdnClass` static fields in `SdnLoader`, and the `lockdownCalled` flag in `SDNScriptLoader`, hold cached lookups into the same JVM-injected class. The cached lookups are process-global because the JVM-injected class is process-global; instance-scoping them would buy nothing but per-call reflection cost. `lockdownCalled` is one-way (false → true) and gates a one-shot native call that must not run twice.
+
+Everywhere else in the project, both rules are enforced as written.
