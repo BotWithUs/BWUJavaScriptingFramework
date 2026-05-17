@@ -39,12 +39,11 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * the same record types declared in {@code com.botwithus.bot.api.model}.</p>
  *
  * <h2>Loading the DLL</h2>
- * The library is resolved in this order:
- * <ol>
- *   <li>{@code -Dnxtcache.dll=<absolute path>}</li>
- *   <li>{@code System.loadLibrary("NXTCache")} — anywhere on
- *       {@code java.library.path}</li>
- * </ol>
+ * The library is resolved by {@code -Dnxtcache.dll=<absolute path>}
+ * via Panama's {@link SymbolLookup#libraryLookup}. There is no
+ * {@code System.loadLibrary} fallback — java-rules §Banned 2
+ * (JNI / native code) rules out {@code loadLibrary} for project code;
+ * Panama is the supported path for FFI.
  *
  * <h2>Required JVM flags</h2>
  * The CLI {@code run} task must pass:
@@ -75,19 +74,15 @@ public final class NXTCache implements AutoCloseable {
     private static final SymbolLookup LIB = locateLibrary();
 
     private static SymbolLookup locateLibrary() {
-        Arena scope = Arena.ofShared();
         String dll = System.getProperty("nxtcache.dll");
-        if (dll != null && !dll.isBlank()) {
-            return SymbolLookup.libraryLookup(Path.of(dll), scope);
+        if (dll == null || dll.isBlank()) {
+            throw new IllegalStateException(
+                    "NXTCache binary not located. Set -Dnxtcache.dll=<path> "
+                            + "(no fallback — System.loadLibrary path removed for "
+                            + "compliance with java-rules §Banned 2)");
         }
-        try {
-            System.loadLibrary("NXTCache");
-        } catch (UnsatisfiedLinkError e) {
-            throw new ExceptionInInitializerError(
-                    "NXTCache.dll not found. Pass -Dnxtcache.dll=<path> "
-                            + "or add the directory to java.library.path: " + e.getMessage());
-        }
-        return SymbolLookup.loaderLookup();
+        Arena scope = Arena.ofShared();
+        return SymbolLookup.libraryLookup(Path.of(dll), scope);
     }
 
     private static MethodHandle dl(String name, FunctionDescriptor fd) {
