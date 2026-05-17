@@ -34,25 +34,20 @@ public class ManagementScriptsCommand implements Command {
 
         String sub = parsed.arg(0);
 
-        if (sub == null || sub.equals("list")) {
-            listScripts(runtime, ctx);
-        } else if (sub.equals("start")) {
-            startScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("stop")) {
-            stopScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("restart")) {
-            restartScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("reload")) {
-            reloadScripts(runtime, ctx);
-        } else if (sub.equals("load")) {
-            loadScripts(runtime, ctx);
-        } else if (sub.equals("info")) {
-            infoScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("stopall")) {
-            runtime.stopAll();
-            ctx.out().println("Stopped all management scripts.");
-        } else {
-            ctx.out().println("Unknown subcommand: " + sub + ". Use: list, start, stop, restart, reload, load, info, stopall");
+        switch (sub == null ? "list" : sub) {
+            case "list" -> listScripts(runtime, ctx);
+            case "start" -> startScript(parsed.arg(1), runtime, ctx);
+            case "stop" -> stopScript(parsed.arg(1), runtime, ctx);
+            case "restart" -> restartScript(parsed.arg(1), runtime, ctx);
+            case "reload" -> reloadScripts(runtime, ctx);
+            case "load" -> loadScripts(runtime, ctx);
+            case "info" -> infoScript(parsed.arg(1), runtime, ctx);
+            case "stopall" -> {
+                runtime.stopAll();
+                ctx.out().println("Stopped all management scripts.");
+            }
+            default -> ctx.out().println(
+                    "Unknown subcommand: " + sub + ". Use: list, start, stop, restart, reload, load, info, stopall");
         }
     }
 

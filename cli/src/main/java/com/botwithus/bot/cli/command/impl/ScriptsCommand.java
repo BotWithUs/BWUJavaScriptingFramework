@@ -69,20 +69,15 @@ public class ScriptsCommand implements Command {
             return;
         }
 
-        if (sub == null || sub.equals("list")) {
-            listScripts(runtime, ctx);
-        } else if (sub.equals("start")) {
-            startScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("stop")) {
-            stopScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("restart")) {
-            restartScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("info")) {
-            infoScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("config")) {
-            configScript(parsed.arg(1), runtime, ctx);
-        } else {
-            ctx.out().println("Unknown subcommand: " + sub + ". Use: list, start, stop, restart, info, config, status");
+        switch (sub == null ? "list" : sub) {
+            case "list" -> listScripts(runtime, ctx);
+            case "start" -> startScript(parsed.arg(1), runtime, ctx);
+            case "stop" -> stopScript(parsed.arg(1), runtime, ctx);
+            case "restart" -> restartScript(parsed.arg(1), runtime, ctx);
+            case "info" -> infoScript(parsed.arg(1), runtime, ctx);
+            case "config" -> configScript(parsed.arg(1), runtime, ctx);
+            default -> ctx.out().println(
+                    "Unknown subcommand: " + sub + ". Use: list, start, stop, restart, info, config, status");
         }
     }
 
