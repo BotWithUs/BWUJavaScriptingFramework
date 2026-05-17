@@ -483,18 +483,21 @@ public class ImGuiApp extends Application {
 
     private void renderSidebar() {
         float fontH = ImGui.getFontSize();
-        float padX = ImGui.getStyle().getWindowPaddingX();
-        float indent = padX * 0.5f;
+        float indent = ImGui.getStyle().getWindowPaddingX() * 0.5f;
 
         ImGui.dummy(0f, fontH * 0.4f);
+        renderBrandHeader(fontH, indent);
+        renderNavigation(fontH, indent);
+        renderSidebarFooter(fontH, indent);
+    }
 
+    private static void renderBrandHeader(float fontH, float indent) {
         var draw = ImGui.getWindowDrawList();
         int accentCol = ImGuiTheme.imCol32(
                 ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
         int accentDim = ImGuiTheme.imCol32(
                 ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.35f);
 
-        // ── Brand header ──────────────────────────────────────────────
         float logoX = ImGui.getCursorScreenPosX() + indent;
         float logoY = ImGui.getCursorScreenPosY();
         float barW = Math.max(3f, fontH * 0.25f);
@@ -517,8 +520,9 @@ public class ImGuiApp extends Application {
 
         ImGui.dummy(0f, fontH * 0.4f);
         GuiHelpers.subtleSeparator();
+    }
 
-        // ── Navigation ────────────────────────────────────────────────
+    private void renderNavigation(float fontH, float indent) {
         for (int s = 0; s < NAV_SECTION_LABELS.length; s++) {
             ImGui.dummy(0f, fontH * 0.6f);
             ImGui.setCursorPosX(ImGui.getCursorPosX() + indent);
@@ -528,65 +532,76 @@ public class ImGuiApp extends Application {
             ImGui.dummy(0f, fontH * 0.15f);
 
             for (int p : NAV_SECTION_PANELS[s]) {
-                if (p >= panels.size()) continue;
-                boolean isActive = (p == selectedPanel);
-
-                // Per-item animated hover weight, plus eased "active" animation
-                // for the left accent bar to slide into place.
-                String hoverKey = "nav:h:" + p;
-                String activeKey = "nav:a:" + p;
-
-                // Transparent selectable (we'll draw our own background + accent)
-                ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
-                ImGui.pushStyleColor(ImGuiCol.HeaderHovered, 0f, 0f, 0f, 0f);
-                ImGui.pushStyleColor(ImGuiCol.HeaderActive, 0f, 0f, 0f, 0f);
-
-                String icon = p < NAV_ICONS.length ? NAV_ICONS[p] : "";
-                // leading space reserved for the accent bar + icon gutter
-                String label = "    " + icon + "   " + panels.get(p).title() + "##nav" + p;
-
-                if (ImGui.selectable(label, isActive)) {
-                    selectedPanel = p;
+                if (p >= panels.size()) {
+                    continue;
                 }
-                boolean hovered = ImGui.isItemHovered();
-                float hoverT = Motion.hover(hoverKey, hovered);
-                float activeT = Motion.step(activeKey, isActive ? 1f : 0f, 14f);
-
-                ImGui.popStyleColor(3);
-
-                // Custom-drawn row background
-                float x0 = ImGui.getItemRectMinX();
-                float y0 = ImGui.getItemRectMinY();
-                float x1 = ImGui.getItemRectMaxX();
-                float y1 = ImGui.getItemRectMaxY();
-                float rowH = y1 - y0;
-                float rounding = fontH * 0.3f;
-
-                // Hover wash (fades in), active tint (stronger)
-                float bgAlpha = 0.05f * hoverT + 0.12f * activeT;
-                if (bgAlpha > 0.001f) {
-                    int bg = ImGuiTheme.imCol32(
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, bgAlpha);
-                    draw.addRectFilled(x0 + indent * 0.25f, y0, x1 - indent * 0.25f, y1,
-                            bg, rounding);
-                }
-
-                // Left accent bar — height animates with activeT (Motion eases it in)
-                if (activeT > 0.02f) {
-                    float barPadY = rowH * 0.18f;
-                    float fullH = rowH - barPadY * 2f;
-                    float h = fullH * Motion.easeOutCubic(activeT);
-                    float by0 = y0 + (rowH - h) * 0.5f;
-                    float bw = Math.max(2.5f, fontH * 0.2f);
-                    int col = ImGuiTheme.imCol32(
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, activeT);
-                    draw.addRectFilled(x0 + indent * 0.25f, by0,
-                            x0 + indent * 0.25f + bw, by0 + h, col, bw * 0.5f);
-                }
+                renderNavItem(p, fontH, indent);
             }
         }
+    }
 
-        // ── Bottom hint: keyboard shortcut ────────────────────────────
+    private void renderNavItem(int p, float fontH, float indent) {
+        boolean isActive = (p == selectedPanel);
+
+        // Per-item animated hover weight, plus eased "active" animation
+        // for the left accent bar to slide into place.
+        String hoverKey = "nav:h:" + p;
+        String activeKey = "nav:a:" + p;
+
+        // Transparent selectable (we'll draw our own background + accent)
+        ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
+        ImGui.pushStyleColor(ImGuiCol.HeaderHovered, 0f, 0f, 0f, 0f);
+        ImGui.pushStyleColor(ImGuiCol.HeaderActive, 0f, 0f, 0f, 0f);
+
+        String icon = p < NAV_ICONS.length ? NAV_ICONS[p] : "";
+        // leading space reserved for the accent bar + icon gutter
+        String label = "    " + icon + "   " + panels.get(p).title() + "##nav" + p;
+
+        if (ImGui.selectable(label, isActive)) {
+            selectedPanel = p;
+        }
+        boolean hovered = ImGui.isItemHovered();
+        float hoverT = Motion.hover(hoverKey, hovered);
+        float activeT = Motion.step(activeKey, isActive ? 1f : 0f, 14f);
+
+        ImGui.popStyleColor(3);
+        drawNavItemAccent(fontH, indent, hoverT, activeT);
+    }
+
+    private static void drawNavItemAccent(float fontH, float indent, float hoverT, float activeT) {
+        var draw = ImGui.getWindowDrawList();
+        // Custom-drawn row background
+        float x0 = ImGui.getItemRectMinX();
+        float y0 = ImGui.getItemRectMinY();
+        float x1 = ImGui.getItemRectMaxX();
+        float y1 = ImGui.getItemRectMaxY();
+        float rowH = y1 - y0;
+        float rounding = fontH * 0.3f;
+
+        // Hover wash (fades in), active tint (stronger)
+        float bgAlpha = 0.05f * hoverT + 0.12f * activeT;
+        if (bgAlpha > 0.001f) {
+            int bg = ImGuiTheme.imCol32(
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, bgAlpha);
+            draw.addRectFilled(x0 + indent * 0.25f, y0, x1 - indent * 0.25f, y1,
+                    bg, rounding);
+        }
+
+        // Left accent bar — height animates with activeT (Motion eases it in)
+        if (activeT > 0.02f) {
+            float barPadY = rowH * 0.18f;
+            float fullH = rowH - barPadY * 2f;
+            float h = fullH * Motion.easeOutCubic(activeT);
+            float by0 = y0 + (rowH - h) * 0.5f;
+            float bw = Math.max(2.5f, fontH * 0.2f);
+            int col = ImGuiTheme.imCol32(
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, activeT);
+            draw.addRectFilled(x0 + indent * 0.25f, by0,
+                    x0 + indent * 0.25f + bw, by0 + h, col, bw * 0.5f);
+        }
+    }
+
+    private static void renderSidebarFooter(float fontH, float indent) {
         float footerH = ImGui.getFrameHeightWithSpacing() * 2.6f;
         float bottomY = ImGui.getWindowHeight() - footerH;
         if (bottomY > ImGui.getCursorPosY()) {

@@ -26,39 +26,57 @@ public class TopBar {
     private static final String[] TAB_LABELS = {"Launcher", "Normal", "Advanced"};
     private static final AppMode[] TAB_MODES = {AppMode.LAUNCHER, AppMode.NORMAL, AppMode.ADVANCED};
 
+    private static final float UNDERLINE_LERP_SPEED = 14f;
+
     // Animated underline position (smoothly slides between tabs)
     private float underlineX = -1f;
     private float underlineW = 0f;
+
+    /** Result of rendering the tab row -- which tab was clicked, and the geometry of the active tab. */
+    private record TabResult(AppMode clicked, float activeTabScreenX, float activeTabWidth) {}
+
+    /** Session counts derived from the {@link CliContext} for the right-hand pill. */
+    private record SessionCounts(int connections, int runningScripts, boolean connected) {}
 
     /**
      * Render the top bar. Returns the new mode if a tab was clicked, or null if unchanged.
      * {@code ctx} may be null during the first paint if the app hasn't wired it yet.
      */
     public AppMode render(AppMode currentMode, float dpiScale, CliContext ctx) {
-        AppMode newMode = null;
         float fontH = ImGui.getFontSize();
         float frameH = ImGui.getFrameHeight();
         float padY = ImGui.getStyle().getWindowPaddingY();
         // Tight, premium vertical footprint
         float barHeight = frameH + padY * 2f + fontH * 0.25f;
 
+        beginTopBarChild(barHeight);
+
+        float contentCenterY = (barHeight - ImGui.getTextLineHeight()) * 0.5f - fontH * 0.12f;
+        float btnCenterY = (barHeight - frameH) * 0.5f - fontH * 0.12f;
+
+        renderBrand(contentCenterY, fontH);
+        TabResult tabs = renderTabs(currentMode, btnCenterY, fontH, frameH);
+        renderUnderline(tabs, barHeight, fontH);
+        renderSessionPill(ctx, barHeight, fontH);
+
+        ImGui.endChild();
+        return tabs.clicked();
+    }
+
+    private static void beginTopBarChild(float barHeight) {
         ImGui.pushStyleColor(ImGuiCol.ChildBg,
                 ImGuiTheme.SIDEBAR_BG_R, ImGuiTheme.SIDEBAR_BG_G, ImGuiTheme.SIDEBAR_BG_B, 1f);
         ImGui.pushStyleColor(ImGuiCol.Border,
                 ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.25f);
         ImGui.beginChild("##topbar", 0, barHeight, true);
         ImGui.popStyleColor(2);
+    }
 
-        ImDrawList draw = ImGui.getWindowDrawList();
-        float windowWidth = ImGui.getWindowWidth();
-        float windowY = ImGui.getWindowPosY();
-        float contentCenterY = (barHeight - ImGui.getTextLineHeight()) * 0.5f - fontH * 0.12f;
-        float btnCenterY = (barHeight - frameH) * 0.5f - fontH * 0.12f;
-
-        // ── Left: Brand mark ──────────────────────────────────────────
+    private static void renderBrand(float contentCenterY, float fontH) {
         float padX = ImGui.getStyle().getWindowPaddingX();
         ImGui.setCursorPos(padX, contentCenterY);
 
+        ImDrawList draw = ImGui.getWindowDrawList();
         float logoX = ImGui.getCursorScreenPosX();
         float logoY = ImGui.getCursorScreenPosY();
         int accentCol = ImGuiTheme.imCol32(
@@ -81,10 +99,12 @@ public class TopBar {
                 ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.88f);
         ImGui.text("BWU");
         ImGui.popStyleColor();
+    }
 
-        // ── Center: Tab buttons ───────────────────────────────────────
+    private TabResult renderTabs(AppMode currentMode, float btnCenterY, float fontH, float frameH) {
+        AppMode clicked = null;
         float tabGap = fontH * 0.15f;
-        float tabPadX = fontH * 1.0f;
+        float tabPadX = fontH;
         float[] tabWidths = new float[TAB_LABELS.length];
         float totalTabWidth = 0f;
         ImVec2 tmp = new ImVec2();
@@ -96,39 +116,19 @@ public class TopBar {
         }
         totalTabWidth += tabGap * (TAB_LABELS.length - 1);
 
-        float tabStartX = (windowWidth - totalTabWidth) * 0.5f;
-        float cursorX = tabStartX;
-
+        float cursorX = (ImGui.getWindowWidth() - totalTabWidth) * 0.5f;
         float activeTabScreenX = 0f;
         float activeTabW = 0f;
 
         for (int i = 0; i < TAB_LABELS.length; i++) {
             boolean isActive = (currentMode == TAB_MODES[i]);
             ImGui.setCursorPos(cursorX, btnCenterY);
-
-            if (isActive) {
-                ImGui.pushStyleColor(ImGuiCol.Button,
-                        ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.10f);
-                ImGui.pushStyleColor(ImGuiCol.ButtonHovered,
-                        ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.18f);
-                ImGui.pushStyleColor(ImGuiCol.ButtonActive,
-                        ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.24f);
-                ImGui.pushStyleColor(ImGuiCol.Text,
-                        ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
-            } else {
-                ImGui.pushStyleColor(ImGuiCol.Button, 0f, 0f, 0f, 0f);
-                ImGui.pushStyleColor(ImGuiCol.ButtonHovered,
-                        ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.05f);
-                ImGui.pushStyleColor(ImGuiCol.ButtonActive,
-                        ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.08f);
-                ImGui.pushStyleColor(ImGuiCol.Text,
-                        ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.85f);
-            }
+            pushTabColors(isActive);
 
             ImGui.pushStyleVar(ImGuiStyleVar.FrameRounding, fontH * 0.3f);
             String btnLabel = TAB_ICONS[i] + "  " + TAB_LABELS[i] + "##tab" + i;
             if (ImGui.button(btnLabel, tabWidths[i], frameH)) {
-                newMode = TAB_MODES[i];
+                clicked = TAB_MODES[i];
             }
             ImGui.popStyleVar();
             ImGui.popStyleColor(4);
@@ -140,21 +140,47 @@ public class TopBar {
 
             cursorX += tabWidths[i] + tabGap;
         }
+        return new TabResult(clicked, activeTabScreenX, activeTabW);
+    }
 
-        // ── Sliding underline indicator ───────────────────────────────
-        float dt = ImGui.getIO().getDeltaTime();
-        float lerpSpeed = 14f;
-        if (underlineX < 0f) {
-            underlineX = activeTabScreenX;
-            underlineW = activeTabW;
+    private static void pushTabColors(boolean isActive) {
+        if (isActive) {
+            ImGui.pushStyleColor(ImGuiCol.Button,
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.10f);
+            ImGui.pushStyleColor(ImGuiCol.ButtonHovered,
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.18f);
+            ImGui.pushStyleColor(ImGuiCol.ButtonActive,
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.24f);
+            ImGui.pushStyleColor(ImGuiCol.Text,
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
         } else {
-            float k = Math.min(1f, lerpSpeed * dt);
-            underlineX += (activeTabScreenX - underlineX) * k;
-            underlineW += (activeTabW - underlineW) * k;
+            ImGui.pushStyleColor(ImGuiCol.Button, 0f, 0f, 0f, 0f);
+            ImGui.pushStyleColor(ImGuiCol.ButtonHovered,
+                    ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.05f);
+            ImGui.pushStyleColor(ImGuiCol.ButtonActive,
+                    ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.08f);
+            ImGui.pushStyleColor(ImGuiCol.Text,
+                    ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.85f);
+        }
+    }
+
+    private void renderUnderline(TabResult tabs, float barHeight, float fontH) {
+        float dt = ImGui.getIO().getDeltaTime();
+        if (underlineX < 0f) {
+            underlineX = tabs.activeTabScreenX();
+            underlineW = tabs.activeTabWidth();
+        } else {
+            float k = Math.min(1f, UNDERLINE_LERP_SPEED * dt);
+            underlineX += (tabs.activeTabScreenX() - underlineX) * k;
+            underlineW += (tabs.activeTabWidth() - underlineW) * k;
         }
 
         float underlineH = Math.max(2f, fontH * 0.16f);
-        float underlineY = windowY + barHeight - underlineH - 2f;
+        float underlineY = ImGui.getWindowPosY() + barHeight - underlineH - 2f;
+
+        ImDrawList draw = ImGui.getWindowDrawList();
+        int accentCol = ImGuiTheme.imCol32(
+                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
 
         // Soft glow behind the sharp line
         int glowCol = ImGuiTheme.imCol32(
@@ -167,33 +193,39 @@ public class TopBar {
         // Sharp accent line
         draw.addRectFilled(underlineX, underlineY,
                 underlineX + underlineW, underlineY + underlineH, accentCol, underlineH * 0.5f);
+    }
 
-        // ── Right: Live session pill + F12 kbd hint ───────────────────
-        int connCount = 0;
-        int runningScripts = 0;
-        boolean connected = false;
-        if (ctx != null) {
-            connCount = ctx.getConnections().size();
-            connected = ctx.hasActiveConnection();
-            for (Connection conn : ctx.getConnections()) {
-                for (ScriptRunner runner : conn.getRuntime().getRunners()) {
-                    if (runner.isRunning()) {
-                        runningScripts++;
-                    }
+    private static SessionCounts collectSessionCounts(CliContext ctx) {
+        if (ctx == null) {
+            return new SessionCounts(0, 0, false);
+        }
+        int connCount = ctx.getConnections().size();
+        boolean connected = ctx.hasActiveConnection();
+        int running = 0;
+        for (Connection conn : ctx.getConnections()) {
+            for (ScriptRunner runner : conn.getRuntime().getRunners()) {
+                if (runner.isRunning()) {
+                    running++;
                 }
             }
         }
+        return new SessionCounts(connCount, running, connected);
+    }
 
-        // Build the pill text: "N conn · M running" (or "offline" when no ctx/none)
-        String pillText;
-        boolean pillActive = connected;
-        if (ctx == null || connCount == 0) {
-            pillText = "offline";
-        } else {
-            pillText = connCount + (connCount == 1 ? " conn" : " conns")
-                    + "  ·  " + runningScripts + " running";
+    private static String formatPillText(SessionCounts counts) {
+        if (counts.connections() == 0) {
+            return "offline";
         }
+        return counts.connections() + (counts.connections() == 1 ? " conn" : " conns")
+                + "  ·  " + counts.runningScripts() + " running";
+    }
 
+    private static void renderSessionPill(CliContext ctx, float barHeight, float fontH) {
+        SessionCounts counts = collectSessionCounts(ctx);
+        boolean pillActive = counts.connected();
+        String pillText = formatPillText(counts);
+
+        ImVec2 tmp = new ImVec2();
         ImGui.calcTextSize(tmp, pillText);
         float pillTextW = tmp.x;
         float dotR = Math.max(2f, fontH * 0.22f);
@@ -207,14 +239,23 @@ public class TopBar {
         ImGui.calcTextSize(tmp, kbd);
         float kbdW = tmp.x + fontH * 0.6f;
 
-        float rightEdge = windowWidth - padX;
+        float rightEdge = ImGui.getWindowWidth() - ImGui.getStyle().getWindowPaddingX();
         float pillX = rightEdge - pillW - fontH * 0.5f - kbdW;
         float pillY = (barHeight - pillH) * 0.5f;
         ImGui.setCursorPos(pillX, pillY);
+        drawSessionPill(pillActive, pillW, pillH, dotR, pillPadX, pillPadY, pillGap, pillText);
+
+        ImGui.setCursorPos(rightEdge - kbdW, (barHeight - (ImGui.getTextLineHeight() + fontH * 0.16f)) * 0.5f);
+        GuiHelpers.kbdHint(kbd);
+    }
+
+    private static void drawSessionPill(boolean pillActive, float pillW, float pillH,
+                                        float dotR, float pillPadX, float pillPadY,
+                                        float pillGap, String pillText) {
+        ImDrawList draw = ImGui.getWindowDrawList();
         float pillSX = ImGui.getCursorScreenPosX();
         float pillSY = ImGui.getCursorScreenPosY();
 
-        // Pill bg
         float r = pillActive ? ImGuiTheme.ACCENT_R : ImGuiTheme.DIM_TEXT_R;
         float g = pillActive ? ImGuiTheme.ACCENT_G : ImGuiTheme.DIM_TEXT_G;
         float b = pillActive ? ImGuiTheme.ACCENT_B : ImGuiTheme.DIM_TEXT_B;
@@ -240,13 +281,5 @@ public class TopBar {
         // Pill text
         draw.addText(pillSX + pillPadX + dotR * 2f + pillGap,
                 pillSY + pillPadY, textCol, pillText);
-
-        // F12 kbd hint, right-aligned
-        ImGui.setCursorPos(rightEdge - kbdW, (barHeight - (ImGui.getTextLineHeight() + fontH * 0.16f)) * 0.5f);
-        GuiHelpers.kbdHint(kbd);
-
-        ImGui.endChild();
-
-        return newMode;
     }
 }
