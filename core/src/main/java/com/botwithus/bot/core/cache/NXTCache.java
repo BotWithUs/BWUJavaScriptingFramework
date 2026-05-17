@@ -7,6 +7,7 @@ import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.core.util.Throwables;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import org.slf4j.Logger;
@@ -406,12 +407,6 @@ public final class NXTCache implements AutoCloseable {
     }
 
     private static RuntimeException rethrow(Throwable t) {
-        if (t instanceof RuntimeException r) {
-            return r;
-        }
-        if (t instanceof Error e) {
-            throw e;
-        }
-        return new NXTCacheException("NXTCache invocation failed", t);
+        return Throwables.rethrow(t, cause -> new NXTCacheException("NXTCache invocation failed", cause));
     }
 }
