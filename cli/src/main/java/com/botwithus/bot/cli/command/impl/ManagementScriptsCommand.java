@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.command.impl;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.cli.CliContext;
+import com.botwithus.bot.cli.ClientManager;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
@@ -118,7 +119,7 @@ public class ManagementScriptsCommand implements Command {
         }
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
         }
         runner.start();
         ctx.out().println("Restarted: " + runner.getScriptName());

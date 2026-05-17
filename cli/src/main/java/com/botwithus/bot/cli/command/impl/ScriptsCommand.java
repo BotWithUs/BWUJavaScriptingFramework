@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.command.impl;
 
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.cli.CliContext;
+import com.botwithus.bot.cli.ClientManager;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
@@ -147,7 +148,7 @@ public class ScriptsCommand implements Command {
         }
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
         }
         runner.start();
         ctx.out().println("Restarted: " + runner.getScriptName());
@@ -222,7 +223,7 @@ public class ScriptsCommand implements Command {
         }
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
         }
         runner.start();
         ctx.out().println("[" + connName + "] Restarted: " + runner.getScriptName());

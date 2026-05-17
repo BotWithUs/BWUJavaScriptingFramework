@@ -21,6 +21,13 @@ import java.util.Set;
  */
 public class ClientManager implements ClientOrchestrator {
 
+    /**
+     * Default timeout (ms) given to a script's stop hook before it is
+     * restarted. Shared across CLI commands and GUI panels that implement
+     * a "restart" affordance so the user-visible wait stays consistent.
+     */
+    public static final int RESTART_STOP_TIMEOUT_MS = 2000;
+
     private final CliContext ctx;
 
     public ClientManager(CliContext ctx) {
@@ -207,7 +214,7 @@ public class ClientManager implements ClientOrchestrator {
 
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(RESTART_STOP_TIMEOUT_MS);
         }
         runner.start();
         return new OpResult(true, clientName, scriptName, "restarted");

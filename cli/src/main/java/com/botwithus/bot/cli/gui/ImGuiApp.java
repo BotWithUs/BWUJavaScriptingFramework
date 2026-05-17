@@ -69,6 +69,8 @@ public class ImGuiApp extends Application {
 
     private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
 
+    private static final float UI_FONT_BASE_PX = 17f;
+
     private static final String BANNER = """
 
             ____        _ __        ___ _   _     _   _
@@ -138,7 +140,7 @@ public class ImGuiApp extends Application {
         }
         dpiScale = Math.max(xScale[0], 1.0f);
 
-        float uiSize = (float) Math.round(17f * dpiScale);
+        float uiSize = (float) Math.round(UI_FONT_BASE_PX * dpiScale);
         ImFontAtlas atlas = ImGui.getIO().getFonts();
         atlas.clear();
 
