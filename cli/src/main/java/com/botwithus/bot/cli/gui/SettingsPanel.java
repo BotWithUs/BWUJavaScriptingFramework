@@ -23,6 +23,10 @@ import java.util.Map;
  */
 public class SettingsPanel implements GuiPanel {
 
+    private static final int METRICS_TOP_N = 20;
+    private static final double METRICS_SLOW_AVG_MS = 50.0;
+    private static final double PROFILING_SLOW_MAX_MS = 100.0;
+
     @Override
     public String title() {
         return "Settings";
@@ -117,7 +121,6 @@ public class SettingsPanel implements GuiPanel {
     // ─────────────────────────────────────────────────────────────────
 
     private void renderAutoStartCard(CliContext ctx) {
-        float fontH = ImGui.getFontSize();
         if (!beginSectionCard("##sec_autostart", Icons.BOLT, "Auto-Start",
                 "Reconnect and launch scripts on startup")) {
             endSectionCard();
@@ -131,7 +134,18 @@ public class SettingsPanel implements GuiPanel {
             return;
         }
 
-        // Auto-connect toggle row — label on the left, toggle right-aligned.
+        float fontH = ImGui.getFontSize();
+        renderAutoConnectToggle(store, fontH);
+
+        ImGui.dummy(0f, fontH * 0.3f);
+        GuiHelpers.subtleSeparator();
+        ImGui.dummy(0f, fontH * 0.3f);
+
+        renderAutoStartProfiles(store);
+        endSectionCard();
+    }
+
+    private static void renderAutoConnectToggle(ScriptProfileStore store, float fontH) {
         float rowStartX = ImGui.getCursorPosX();
         float avail = ImGui.getContentRegionAvailX();
         float toggleW = fontH * 1.05f * 1.9f;
@@ -150,68 +164,63 @@ public class SettingsPanel implements GuiPanel {
             store.setAutoConnect(!current);
             store.saveSettings();
         }
+    }
 
-        ImGui.dummy(0f, fontH * 0.3f);
-        GuiHelpers.subtleSeparator();
-        ImGui.dummy(0f, fontH * 0.3f);
-
-        // Per-account profiles
+    private void renderAutoStartProfiles(ScriptProfileStore store) {
         Map<String, List<String>> profiles = store.listAccountProfiles();
         if (profiles.isEmpty()) {
             renderEmptyState(Icons.USERS, "No saved profiles",
                     "Use the Accounts panel to save an account + script selection for auto-start.");
-        } else {
-            int flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp
-                    | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.NoHostExtendX;
-            if (ImGui.beginTable("autoStartTable", 4, flags)) {
-                ImGui.tableSetupColumn("Account", 0, 1.0f);
-                ImGui.tableSetupColumn("Scripts", 0, 2.2f);
-                ImGui.tableSetupColumn("Auto-Start", 0, 0.5f);
-                ImGui.tableSetupColumn("", 0, 0.5f);
-                ImGui.tableHeadersRow();
-
-                int idx = 0;
-                for (var entry : profiles.entrySet()) {
-                    String account = entry.getKey();
-                    List<String> scripts = entry.getValue();
-
-                    ImGui.tableNextRow();
-
-                    ImGui.tableSetColumnIndex(0);
-                    ImGui.textColored(
-                            ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f,
-                            account);
-
-                    ImGui.tableSetColumnIndex(1);
-                    if (scripts.isEmpty()) {
-                        GuiHelpers.textMuted("none");
-                    } else {
-                        GuiHelpers.textSecondary(String.join(" · ", scripts));
-                    }
-
-                    ImGui.tableSetColumnIndex(2);
-                    ImGui.pushID("as_toggle_" + idx);
-                    boolean enabled = store.isAutoStart(account);
-                    if (GuiHelpers.toggleSwitch("##t", enabled)) {
-                        store.setAutoStart(account, !enabled);
-                    }
-                    ImGui.popID();
-
-                    ImGui.tableSetColumnIndex(3);
-                    ImGui.pushID("as_clear_" + idx);
-                    if (GuiHelpers.smallButtonDanger("Clear")) {
-                        store.clearAccountProfile(account);
-                    }
-                    ImGui.popID();
-
-                    idx++;
-                }
-
-                ImGui.endTable();
-            }
+            return;
         }
 
-        endSectionCard();
+        int flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp
+                | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.NoHostExtendX;
+        if (ImGui.beginTable("autoStartTable", 4, flags)) {
+            ImGui.tableSetupColumn("Account", 0, 1.0f);
+            ImGui.tableSetupColumn("Scripts", 0, 2.2f);
+            ImGui.tableSetupColumn("Auto-Start", 0, 0.5f);
+            ImGui.tableSetupColumn("", 0, 0.5f);
+            ImGui.tableHeadersRow();
+
+            int idx = 0;
+            for (var entry : profiles.entrySet()) {
+                renderAutoStartProfileRow(store, entry.getKey(), entry.getValue(), idx);
+                idx++;
+            }
+            ImGui.endTable();
+        }
+    }
+
+    private static void renderAutoStartProfileRow(ScriptProfileStore store, String account,
+                                                  List<String> scripts, int idx) {
+        ImGui.tableNextRow();
+
+        ImGui.tableSetColumnIndex(0);
+        ImGui.textColored(
+                ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f, account);
+
+        ImGui.tableSetColumnIndex(1);
+        if (scripts.isEmpty()) {
+            GuiHelpers.textMuted("none");
+        } else {
+            GuiHelpers.textSecondary(String.join(" · ", scripts));
+        }
+
+        ImGui.tableSetColumnIndex(2);
+        ImGui.pushID("as_toggle_" + idx);
+        boolean enabled = store.isAutoStart(account);
+        if (GuiHelpers.toggleSwitch("##t", enabled)) {
+            store.setAutoStart(account, !enabled);
+        }
+        ImGui.popID();
+
+        ImGui.tableSetColumnIndex(3);
+        ImGui.pushID("as_clear_" + idx);
+        if (GuiHelpers.smallButtonDanger("Clear")) {
+            store.clearAccountProfile(account);
+        }
+        ImGui.popID();
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -255,9 +264,14 @@ public class SettingsPanel implements GuiPanel {
         var entries = snapshot.entrySet().stream()
                 .sorted(Comparator.<Map.Entry<String, RpcMetrics.MethodStats>>comparingLong(
                         e -> e.getValue().callCount()).reversed())
-                .limit(20)
+                .limit(METRICS_TOP_N)
                 .toList();
 
+        renderMetricsTable(entries);
+        endSectionCard();
+    }
+
+    private static void renderMetricsTable(List<Map.Entry<String, RpcMetrics.MethodStats>> entries) {
         int flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp
                 | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.ScrollY
                 | ImGuiTableFlags.NoHostExtendX;
@@ -268,39 +282,38 @@ public class SettingsPanel implements GuiPanel {
             ImGui.tableSetupColumn("Avg (ms)", 0, 0.6f);
             ImGui.tableSetupColumn("Errors", 0, 0.5f);
             ImGui.tableHeadersRow();
-
             for (var entry : entries) {
-                RpcMetrics.MethodStats stats = entry.getValue();
-                ImGui.tableNextRow();
-
-                ImGui.tableSetColumnIndex(0);
-                ImGui.text(entry.getKey());
-
-                ImGui.tableSetColumnIndex(1);
-                GuiHelpers.textSecondary(String.valueOf(stats.callCount()));
-
-                ImGui.tableSetColumnIndex(2);
-                double avg = stats.avgLatencyMs();
-                if (avg > 50.0) {
-                    ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 1f,
-                            String.format("%.2f", avg));
-                } else {
-                    ImGui.text(String.format("%.2f", avg));
-                }
-
-                ImGui.tableSetColumnIndex(3);
-                if (stats.errorCount() > 0) {
-                    ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f,
-                            String.valueOf(stats.errorCount()));
-                } else {
-                    GuiHelpers.textMuted("0");
-                }
+                renderMetricsRow(entry.getKey(), entry.getValue());
             }
-
             ImGui.endTable();
         }
+    }
 
-        endSectionCard();
+    private static void renderMetricsRow(String method, RpcMetrics.MethodStats stats) {
+        ImGui.tableNextRow();
+
+        ImGui.tableSetColumnIndex(0);
+        ImGui.text(method);
+
+        ImGui.tableSetColumnIndex(1);
+        GuiHelpers.textSecondary(String.valueOf(stats.callCount()));
+
+        ImGui.tableSetColumnIndex(2);
+        double avg = stats.avgLatencyMs();
+        if (avg > METRICS_SLOW_AVG_MS) {
+            ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 1f,
+                    String.format("%.2f", avg));
+        } else {
+            ImGui.text(String.format("%.2f", avg));
+        }
+
+        ImGui.tableSetColumnIndex(3);
+        if (stats.errorCount() > 0) {
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f,
+                    String.valueOf(stats.errorCount()));
+        } else {
+            GuiHelpers.textMuted("0");
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -330,6 +343,12 @@ public class SettingsPanel implements GuiPanel {
             return;
         }
 
+        renderProfilingResetButton(runners);
+        renderProfilingTable(runners);
+        endSectionCard();
+    }
+
+    private static void renderProfilingResetButton(List<ScriptRunner> runners) {
         float resetW = ImGui.calcTextSize(Icons.ROTATE + "  Reset").x
                 + ImGui.getStyle().getFramePaddingX() * 2f + ImGui.getFontSize();
         ImGui.setCursorPosX(ImGui.getCursorPosX() + ImGui.getContentRegionAvailX() - resetW);
@@ -339,7 +358,9 @@ public class SettingsPanel implements GuiPanel {
             }
         }
         ImGui.dummy(0f, ImGui.getFontSize() * 0.2f);
+    }
 
+    private static void renderProfilingTable(List<ScriptRunner> runners) {
         int flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp
                 | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.NoHostExtendX;
         if (ImGui.beginTable("profilingTable", 6, flags)) {
@@ -350,44 +371,44 @@ public class SettingsPanel implements GuiPanel {
             ImGui.tableSetupColumn("Max (ms)", 0, 0.6f);
             ImGui.tableSetupColumn("Last (ms)", 0, 0.6f);
             ImGui.tableHeadersRow();
-
             for (ScriptRunner runner : runners) {
-                ScriptProfiler p = runner.getProfiler();
-                ImGui.tableNextRow();
-
-                ImGui.tableSetColumnIndex(0);
-                if (runner.isRunning()) {
-                    GuiHelpers.statusDot(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B);
-                    ImGui.sameLine(0, ImGui.getStyle().getItemInnerSpacingX());
-                }
-                ImGui.text(runner.getScriptName());
-
-                ImGui.tableSetColumnIndex(1);
-                GuiHelpers.textSecondary(String.valueOf(p.getLoopCount()));
-
-                ImGui.tableSetColumnIndex(2);
-                ImGui.text(String.format("%.2f", p.avgLoopMs()));
-
-                ImGui.tableSetColumnIndex(3);
-                GuiHelpers.textSecondary(String.format("%.2f", p.getMinLoopNanos() / 1_000_000.0));
-
-                ImGui.tableSetColumnIndex(4);
-                double maxMs = p.getMaxLoopNanos() / 1_000_000.0;
-                if (maxMs > 100.0) {
-                    ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 1f,
-                            String.format("%.2f", maxMs));
-                } else {
-                    ImGui.text(String.format("%.2f", maxMs));
-                }
-
-                ImGui.tableSetColumnIndex(5);
-                ImGui.text(String.format("%.2f", p.getLastLoopNanos() / 1_000_000.0));
+                renderProfilingRow(runner);
             }
-
             ImGui.endTable();
         }
+    }
 
-        endSectionCard();
+    private static void renderProfilingRow(ScriptRunner runner) {
+        ScriptProfiler p = runner.getProfiler();
+        ImGui.tableNextRow();
+
+        ImGui.tableSetColumnIndex(0);
+        if (runner.isRunning()) {
+            GuiHelpers.statusDot(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B);
+            ImGui.sameLine(0, ImGui.getStyle().getItemInnerSpacingX());
+        }
+        ImGui.text(runner.getScriptName());
+
+        ImGui.tableSetColumnIndex(1);
+        GuiHelpers.textSecondary(String.valueOf(p.getLoopCount()));
+
+        ImGui.tableSetColumnIndex(2);
+        ImGui.text(String.format("%.2f", p.avgLoopMs()));
+
+        ImGui.tableSetColumnIndex(3);
+        GuiHelpers.textSecondary(String.format("%.2f", p.getMinLoopNanos() / 1_000_000.0));
+
+        ImGui.tableSetColumnIndex(4);
+        double maxMs = p.getMaxLoopNanos() / 1_000_000.0;
+        if (maxMs > PROFILING_SLOW_MAX_MS) {
+            ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 1f,
+                    String.format("%.2f", maxMs));
+        } else {
+            ImGui.text(String.format("%.2f", maxMs));
+        }
+
+        ImGui.tableSetColumnIndex(5);
+        ImGui.text(String.format("%.2f", p.getLastLoopNanos() / 1_000_000.0));
     }
 
     // ─────────────────────────────────────────────────────────────────

@@ -53,133 +53,138 @@ public class ScriptPickerPopup {
 
         ImGui.setNextWindowSize(400, 420);
         int flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove;
-        if (ImGui.beginPopupModal(POPUP_ID, flags)) {
+        if (!ImGui.beginPopupModal(POPUP_ID, flags)) {
+            return;
+        }
 
-            // Search bar
-            ImGui.pushItemWidth(-1);
-            ImGui.inputTextWithHint("##scriptSearch", Icons.SEARCH + "  Search scripts...", searchQuery);
-            ImGui.popItemWidth();
+        ImGui.pushItemWidth(-1);
+        ImGui.inputTextWithHint("##scriptSearch", Icons.SEARCH + "  Search scripts...", searchQuery);
+        ImGui.popItemWidth();
 
-            ImGui.spacing();
-            GuiHelpers.subtleSeparator();
-            ImGui.spacing();
+        ImGui.spacing();
+        GuiHelpers.subtleSeparator();
+        ImGui.spacing();
 
-            String filter = searchQuery.get().toLowerCase(Locale.ROOT).trim();
+        String filter = searchQuery.get().toLowerCase(Locale.ROOT).trim();
+        renderScriptList(ctx, filter);
+        renderFooterButtons(ctx);
 
-            // Script list
-            float listHeight = ImGui.getContentRegionAvailY() - ImGui.getFrameHeightWithSpacing() - 10f;
-            ImGui.beginChild("##scriptList", -1, listHeight, false);
+        ImGui.endPopup();
+    }
 
-            if (availableScripts == null || availableScripts.isEmpty()) {
-                ImGui.spacing();
-                ImGui.spacing();
-                float w = ImGui.calcTextSize("No scripts available").x;
-                ImGui.setCursorPosX((ImGui.getWindowWidth() - w) / 2f);
-                GuiHelpers.textMuted("No scripts available");
-            } else {
-                int visibleIndex = 0;
-                for (int i = 0; i < availableScripts.size(); i++) {
-                    BotScript script = availableScripts.get(i);
-                    ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
-                    String name = manifest != null ? manifest.name() : script.getClass().getSimpleName();
-                    String desc = manifest != null ? manifest.description() : "";
-                    String author = manifest != null ? manifest.author() : "";
-                    ScriptCategory category = manifest != null ? manifest.category() : ScriptCategory.UNCATEGORIZED;
+    private void renderScriptList(CliContext ctx, String filter) {
+        float listHeight = ImGui.getContentRegionAvailY() - ImGui.getFrameHeightWithSpacing() - 10f;
+        ImGui.beginChild("##scriptList", -1, listHeight, false);
 
-                    // Filter
-                    if (!filter.isEmpty()) {
-                        boolean matches = name.toLowerCase(Locale.ROOT).contains(filter)
-                                || desc.toLowerCase(Locale.ROOT).contains(filter)
-                                || author.toLowerCase(Locale.ROOT).contains(filter);
-                        if (!matches) {
-                            continue;
-                        }
-                    }
-
-                    boolean isSelected = (i == selectedIndex);
-
-                    // Category color accent
-                    CategoryStyle.Style style = CategoryStyle.of(category);
-
-                    if (isSelected) {
-                        ImGui.pushStyleColor(ImGuiCol.Header,
-                                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.15f);
-                        ImGui.pushStyleColor(ImGuiCol.HeaderHovered,
-                                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.22f);
-                        ImGui.pushStyleColor(ImGuiCol.HeaderActive,
-                                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.30f);
-                    }
-
-                    if (ImGui.selectable("##script" + i, isSelected, 0, 0, ImGui.getFrameHeightWithSpacing() + 8f)) {
-                        selectedIndex = i;
-                    }
-
-                    // Double-click to start
-                    if (ImGui.isItemHovered() && ImGui.isMouseDoubleClicked(0)) {
-                        selectedIndex = i;
-                        startSelected(ctx);
-                        ImGui.closeCurrentPopup();
-                    }
-
-                    if (isSelected) {
-                        ImGui.popStyleColor(3);
-                    }
-
-                    // Overlay content on the selectable
-                    ImGui.sameLine(8);
-                    ImGui.textColored(style.r(), style.g(), style.b(), 1f, style.icon());
-                    ImGui.sameLine(0, 8);
-                    ImGui.text(name);
-                    if (!author.isEmpty()) {
-                        ImGui.sameLine(0, 12);
-                        GuiHelpers.textMuted("by " + author);
-                    }
-
-                    if (!desc.isEmpty()) {
-                        ImGui.setCursorPosX(ImGui.getCursorPosX() + 28f);
-                        GuiHelpers.textSecondary(desc);
-                    }
-
+        if (availableScripts == null || availableScripts.isEmpty()) {
+            renderCenteredMutedMessage("No scripts available");
+        } else {
+            int visibleIndex = 0;
+            for (int i = 0; i < availableScripts.size(); i++) {
+                if (renderScriptItem(ctx, i, filter)) {
                     visibleIndex++;
                 }
-
-                if (visibleIndex == 0 && !filter.isEmpty()) {
-                    ImGui.spacing();
-                    float w = ImGui.calcTextSize("No scripts match your search").x;
-                    ImGui.setCursorPosX((ImGui.getWindowWidth() - w) / 2f);
-                    GuiHelpers.textMuted("No scripts match your search");
-                }
             }
+            if (visibleIndex == 0 && !filter.isEmpty()) {
+                renderCenteredMutedMessage("No scripts match your search");
+            }
+        }
+        ImGui.endChild();
+    }
 
-            ImGui.endChild();
+    /** Returns true if the item was rendered (i.e. matched the filter). */
+    private boolean renderScriptItem(CliContext ctx, int i, String filter) {
+        BotScript script = availableScripts.get(i);
+        ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
+        String name = manifest != null ? manifest.name() : script.getClass().getSimpleName();
+        String desc = manifest != null ? manifest.description() : "";
+        String author = manifest != null ? manifest.author() : "";
+        ScriptCategory category = manifest != null ? manifest.category() : ScriptCategory.UNCATEGORIZED;
 
-            // Bottom buttons
-            ImGui.spacing();
-            GuiHelpers.subtleSeparator();
-            ImGui.spacing();
+        if (!filter.isEmpty()) {
+            boolean matches = name.toLowerCase(Locale.ROOT).contains(filter)
+                    || desc.toLowerCase(Locale.ROOT).contains(filter)
+                    || author.toLowerCase(Locale.ROOT).contains(filter);
+            if (!matches) {
+                return false;
+            }
+        }
 
-            float buttonWidth = 100f;
-            float totalWidth = buttonWidth * 2 + 8f;
-            ImGui.setCursorPosX((ImGui.getWindowWidth() - totalWidth) / 2f);
+        boolean isSelected = (i == selectedIndex);
+        CategoryStyle.Style style = CategoryStyle.of(category);
 
-            if (GuiHelpers.buttonSecondary("Cancel")) {
+        if (isSelected) {
+            pushSelectedItemColors();
+        }
+        if (ImGui.selectable("##script" + i, isSelected, 0, 0, ImGui.getFrameHeightWithSpacing() + 8f)) {
+            selectedIndex = i;
+        }
+        if (ImGui.isItemHovered() && ImGui.isMouseDoubleClicked(0)) {
+            selectedIndex = i;
+            startSelected(ctx);
+            ImGui.closeCurrentPopup();
+        }
+        if (isSelected) {
+            ImGui.popStyleColor(3);
+        }
+
+        // Overlay content on the selectable
+        ImGui.sameLine(8);
+        ImGui.textColored(style.r(), style.g(), style.b(), 1f, style.icon());
+        ImGui.sameLine(0, 8);
+        ImGui.text(name);
+        if (!author.isEmpty()) {
+            ImGui.sameLine(0, 12);
+            GuiHelpers.textMuted("by " + author);
+        }
+
+        if (!desc.isEmpty()) {
+            ImGui.setCursorPosX(ImGui.getCursorPosX() + 28f);
+            GuiHelpers.textSecondary(desc);
+        }
+        return true;
+    }
+
+    private static void pushSelectedItemColors() {
+        ImGui.pushStyleColor(ImGuiCol.Header,
+                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.15f);
+        ImGui.pushStyleColor(ImGuiCol.HeaderHovered,
+                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.22f);
+        ImGui.pushStyleColor(ImGuiCol.HeaderActive,
+                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.30f);
+    }
+
+    private static void renderCenteredMutedMessage(String text) {
+        ImGui.spacing();
+        ImGui.spacing();
+        float w = ImGui.calcTextSize(text).x;
+        ImGui.setCursorPosX((ImGui.getWindowWidth() - w) / 2f);
+        GuiHelpers.textMuted(text);
+    }
+
+    private void renderFooterButtons(CliContext ctx) {
+        ImGui.spacing();
+        GuiHelpers.subtleSeparator();
+        ImGui.spacing();
+
+        float buttonWidth = 100f;
+        float totalWidth = buttonWidth * 2 + 8f;
+        ImGui.setCursorPosX((ImGui.getWindowWidth() - totalWidth) / 2f);
+
+        if (GuiHelpers.buttonSecondary("Cancel")) {
+            ImGui.closeCurrentPopup();
+        }
+        ImGui.sameLine(0, 8);
+
+        if (selectedIndex >= 0) {
+            if (GuiHelpers.buttonPrimary(Icons.PLAY + "  Start")) {
+                startSelected(ctx);
                 ImGui.closeCurrentPopup();
             }
-
-            ImGui.sameLine(0, 8);
-
-            if (selectedIndex >= 0) {
-                if (GuiHelpers.buttonPrimary(Icons.PLAY + "  Start")) {
-                    startSelected(ctx);
-                    ImGui.closeCurrentPopup();
-                }
-            } else {
-                ImGui.pushStyleVar(imgui.flag.ImGuiStyleVar.Alpha, 0.4f);
-                GuiHelpers.buttonPrimary(Icons.PLAY + "  Start");
-                ImGui.popStyleVar();
-            }
-
-            ImGui.endPopup();
+        } else {
+            ImGui.pushStyleVar(imgui.flag.ImGuiStyleVar.Alpha, 0.4f);
+            GuiHelpers.buttonPrimary(Icons.PLAY + "  Start");
+            ImGui.popStyleVar();
         }
     }
 

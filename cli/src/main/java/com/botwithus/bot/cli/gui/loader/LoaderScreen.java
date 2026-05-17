@@ -114,48 +114,54 @@ public class LoaderScreen {
     public void render() {
         float deltaTime = ImGui.getIO().getDeltaTime();
         launchTimer = Math.min(launchTimer + deltaTime, 1f);
+        advanceAnimations(deltaTime);
 
-        // Handle state transition fade
-        updateContentAlpha(deltaTime);
-
-        // Shake animation decay
-        if (shakeTimer > 0f) {
-            shakeTimer = Math.max(0f, shakeTimer - deltaTime);
-        }
-
-        // Exit fade
-        if (state == LoaderState.COMPLETE) {
-            exitAlpha = Math.max(0f, exitAlpha - deltaTime * 2f);
-        }
-
-        // Apply global alpha for exit transition
         if (exitAlpha < 1f) {
             ImGui.pushStyleVar(ImGuiStyleVar.Alpha, exitAlpha);
         }
-
         LoaderTheme.push();
 
         float winW = ImGui.getContentRegionAvailX();
         float winH = ImGui.getContentRegionAvailY();
-
-        // Background decoration
         renderBackground(winW, winH);
+        renderCenteredContent(winW, winH, deltaTime);
+        renderFooter(winW, winH);
 
-        // Vertically center all content: logo + form as a single block
+        LoaderTheme.pop();
+        if (exitAlpha < 1f) {
+            ImGui.popStyleVar();
+        }
+
+        if (firstFrame) {
+            firstFrame = false;
+            tryAutoLogin();
+        }
+        if (state == LoaderState.UPDATING && bwuClient != null) {
+            pollUpdateProgress();
+        }
+    }
+
+    private void advanceAnimations(float deltaTime) {
+        updateContentAlpha(deltaTime);
+        if (shakeTimer > 0f) {
+            shakeTimer = Math.max(0f, shakeTimer - deltaTime);
+        }
+        if (state == LoaderState.COMPLETE) {
+            exitAlpha = Math.max(0f, exitAlpha - deltaTime * 2f);
+        }
+    }
+
+    private void renderCenteredContent(float winW, float winH, float deltaTime) {
         float formWidth = winW * 0.4f;
         float totalContentH = estimateContentHeight(formWidth);
         float startY = Math.max(20, (winH - totalContentH) / 2f);
         ImGui.setCursorPosY(startY);
 
-        // Logo area
         renderLogo(winW, deltaTime);
-
         ImGui.spacing();
         ImGui.spacing();
 
-        // Content area with fade
         ImGui.pushStyleVar(ImGuiStyleVar.Alpha, contentAlpha * (exitAlpha < 1f ? exitAlpha : 1f));
-
         switch (state) {
             case LOGIN -> renderLogin(winW, formWidth);
             case AUTHENTICATING -> renderAuthenticating(winW);
@@ -164,28 +170,7 @@ public class LoaderScreen {
             case ERROR -> renderError(winW);
             case COMPLETE -> {} // fading out
         }
-
-        ImGui.popStyleVar(); // content alpha
-
-        // Footer
-        renderFooter(winW, winH);
-
-        LoaderTheme.pop();
-
-        if (exitAlpha < 1f) {
-            ImGui.popStyleVar(); // global exit alpha
-        }
-
-        // Check for auto-login on first frame
-        if (firstFrame) {
-            firstFrame = false;
-            tryAutoLogin();
-        }
-
-        // Poll update progress while in UPDATING state
-        if (state == LoaderState.UPDATING && bwuClient != null) {
-            pollUpdateProgress();
-        }
+        ImGui.popStyleVar();
     }
 
     private float estimateContentHeight(float formWidth) {
