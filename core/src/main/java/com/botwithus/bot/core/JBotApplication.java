@@ -11,6 +11,7 @@ import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
@@ -47,7 +48,10 @@ public class JBotApplication {
             List<BotScript> scripts = SDNScriptLoader.loadScripts();
             log.info("Discovered {} script(s)", scripts.size());
 
-            ScriptRuntime runtime = new ScriptRuntime(context);
+            // Propagate the per-thread connection tag through ConnectionContext so
+            // the CLI's stdout interception sees the tag on script virtual threads.
+            ScriptRuntime runtime = new ScriptRuntime(context,
+                    ConnectionContext::set, ConnectionContext::clear);
 
             // Wire up ScriptManager so scripts can manage other scripts
             ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
