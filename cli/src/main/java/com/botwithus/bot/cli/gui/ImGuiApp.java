@@ -24,6 +24,7 @@ import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.config.CliConfig;
 import com.botwithus.bot.cli.gui.loader.LoaderScreen;
 import com.botwithus.bot.cli.gui.usermode.UserAccountsRenderer;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
@@ -212,7 +213,7 @@ public class ImGuiApp extends Application {
         registry.register(new StreamCommand());
         registry.register(new MetricsCommand());
         registry.register(new ProfileCommand());
-        registry.register(new ConfigCommand(com.botwithus.bot.cli.config.CliConfig.defaults()));
+        registry.register(new ConfigCommand(CliConfig.defaults()));
         registry.register(new ActionsCommand());
         registry.register(new EventsCommand());
         registry.register(new ClientCommand());

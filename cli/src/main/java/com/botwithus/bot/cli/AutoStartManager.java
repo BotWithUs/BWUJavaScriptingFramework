@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -210,7 +211,7 @@ public class AutoStartManager {
     private BotScript findScript(String name, List<BotScript> scripts) {
         for (BotScript script : scripts) {
             String scriptName = script.getClass().getSimpleName();
-            var manifest = script.getClass().getAnnotation(com.botwithus.bot.api.ScriptManifest.class);
+            var manifest = script.getClass().getAnnotation(ScriptManifest.class);
             if (manifest != null) {
                 scriptName = manifest.name();
             }

@@ -15,6 +15,7 @@ import imgui.flag.ImGuiStyleVar;
 import imgui.type.ImBoolean;
 import imgui.type.ImString;
 
+import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -407,7 +408,7 @@ public class LoaderScreen {
         boolean tokenLoginClicked = ImGui.button(Icons.ARROW_RIGHT + "  Login With Token", formWidth, 0);
         ImGui.popStyleColor();
 
-        if (ImGui.isKeyPressed(org.lwjgl.glfw.GLFW.GLFW_KEY_ENTER) || tokenLoginClicked) {
+        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_ENTER) || tokenLoginClicked) {
             String token = tokenInput.get().trim();
             if (!token.isEmpty()) {
                 startTokenAuthentication(token);

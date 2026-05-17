@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -251,7 +252,7 @@ public class ConnectCommand implements Command {
      */
     private PipeInfo probePipe(String pipeName) {
         try {
-            return CompletableFuture.supplyAsync(() -> probePipeBlocking(pipeName), java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor())
+            return CompletableFuture.supplyAsync(() -> probePipeBlocking(pipeName), Executors.newVirtualThreadPerTaskExecutor())
                     .get(5, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.warn("probePipe timed out for {}", pipeName);
