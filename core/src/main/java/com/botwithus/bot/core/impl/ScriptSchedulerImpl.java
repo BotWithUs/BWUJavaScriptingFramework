@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 public class ScriptSchedulerImpl implements ScriptScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptSchedulerImpl.class);
+    private static final int SCHEDULE_ID_LENGTH = 8;
     private final ScriptManager manager;
     private final ScheduledExecutorService executor;
     private final ConcurrentHashMap<String, ScheduleState> schedules = new ConcurrentHashMap<>();
@@ -170,6 +171,6 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
     }
 
     private static String newId() {
-        return UUID.randomUUID().toString().substring(0, 8);
+        return UUID.randomUUID().toString().substring(0, SCHEDULE_ID_LENGTH);
     }
 }

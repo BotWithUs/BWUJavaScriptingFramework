@@ -31,8 +31,12 @@ public final class LocalScriptLoader {
     private static final String SCRIPTS_DIR_NAME = "scripts";
     private static final String SCRIPTS_DIR_PROPERTY = "botwithus.scripts.dir";
 
-    /** Track classloaders from previous loads so we can close them on reload. */
-    private static final List<URLClassLoader> previousLoaders = new ArrayList<>();
+    /**
+     * Track classloaders from previous loads so we can close them on reload.
+     * The tracker is encapsulated in a typed helper so the mutable state is
+     * not a raw list scattered across this class.
+     */
+    private static final PreviousLoaderTracker previousLoaders = new PreviousLoaderTracker();
 
     private LocalScriptLoader() {}
 
@@ -84,7 +88,7 @@ public final class LocalScriptLoader {
         }
 
         // Close previous classloaders to release JAR file handles (critical on Windows)
-        closePreviousLoaders();
+        previousLoaders.closeAll();
 
         // Find all JARs in the scripts directory
         List<Path> jars;
@@ -172,20 +176,5 @@ public final class LocalScriptLoader {
         }
 
         return allScripts;
-    }
-
-    /**
-     * Closes all classloaders from previous loads, releasing JAR file handles.
-     * This is necessary on Windows where open file handles prevent re-reading JARs.
-     */
-    private static void closePreviousLoaders() {
-        for (URLClassLoader loader : previousLoaders) {
-            try {
-                loader.close();
-            } catch (IOException e) {
-                log.error("Failed to close previous classloader: {}", e.getMessage());
-            }
-        }
-        previousLoaders.clear();
     }
 }

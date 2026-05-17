@@ -29,7 +29,7 @@ public final class ManagementScriptLoader {
 
     private static final Logger log = LoggerFactory.getLogger(ManagementScriptLoader.class);
     private static final String MANAGEMENT_DIR = "management";
-    private static final List<URLClassLoader> previousLoaders = new ArrayList<>();
+    private static final PreviousLoaderTracker previousLoaders = new PreviousLoaderTracker();
 
     private ManagementScriptLoader() {}
 
@@ -57,7 +57,7 @@ public final class ManagementScriptLoader {
             return List.of();
         }
 
-        closePreviousLoaders();
+        previousLoaders.closeAll();
 
         List<Path> jars;
         try (var stream = Files.list(managementDir)) {
@@ -109,16 +109,5 @@ public final class ManagementScriptLoader {
         }
 
         return allScripts;
-    }
-
-    private static void closePreviousLoaders() {
-        for (URLClassLoader loader : previousLoaders) {
-            try {
-                loader.close();
-            } catch (IOException e) {
-                log.error("Failed to close classloader: {}", e.getMessage());
-            }
-        }
-        previousLoaders.clear();
     }
 }
