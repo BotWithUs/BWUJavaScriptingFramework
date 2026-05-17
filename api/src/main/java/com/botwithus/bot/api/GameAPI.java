@@ -148,6 +148,17 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
     LocalPlayer getLocalPlayer();
 
     /**
+     * No-plane convenience for {@link NavigationAPI#walkWorldPathAsync(int, int, int)}
+     * — uses the local player's current plane, falling back to plane 0 when
+     * not in-game. Lives here (not on {@code NavigationAPI}) because it
+     * needs {@link #getLocalPlayer()}.
+     */
+    default void walkWorldPath(int x, int y) {
+        LocalPlayer lp = getLocalPlayer();
+        walkWorldPathAsync(x, y, lp == null ? 0 : lp.plane());
+    }
+
+    /**
      * Returns one of the local player's skill stats by skill type id.
      * {@code null} when not in-game or the skill isn't in the published
      * skills array. Ids match the in-game {@code StatType.id} (e.g. 26
