@@ -17,6 +17,9 @@ public class LogsCommand implements Command {
     private static final DateTimeFormatter TIME_FMT =
             DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
 
+    private static final int DEFAULT_TAIL_LINES = 50;
+    private static final int FOLLOW_POLL_INTERVAL_MS = 500;
+
     @Override public String name() { return "logs"; }
     @Override public List<String> aliases() { return List.of("log"); }
     @Override public String description() { return "View captured logs"; }
@@ -24,7 +27,7 @@ public class LogsCommand implements Command {
 
     @Override
     public void execute(ParsedCommand parsed, CliContext ctx) {
-        int lines = parsed.intFlag("lines", 50);
+        int lines = parsed.intFlag("lines", DEFAULT_TAIL_LINES);
         String filter = parsed.flag("filter");
         boolean follow = parsed.hasFlag("follow");
 
@@ -54,7 +57,7 @@ public class LogsCommand implements Command {
                 try {
                     Instant[] lastCheck = {cursor};
                     while (!Thread.currentThread().isInterrupted()) {
-                        Thread.sleep(500);
+                        Thread.sleep(FOLLOW_POLL_INTERVAL_MS);
                         List<LogEntry> newEntries = ctx.getLogBuffer().since(lastCheck[0]);
                         String f = filter;
                         if (f != null) {

@@ -34,6 +34,10 @@ public class ConnectCommand implements Command {
 
     private static final int LOBBY_POLL_INTERVAL_MS = 500;
     private static final int LOBBY_POLL_TIMEOUT_MS = 15_000;
+    private static final int LOBBY_RPC_TIMEOUT_MS = 5_000;
+    private static final int LOBBY_RETRY_DELAY_MS = 2_000;
+    private static final int PIPE_PROBE_TIMEOUT_S = 5;
+    private static final int PIPE_PROBE_TIMEOUT_MS = 3_000;
 
     /** Info gathered from probing a pipe. */
     public record PipeInfo(String pipeName, String displayName, int worldId, boolean loggedIn, boolean isMember) {}
@@ -198,7 +202,7 @@ public class ConnectCommand implements Command {
     private PipeInfo lobbyLoginAndProbe(String pipeName, CliContext ctx) {
         try (PipeClient pipe = new PipeClient(pipeName)) {
             RpcClient rpc = new RpcClient(pipe);
-            rpc.setTimeout(5_000);
+            rpc.setTimeout(LOBBY_RPC_TIMEOUT_MS);
 
             // Trigger lobby login (only works from login screen, state 10)
             try {
@@ -206,7 +210,7 @@ public class ConnectCommand implements Command {
                 // If server returned action: "new_game_session", need to retry after a delay
                 if ("new_game_session".equals(getString(result, "action"))) {
                     ctx.out().println("  " + pipeName + ": new game session requested, retrying...");
-                    Thread.sleep(2_000);
+                    Thread.sleep(LOBBY_RETRY_DELAY_MS);
                     rpc.callSync("login_to_lobby", Map.of());
                 }
             } catch (Exception e) {
@@ -253,7 +257,7 @@ public class ConnectCommand implements Command {
     private PipeInfo probePipe(String pipeName) {
         try {
             return CompletableFuture.supplyAsync(() -> probePipeBlocking(pipeName), Executors.newVirtualThreadPerTaskExecutor())
-                    .get(5, TimeUnit.SECONDS);
+                    .get(PIPE_PROBE_TIMEOUT_S, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.warn("probePipe timed out for {}", pipeName);
             return new PipeInfo(pipeName, "(timeout)", -1, false, false);
@@ -266,7 +270,7 @@ public class ConnectCommand implements Command {
     private PipeInfo probePipeBlocking(String pipeName) {
         try (PipeClient pipe = new PipeClient(pipeName)) {
             RpcClient rpc = new RpcClient(pipe);
-            rpc.setTimeout(3_000);
+            rpc.setTimeout(PIPE_PROBE_TIMEOUT_MS);
             return probeWithRpc(pipeName, rpc);
         } catch (Exception e) {
             log.error("probePipe failed for {}", pipeName, e);
