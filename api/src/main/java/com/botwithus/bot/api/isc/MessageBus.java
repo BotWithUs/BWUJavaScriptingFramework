@@ -1,5 +1,6 @@
 package com.botwithus.bot.api.isc;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
@@ -42,7 +43,7 @@ public interface MessageBus {
      * @param timeoutMs maximum time to wait for a response in milliseconds
      * @return a future that completes with the response message
      */
-    java.util.concurrent.CompletableFuture<ScriptMessage> request(String channel, String sender, Object payload, long timeoutMs);
+    CompletableFuture<ScriptMessage> request(String channel, String sender, Object payload, long timeoutMs);
 
     /**
      * Sends a response to a previous request.
