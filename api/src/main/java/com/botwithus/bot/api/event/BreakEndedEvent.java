@@ -2,10 +2,12 @@ package com.botwithus.bot.api.event;
 
 /**
  * Fired when a break countdown completes and the bot resumes.
+ *
+ * @param timestamp event creation time in milliseconds since epoch
  */
-public class BreakEndedEvent extends GameEvent {
+public record BreakEndedEvent(long timestamp) implements GameEvent {
 
     public BreakEndedEvent() {
-        super("break_ended");
+        this(System.currentTimeMillis());
     }
 }
