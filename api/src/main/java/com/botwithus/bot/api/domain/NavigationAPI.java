@@ -41,19 +41,14 @@ public interface NavigationAPI {
     void walkWorldPathAsync(int x, int y, int plane);
 
     /**
-     * Convenience overload — walk to the local player's current plane.
-     * Equivalent to {@code walkWorldPathAsync(x, y, lp.plane())}, falling
-     * back to plane 0 when the player isn't in-game.
+     * Plane-aware convenience — equivalent to
+     * {@link #walkWorldPathAsync(int, int, int) walkWorldPathAsync(x, y, plane)}.
+     *
+     * <p>The no-plane convenience that walks to the local player's current
+     * plane lives on {@link com.botwithus.bot.api.GameAPI#walkWorldPath(int, int) GameAPI}
+     * because it needs {@code getLocalPlayer()}, which isn't part of this
+     * navigation surface.</p>
      */
-    default void walkWorldPath(int x, int y) {
-        com.botwithus.bot.api.snapshot.LocalPlayer lp = null;
-        if (this instanceof com.botwithus.bot.api.GameAPI api) {
-            lp = api.getLocalPlayer();
-        }
-        walkWorldPathAsync(x, y, lp == null ? 0 : lp.plane());
-    }
-
-    /** Plane-aware overload of {@link #walkWorldPath(int, int)}. */
     default void walkWorldPath(int x, int y, int plane) {
         walkWorldPathAsync(x, y, plane);
     }
