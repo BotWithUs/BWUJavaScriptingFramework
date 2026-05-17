@@ -46,6 +46,10 @@ import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiWindowFlags;
 
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.Appender;
+
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -188,7 +192,7 @@ public class ImGuiApp extends Application {
         PrintStream guiErr = outputBuffer.getPrintStream();
 
         LogBuffer logBuffer = new LogBuffer();
-        LogBufferAppender.setLogBuffer(logBuffer);
+        wireLogBufferAppender(logBuffer);
         LogCapture logCapture = new LogCapture(logBuffer, guiOut, guiErr);
         logCapture.install();
 
@@ -572,6 +576,33 @@ public class ImGuiApp extends Application {
                     Icons.DIAGRAM + "  Blueprint");
             ImGui.sameLine(0, ImGui.getStyle().getItemSpacingX());
             GuiHelpers.kbdHint("F2");
+        }
+    }
+
+    private static final String LOG_BUFFER_APPENDER_NAME = "LOG_BUFFER";
+
+    /**
+     * Looks up the {@link LogBufferAppender} instance Logback created from
+     * {@code logback.xml} and wires it to the given buffer. The cast from
+     * SLF4J's {@code ILoggerFactory} to Logback's {@link LoggerContext}
+     * and the type test on the looked-up {@code Appender} are forced by
+     * the SLF4J/Logback binding boundary — both APIs are owned externally
+     * and expose loose return types we cannot narrow. They are isolated
+     * here, the one place this seam is crossed.
+     * <p>
+     * The Logback {@code Logger} type below is fully qualified to avoid a
+     * name collision with the imported {@link org.slf4j.Logger}.
+     */
+    private static void wireLogBufferAppender(LogBuffer logBuffer) {
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        // ch.qos.logback.classic.Logger fully qualified: name collision with org.slf4j.Logger
+        ch.qos.logback.classic.Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
+        Appender<ILoggingEvent> appender = root.getAppender(LOG_BUFFER_APPENDER_NAME);
+        if (appender instanceof LogBufferAppender lba) {
+            lba.setLogBuffer(logBuffer);
+        } else {
+            log.warn("Appender '{}' not found or not a LogBufferAppender; GUI log capture disabled.",
+                    LOG_BUFFER_APPENDER_NAME);
         }
     }
 

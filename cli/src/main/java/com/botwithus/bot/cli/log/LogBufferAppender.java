@@ -8,15 +8,17 @@ import java.time.Instant;
 /**
  * Logback appender that feeds logging events into the GUI {@link LogBuffer}.
  * <p>
- * Call {@link #setLogBuffer(LogBuffer)} early at startup so events are captured.
- * Events received before a buffer is set are silently dropped.
+ * Instantiated by Logback via {@code logback.xml}; the application looks up
+ * the appender by name from the {@link ch.qos.logback.classic.LoggerContext}
+ * and calls {@link #setLogBuffer(LogBuffer)} on it. Events received before a
+ * buffer is set are silently dropped.
  */
 public class LogBufferAppender extends AppenderBase<ILoggingEvent> {
 
-    private static volatile LogBuffer logBuffer;
+    private volatile LogBuffer logBuffer;
 
-    public static void setLogBuffer(LogBuffer buffer) {
-        logBuffer = buffer;
+    public void setLogBuffer(LogBuffer buffer) {
+        this.logBuffer = buffer;
     }
 
     @Override
