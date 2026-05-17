@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Consumer;
 
 /**
  * Manages multiple ScriptRunners and their lifecycles.
@@ -15,12 +16,28 @@ public class ScriptRuntime {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptRuntime.class);
     private final ScriptContext context;
+    private final Consumer<String> connectionTagger;
+    private final Runnable connectionCleaner;
     private final List<ScriptRunner> runners = new CopyOnWriteArrayList<>();
     private String connectionName;
     private Runnable onStateChange;
 
-    public ScriptRuntime(ScriptContext context) {
+    /**
+     * Constructs a runtime that propagates each runner's connection tag through
+     * the supplied callbacks. Wiring code that uses a custom context propagator
+     * passes them explicitly; callers that want the default cross-thread
+     * propagation via {@link ConnectionContext} use the single-arg constructor.
+     */
+    public ScriptRuntime(ScriptContext context,
+                         Consumer<String> connectionTagger,
+                         Runnable connectionCleaner) {
         this.context = context;
+        this.connectionTagger = connectionTagger;
+        this.connectionCleaner = connectionCleaner;
+    }
+
+    public ScriptRuntime(ScriptContext context) {
+        this(context, ConnectionContext::set, ConnectionContext::clear);
     }
 
     public void setConnectionName(String connectionName) {
@@ -50,7 +67,7 @@ public class ScriptRuntime {
      * Registers a script without starting it. Use {@link ScriptRunner#start()} to start later.
      */
     public ScriptRunner registerScript(BotScript script) {
-        ScriptRunner runner = new ScriptRunner(script, context);
+        ScriptRunner runner = new ScriptRunner(script, context, connectionTagger, connectionCleaner);
         if (connectionName != null) {
             runner.setConnectionName(connectionName);
         }

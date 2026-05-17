@@ -94,3 +94,13 @@ Intentionally violated rules:
 - **§Banned 5 (Mutable static)** — the `pubkey0Handle`, `lockdown0Handle`, and `sdnClass` static fields in `SdnLoader`, and the `lockdownCalled` flag in `SDNScriptLoader`, hold cached lookups into the same JVM-injected class. The cached lookups are process-global because the JVM-injected class is process-global; instance-scoping them would buy nothing but per-call reflection cost. `lockdownCalled` is one-way (false → true) and gates a one-shot native call that must not run twice.
 
 Everywhere else in the project, both rules are enforced as written.
+
+### `core/.../runtime/ConnectionContext.java`
+
+This class wraps an `InheritableThreadLocal<String>` carrying the *connection name* tag for the current thread (and any virtual threads it spawns). The CLI's stdout/stderr interception (`cli/.../log/LogCapture.java`) reads it from arbitrary threads that the CLI does not own — code that prints with `System.out.println` from inside a script's virtual thread must still be tagged with the originating connection so the log buffer can filter by it. This is the same shape as SLF4J's `MDC`, which is also a static-thread-local request-context API and which this project uses freely.
+
+Intentionally violated rule:
+
+- **§Banned 5 (Mutable static behind a getter)** — `ConnectionContext` exposes static `set/get/clear` over a process-global `InheritableThreadLocal`. Removing the static read API would require modifying the CLI to consume the context through an injected supplier; the producing side (`ScriptRunner`, `ManagementScriptRunner`, `RpcClient`) takes the tagger / cleaner as constructor-injected `Consumer<String>` / `Runnable` so the runners themselves no longer reach for the global state directly. The static class remains as the explicit, named cross-cutting context seam.
+
+The pattern is *request context*, not *singleton service*: the value is per-thread, not shared, and the static API is the standard way to expose thread-local context to code (such as a custom `PrintStream`) that cannot accept an injected handle. Future-Java alternative: `ScopedValue` (preview in Java 21, stable in 25). When `ScopedValue` becomes baseline, revisit.
