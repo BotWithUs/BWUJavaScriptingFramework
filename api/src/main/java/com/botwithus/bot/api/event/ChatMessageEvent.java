@@ -8,31 +8,20 @@ import com.botwithus.bot.api.model.ChatMessage;
  * <p>Subscribe to this event via the {@link EventBus} to react to chat messages:</p>
  * <pre>{@code
  * eventBus.subscribe(ChatMessageEvent.class, event -> {
- *     ChatMessage msg = event.getMessage();
+ *     ChatMessage msg = event.message();
  *     System.out.println(msg.playerName() + ": " + msg.text());
  * });
  * }</pre>
  *
+ * @param message   the chat message payload
+ * @param timestamp event creation time in milliseconds since epoch
+ *
  * @see EventBus
  * @see ChatMessage
  */
-public class ChatMessageEvent extends GameEvent {
-    private final ChatMessage message;
+public record ChatMessageEvent(ChatMessage message, long timestamp) implements GameEvent {
 
-    /**
-     * Creates a new chat message event.
-     *
-     * @param message the chat message payload
-     */
     public ChatMessageEvent(ChatMessage message) {
-        super("chat_message");
-        this.message = message;
+        this(message, System.currentTimeMillis());
     }
-
-    /**
-     * Returns the chat message associated with this event.
-     *
-     * @return the chat message
-     */
-    public ChatMessage getMessage() { return message; }
 }

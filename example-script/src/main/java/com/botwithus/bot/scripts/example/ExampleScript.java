@@ -66,7 +66,7 @@ public class ExampleScript implements BotScript {
     }
 
     private void handleActionEvent(ActionExecutedEvent event) {
-        log.debug("Action {} {} {} {}", event.getActionId(), event.getParam1(), event.getParam2(), event.getParam3());
+        log.debug("Action {} {} {} {}", event.actionId(), event.param1(), event.param2(), event.param3());
     }
 
     @Override
