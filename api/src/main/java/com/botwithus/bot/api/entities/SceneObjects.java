@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.IntFunction;
 import java.util.stream.Stream;
 
 /**
@@ -86,12 +87,12 @@ public final class SceneObjects {
     }
 
     public static final class Query extends EntityQuery<SceneObject, Query> {
-        private final java.util.function.IntFunction<LocationType> typeLookup;
+        private final IntFunction<LocationType> typeLookup;
         /** Pull cap passed to the RPC. Bounded so a misbehaving filter can't
          *  drag back the entire scene; client-side filters/sorts apply on top. */
         private static final int RPC_PULL_CAP = 256;
 
-        Query(GameAPI api, java.util.function.IntFunction<LocationType> typeLookup) {
+        Query(GameAPI api, IntFunction<LocationType> typeLookup) {
             super(api);
             this.typeLookup = typeLookup;
         }

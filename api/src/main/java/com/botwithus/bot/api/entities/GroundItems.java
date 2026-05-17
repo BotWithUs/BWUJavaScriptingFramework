@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.IntFunction;
 import java.util.stream.Stream;
 
 /**
@@ -62,10 +63,10 @@ public final class GroundItems {
     }
 
     public static final class Query extends EntityQuery<GroundItem, Query> {
-        private final java.util.function.IntFunction<ItemType> typeLookup;
+        private final IntFunction<ItemType> typeLookup;
         private static final int RPC_PULL_CAP = 256;
 
-        Query(GameAPI api, java.util.function.IntFunction<ItemType> typeLookup) {
+        Query(GameAPI api, IntFunction<ItemType> typeLookup) {
             super(api);
             this.typeLookup = typeLookup;
         }
