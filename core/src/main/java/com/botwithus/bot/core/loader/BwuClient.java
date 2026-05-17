@@ -131,13 +131,13 @@ public final class BwuClient implements AutoCloseable {
     // ═══════════════════════════════════════════════════════════════════════
 
     public void init() {
-        check(callInt(n.bwu_init));
+        check(callInt(n.bwuInit));
         initialized = true;
     }
 
     public void shutdown() {
         if (initialized) {
-            callVoid(n.bwu_shutdown);
+            callVoid(n.bwuShutdown);
             initialized = false;
         }
     }
@@ -145,17 +145,17 @@ public final class BwuClient implements AutoCloseable {
     public BwuStatus getStatus() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(BwuLayouts.BWU_STATUS);
-            check(callInt(n.bwu_get_status, out));
+            check(callInt(n.bwuGetStatus, out));
             return BwuStatus.read(out);
         }
     }
 
     public String getLastError() {
-        return readReturnedString(callPtr(n.bwu_get_last_error));
+        return readReturnedString(callPtr(n.bwuGetLastError));
     }
 
     public String getVersion() {
-        return readReturnedString(callPtr(n.bwu_get_version));
+        return readReturnedString(callPtr(n.bwuGetVersion));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -168,33 +168,33 @@ public final class BwuClient implements AutoCloseable {
      * On success, automatically begins downloading the module in the background.
      */
     public void login() {
-        check(callInt(n.bwu_login));
+        check(callInt(n.bwuLogin));
     }
 
     public void loginWithToken(String token) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_login_with_token, arena.allocateFrom(token)));
+            check(callInt(n.bwuLoginWithToken, arena.allocateFrom(token)));
         }
     }
 
     public boolean isLoggedIn() {
-        return callInt(n.bwu_is_logged_in) != 0;
+        return callInt(n.bwuIsLoggedIn) != 0;
     }
 
     public String getToken() {
-        return readReturnedString(callPtr(n.bwu_get_token));
+        return readReturnedString(callPtr(n.bwuGetToken));
     }
 
     public BwuUser getUser() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(BwuLayouts.BWU_USER);
-            check(callInt(n.bwu_get_user, out));
+            check(callInt(n.bwuGetUser, out));
             return BwuUser.read(out);
         }
     }
 
     public void logout() {
-        callVoid(n.bwu_logout);
+        callVoid(n.bwuLogout);
     }
 
     public void saveToken(Path path) {
@@ -202,7 +202,7 @@ public final class BwuClient implements AutoCloseable {
             MemorySegment pathSeg = (path != null)
                     ? arena.allocateFrom(path.toString())
                     : MemorySegment.NULL;
-            check(callInt(n.bwu_save_token, pathSeg));
+            check(callInt(n.bwuSaveToken, pathSeg));
         }
     }
 
@@ -211,7 +211,7 @@ public final class BwuClient implements AutoCloseable {
             MemorySegment pathSeg = (path != null)
                     ? arena.allocateFrom(path.toString())
                     : MemorySegment.NULL;
-            check(callInt(n.bwu_load_token, pathSeg));
+            check(callInt(n.bwuLoadToken, pathSeg));
         }
     }
 
@@ -225,7 +225,7 @@ public final class BwuClient implements AutoCloseable {
      * track progress via {@link #getStatus()}.
      */
     public void refreshModule() {
-        check(callInt(n.bwu_refresh_module));
+        check(callInt(n.bwuRefreshModule));
     }
 
     /**
@@ -233,7 +233,7 @@ public final class BwuClient implements AutoCloseable {
      * Returns {@code false} for production (Release) builds.
      */
     public boolean isDevBuild() {
-        return n.bwu_load_local_module != null;
+        return n.bwuLoadLocalModule != null;
     }
 
     /**
@@ -256,12 +256,12 @@ public final class BwuClient implements AutoCloseable {
      * @throws UnsupportedOperationException if the DLL is a production build
      */
     public void loadLocalModule(Path path) {
-        if (n.bwu_load_local_module == null) {
+        if (n.bwuLoadLocalModule == null) {
             throw new UnsupportedOperationException(
                     "loadLocalModule is only available in dev builds of bwu.dll");
         }
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_load_local_module, arena.allocateFrom(path.toString())));
+            check(callInt(n.bwuLoadLocalModule, arena.allocateFrom(path.toString())));
         }
     }
 
@@ -271,24 +271,24 @@ public final class BwuClient implements AutoCloseable {
 
     public void addAccount(BwuAccount account) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_add_account, account.writeTo(arena)));
+            check(callInt(n.bwuAddAccount, account.writeTo(arena)));
         }
     }
 
     public void removeAccount(String uuid) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_remove_account, arena.allocateFrom(uuid)));
+            check(callInt(n.bwuRemoveAccount, arena.allocateFrom(uuid)));
         }
     }
 
     public int getAccountCount() {
-        return callInt(n.bwu_get_account_count);
+        return callInt(n.bwuGetAccountCount);
     }
 
     public BwuAccount getAccount(int index) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(BwuLayouts.BWU_ACCOUNT);
-            check(callIntIS(n.bwu_get_account, index, out));
+            check(callIntIS(n.bwuGetAccount, index, out));
             return BwuAccount.read(out);
         }
     }
@@ -296,19 +296,19 @@ public final class BwuClient implements AutoCloseable {
     public BwuAccount findAccount(String uuid) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(BwuLayouts.BWU_ACCOUNT);
-            check(callInt2(n.bwu_find_account, arena.allocateFrom(uuid), out));
+            check(callInt2(n.bwuFindAccount, arena.allocateFrom(uuid), out));
             return BwuAccount.read(out);
         }
     }
 
     public void updateAccount(BwuAccount account) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_update_account, account.writeTo(arena)));
+            check(callInt(n.bwuUpdateAccount, account.writeTo(arena)));
         }
     }
 
     public void clearAccounts() {
-        callVoid(n.bwu_clear_accounts);
+        callVoid(n.bwuClearAccounts);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -324,7 +324,7 @@ public final class BwuClient implements AutoCloseable {
      */
     public void launchDefault(String accountUuid) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_launch_default, arena.allocateFrom(accountUuid)));
+            check(callInt(n.bwuLaunchDefault, arena.allocateFrom(accountUuid)));
         }
     }
 
@@ -335,7 +335,7 @@ public final class BwuClient implements AutoCloseable {
      */
     public void launchPlatform(String accountUuid) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_launch_platform, arena.allocateFrom(accountUuid)));
+            check(callInt(n.bwuLaunchPlatform, arena.allocateFrom(accountUuid)));
         }
     }
 
@@ -350,7 +350,7 @@ public final class BwuClient implements AutoCloseable {
             MemorySegment nameSeg = (accountName != null && !accountName.isEmpty())
                     ? arena.allocateFrom(accountName)
                     : MemorySegment.NULL;
-            check(callInt2(n.bwu_launch_managed, nameSeg, arena.allocateFrom(accountUuid)));
+            check(callInt2(n.bwuLaunchManaged, nameSeg, arena.allocateFrom(accountUuid)));
         }
     }
 
@@ -359,12 +359,12 @@ public final class BwuClient implements AutoCloseable {
             MemorySegment pathSeg = (path != null)
                     ? arena.allocateFrom(path.toString())
                     : MemorySegment.NULL;
-            check(callInt(n.bwu_set_provider_path, pathSeg));
+            check(callInt(n.bwuSetProviderPath, pathSeg));
         }
     }
 
     public String getProviderPath() {
-        return readReturnedString(callPtr(n.bwu_get_provider_path));
+        return readReturnedString(callPtr(n.bwuGetProviderPath));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -372,7 +372,7 @@ public final class BwuClient implements AutoCloseable {
     // ═══════════════════════════════════════════════════════════════════════
 
     public void refreshProviderAccounts() {
-        check(callInt(n.bwu_refresh_provider_accounts));
+        check(callInt(n.bwuRefreshProviderAccounts));
     }
 
     public List<BwuProviderAccount> getProviderAccounts(int maxCount) {
@@ -380,7 +380,7 @@ public final class BwuClient implements AutoCloseable {
             long elemSize = BwuLayouts.BWU_PROVIDER_ACCOUNT.byteSize();
             MemorySegment buf = arena.allocate(elemSize * maxCount);
             MemorySegment outCount = arena.allocate(JAVA_INT);
-            check(callIntSIS(n.bwu_get_provider_accounts, buf, maxCount, outCount));
+            check(callIntSIS(n.bwuGetProviderAccounts, buf, maxCount, outCount));
             int count = outCount.get(JAVA_INT, 0);
             List<BwuProviderAccount> result = new ArrayList<>(count);
             for (int i = 0; i < count; i++) {
@@ -401,7 +401,7 @@ public final class BwuClient implements AutoCloseable {
     public BwuJagexAccount jagexLogin() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(BwuLayouts.BWU_JAGEX_ACCOUNT);
-            check(callInt(n.bwu_jagex_login, out));
+            check(callInt(n.bwuJagexLogin, out));
             return BwuJagexAccount.read(out);
         }
     }
@@ -409,7 +409,7 @@ public final class BwuClient implements AutoCloseable {
     public BwuJagexAccount jagexGetAccount(String uuid) {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment out = arena.allocate(BwuLayouts.BWU_JAGEX_ACCOUNT);
-            check(callInt2(n.bwu_jagex_get_account, arena.allocateFrom(uuid), out));
+            check(callInt2(n.bwuJagexGetAccount, arena.allocateFrom(uuid), out));
             return BwuJagexAccount.read(out);
         }
     }
@@ -419,7 +419,7 @@ public final class BwuClient implements AutoCloseable {
             long elemSize = BwuLayouts.BWU_JAGEX_ACCOUNT.byteSize();
             MemorySegment buf = arena.allocate(elemSize * maxCount);
             MemorySegment outCount = arena.allocate(JAVA_INT);
-            check(callIntSIS(n.bwu_jagex_get_accounts, buf, maxCount, outCount));
+            check(callIntSIS(n.bwuJagexGetAccounts, buf, maxCount, outCount));
             int count = outCount.get(JAVA_INT, 0);
             List<BwuJagexAccount> result = new ArrayList<>(count);
             for (int i = 0; i < count; i++) {
@@ -430,12 +430,12 @@ public final class BwuClient implements AutoCloseable {
     }
 
     public int jagexAccountCount() {
-        return callInt(n.bwu_jagex_account_count);
+        return callInt(n.bwuJagexAccountCount);
     }
 
     public void jagexRemoveAccount(String uuid) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_jagex_remove_account, arena.allocateFrom(uuid)));
+            check(callInt(n.bwuJagexRemoveAccount, arena.allocateFrom(uuid)));
         }
     }
 
@@ -445,7 +445,7 @@ public final class BwuClient implements AutoCloseable {
      * <strong>Blocks</strong> while making network requests.
      */
     public void jagexRestoreAccounts() {
-        check(callInt(n.bwu_jagex_restore_accounts));
+        check(callInt(n.bwuJagexRestoreAccounts));
     }
 
     /**
@@ -456,19 +456,19 @@ public final class BwuClient implements AutoCloseable {
      */
     public void jagexRefreshCharacters(String uuid) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_jagex_refresh_characters, arena.allocateFrom(uuid)));
+            check(callInt(n.bwuJagexRefreshCharacters, arena.allocateFrom(uuid)));
         }
     }
 
     public void jagexSelectCharacter(String uuid, int characterIndex) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callIntSI(n.bwu_jagex_select_character, arena.allocateFrom(uuid), characterIndex));
+            check(callIntSI(n.bwuJagexSelectCharacter, arena.allocateFrom(uuid), characterIndex));
         }
     }
 
     public void jagexEnsureSession(String uuid) {
         try (Arena arena = Arena.ofConfined()) {
-            check(callInt(n.bwu_jagex_ensure_session, arena.allocateFrom(uuid)));
+            check(callInt(n.bwuJagexEnsureSession, arena.allocateFrom(uuid)));
         }
     }
 
@@ -485,7 +485,7 @@ public final class BwuClient implements AutoCloseable {
             MemorySegment acctSeg = (accountUuid != null && !accountUuid.isEmpty())
                     ? arena.allocateFrom(accountUuid)
                     : MemorySegment.NULL;
-            check(callIntSSI(n.bwu_jagex_launch,
+            check(callIntSSI(n.bwuJagexLaunch,
                     arena.allocateFrom(jagexUuid), acctSeg, characterIndex));
         }
     }
@@ -497,7 +497,7 @@ public final class BwuClient implements AutoCloseable {
     public String generateUuid() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment buf = arena.allocate(BwuLayouts.UUID_LEN);
-            check(callIntSI(n.bwu_generate_uuid, buf, BwuLayouts.UUID_LEN));
+            check(callIntSI(n.bwuGenerateUuid, buf, BwuLayouts.UUID_LEN));
             return buf.getString(0);
         }
     }

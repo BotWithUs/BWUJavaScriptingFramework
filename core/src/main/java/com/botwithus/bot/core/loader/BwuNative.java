@@ -13,170 +13,174 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
  * Raw Panama downcall handles for every exported function in bwu.dll.
  * <p>
  * Package-private — callers use {@link BwuClient} instead.
+ * <p>
+ * Field names use Java {@code camelCase} ({@code bwuInit}); the corresponding
+ * native symbol names ({@code bwu_init}) are passed as snake_case strings to
+ * {@link SymbolLookup#find(String)} and must not change.
  */
 final class BwuNative {
 
     // ── Lifecycle ──────────────────────────────────────────────────────────
 
-    final MethodHandle bwu_init;                 // () -> int
-    final MethodHandle bwu_shutdown;             // () -> void
-    final MethodHandle bwu_get_status;           // (ptr) -> int
-    final MethodHandle bwu_get_last_error;       // () -> ptr
-    final MethodHandle bwu_get_version;          // () -> ptr
+    final MethodHandle bwuInit;                  // () -> int
+    final MethodHandle bwuShutdown;              // () -> void
+    final MethodHandle bwuGetStatus;             // (ptr) -> int
+    final MethodHandle bwuGetLastError;          // () -> ptr
+    final MethodHandle bwuGetVersion;            // () -> ptr
 
     // ── Authentication ─────────────────────────────────────────────────────
 
-    final MethodHandle bwu_login;                // () -> int
-    final MethodHandle bwu_login_with_token;     // (ptr) -> int
-    final MethodHandle bwu_is_logged_in;         // () -> int
-    final MethodHandle bwu_get_token;            // () -> ptr
-    final MethodHandle bwu_get_user;             // (ptr) -> int
-    final MethodHandle bwu_logout;               // () -> void
-    final MethodHandle bwu_save_token;           // (ptr) -> int
-    final MethodHandle bwu_load_token;           // (ptr) -> int
+    final MethodHandle bwuLogin;                 // () -> int
+    final MethodHandle bwuLoginWithToken;        // (ptr) -> int
+    final MethodHandle bwuIsLoggedIn;            // () -> int
+    final MethodHandle bwuGetToken;              // () -> ptr
+    final MethodHandle bwuGetUser;               // (ptr) -> int
+    final MethodHandle bwuLogout;                // () -> void
+    final MethodHandle bwuSaveToken;             // (ptr) -> int
+    final MethodHandle bwuLoadToken;             // (ptr) -> int
 
     // ── Module Management ──────────────────────────────────────────────────
 
-    final MethodHandle bwu_refresh_module;       // () -> int
-    final MethodHandle bwu_load_local_module;    // (ptr) -> int  [dev builds only, may be null]
+    final MethodHandle bwuRefreshModule;         // () -> int
+    final MethodHandle bwuLoadLocalModule;       // (ptr) -> int  [dev builds only, may be null]
 
     // ── Account Management (Classic) ───────────────────────────────────────
 
-    final MethodHandle bwu_add_account;          // (ptr) -> int
-    final MethodHandle bwu_remove_account;       // (ptr) -> int
-    final MethodHandle bwu_get_account_count;    // () -> int
-    final MethodHandle bwu_get_account;          // (int, ptr) -> int
-    final MethodHandle bwu_find_account;         // (ptr, ptr) -> int
-    final MethodHandle bwu_update_account;       // (ptr) -> int
-    final MethodHandle bwu_clear_accounts;       // () -> void
+    final MethodHandle bwuAddAccount;            // (ptr) -> int
+    final MethodHandle bwuRemoveAccount;         // (ptr) -> int
+    final MethodHandle bwuGetAccountCount;       // () -> int
+    final MethodHandle bwuGetAccount;            // (int, ptr) -> int
+    final MethodHandle bwuFindAccount;           // (ptr, ptr) -> int
+    final MethodHandle bwuUpdateAccount;         // (ptr) -> int
+    final MethodHandle bwuClearAccounts;         // () -> void
 
     // ── Launch (Non-blocking Triggers) ─────────────────────────────────────
 
-    final MethodHandle bwu_launch_default;       // (ptr) -> int
-    final MethodHandle bwu_launch_platform;      // (ptr) -> int
-    final MethodHandle bwu_launch_managed;       // (ptr, ptr) -> int
-    final MethodHandle bwu_set_provider_path;    // (ptr) -> int
-    final MethodHandle bwu_get_provider_path;    // () -> ptr
+    final MethodHandle bwuLaunchDefault;         // (ptr) -> int
+    final MethodHandle bwuLaunchPlatform;        // (ptr) -> int
+    final MethodHandle bwuLaunchManaged;         // (ptr, ptr) -> int
+    final MethodHandle bwuSetProviderPath;       // (ptr) -> int
+    final MethodHandle bwuGetProviderPath;       // () -> ptr
 
     // ── Provider Account Discovery ─────────────────────────────────────────
 
-    final MethodHandle bwu_refresh_provider_accounts;  // () -> int
-    final MethodHandle bwu_get_provider_accounts;      // (ptr, u32, ptr) -> int
+    final MethodHandle bwuRefreshProviderAccounts;  // () -> int
+    final MethodHandle bwuGetProviderAccounts;      // (ptr, u32, ptr) -> int
 
     // ── Jagex Account Authentication ───────────────────────────────────────
 
-    final MethodHandle bwu_jagex_login;                // (ptr) -> int
-    final MethodHandle bwu_jagex_get_account;          // (ptr, ptr) -> int
-    final MethodHandle bwu_jagex_get_accounts;         // (ptr, u32, ptr) -> int
-    final MethodHandle bwu_jagex_account_count;        // () -> int
-    final MethodHandle bwu_jagex_remove_account;       // (ptr) -> int
-    final MethodHandle bwu_jagex_restore_accounts;     // () -> int
-    final MethodHandle bwu_jagex_refresh_characters;   // (ptr) -> int
-    final MethodHandle bwu_jagex_select_character;     // (ptr, int) -> int
-    final MethodHandle bwu_jagex_ensure_session;       // (ptr) -> int
-    final MethodHandle bwu_jagex_launch;               // (ptr, ptr, int) -> int
+    final MethodHandle bwuJagexLogin;                // (ptr) -> int
+    final MethodHandle bwuJagexGetAccount;           // (ptr, ptr) -> int
+    final MethodHandle bwuJagexGetAccounts;          // (ptr, u32, ptr) -> int
+    final MethodHandle bwuJagexAccountCount;         // () -> int
+    final MethodHandle bwuJagexRemoveAccount;        // (ptr) -> int
+    final MethodHandle bwuJagexRestoreAccounts;      // () -> int
+    final MethodHandle bwuJagexRefreshCharacters;    // (ptr) -> int
+    final MethodHandle bwuJagexSelectCharacter;      // (ptr, int) -> int
+    final MethodHandle bwuJagexEnsureSession;        // (ptr) -> int
+    final MethodHandle bwuJagexLaunch;               // (ptr, ptr, int) -> int
 
     // ── Utility ────────────────────────────────────────────────────────────
 
-    final MethodHandle bwu_generate_uuid;        // (ptr, u32) -> int
+    final MethodHandle bwuGenerateUuid;          // (ptr, u32) -> int
 
     BwuNative(SymbolLookup lookup) {
         Linker linker = Linker.nativeLinker();
 
         // ── Lifecycle ──
-        bwu_init = downcall(linker, lookup, "bwu_init",
+        bwuInit = downcall(linker, lookup, "bwu_init",
                 FunctionDescriptor.of(JAVA_INT));
-        bwu_shutdown = downcall(linker, lookup, "bwu_shutdown",
+        bwuShutdown = downcall(linker, lookup, "bwu_shutdown",
                 FunctionDescriptor.ofVoid());
-        bwu_get_status = downcall(linker, lookup, "bwu_get_status",
+        bwuGetStatus = downcall(linker, lookup, "bwu_get_status",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_get_last_error = downcall(linker, lookup, "bwu_get_last_error",
+        bwuGetLastError = downcall(linker, lookup, "bwu_get_last_error",
                 FunctionDescriptor.of(ADDRESS));
-        bwu_get_version = downcall(linker, lookup, "bwu_get_version",
+        bwuGetVersion = downcall(linker, lookup, "bwu_get_version",
                 FunctionDescriptor.of(ADDRESS));
 
         // ── Authentication ──
-        bwu_login = downcall(linker, lookup, "bwu_login",
+        bwuLogin = downcall(linker, lookup, "bwu_login",
                 FunctionDescriptor.of(JAVA_INT));
-        bwu_login_with_token = downcall(linker, lookup, "bwu_login_with_token",
+        bwuLoginWithToken = downcall(linker, lookup, "bwu_login_with_token",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_is_logged_in = downcall(linker, lookup, "bwu_is_logged_in",
+        bwuIsLoggedIn = downcall(linker, lookup, "bwu_is_logged_in",
                 FunctionDescriptor.of(JAVA_INT));
-        bwu_get_token = downcall(linker, lookup, "bwu_get_token",
+        bwuGetToken = downcall(linker, lookup, "bwu_get_token",
                 FunctionDescriptor.of(ADDRESS));
-        bwu_get_user = downcall(linker, lookup, "bwu_get_user",
+        bwuGetUser = downcall(linker, lookup, "bwu_get_user",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_logout = downcall(linker, lookup, "bwu_logout",
+        bwuLogout = downcall(linker, lookup, "bwu_logout",
                 FunctionDescriptor.ofVoid());
-        bwu_save_token = downcall(linker, lookup, "bwu_save_token",
+        bwuSaveToken = downcall(linker, lookup, "bwu_save_token",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_load_token = downcall(linker, lookup, "bwu_load_token",
+        bwuLoadToken = downcall(linker, lookup, "bwu_load_token",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
 
         // ── Module Management ──
-        bwu_refresh_module = downcall(linker, lookup, "bwu_refresh_module",
+        bwuRefreshModule = downcall(linker, lookup, "bwu_refresh_module",
                 FunctionDescriptor.of(JAVA_INT));
-        bwu_load_local_module = optionalDowncall(linker, lookup, "bwu_load_local_module",
+        bwuLoadLocalModule = optionalDowncall(linker, lookup, "bwu_load_local_module",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
 
         // ── Account Management (Classic) ──
-        bwu_add_account = downcall(linker, lookup, "bwu_add_account",
+        bwuAddAccount = downcall(linker, lookup, "bwu_add_account",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_remove_account = downcall(linker, lookup, "bwu_remove_account",
+        bwuRemoveAccount = downcall(linker, lookup, "bwu_remove_account",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_get_account_count = downcall(linker, lookup, "bwu_get_account_count",
+        bwuGetAccountCount = downcall(linker, lookup, "bwu_get_account_count",
                 FunctionDescriptor.of(JAVA_INT));
-        bwu_get_account = downcall(linker, lookup, "bwu_get_account",
+        bwuGetAccount = downcall(linker, lookup, "bwu_get_account",
                 FunctionDescriptor.of(JAVA_INT, JAVA_INT, ADDRESS));
-        bwu_find_account = downcall(linker, lookup, "bwu_find_account",
+        bwuFindAccount = downcall(linker, lookup, "bwu_find_account",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
-        bwu_update_account = downcall(linker, lookup, "bwu_update_account",
+        bwuUpdateAccount = downcall(linker, lookup, "bwu_update_account",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_clear_accounts = downcall(linker, lookup, "bwu_clear_accounts",
+        bwuClearAccounts = downcall(linker, lookup, "bwu_clear_accounts",
                 FunctionDescriptor.ofVoid());
 
         // ── Launch (Non-blocking Triggers) ──
-        bwu_launch_default = downcall(linker, lookup, "bwu_launch_default",
+        bwuLaunchDefault = downcall(linker, lookup, "bwu_launch_default",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_launch_platform = downcall(linker, lookup, "bwu_launch_platform",
+        bwuLaunchPlatform = downcall(linker, lookup, "bwu_launch_platform",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_launch_managed = downcall(linker, lookup, "bwu_launch_managed",
+        bwuLaunchManaged = downcall(linker, lookup, "bwu_launch_managed",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
-        bwu_set_provider_path = downcall(linker, lookup, "bwu_set_provider_path",
+        bwuSetProviderPath = downcall(linker, lookup, "bwu_set_provider_path",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_get_provider_path = downcall(linker, lookup, "bwu_get_provider_path",
+        bwuGetProviderPath = downcall(linker, lookup, "bwu_get_provider_path",
                 FunctionDescriptor.of(ADDRESS));
 
         // ── Provider Account Discovery ──
-        bwu_refresh_provider_accounts = downcall(linker, lookup, "bwu_refresh_provider_accounts",
+        bwuRefreshProviderAccounts = downcall(linker, lookup, "bwu_refresh_provider_accounts",
                 FunctionDescriptor.of(JAVA_INT));
-        bwu_get_provider_accounts = downcall(linker, lookup, "bwu_get_provider_accounts",
+        bwuGetProviderAccounts = downcall(linker, lookup, "bwu_get_provider_accounts",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS));
 
         // ── Jagex Account Authentication ──
-        bwu_jagex_login = downcall(linker, lookup, "bwu_jagex_login",
+        bwuJagexLogin = downcall(linker, lookup, "bwu_jagex_login",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_jagex_get_account = downcall(linker, lookup, "bwu_jagex_get_account",
+        bwuJagexGetAccount = downcall(linker, lookup, "bwu_jagex_get_account",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
-        bwu_jagex_get_accounts = downcall(linker, lookup, "bwu_jagex_get_accounts",
+        bwuJagexGetAccounts = downcall(linker, lookup, "bwu_jagex_get_accounts",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS));
-        bwu_jagex_account_count = downcall(linker, lookup, "bwu_jagex_account_count",
+        bwuJagexAccountCount = downcall(linker, lookup, "bwu_jagex_account_count",
                 FunctionDescriptor.of(JAVA_INT));
-        bwu_jagex_remove_account = downcall(linker, lookup, "bwu_jagex_remove_account",
+        bwuJagexRemoveAccount = downcall(linker, lookup, "bwu_jagex_remove_account",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_jagex_restore_accounts = downcall(linker, lookup, "bwu_jagex_restore_accounts",
+        bwuJagexRestoreAccounts = downcall(linker, lookup, "bwu_jagex_restore_accounts",
                 FunctionDescriptor.of(JAVA_INT));
-        bwu_jagex_refresh_characters = downcall(linker, lookup, "bwu_jagex_refresh_characters",
+        bwuJagexRefreshCharacters = downcall(linker, lookup, "bwu_jagex_refresh_characters",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_jagex_select_character = downcall(linker, lookup, "bwu_jagex_select_character",
+        bwuJagexSelectCharacter = downcall(linker, lookup, "bwu_jagex_select_character",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT));
-        bwu_jagex_ensure_session = downcall(linker, lookup, "bwu_jagex_ensure_session",
+        bwuJagexEnsureSession = downcall(linker, lookup, "bwu_jagex_ensure_session",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
-        bwu_jagex_launch = downcall(linker, lookup, "bwu_jagex_launch",
+        bwuJagexLaunch = downcall(linker, lookup, "bwu_jagex_launch",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, JAVA_INT));
 
         // ── Utility ──
-        bwu_generate_uuid = downcall(linker, lookup, "bwu_generate_uuid",
+        bwuGenerateUuid = downcall(linker, lookup, "bwu_generate_uuid",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT));
     }
 
