@@ -17,6 +17,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 /**
  * Persists script configuration as JSON files using Gson
@@ -61,14 +62,14 @@ public final class ScriptConfigStore {
         if (!Files.exists(file)) {
             Path legacyFile = CONFIG_DIR.resolve(safeName(scriptName) + ".properties");
             if (Files.exists(legacyFile)) {
-                var props = new java.util.Properties();
+                var props = new Properties();
                 try (Reader reader = Files.newBufferedReader(legacyFile)) {
                     props.load(reader);
                     for (String key : props.stringPropertyNames()) {
                         values.put(key, props.getProperty(key));
                     }
                 } catch (IOException e) {
-                    // ignore migration failure
+                    log.debug("Legacy .properties migration failed for {}: {}", scriptName, e.getMessage());
                 }
             }
         }
