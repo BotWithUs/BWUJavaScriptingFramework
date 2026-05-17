@@ -189,7 +189,9 @@ public class CliContext {
      * them in the management runtime.
      */
     public List<ManagementScript> loadManagementScripts() {
-        if (managementRuntime == null) initManagementRuntime();
+        if (managementRuntime == null) {
+            initManagementRuntime();
+        }
         return ManagementScriptLoader.loadScripts();
     }
 
@@ -374,7 +376,9 @@ public class CliContext {
 
     public void setConfigPanelOpener(Consumer<ScriptRunner> opener) { this.configPanelOpener = opener; }
     public void openConfigPanel(ScriptRunner runner) {
-        if (configPanelOpener != null) configPanelOpener.accept(runner);
+        if (configPanelOpener != null) {
+            configPanelOpener.accept(runner);
+        }
     }
 
     // --- Connection Group management & persistence ---
@@ -394,7 +398,9 @@ public class CliContext {
 
     /** Loads persisted groups from ~/.botwithus/groups.json. */
     public void loadGroups() {
-        if (!Files.exists(GROUPS_FILE)) return;
+        if (!Files.exists(GROUPS_FILE)) {
+            return;
+        }
         try {
             String json = Files.readString(GROUPS_FILE);
             Gson gson = new Gson();
@@ -405,8 +411,12 @@ public class CliContext {
                 for (var entry : data.entrySet()) {
                     ConnectionGroup group = new ConnectionGroup(entry.getKey());
                     GroupData gd = entry.getValue();
-                    if (gd.description != null) group.setDescription(gd.description);
-                    if (gd.members != null) gd.members.forEach(group::add);
+                    if (gd.description != null) {
+                        group.setDescription(gd.description);
+                    }
+                    if (gd.members != null) {
+                        gd.members.forEach(group::add);
+                    }
                     groups.put(entry.getKey(), group);
                 }
             }
@@ -438,7 +448,9 @@ public class CliContext {
 
     public boolean deleteGroup(String name) {
         boolean removed = groups.remove(name) != null;
-        if (removed) saveGroups();
+        if (removed) {
+            saveGroups();
+        }
         return removed;
     }
 

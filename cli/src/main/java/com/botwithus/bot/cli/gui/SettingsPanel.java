@@ -67,7 +67,9 @@ public class SettingsPanel implements GuiPanel {
                 totalErrors += s.errorCount();
             }
             for (ScriptRunner r : conn.getRuntime().getRunners()) {
-                if (r.isRunning()) running++;
+                if (r.isRunning()) {
+                    running++;
+                }
             }
         }
         double avgMs = totalCalls > 0 ? (totalNanos / (double) totalCalls) / 1_000_000.0 : 0.0;

@@ -177,7 +177,9 @@ public class TopBar {
             connected = ctx.hasActiveConnection();
             for (Connection conn : ctx.getConnections()) {
                 for (ScriptRunner runner : conn.getRuntime().getRunners()) {
-                    if (runner.isRunning()) runningScripts++;
+                    if (runner.isRunning()) {
+                        runningScripts++;
+                    }
                 }
             }
         }

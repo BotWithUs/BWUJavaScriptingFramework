@@ -169,7 +169,9 @@ public class ClientCard {
                 sub.append("by ").append(manifest.author());
             }
             if (!manifest.version().isEmpty()) {
-                if (!sub.isEmpty()) sub.append(" \u00B7 ");
+                if (!sub.isEmpty()) {
+                    sub.append(" \u00B7 ");
+                }
                 sub.append("v").append(manifest.version());
             }
             if (!sub.isEmpty()) {

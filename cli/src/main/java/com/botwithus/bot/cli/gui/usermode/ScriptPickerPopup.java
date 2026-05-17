@@ -91,7 +91,9 @@ public class ScriptPickerPopup {
                         boolean matches = name.toLowerCase(Locale.ROOT).contains(filter)
                                 || desc.toLowerCase(Locale.ROOT).contains(filter)
                                 || author.toLowerCase(Locale.ROOT).contains(filter);
-                        if (!matches) continue;
+                        if (!matches) {
+                            continue;
+                        }
                     }
 
                     boolean isSelected = (i == selectedIndex);
