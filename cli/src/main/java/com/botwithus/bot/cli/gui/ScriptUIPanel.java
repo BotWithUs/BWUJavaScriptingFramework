@@ -40,7 +40,9 @@ public class ScriptUIPanel implements GuiPanel {
 
                 for (ScriptRunner runner : runners) {
                     ScriptUI scriptUI = runner.getScript().getUI();
-                    if (scriptUI == null) continue;
+                    if (scriptUI == null) {
+                        continue;
+                    }
 
                     hasAnyUI = true;
                     String tabLabel = runner.getScriptName();

@@ -61,7 +61,9 @@ public class StatusBar {
         int runningScripts = 0;
         for (Connection conn : ctx.getConnections()) {
             for (ScriptRunner runner : conn.getRuntime().getRunners()) {
-                if (runner.isRunning()) runningScripts++;
+                if (runner.isRunning()) {
+                    runningScripts++;
+                }
             }
         }
 
@@ -132,7 +134,9 @@ public class StatusBar {
         } catch (Throwable t) {
             return;
         }
-        if (err == null || err.isEmpty()) return;
+        if (err == null || err.isEmpty()) {
+            return;
+        }
 
         String display = err.length() > INLINE_ERR_MAX
                 ? err.substring(0, INLINE_ERR_MAX - 1) + "\u2026"

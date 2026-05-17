@@ -193,7 +193,9 @@ public class LoaderScreen {
         float frameH = ImGui.getFrameHeightWithSpacing();
         float spacing = ImGui.getStyle().getItemSpacingY();
         float logoH = lineH * 3 + spacing * 4; // brand + version + spacing
-        if (devBuild && localModulePath != null) logoH += lineH; // local module path line
+        if (devBuild && localModulePath != null) {
+            logoH += lineH; // local module path line
+        }
         float formH;
         if (state == LoaderState.LOGIN) {
             formH = lineH * 2   // description text (approx 2 lines)

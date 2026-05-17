@@ -22,7 +22,9 @@ public class LogBufferAppender extends AppenderBase<ILoggingEvent> {
     @Override
     protected void append(ILoggingEvent event) {
         LogBuffer buf = logBuffer;
-        if (buf == null) return;
+        if (buf == null) {
+            return;
+        }
 
         var mdc = event.getMDCPropertyMap();
         String scriptName = mdc.get("script.name");
@@ -35,7 +37,9 @@ public class LogBufferAppender extends AppenderBase<ILoggingEvent> {
             source = event.getLoggerName();
             if (source != null) {
                 int dot = source.lastIndexOf('.');
-                if (dot >= 0) source = source.substring(dot + 1);
+                if (dot >= 0) {
+                    source = source.substring(dot + 1);
+                }
             } else {
                 source = "unknown";
             }

@@ -58,7 +58,9 @@ public class AutoStartManager {
      * Looks up the account's profile and auto-starts configured scripts.
      */
     public void onConnectionEstablished(Connection conn, String displayName) {
-        if (displayName == null || displayName.isBlank()) return;
+        if (displayName == null || displayName.isBlank()) {
+            return;
+        }
 
         conn.setAccountName(displayName);
 
@@ -116,7 +118,9 @@ public class AutoStartManager {
      */
     public void saveState(Connection conn) {
         String accountName = conn.getAccountName();
-        if (accountName == null || accountName.isBlank()) return;
+        if (accountName == null || accountName.isBlank()) {
+            return;
+        }
 
         List<String> runningScripts = conn.getRuntime().getRunners().stream()
                 .filter(ScriptRunner::isRunning)
@@ -142,7 +146,9 @@ public class AutoStartManager {
         long interval = profileStore.getScanIntervalMs();
 
         // Initial delay to let the app finish starting up
-        try { Thread.sleep(1000); } catch (InterruptedException e) {
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return;
         }
@@ -154,7 +160,9 @@ public class AutoStartManager {
                     // Skip if already connected
                     boolean alreadyConnected = ctx.getConnections().stream()
                             .anyMatch(c -> c.getName().equals(pipeName));
-                    if (alreadyConnected) continue;
+                    if (alreadyConnected) {
+                        continue;
+                    }
 
                     out().println("[AutoStart] Found new pipe: " + pipeName);
                     try {
@@ -203,7 +211,9 @@ public class AutoStartManager {
 
     private Connection findConnectionByName(String name) {
         for (Connection c : ctx.getConnections()) {
-            if (c.getName().equals(name)) return c;
+            if (c.getName().equals(name)) {
+                return c;
+            }
         }
         return null;
     }

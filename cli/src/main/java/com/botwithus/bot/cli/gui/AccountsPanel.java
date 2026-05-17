@@ -246,7 +246,9 @@ public class AccountsPanel implements GuiPanel {
 
         // Action buttons row
         boolean busy = pendingOperation != null && !pendingOperation.isDone();
-        if (busy) ImGui.beginDisabled();
+        if (busy) {
+            ImGui.beginDisabled();
+        }
 
         if (GuiHelpers.buttonPrimary(Icons.PLUS + "  Add Account")) {
             startJagexLogin();
@@ -258,7 +260,9 @@ public class AccountsPanel implements GuiPanel {
         ImGui.sameLine(0, 16);
         GuiHelpers.textMuted(jagexAccounts.size() + " account(s)");
 
-        if (busy) ImGui.endDisabled();
+        if (busy) {
+            ImGui.endDisabled();
+        }
 
         ImGui.spacing();
 
@@ -411,7 +415,9 @@ public class AccountsPanel implements GuiPanel {
 
     private void renderJagexActions(BwuJagexAccount account) {
         boolean busy = pendingOperation != null && !pendingOperation.isDone();
-        if (busy) ImGui.beginDisabled();
+        if (busy) {
+            ImGui.beginDisabled();
+        }
 
         // Launch button — uses the account's selected character
         ImGui.indent();
@@ -480,7 +486,9 @@ public class AccountsPanel implements GuiPanel {
 
         ImGui.unindent();
 
-        if (busy) ImGui.endDisabled();
+        if (busy) {
+            ImGui.endDisabled();
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -491,7 +499,9 @@ public class AccountsPanel implements GuiPanel {
         GuiHelpers.sectionHeader("Classic Accounts");
 
         boolean busy = pendingOperation != null && !pendingOperation.isDone();
-        if (busy) ImGui.beginDisabled();
+        if (busy) {
+            ImGui.beginDisabled();
+        }
 
         if (showAddClassicForm) {
             if (GuiHelpers.buttonSecondary(Icons.XMARK + "  Cancel")) {
@@ -506,7 +516,9 @@ public class AccountsPanel implements GuiPanel {
         ImGui.sameLine(0, 16);
         GuiHelpers.textMuted(classicAccounts.size() + " account(s)");
 
-        if (busy) ImGui.endDisabled();
+        if (busy) {
+            ImGui.endDisabled();
+        }
 
         ImGui.spacing();
 
@@ -653,7 +665,9 @@ public class AccountsPanel implements GuiPanel {
         // World
         ImGui.tableSetColumnIndex(2);
         String worldText = "W" + acct.worldA();
-        if (acct.worldB() > 0) worldText += " / W" + acct.worldB();
+        if (acct.worldB() > 0) {
+            worldText += " / W" + acct.worldB();
+        }
         ImGui.text(worldText);
 
         // Target
@@ -674,7 +688,9 @@ public class AccountsPanel implements GuiPanel {
         // Actions
         ImGui.tableSetColumnIndex(5);
         boolean busy = pendingOperation != null && !pendingOperation.isDone();
-        if (busy) ImGui.beginDisabled();
+        if (busy) {
+            ImGui.beginDisabled();
+        }
 
         // Launch button
         ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
@@ -694,7 +710,9 @@ public class AccountsPanel implements GuiPanel {
             startEditClassicAccount(acct);
         }
 
-        if (busy) ImGui.endDisabled();
+        if (busy) {
+            ImGui.endDisabled();
+        }
 
         // Delete column
         ImGui.tableSetColumnIndex(6);
@@ -864,7 +882,9 @@ public class AccountsPanel implements GuiPanel {
         try {
             bwu.jagexRemoveAccount(uuid);
             refreshJagexAccounts();
-            if (uuid.equals(expandedJagexUuid)) expandedJagexUuid = null;
+            if (uuid.equals(expandedJagexUuid)) {
+                expandedJagexUuid = null;
+            }
             setStatus("Jagex account removed", false);
         } catch (BwuException e) {
             setStatus("Remove failed: " + e.getMessage(), true);

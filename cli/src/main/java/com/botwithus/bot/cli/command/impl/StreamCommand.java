@@ -58,7 +58,9 @@ public class StreamCommand implements Command {
     private void handleStop(ParsedCommand parsed, CliContext ctx) {
         ctx.getStreamManager().stopAll(name -> {
             for (Connection c : ctx.getConnections()) {
-                if (c.getName().equals(name)) return c;
+                if (c.getName().equals(name)) {
+                    return c;
+                }
             }
             return null;
         });

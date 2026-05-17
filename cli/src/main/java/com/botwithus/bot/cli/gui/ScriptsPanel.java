@@ -155,13 +155,17 @@ public class ScriptsPanel implements GuiPanel {
         ImGui.sameLine(0, 20);
         if (GuiHelpers.buttonPrimary(Icons.PLAY + "  Start All")) {
             for (ScriptRunner r : runners) {
-                if (!r.isRunning()) r.start();
+                if (!r.isRunning()) {
+                    r.start();
+                }
             }
         }
         ImGui.sameLine(0, 4);
         if (GuiHelpers.buttonDanger(Icons.STOP + "  Stop All")) {
             for (ScriptRunner r : runners) {
-                if (r.isRunning()) r.stop();
+                if (r.isRunning()) {
+                    r.stop();
+                }
             }
         }
 
@@ -454,13 +458,19 @@ public class ScriptsPanel implements GuiPanel {
         List<ScriptRunner> result = new ArrayList<>();
         for (ScriptRunner r : runners) {
             // Status filter
-            if (statusFilter == FILTER_RUNNING && !r.isRunning()) continue;
-            if (statusFilter == FILTER_STOPPED && r.isRunning()) continue;
+            if (statusFilter == FILTER_RUNNING && !r.isRunning()) {
+                continue;
+            }
+            if (statusFilter == FILTER_STOPPED && r.isRunning()) {
+                continue;
+            }
 
             // Category filter
             if (categoryFilter != null) {
                 ScriptCategory cat = getCategory(r);
-                if (cat != categoryFilter) continue;
+                if (cat != categoryFilter) {
+                    continue;
+                }
             }
 
             // Search filter (matches name, author, category)
@@ -469,7 +479,9 @@ public class ScriptsPanel implements GuiPanel {
                 ScriptManifest m = r.getManifest();
                 String author = m != null ? m.author().toLowerCase(Locale.ROOT) : "";
                 String catName = getCategory(r).getDisplayName().toLowerCase(Locale.ROOT);
-                if (!name.contains(search) && !author.contains(search) && !catName.contains(search)) continue;
+                if (!name.contains(search) && !author.contains(search) && !catName.contains(search)) {
+                    continue;
+                }
             }
             result.add(r);
         }
@@ -532,7 +544,9 @@ public class ScriptsPanel implements GuiPanel {
         List<BotScript> blueprints = ctx.loadBlueprints();
 
         for (Connection conn : ctx.getConnections()) {
-            if (!conn.isAlive()) continue;
+            if (!conn.isAlive()) {
+                continue;
+            }
             ScriptRuntime runtime = conn.getRuntime();
             runtime.stopAll();
             for (BotScript script : scripts) {

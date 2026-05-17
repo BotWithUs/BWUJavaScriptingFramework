@@ -117,7 +117,9 @@ public class ManagementConfigPanel {
 
             for (ConfigField field : fields) {
                 Object editVal = editValues.get(field.key());
-                if (editVal == null) continue;
+                if (editVal == null) {
+                    continue;
+                }
 
                 switch (field.kind()) {
                     case INT -> ImGui.inputInt(field.label(), (ImInt) editVal);
@@ -152,7 +154,9 @@ public class ManagementConfigPanel {
         Map<String, String> values = new LinkedHashMap<>();
         for (ConfigField field : fields) {
             Object editVal = editValues.get(field.key());
-            if (editVal == null) continue;
+            if (editVal == null) {
+                continue;
+            }
 
             switch (field.kind()) {
                 case INT, ITEM_ID -> values.put(field.key(), String.valueOf(((ImInt) editVal).get()));
@@ -172,7 +176,9 @@ public class ManagementConfigPanel {
     private void resetToDefaults() {
         for (ConfigField field : fields) {
             Object editVal = editValues.get(field.key());
-            if (editVal == null) continue;
+            if (editVal == null) {
+                continue;
+            }
 
             switch (field.kind()) {
                 case INT, ITEM_ID -> ((ImInt) editVal).set(((Number) field.defaultValue()).intValue());

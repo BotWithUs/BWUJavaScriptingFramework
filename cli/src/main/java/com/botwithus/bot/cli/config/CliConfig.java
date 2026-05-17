@@ -45,7 +45,9 @@ public class CliConfig {
     public Properties getProperties() { return props; }
 
     public void load() {
-        if (!Files.exists(CONFIG_FILE)) return;
+        if (!Files.exists(CONFIG_FILE)) {
+            return;
+        }
         try (InputStream in = Files.newInputStream(CONFIG_FILE)) {
             props.load(in);
         } catch (IOException e) {
