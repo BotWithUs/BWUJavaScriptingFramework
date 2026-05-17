@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static java.lang.foreign.SymbolLookup.libraryLookup;
-import static java.lang.foreign.ValueLayout.*;
+import static java.lang.foreign.ValueLayout.JAVA_INT;
 
 /**
  * High-level Java API for the BotWithUs loader DLL ({@code bwu.dll}).
