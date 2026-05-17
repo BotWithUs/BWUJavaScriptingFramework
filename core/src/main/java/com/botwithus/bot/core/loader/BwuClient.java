@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.loader;
 
+import com.botwithus.bot.core.util.Throwables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -594,12 +595,6 @@ public final class BwuClient implements AutoCloseable {
     }
 
     private static RuntimeException rethrow(Throwable t) {
-        if (t instanceof RuntimeException re) {
-            return re;
-        }
-        if (t instanceof Error e) {
-            throw e;
-        }
-        return new BwuException("Native call failed", t);
+        return Throwables.rethrow(t, cause -> new BwuException("Native call failed", cause));
     }
 }
