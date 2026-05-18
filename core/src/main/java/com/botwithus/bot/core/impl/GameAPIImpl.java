@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.diag.StubGuard;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
@@ -98,6 +99,13 @@ public class GameAPIImpl implements GameAPI {
      */
     private final Supplier<GameSnapshot> snapshotSource;
 
+    /**
+     * One-shot WARN-once channel for stub producer calls. Instance-scoped so
+     * each {@link GameAPIImpl} throttles independently — tests that want a
+     * fresh slate just build a fresh impl.
+     */
+    private final StubGuard stubGuard;
+
     private final Npcs npcsFacade = new Npcs(this);
     private final Players playersFacade = new Players(this);
     private final Backpack backpackFacade = new Backpack(this);
@@ -140,11 +148,30 @@ public class GameAPIImpl implements GameAPI {
     public GameAPIImpl(RpcClient rpc, NXTCache cache,
                        IntUnaryOperator ifaceVersionSource,
                        Supplier<GameSnapshot> snapshotSource) {
+        this(rpc, cache, ifaceVersionSource, snapshotSource, new StubGuard());
+    }
+
+    /**
+     * Full ctor accepting a {@link StubGuard} for instrumented WARN-once
+     * reporting of producer stubs ({@link #queryLocations}, {@link #queryGroundItems},
+     * {@link #queryWorldMapElements}). Production wiring constructs one
+     * {@code StubGuard} per session in {@code CliContext} and passes it
+     * through here; the 4-arg ctor chains to a default {@code StubGuard}
+     * for tests and legacy callers that don't care about the warn channel.
+     */
+    public GameAPIImpl(RpcClient rpc, NXTCache cache,
+                       IntUnaryOperator ifaceVersionSource,
+                       Supplier<GameSnapshot> snapshotSource,
+                       StubGuard stubGuard) {
+        if (stubGuard == null) {
+            throw new IllegalArgumentException("stubGuard");
+        }
         this.rpc = rpc;
         this.cache = cache;
         this.ifaceVersionSource = ifaceVersionSource;
         this.componentCache = ifaceVersionSource != null ? new ConcurrentHashMap<>() : null;
         this.snapshotSource = snapshotSource;
+        this.stubGuard = stubGuard;
     }
 
     private record ComponentCacheEntry(int version, Component component) {}
@@ -179,6 +206,7 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max) {
+        stubGuard.warnOnce("queryLocations");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("tile_x", centerX);
         params.put("tile_y", centerY);
@@ -203,6 +231,7 @@ public class GameAPIImpl implements GameAPI {
     @Override
     @SuppressWarnings("unchecked")
     public List<WorldMapElement> queryWorldMapElements(Map<String, Object> filter) {
+        stubGuard.warnOnce("queryWorldMapElements");
         return rpc.callSyncList("query_world_map_elements", filter).stream()
                 .map(m -> new WorldMapElement(
                         getInt(m, "id"),
@@ -247,6 +276,7 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max) {
+        stubGuard.warnOnce("queryGroundItems");
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("tile_x", centerX);
         params.put("tile_y", centerY);
