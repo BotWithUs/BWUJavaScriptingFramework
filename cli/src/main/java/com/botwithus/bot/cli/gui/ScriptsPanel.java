@@ -3,11 +3,16 @@ package com.botwithus.bot.cli.gui;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.api.runtime.LastCrash;
+import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.runtime.ScriptProfiler;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+
+import java.time.format.DateTimeFormatter;
+import java.time.ZoneId;
 
 import imgui.ImDrawList;
 import imgui.ImGui;
@@ -340,6 +345,40 @@ public class ScriptsPanel implements GuiPanel {
         // Advance cursor past the card + spacing
         ImGui.setCursorScreenPos(startX, startY + cardH + 4f);
         ImGui.dummy(0, 0);
+
+        renderCrashHeader(runner);
+    }
+
+    private static final DateTimeFormatter CRASH_TIME_FMT =
+            DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
+
+    private static void renderCrashHeader(ScriptRunner runner) {
+        ScriptHealth health = runner.health();
+        if (health.lastCrash().isEmpty()) {
+            return;
+        }
+        LastCrash crash = health.lastCrash().get();
+        String headerLabel = String.format("%s  Last crash: %s in %s @ %s (%d total)",
+                Icons.WARNING,
+                crash.cause().getClass().getSimpleName(),
+                crash.phase(),
+                CRASH_TIME_FMT.format(crash.when()),
+                health.totalCrashes());
+
+        ImGui.pushStyleColor(ImGuiCol.Text, ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.9f);
+        boolean expanded = ImGui.collapsingHeader(headerLabel + "##crash_" + runner.getScriptName());
+        ImGui.popStyleColor();
+        if (expanded) {
+            String msg = crash.cause().getMessage();
+            if (msg != null && !msg.isEmpty()) {
+                GuiHelpers.textSecondary(msg);
+            }
+            ImGui.beginChild("##crashTrace_" + runner.getScriptName(), 0,
+                    ImGui.getFontSize() * 10f, true);
+            ImGui.textUnformatted(crash.stackTrace());
+            ImGui.endChild();
+        }
+        ImGui.dummy(0, 4f);
     }
 
     private static void drawCardBackground(float startX, float startY, float availW, float cardH,

@@ -18,6 +18,7 @@ import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.shm.SharedRegion;
@@ -225,7 +226,8 @@ public class CliContext {
             ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen, pump.region());
             clientProvider.putClient(resolvedName, client);
 
-            ScriptRuntime runtime = new ScriptRuntime(context);
+            ScriptRuntime runtime = new ScriptRuntime(context,
+                    ConnectionContext::set, ConnectionContext::clear, eventBus::publish);
             runtime.setConnectionName(resolvedName);
 
             // Wire up ScriptManager so scripts can manage other scripts
