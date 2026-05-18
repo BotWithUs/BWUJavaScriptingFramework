@@ -7,10 +7,18 @@ dependencies {
     implementation(libs.msgpack.core)
     implementation(libs.gson)
     implementation(libs.logback.classic)
+    // BouncyCastle: only referenced by BouncyCastlePgpVerifier (12.3).
+    // Classes are loaded lazily — never touched if no repository in the
+    // session has `requireSignature: true`.
+    implementation(libs.bcpg.jdk18on)
+    implementation(libs.bcprov.jdk18on)
 }
 
 extraJavaModuleInfo {
     automaticModule("org.msgpack:msgpack-core", "msgpack.core")
+    // BouncyCastle 1.78+ ships proper module-info entries, but the auto-
+    // derived module names are stable: org.bouncycastle.pg (bcpg) and
+    // org.bouncycastle.provider (bcprov). No overrides required as of 1.78.
 }
 
 tasks.register<JavaExec>("benchmark") {
@@ -42,4 +50,16 @@ tasks.register<JavaExec>("componentCacheProbe") {
     classpath = sourceSets["main"].runtimeClasspath
     mainClass = "com.botwithus.bot.core.impl.ComponentCacheProbe"
     // Pass CLI args: ./gradlew :core:componentCacheProbe --args="1473 0"
+}
+
+tasks.register<Test>("smokeTest") {
+    description = "Maven Central / resolver smoke test (requires network)"
+    group = "verification"
+    useJUnitPlatform()
+    systemProperty("botwithus.smoke.network", "true")
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.resolver.pipeline.MavenCentralSmokeTest")
+    }
 }
