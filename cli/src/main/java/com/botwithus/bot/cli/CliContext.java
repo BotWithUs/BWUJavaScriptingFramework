@@ -16,10 +16,16 @@ import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
+import com.botwithus.bot.core.rpc.ReconnectController;
+import com.botwithus.bot.core.rpc.ReconnectPolicy;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
 import com.botwithus.bot.core.runtime.ConnectionContext;
+import com.botwithus.bot.core.runtime.LoadReport;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
+import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
@@ -82,6 +88,8 @@ public class CliContext {
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
+    private Consumer<Connection> onConnect;
+    private LoadReport lastLoadReport = LoadReport.EMPTY;
     private ScriptWatcher scriptWatcher;
     private ScriptProfileStore profileStore;
     private AutoStartManager autoStartManager;
@@ -234,11 +242,25 @@ public class CliContext {
             var scriptManager = new ScriptManagerImpl(runtime);
             context.setScriptManager(scriptManager);
 
+            ReconnectController reconnect = new ReconnectController(rpc, pipe, resolvedName,
+                    resolvedName, ReconnectPolicy.DEFAULT,
+                    state -> { /* state is observable via Connection.currentReconnectState() */ },
+                    eventBus::publish);
+            reconnect.arm();
+
             Connection conn = new Connection(resolvedName, pipe, rpc, runtime);
             conn.setEventBus(eventBus);
             conn.setEventPump(pump);
+            conn.setReconnectController(reconnect);
             connections.put(resolvedName, conn);
             activeConnectionName = resolvedName;
+            if (onConnect != null) {
+                try {
+                    onConnect.accept(conn);
+                } catch (RuntimeException e) {
+                    log.warn("onConnect hook threw for '{}': {}", resolvedName, e.getMessage());
+                }
+            }
             out().println("Connected to pipe: " + pipe.getPipePath());
             if (connections.size() > 1) {
                 out().println("Active connection set to '" + resolvedName + "'.");
@@ -316,7 +338,38 @@ public class CliContext {
     }
 
     public List<BotScript> loadScripts() {
-        return SDNScriptLoader.loadScripts();
+        return loadScriptReport().scripts();
+    }
+
+    /**
+     * Loads scripts and returns the full {@link LoadReport} including per-JAR
+     * failures. As a side effect, publishes a {@link ScriptLoadFailedEvent}
+     * onto every active connection's event bus for each failure so the
+     * notification overlay and Scripts panel can surface it.
+     */
+    public LoadReport loadScriptReport() {
+        LoadReport report = SDNScriptLoader.loadLocalReport();
+        this.lastLoadReport = report;
+        for (ScriptLoadResult failure : report.failures()) {
+            ScriptLoadFailedEvent event = new ScriptLoadFailedEvent(
+                    failure.jar(), failure.error().orElse(new IllegalStateException("unknown")));
+            broadcastEvent(event);
+        }
+        return report;
+    }
+
+    /** Snapshot of the most recent {@link #loadScriptReport()} call. Never null. */
+    public LoadReport getLastLoadReport() {
+        return lastLoadReport;
+    }
+
+    private void broadcastEvent(GameEvent event) {
+        for (Connection conn : connections.values()) {
+            EventBusImpl bus = conn.getEventBus();
+            if (bus != null) {
+                bus.publish(event);
+            }
+        }
     }
 
     /**
@@ -375,6 +428,13 @@ public class CliContext {
 
     public void setProgressDisplay(ProgressDisplay d) { this.progressDisplay = d; }
     public ProgressDisplay getProgressDisplay() { return progressDisplay; }
+
+    /**
+     * Wiring hook for an observer that wants to react to a successful
+     * {@link #connect}, e.g. the notification overlay subscribing to the
+     * new connection's event bus.
+     */
+    public void setOnConnect(Consumer<Connection> hook) { this.onConnect = hook; }
 
     public void setConfigPanelOpener(Consumer<ScriptRunner> opener) { this.configPanelOpener = opener; }
     public void openConfigPanel(ScriptRunner runner) {

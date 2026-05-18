@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui;
 
+import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.loader.BwuClient;
@@ -69,8 +70,21 @@ public class StatusBar {
 
         float gap = ImGui.getStyle().getItemSpacingX();
 
-        // Active-connection dot (pulses when live) + name
-        if (connected) {
+        // Active-connection dot (pulses when live) + name. If a reconnect is
+        // in flight, surface the controller's state machine instead of the
+        // green/red binary so the user sees the retry counter.
+        ReconnectState reconnect = activeReconnectState(ctx);
+        if (connected && reconnect instanceof ReconnectState.Reconnecting r) {
+            GuiHelpers.pulsingDot(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B);
+            ImGui.sameLine(0, gap * 0.5f);
+            ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 0.95f,
+                    "reconnecting " + (activeName != null ? activeName : "") + " (attempt " + r.attempt() + ")");
+        } else if (connected && reconnect instanceof ReconnectState.GivingUp) {
+            GuiHelpers.statusDot(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
+            ImGui.sameLine(0, gap * 0.5f);
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.95f,
+                    "gave up on " + (activeName != null ? activeName : "connection"));
+        } else if (connected) {
             GuiHelpers.pulsingDot(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B);
             ImGui.sameLine(0, gap * 0.5f);
             ImGui.textColored(ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f,
@@ -122,6 +136,16 @@ public class StatusBar {
         // Reads bwu_get_last_error() once per frame; the native call is a cheap
         // pointer return so per-frame polling is fine.
         renderBwuError(gap);
+    }
+
+    /**
+     * Returns the active connection's most recent {@link ReconnectState},
+     * or {@code null} if there is no active connection or its controller
+     * is not attached.
+     */
+    private static ReconnectState activeReconnectState(CliContext ctx) {
+        Connection active = ctx.getActiveConnection();
+        return active != null ? active.currentReconnectState() : null;
     }
 
     private void renderBwuError(float gap) {

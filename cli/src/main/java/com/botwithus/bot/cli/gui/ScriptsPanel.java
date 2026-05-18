@@ -7,10 +7,13 @@ import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptProfiler;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.time.format.DateTimeFormatter;
 import java.time.ZoneId;
 
@@ -77,6 +80,8 @@ public class ScriptsPanel implements GuiPanel {
             return;
         }
         renderConnectionSelector(connections);
+
+        renderLoadFailures(ctx);
 
         Connection conn = connections.get(selectedConnection.get());
         List<ScriptRunner> runners = new ArrayList<>(conn.getRuntime().getRunners());
@@ -352,6 +357,50 @@ public class ScriptsPanel implements GuiPanel {
     private static final DateTimeFormatter CRASH_TIME_FMT =
             DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
 
+    private static void renderLoadFailures(CliContext ctx) {
+        List<ScriptLoadResult> failures = ctx.getLastLoadReport().failures();
+        if (failures.isEmpty()) {
+            return;
+        }
+        ImGui.spacing();
+        ImGui.pushStyleColor(ImGuiCol.Text, ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.95f);
+        String label = String.format("%s  %d JAR(s) failed to load",
+                Icons.WARNING, failures.size());
+        boolean expanded = ImGui.collapsingHeader(label + "##load_failures");
+        ImGui.popStyleColor();
+        if (!expanded) {
+            return;
+        }
+        for (ScriptLoadResult failure : failures) {
+            Throwable cause = failure.error().orElse(null);
+            String name = failure.jar().getFileName().toString();
+            String oneLiner = cause != null
+                    ? cause.getClass().getSimpleName() + ": " + safeMessage(cause)
+                    : "unknown failure";
+            GuiHelpers.textSecondary(name);
+            ImGui.sameLine(0, 12);
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.85f, oneLiner);
+            if (cause != null && ImGui.treeNode("Stack trace##" + name)) {
+                ImGui.beginChild("##failTrace_" + name, 0, ImGui.getFontSize() * 10f, true);
+                ImGui.textUnformatted(stackTraceOf(cause));
+                ImGui.endChild();
+                ImGui.treePop();
+            }
+        }
+        ImGui.dummy(0, 4f);
+    }
+
+    private static String safeMessage(Throwable t) {
+        String msg = t.getMessage();
+        return msg != null ? msg : "<no message>";
+    }
+
+    private static String stackTraceOf(Throwable t) {
+        StringWriter sw = new StringWriter();
+        t.printStackTrace(new PrintWriter(sw));
+        return sw.toString();
+    }
+
     private static void renderCrashHeader(ScriptRunner runner) {
         ScriptHealth health = runner.health();
         if (health.lastCrash().isEmpty()) {
@@ -606,7 +655,7 @@ public class ScriptsPanel implements GuiPanel {
     }
 
     private void reloadScripts(CliContext ctx, boolean autoStart) {
-        List<BotScript> scripts = ctx.loadScripts();
+        List<BotScript> scripts = ctx.loadScriptReport().scripts();
         List<BotScript> blueprints = ctx.loadBlueprints();
 
         for (Connection conn : ctx.getConnections()) {
