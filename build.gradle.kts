@@ -60,3 +60,5 @@ subprojects {
         useJUnitPlatform()
     }
 }
+
+tasks.register<CreateScript>("createScript")
