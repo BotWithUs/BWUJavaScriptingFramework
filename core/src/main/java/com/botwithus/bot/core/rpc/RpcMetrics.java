@@ -18,6 +18,11 @@ public class RpcMetrics {
 
     public record MethodStats(long callCount, long totalTimeNanos, long errorCount,
                               long[] percentileNanos, int[] percentiles) {
+        public MethodStats {
+            percentileNanos = percentileNanos.clone();
+            percentiles = percentiles.clone();
+        }
+
         public double avgLatencyMs() {
             return callCount > 0 ? (totalTimeNanos / 1_000_000.0) / callCount : 0;
         }
