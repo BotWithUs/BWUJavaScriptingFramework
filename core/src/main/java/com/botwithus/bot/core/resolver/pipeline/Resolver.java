@@ -11,6 +11,7 @@ import com.botwithus.bot.core.resolver.driver.MavenRepositoryDriver;
 import com.botwithus.bot.core.resolver.driver.RepositoryDriver;
 import com.botwithus.bot.core.resolver.driver.VersionListing;
 import com.botwithus.bot.core.resolver.metadata.ChecksumDigest;
+import com.botwithus.bot.core.resolver.metadata.Sha1Digest;
 import com.botwithus.bot.core.resolver.pgp.KeyRing;
 import com.botwithus.bot.core.resolver.pgp.PgpSignaturePolicy;
 import com.botwithus.bot.core.resolver.pgp.PgpVerifier;
@@ -68,6 +69,7 @@ public final class Resolver {
     private static final String STAGE_ASC = "asc";
     private static final String FRESH_STAGING_PREFIX = "bwu-resolver-";
     private static final String SHA256_SUFFIX = ".sha256";
+    private static final String SHA1_SUFFIX = ".sha1";
     private static final String ASC_SUFFIX = ".asc";
 
     private final List<Repository> repositories;
@@ -312,18 +314,50 @@ public final class Resolver {
     }
 
     /**
-     * Legacy-checksum fallback hook. The driver can return a non-Maven
-     * checksum (SHA-1 for older Maven Central artifacts); 12.1 ships the
-     * Maven driver with SHA-256-only verification, and 12.2 reintroduces
-     * the {@code Sha1Digest} parser. Until then, an absent SHA-256
-     * surfaces as {@link ResolveOutcome.NotFound} via
-     * {@link #jarTransportToOutcome}.
+     * Falls back to the legacy checksum sidecar (SHA-1 for the Maven
+     * driver) when the primary SHA-256 isn't published or 404s. SHA-1 is
+     * acceptable for transit integrity; adversarial protection is the
+     * PGP signature.
      */
     private ResolveOutcome verifyChecksumLegacyFallback(RepositoryDriver driver, MavenCoord coord, String version,
                                                         Repository repository, Optional<Credentials> credentials,
                                                         Path stagingDir, Path jarFile) {
-        return new ResolveOutcome.NotFound(coord,
-                repository.id() + " has no SHA-256 checksum for " + coord + ":" + version);
+        ArtifactLocation legacy = driver.locateLegacyChecksum(repository, coord, version);
+        URI uri = urlOrNull(legacy);
+        if (uri == null) {
+            return new ResolveOutcome.NotFound(coord,
+                    repository.id() + " has no checksum for " + coord + ":" + version
+                            + " (" + missingReason(legacy) + ")");
+        }
+        Path staging = stagingDir.resolve(coord.jarFileName(version) + SHA1_SUFFIX);
+        TransportResult fetch = transport.fetch(uri, staging, credentials).join();
+        return switch (fetch) {
+            case TransportResult.Ok ok -> verifySha1Against(coord, repository, jarFile, ok.localPath());
+            case TransportResult.NotFound nf -> jarTransportToOutcome(coord, repository, STAGE_SHA256, fetch);
+            case TransportResult.HttpError he -> jarTransportToOutcome(coord, repository, STAGE_SHA256, fetch);
+            case TransportResult.Network n -> jarTransportToOutcome(coord, repository, STAGE_SHA256, fetch);
+        };
+    }
+
+    private ResolveOutcome verifySha1Against(MavenCoord coord, Repository repository, Path jarFile, Path shaPath) {
+        try {
+            String hex = Files.readString(shaPath).trim();
+            Optional<Sha1Digest> expected = Sha1Digest.parseHex(hex);
+            if (expected.isEmpty()) {
+                return new ResolveOutcome.TransportFailure(coord, repository, STAGE_SHA256,
+                        new TransportResult.Network(shaPath.toString(),
+                                new IOException("unparseable SHA-1 file: " + hex)));
+            }
+            Sha1Digest actual = Sha1Digest.of(jarFile);
+            if (!expected.get().matches(actual)) {
+                return new ResolveOutcome.ChecksumMismatch(coord, repository,
+                        expected.get().sha1(), actual.sha1());
+            }
+            return null;
+        } catch (IOException e) {
+            return new ResolveOutcome.TransportFailure(coord, repository, STAGE_SHA256,
+                    new TransportResult.Network(shaPath.toString(), e));
+        }
     }
 
     private ResolveOutcome verifySignature(RepositoryDriver driver, MavenCoord coord, String version,

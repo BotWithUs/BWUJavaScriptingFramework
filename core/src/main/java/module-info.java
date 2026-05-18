@@ -8,6 +8,8 @@ module com.botwithus.bot.core {
     requires ch.qos.logback.classic;
     requires ch.qos.logback.core;
     requires java.xml;
+    requires java.net.http;
+    requires jdk.httpserver;
 
     provides com.botwithus.bot.core.resolver.driver.RepositoryDriver
             with com.botwithus.bot.core.resolver.driver.MavenRepositoryDriver;
@@ -25,10 +27,12 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.loader;
     exports com.botwithus.bot.core.shm;
     exports com.botwithus.bot.core.resolver;
+    exports com.botwithus.bot.core.resolver.config;
     exports com.botwithus.bot.core.resolver.driver;
     exports com.botwithus.bot.core.resolver.install;
     exports com.botwithus.bot.core.resolver.metadata;
     exports com.botwithus.bot.core.resolver.pgp;
     exports com.botwithus.bot.core.resolver.pipeline;
+    exports com.botwithus.bot.core.resolver.search;
     exports com.botwithus.bot.core.resolver.transport;
 }

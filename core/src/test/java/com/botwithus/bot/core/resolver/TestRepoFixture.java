@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.resolver;
 
 import com.botwithus.bot.core.resolver.metadata.ChecksumDigest;
+import com.botwithus.bot.core.resolver.metadata.Sha1Digest;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -52,6 +53,26 @@ public final class TestRepoFixture {
     }
 
     /** Same as {@link #publish} but writes a corrupt sha256 sidecar. */
+    /**
+     * Publishes a JAR with a SHA-1 sidecar but no SHA-256 — exercises the
+     * legacy Maven Central fallback path.
+     */
+    public byte[] publishSha1Only(String groupId, String artifactId, String version, byte[] jarContents) throws IOException {
+        Path artifactDir = root
+                .resolve(groupId.replace('.', '/'))
+                .resolve(artifactId)
+                .resolve(version);
+        Files.createDirectories(artifactDir);
+
+        Path jarFile = artifactDir.resolve(artifactId + "-" + version + ".jar");
+        Files.write(jarFile, jarContents);
+        Sha1Digest digest = Sha1Digest.of(jarFile);
+        Files.writeString(jarFile.resolveSibling(jarFile.getFileName() + ".sha1"), digest.toHex());
+
+        appendMetadata(groupId, artifactId, version);
+        return digest.sha1();
+    }
+
     public void publishWithBadChecksum(String groupId, String artifactId, String version, byte[] jarContents) throws IOException {
         publish(groupId, artifactId, version, jarContents);
         Path jarFile = root

@@ -35,14 +35,26 @@ import com.botwithus.bot.core.runtime.ManagementScriptLoader;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.cache.NXTCache;
 
+import com.botwithus.bot.core.resolver.config.CredentialsStore;
+import com.botwithus.bot.core.resolver.config.RepositoryConfigStore;
+import com.botwithus.bot.core.resolver.install.InstalledIndex;
+import com.botwithus.bot.core.resolver.install.ScriptInstaller;
+import com.botwithus.bot.core.resolver.pgp.PgpVerifier;
+import com.botwithus.bot.core.resolver.pipeline.Resolver;
+import com.botwithus.bot.core.resolver.search.SearchService;
+import com.botwithus.bot.core.resolver.transport.HttpTransport;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -86,6 +98,18 @@ public class CliContext {
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
     private ManagementScriptRuntime managementRuntime;
+
+    // Resolver wiring (PR-E item 12). Lazily built on first access so the
+    // CLI startup cost is not paid for users who never run a resolver
+    // subcommand. The installer is rebuilt every time so a freshly added
+    // repository (`scripts repo add ...`) takes effect on the next
+    // install/update without a CLI restart — addresses the cache-staleness
+    // concern in the 12.2 review.
+    private RepositoryConfigStore repositoryConfigStore;
+    private CredentialsStore credentialsStore;
+    private InstalledIndex installedIndex;
+    private SearchService searchService;
+    private HttpClient resolverHttpClient;
     private NXTCache nxtCache;
     private boolean nxtCacheInitAttempted;
 
@@ -549,5 +573,119 @@ public class CliContext {
 
     private Path resolveBwuDll() {
         return BwuClient.resolve(getClass());
+    }
+
+    // === Resolver wiring (PR-E item 12) ==================================
+    //
+    // Stores are cached (cheap, no IO after load); the resolver and
+    // installer are rebuilt every call so they always see the current
+    // repository list. ServiceLoader scan happens once at first request.
+
+    private static final String SCRIPTS_DIR_PROPERTY = "botwithus.scripts.dir";
+    private static final String DEFAULT_SCRIPTS_DIR_NAME = "scripts";
+    private static final int SCRIPTS_DIR_WALK_UP_LIMIT = 3;
+    private static final String STAGING_SUBDIR = ".staging";
+    private static final Duration RESOLVER_HTTP_CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration RESOLVER_HTTP_REQUEST_TIMEOUT = Duration.ofSeconds(60);
+
+    public RepositoryConfigStore getRepositoryConfigStore() {
+        if (repositoryConfigStore == null) {
+            repositoryConfigStore = new RepositoryConfigStore(RepositoryConfigStore.DEFAULT_PATH);
+            try {
+                repositoryConfigStore.load();
+            } catch (IOException e) {
+                log.warn("failed to load {}: {}", RepositoryConfigStore.DEFAULT_PATH, e.getMessage());
+            }
+        }
+        return repositoryConfigStore;
+    }
+
+    public CredentialsStore getCredentialsStore() {
+        if (credentialsStore == null) {
+            credentialsStore = new CredentialsStore(CredentialsStore.DEFAULT_PATH);
+            try {
+                credentialsStore.load();
+            } catch (IOException e) {
+                log.warn("failed to load {}: {}", CredentialsStore.DEFAULT_PATH, e.getMessage());
+            }
+        }
+        return credentialsStore;
+    }
+
+    public InstalledIndex getInstalledIndex() {
+        if (installedIndex == null) {
+            installedIndex = new InstalledIndex(InstalledIndex.DEFAULT_PATH);
+            try {
+                installedIndex.load();
+            } catch (IOException e) {
+                log.warn("failed to load {}: {}", InstalledIndex.DEFAULT_PATH, e.getMessage());
+            }
+        }
+        return installedIndex;
+    }
+
+    public SearchService getSearchService() {
+        if (searchService == null) {
+            Resolver probe = buildResolver();
+            searchService = new SearchService(getResolverHttpClient(), probe.drivers(),
+                    repo -> getCredentialsStore()
+                            .lookup(repo.credentialsRef().orElse(repo.id())));
+        }
+        return searchService;
+    }
+
+    /**
+     * Returns a freshly built {@link ScriptInstaller}. Re-reads the
+     * repository list on every call so {@code scripts repo add ...}
+     * takes effect on the next install/update without restart.
+     */
+    public ScriptInstaller getInstaller() {
+        Resolver resolver = buildResolver();
+        return new ScriptInstaller(
+                resolver,
+                resolveResolverScriptsDir(),
+                getInstalledIndex(),
+                () -> log.info("Scripts changed; run 'reload' to pick up new JARs."));
+    }
+
+    private Resolver buildResolver() {
+        Path scriptsDir = resolveResolverScriptsDir();
+        Path stagingRoot = scriptsDir.resolve(STAGING_SUBDIR);
+        HttpTransport transport = new HttpTransport(
+                getResolverHttpClient(), RESOLVER_HTTP_REQUEST_TIMEOUT);
+        return Resolver.withDiscoveredDrivers(
+                getRepositoryConfigStore().all(),
+                transport,
+                PgpVerifier.ALWAYS_REJECT,
+                stagingRoot);
+    }
+
+    private HttpClient getResolverHttpClient() {
+        if (resolverHttpClient == null) {
+            resolverHttpClient = HttpClient.newBuilder()
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .connectTimeout(RESOLVER_HTTP_CONNECT_TIMEOUT)
+                    .build();
+        }
+        return resolverHttpClient;
+    }
+
+    private static Path resolveResolverScriptsDir() {
+        String override = System.getProperty(SCRIPTS_DIR_PROPERTY);
+        if (override != null) {
+            return Path.of(override);
+        }
+        Path dir = Path.of("").toAbsolutePath();
+        for (int i = 0; i < SCRIPTS_DIR_WALK_UP_LIMIT; i++) {
+            Path candidate = dir.resolve(DEFAULT_SCRIPTS_DIR_NAME);
+            if (Files.isDirectory(candidate)) {
+                return candidate;
+            }
+            dir = dir.getParent();
+            if (dir == null) {
+                break;
+            }
+        }
+        return Path.of(DEFAULT_SCRIPTS_DIR_NAME);
     }
 }
