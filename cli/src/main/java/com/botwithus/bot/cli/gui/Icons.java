@@ -51,6 +51,7 @@ public final class Icons {
     public static final String CUBE        = "\uF1B2";  // fa-cube
     public static final String PUZZLE      = "\uF12E";  // fa-puzzle-piece
     public static final String CHART_BAR   = "\uF080";  // fa-chart-simple
+    public static final String CHART       = "\uF201";  // fa-chart-line
     public static final String CLOCK       = "\uF017";  // fa-clock
     public static final String FOLDER      = "\uF07B";  // fa-folder
     public static final String FILE        = "\uF15B";  // fa-file

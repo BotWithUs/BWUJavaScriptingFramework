@@ -26,6 +26,7 @@ import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
 import com.botwithus.bot.cli.config.CliConfig;
 import com.botwithus.bot.cli.gui.loader.LoaderScreen;
+import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.usermode.UserAccountsRenderer;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.log.LogBuffer;
@@ -111,6 +112,9 @@ public class ImGuiApp extends Application {
 
     // Management script config panel (floating window)
     private ManagementConfigPanel managementConfigPanel;
+
+    // Toast/banner overlay (event-driven, fixed-position, top-right)
+    private NotificationOverlay notificationOverlay;
 
     // GLFW window handle for title updates
     private long glfwWindow;
@@ -318,6 +322,15 @@ public class ImGuiApp extends Application {
         ctx.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
         managementConfigPanel = new ManagementConfigPanel();
 
+        // Notification overlay (event-driven). Subscribed to each connection's
+        // event bus the moment connect() succeeds.
+        notificationOverlay = new NotificationOverlay();
+        ctx.setOnConnect(conn -> {
+            if (conn.getEventBus() != null) {
+                notificationOverlay.subscribeTo(conn.getEventBus());
+            }
+        });
+
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
         panels.add(new ConnectionsPanel(executor, registry));
         panels.add(new AccountsPanel(bwu, executor));
@@ -328,6 +341,7 @@ public class ImGuiApp extends Application {
         panels.add(new ScriptUIPanel());
         panels.add(new LogsPanel());
         panels.add(new GroupsPanel());
+        panels.add(new DiagnosticsPanel());
         panels.add(new SettingsPanel());
     }
 
@@ -404,6 +418,12 @@ public class ImGuiApp extends Application {
             managementConfigPanel.render();
         }
 
+        // Notification overlay sits above every other window so banners
+        // float over the active panel without intercepting input.
+        if (notificationOverlay != null) {
+            notificationOverlay.render();
+        }
+
         // Update window title based on connection state
         updateTitle();
     }
@@ -465,20 +485,21 @@ public class ImGuiApp extends Application {
     private static final String[] NAV_SECTION_LABELS = {"CORE", "EXTENSIONS", "SYSTEM"};
     private static final int[][] NAV_SECTION_PANELS = {
         {0, 1, 2, 3},   // Console, Connections, Accounts, Scripts
-        {4, 5, 6},      // Management, Script UI, Groups
-        {7, 8}           // Logs, Settings
+        {4, 5, 7},      // Management, Script UI, Groups
+        {6, 8, 9}       // Logs, Diagnostics, Settings
     };
     // Font Awesome icons for each panel (matching panel order in the panels list)
     private static final String[] NAV_ICONS = {
-        Icons.TERMINAL,     // Console
-        Icons.PLUG,         // Connections
-        Icons.USERS,        // Accounts
-        Icons.CODE,         // Scripts
-        Icons.ROBOT,        // Management
-        Icons.WINDOW,       // Script UI
-        Icons.LAYER_GROUP,  // Groups
-        Icons.LIST,         // Logs
-        Icons.GEAR,         // Settings
+        Icons.TERMINAL,     // 0 Console
+        Icons.PLUG,         // 1 Connections
+        Icons.USERS,        // 2 Accounts
+        Icons.CODE,         // 3 Scripts
+        Icons.ROBOT,        // 4 Management
+        Icons.WINDOW,       // 5 Script UI
+        Icons.LIST,         // 6 Logs
+        Icons.LAYER_GROUP,  // 7 Groups
+        Icons.CHART,        // 8 Diagnostics
+        Icons.GEAR,         // 9 Settings
     };
 
     private void renderSidebar() {

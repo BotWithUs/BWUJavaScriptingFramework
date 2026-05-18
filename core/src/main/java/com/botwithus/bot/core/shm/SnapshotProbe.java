@@ -4,9 +4,13 @@ import com.botwithus.bot.api.event.ActionExecutedEvent;
 import com.botwithus.bot.api.event.BreakEndedEvent;
 import com.botwithus.bot.api.event.BreakStartedEvent;
 import com.botwithus.bot.api.event.ChatMessageEvent;
+import com.botwithus.bot.api.event.ConnectionLostEvent;
 import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.ReconnectStateChangedEvent;
+import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
 import com.botwithus.bot.api.event.KeyInputEvent;
 import com.botwithus.bot.api.event.LoginStateChangeEvent;
+import com.botwithus.bot.api.event.ScriptCrashedEvent;
 import com.botwithus.bot.api.event.TickEvent;
 import com.botwithus.bot.api.event.VarChangeEvent;
 import com.botwithus.bot.api.event.VarbitChangeEvent;
@@ -128,6 +132,17 @@ public final class SnapshotProbe {
                     "tile=(" + e.targetX() + "," + e.targetY() + ")";
             case WalkFailedEvent e ->
                     "tile=(" + e.targetX() + "," + e.targetY() + ")";
+            case ScriptCrashedEvent e ->
+                    "script=" + e.scriptName() + " phase=" + e.crash().phase()
+                            + " cause=" + e.crash().cause().getClass().getSimpleName();
+            case ConnectionLostEvent e ->
+                    "conn=" + e.connectionName()
+                            + " cause=" + (e.cause() != null ? e.cause().getClass().getSimpleName() : "<none>");
+            case ReconnectStateChangedEvent e ->
+                    "conn=" + e.connectionName() + " state=" + e.state().getClass().getSimpleName();
+            case ScriptLoadFailedEvent e ->
+                    "jar=" + e.jar().getFileName()
+                            + " cause=" + e.cause().getClass().getSimpleName();
         };
     }
 }

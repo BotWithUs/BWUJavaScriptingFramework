@@ -2,6 +2,7 @@ package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
+import com.botwithus.bot.api.event.GameEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,26 +19,38 @@ public class ScriptRuntime {
     private final ScriptContext context;
     private final Consumer<String> connectionTagger;
     private final Runnable connectionCleaner;
+    private final Consumer<GameEvent> eventSink;
     private final List<ScriptRunner> runners = new CopyOnWriteArrayList<>();
     private String connectionName;
     private Runnable onStateChange;
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
-     * the supplied callbacks. Wiring code that uses a custom context propagator
-     * passes them explicitly; callers that want the default cross-thread
-     * propagation via {@link ConnectionContext} use the single-arg constructor.
+     * the supplied callbacks and forwards crash events to {@code eventSink}.
+     */
+    public ScriptRuntime(ScriptContext context,
+                         Consumer<String> connectionTagger,
+                         Runnable connectionCleaner,
+                         Consumer<GameEvent> eventSink) {
+        this.context = context;
+        this.connectionTagger = connectionTagger;
+        this.connectionCleaner = connectionCleaner;
+        this.eventSink = eventSink;
+    }
+
+    /**
+     * Three-arg variant without a crash-event sink. Crashes are still captured
+     * into each runner's {@link ScriptRunner#health()} but no
+     * {@link com.botwithus.bot.api.event.ScriptCrashedEvent} is published.
      */
     public ScriptRuntime(ScriptContext context,
                          Consumer<String> connectionTagger,
                          Runnable connectionCleaner) {
-        this.context = context;
-        this.connectionTagger = connectionTagger;
-        this.connectionCleaner = connectionCleaner;
+        this(context, connectionTagger, connectionCleaner, e -> {});
     }
 
     public ScriptRuntime(ScriptContext context) {
-        this(context, ConnectionContext::set, ConnectionContext::clear);
+        this(context, ConnectionContext::set, ConnectionContext::clear, e -> {});
     }
 
     public void setConnectionName(String connectionName) {
@@ -67,7 +80,8 @@ public class ScriptRuntime {
      * Registers a script without starting it. Use {@link ScriptRunner#start()} to start later.
      */
     public ScriptRunner registerScript(BotScript script) {
-        ScriptRunner runner = new ScriptRunner(script, context, connectionTagger, connectionCleaner);
+        ScriptRunner runner = new ScriptRunner(script, context, connectionTagger,
+                connectionCleaner, eventSink);
         if (connectionName != null) {
             runner.setConnectionName(connectionName);
         }
