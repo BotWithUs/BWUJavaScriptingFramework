@@ -21,7 +21,7 @@ import java.util.concurrent.CompletableFuture;
  * <p>Atomic in the failure sense: the destination is either fully written
  * or absent — never half-written.</p>
  */
-public final class FileMavenTransport implements MavenTransport {
+public final class FileTransport implements Transport {
 
     @Override
     public CompletableFuture<TransportResult> fetch(URI source, Path destination, Optional<Credentials> credentials) {
