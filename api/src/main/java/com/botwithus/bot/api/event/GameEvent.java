@@ -19,6 +19,7 @@ public sealed interface GameEvent
                 ChatMessageEvent,
                 KeyInputEvent,
                 LoginStateChangeEvent,
+                ScriptCrashedEvent,
                 TickEvent,
                 VarChangeEvent,
                 VarbitChangeEvent,

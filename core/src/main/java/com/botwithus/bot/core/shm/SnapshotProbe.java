@@ -7,6 +7,7 @@ import com.botwithus.bot.api.event.ChatMessageEvent;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.KeyInputEvent;
 import com.botwithus.bot.api.event.LoginStateChangeEvent;
+import com.botwithus.bot.api.event.ScriptCrashedEvent;
 import com.botwithus.bot.api.event.TickEvent;
 import com.botwithus.bot.api.event.VarChangeEvent;
 import com.botwithus.bot.api.event.VarbitChangeEvent;
@@ -128,6 +129,9 @@ public final class SnapshotProbe {
                     "tile=(" + e.targetX() + "," + e.targetY() + ")";
             case WalkFailedEvent e ->
                     "tile=(" + e.targetX() + "," + e.targetY() + ")";
+            case ScriptCrashedEvent e ->
+                    "script=" + e.scriptName() + " phase=" + e.crash().phase()
+                            + " cause=" + e.crash().cause().getClass().getSimpleName();
         };
     }
 }
