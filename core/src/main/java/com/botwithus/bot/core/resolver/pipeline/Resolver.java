@@ -86,12 +86,25 @@ public final class Resolver {
      */
     public static Resolver withDiscoveredDrivers(List<Repository> repositories, Transport transport,
                                                  PgpVerifier pgpVerifier, Path stagingRoot) {
+        return withDiscoveredDrivers(repositories, transport, pgpVerifier, stagingRoot, defaultPolicyLookup());
+    }
+
+    /**
+     * As {@link #withDiscoveredDrivers(List, Transport, PgpVerifier, Path)}
+     * but accepts a custom {@link PgpPolicyLookup}. Production CLI wiring
+     * uses this overload with a {@code KeyRingStore}-backed lookup so
+     * repositories with {@code requireSignature: true} resolve to
+     * {@link PgpSignaturePolicy.Required}.
+     */
+    public static Resolver withDiscoveredDrivers(List<Repository> repositories, Transport transport,
+                                                 PgpVerifier pgpVerifier, Path stagingRoot,
+                                                 PgpPolicyLookup pgpPolicyLookup) {
         Map<String, RepositoryDriver> discovered = new LinkedHashMap<>();
         discovered.put(MavenRepositoryDriver.TYPE_ID, new MavenRepositoryDriver());
         for (RepositoryDriver driver : ServiceLoader.load(RepositoryDriver.class)) {
             discovered.putIfAbsent(driver.typeId(), driver);
         }
-        return new Resolver(repositories, transport, discovered, pgpVerifier, stagingRoot);
+        return new Resolver(repositories, transport, discovered, pgpVerifier, stagingRoot, pgpPolicyLookup);
     }
 
     public Resolver(List<Repository> repositories, Transport transport,

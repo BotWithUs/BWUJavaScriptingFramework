@@ -27,6 +27,10 @@ class RepositoryConfigStoreTest {
         assertEquals(RepositoryConfigStore.BUNDLED_CENTRAL_URL.toString(), central.get().url().toString());
         assertEquals(MavenRepositoryDriver.TYPE_ID, central.get().driverId());
         assertFalse(central.get().snapshots());
+        // PR-E 12.3: public repos default to PGP-required so unsigned
+        // central artifacts fail closed until the user explicitly trusts
+        // a signing key via `scripts trust add`.
+        assertTrue(central.get().requireSignature());
         assertTrue(central.get().searchEndpoint().isPresent());
     }
 

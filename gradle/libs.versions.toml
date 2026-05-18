@@ -7,6 +7,9 @@ logback = "1.5.16"
 gson = "2.11.0"
 msgpack = "0.9.8"
 
+# Cryptography
+bouncycastle = "1.78.1"
+
 # UI / GUI
 imgui = "1.90.0"
 lwjgl = "3.3.6"
@@ -27,6 +30,13 @@ logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "lo
 # Serialization / IPC
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
 msgpack-core = { module = "org.msgpack:msgpack-core", version.ref = "msgpack" }
+
+# Cryptography — BouncyCastle PGP for detached-signature verification on
+# repositories with `requireSignature: true`. Lazily referenced from
+# BouncyCastlePgpVerifier; only loaded when at least one repo in the
+# session has `requireSignature: true`.
+bcpg-jdk18on = { module = "org.bouncycastle:bcpg-jdk18on", version.ref = "bouncycastle" }
+bcprov-jdk18on = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 
 # UI / GUI
 imgui-java-app = { module = "io.github.spair:imgui-java-app", version.ref = "imgui" }

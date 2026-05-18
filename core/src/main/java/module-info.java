@@ -10,6 +10,12 @@ module com.botwithus.bot.core {
     requires java.xml;
     requires java.net.http;
     requires jdk.httpserver;
+    // BouncyCastle (PGP). Required at module-resolution time so the
+    // resolver's BouncyCastlePgpVerifier can call into it, but the
+    // verifier itself only loads BC classes on the first verify() call,
+    // so sessions with no signed repos pay no runtime cost.
+    requires org.bouncycastle.pg;
+    requires org.bouncycastle.provider;
 
     provides com.botwithus.bot.core.resolver.driver.RepositoryDriver
             with com.botwithus.bot.core.resolver.driver.MavenRepositoryDriver;
