@@ -73,27 +73,7 @@ public class StatusBar {
         // Active-connection dot (pulses when live) + name. If a reconnect is
         // in flight, surface the controller's state machine instead of the
         // green/red binary so the user sees the retry counter.
-        ReconnectState reconnect = activeReconnectState(ctx);
-        if (connected && reconnect instanceof ReconnectState.Reconnecting r) {
-            GuiHelpers.pulsingDot(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B);
-            ImGui.sameLine(0, gap * 0.5f);
-            ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 0.95f,
-                    "reconnecting " + (activeName != null ? activeName : "") + " (attempt " + r.attempt() + ")");
-        } else if (connected && reconnect instanceof ReconnectState.GivingUp) {
-            GuiHelpers.statusDot(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
-            ImGui.sameLine(0, gap * 0.5f);
-            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.95f,
-                    "gave up on " + (activeName != null ? activeName : "connection"));
-        } else if (connected) {
-            GuiHelpers.pulsingDot(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B);
-            ImGui.sameLine(0, gap * 0.5f);
-            ImGui.textColored(ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f,
-                    activeName != null ? activeName : "connected");
-        } else {
-            GuiHelpers.statusDot(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
-            ImGui.sameLine(0, gap * 0.5f);
-            GuiHelpers.textMuted("disconnected");
-        }
+        renderActiveConnectionStatus(connected, activeName, activeReconnectState(ctx), gap);
 
         // Connection count chip
         ImGui.sameLine(0, gap);
@@ -146,6 +126,56 @@ public class StatusBar {
     private static ReconnectState activeReconnectState(CliContext ctx) {
         Connection active = ctx.getActiveConnection();
         return active != null ? active.currentReconnectState() : null;
+    }
+
+    /**
+     * Renders the leftmost status segment (dot + label). Dispatches over the
+     * sealed {@link ReconnectState} so the compiler refuses to build if a new
+     * variant lands without matching coverage here.
+     */
+    private static void renderActiveConnectionStatus(boolean connected, String activeName,
+                                                     ReconnectState reconnect, float gap) {
+        if (!connected) {
+            renderDisconnected(gap);
+            return;
+        }
+        if (reconnect == null) {
+            renderConnectedNormal(activeName, gap);
+            return;
+        }
+        switch (reconnect) {
+            case ReconnectState.Reconnecting r -> renderReconnecting(activeName, r, gap);
+            case ReconnectState.GivingUp gu -> renderGivingUp(activeName, gap);
+            case ReconnectState.Connected c -> renderConnectedNormal(activeName, gap);
+            case ReconnectState.Disconnected d -> renderConnectedNormal(activeName, gap);
+        }
+    }
+
+    private static void renderConnectedNormal(String activeName, float gap) {
+        GuiHelpers.pulsingDot(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B);
+        ImGui.sameLine(0, gap * 0.5f);
+        ImGui.textColored(ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f,
+                activeName != null ? activeName : "connected");
+    }
+
+    private static void renderReconnecting(String activeName, ReconnectState.Reconnecting r, float gap) {
+        GuiHelpers.pulsingDot(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B);
+        ImGui.sameLine(0, gap * 0.5f);
+        ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 0.95f,
+                "reconnecting " + (activeName != null ? activeName : "") + " (attempt " + r.attempt() + ")");
+    }
+
+    private static void renderGivingUp(String activeName, float gap) {
+        GuiHelpers.statusDot(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
+        ImGui.sameLine(0, gap * 0.5f);
+        ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.95f,
+                "gave up on " + (activeName != null ? activeName : "connection"));
+    }
+
+    private static void renderDisconnected(float gap) {
+        GuiHelpers.statusDot(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
+        ImGui.sameLine(0, gap * 0.5f);
+        GuiHelpers.textMuted("disconnected");
     }
 
     private void renderBwuError(float gap) {
