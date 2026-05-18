@@ -6,6 +6,7 @@ module com.botwithus.bot.core {
     requires com.google.gson;
     requires ch.qos.logback.classic;
     requires ch.qos.logback.core;
+    requires java.xml;
 
     exports com.botwithus.bot.core;
     exports com.botwithus.bot.core.cache;
@@ -19,4 +20,10 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.runtime;
     exports com.botwithus.bot.core.loader;
     exports com.botwithus.bot.core.shm;
+    exports com.botwithus.bot.core.resolver;
+    exports com.botwithus.bot.core.resolver.install;
+    exports com.botwithus.bot.core.resolver.metadata;
+    exports com.botwithus.bot.core.resolver.pgp;
+    exports com.botwithus.bot.core.resolver.pipeline;
+    exports com.botwithus.bot.core.resolver.transport;
 }
