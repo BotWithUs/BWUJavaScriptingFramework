@@ -26,6 +26,7 @@ import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
 import com.botwithus.bot.cli.config.CliConfig;
 import com.botwithus.bot.cli.gui.loader.LoaderScreen;
+import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.usermode.UserAccountsRenderer;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.log.LogBuffer;
@@ -111,6 +112,9 @@ public class ImGuiApp extends Application {
 
     // Management script config panel (floating window)
     private ManagementConfigPanel managementConfigPanel;
+
+    // Toast/banner overlay (event-driven, fixed-position, top-right)
+    private NotificationOverlay notificationOverlay;
 
     // GLFW window handle for title updates
     private long glfwWindow;
@@ -318,6 +322,15 @@ public class ImGuiApp extends Application {
         ctx.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
         managementConfigPanel = new ManagementConfigPanel();
 
+        // Notification overlay (event-driven). Subscribed to each connection's
+        // event bus the moment connect() succeeds.
+        notificationOverlay = new NotificationOverlay();
+        ctx.setOnConnect(conn -> {
+            if (conn.getEventBus() != null) {
+                notificationOverlay.subscribeTo(conn.getEventBus());
+            }
+        });
+
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
         panels.add(new ConnectionsPanel(executor, registry));
         panels.add(new AccountsPanel(bwu, executor));
@@ -403,6 +416,12 @@ public class ImGuiApp extends Application {
         // Render management script config panel as a floating window
         if (managementConfigPanel != null && managementConfigPanel.isOpen()) {
             managementConfigPanel.render();
+        }
+
+        // Notification overlay sits above every other window so banners
+        // float over the active panel without intercepting input.
+        if (notificationOverlay != null) {
+            notificationOverlay.render();
         }
 
         // Update window title based on connection state

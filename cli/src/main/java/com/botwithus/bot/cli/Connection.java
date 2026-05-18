@@ -1,7 +1,9 @@
 package com.botwithus.bot.cli;
 
+import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
+import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
@@ -22,6 +24,7 @@ public class Connection {
     private final ScriptRuntime runtime;
     private EventBusImpl eventBus;
     private SharedRegionEventPump eventPump;
+    private ReconnectController reconnectController;
     private String accountName;
     private Map<String, Object> accountInfo;
 
@@ -43,6 +46,14 @@ public class Connection {
     public void setEventPump(SharedRegionEventPump pump) { this.eventPump = pump; }
     public SharedRegionEventPump getEventPump() { return eventPump; }
 
+    public void setReconnectController(ReconnectController controller) { this.reconnectController = controller; }
+    public ReconnectController getReconnectController() { return reconnectController; }
+
+    /** Current reconnect state; {@code null} if no controller is attached. */
+    public ReconnectState currentReconnectState() {
+        return reconnectController != null ? reconnectController.currentState() : null;
+    }
+
     public void setAccountName(String accountName) { this.accountName = accountName; }
     public String getAccountName() { return accountName; }
 
@@ -61,6 +72,13 @@ public class Connection {
 
     /** Stop all scripts AND close the connection. */
     public void close() {
+        if (reconnectController != null) {
+            try {
+                reconnectController.close();
+            } catch (RuntimeException e) {
+                log.error("Error closing reconnect controller for {}", name, e);
+            }
+        }
         try {
             runtime.stopAll();
         } catch (RuntimeException e) {

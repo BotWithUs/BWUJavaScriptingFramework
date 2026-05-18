@@ -37,7 +37,7 @@ public class PipeClient implements AutoCloseable {
      */
     public static final String NAME_PREFIX = "BotWithUs_";
 
-    private final String pipePath;
+    private volatile String pipePath;
     private volatile Transport transport;
     private volatile boolean open = true;
 
@@ -195,6 +195,28 @@ public class PipeClient implements AutoCloseable {
         this.transport = next;
         this.open = true;
         closeTransport(prev);
+    }
+
+    /**
+     * Opens a fresh transport against the supplied pipe path and swaps the
+     * current one for it. The previous transport is closed.
+     *
+     * <p>This is the public-facing reconnect seam used by
+     * {@code ReconnectController} — it lets callers in other packages
+     * (notably {@code core.rpc}) drive the swap without exposing the
+     * package-private {@link Transport} type.</p>
+     *
+     * <p>Caller must hold any external I/O lock guarding {@link #send}/
+     * {@link #readMessage} so no thread is mid-read/write during the swap.</p>
+     *
+     * @throws PipeException if the new transport fails to open; the existing
+     *                       transport (if any) is left untouched in that case.
+     */
+    public void reconnect(String pipeName) {
+        String newPath = PIPE_PREFIX + pipeName;
+        Transport next = openTransport(newPath);
+        this.pipePath = newPath;
+        swapTransport(next);
     }
 
     private static void closeTransport(Transport t) {

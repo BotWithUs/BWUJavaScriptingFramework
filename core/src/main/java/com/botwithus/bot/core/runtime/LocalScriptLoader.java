@@ -42,9 +42,28 @@ public final class LocalScriptLoader {
 
     /**
      * Loads all BotScript providers from JARs in the default {@code scripts/} directory.
+     * Failures are dropped silently — use {@link #loadReport()} if you need
+     * visibility into per-JAR errors.
      */
     public static List<BotScript> loadScripts() {
-        return loadScripts(resolveScriptsDir());
+        return loadReport().scripts();
+    }
+
+    /**
+     * Convenience overload of {@link #loadScripts()} that targets a specific
+     * scripts directory. Failures are dropped silently — use
+     * {@link #loadReport(Path)} for full per-JAR diagnostics.
+     */
+    public static List<BotScript> loadScripts(Path scriptsDir) {
+        return loadReport(scriptsDir).scripts();
+    }
+
+    /**
+     * Loads all BotScript providers from the default scripts directory and
+     * returns a full per-JAR {@link LoadReport} including failures.
+     */
+    public static LoadReport loadReport() {
+        return loadReport(resolveScriptsDir());
     }
 
     /**
@@ -66,16 +85,21 @@ public final class LocalScriptLoader {
                 return candidate;
             }
             dir = dir.getParent();
-            if (dir == null) break;
+            if (dir == null) {
+                break;
+            }
         }
         // Fallback: create in working directory
         return Path.of(SCRIPTS_DIR_NAME);
     }
 
     /**
-     * Loads all BotScript providers from JARs in the given directory.
+     * Loads all BotScript providers from JARs in the given directory and
+     * returns a {@link LoadReport} that captures per-JAR successes and
+     * failures (with stack traces). Replaces the silent {@code catch} that
+     * used to swallow errors at the bottom of the module-load loop.
      */
-    public static List<BotScript> loadScripts(Path scriptsDir) {
+    public static LoadReport loadReport(Path scriptsDir) {
         if (!Files.isDirectory(scriptsDir)) {
             log.info("Scripts directory not found: {}", scriptsDir.toAbsolutePath());
             log.info("Creating it — drop script JARs there and restart.");
@@ -84,97 +108,123 @@ public final class LocalScriptLoader {
             } catch (IOException e) {
                 log.error("Failed to create scripts directory: {}", e.getMessage());
             }
-            return List.of();
+            return LoadReport.EMPTY;
         }
 
-        // Close previous classloaders to release JAR file handles (critical on Windows)
         previousLoaders.closeAll();
 
-        // Find all JARs in the scripts directory
-        List<Path> jars;
-        try (var stream = Files.list(scriptsDir)) {
-            jars = stream.filter(p -> p.toString().endsWith(".jar")).toList();
-        } catch (IOException e) {
-            log.error("Failed to scan scripts directory: {}", e.getMessage());
-            return List.of();
-        }
-
+        List<Path> jars = listJars(scriptsDir);
         if (jars.isEmpty()) {
             log.info("No JARs found in {}", scriptsDir.toAbsolutePath());
-            return List.of();
+            return LoadReport.EMPTY;
         }
-
         log.info("Found {} JAR(s) in {}", jars.size(), scriptsDir.toAbsolutePath());
 
         ModuleFinder finder = ModuleFinder.of(scriptsDir);
         Set<ModuleReference> moduleReferences = finder.findAll();
-
         if (moduleReferences.isEmpty()) {
             log.info("No modules found in JARs. Ensure each JAR has a module-info with 'provides BotScript with ...'");
+            return new LoadReport(jars.stream()
+                    .map(j -> ScriptLoadResult.failure(j,
+                            new IllegalStateException(
+                                    "JAR is not a Java module — missing module-info.java with 'provides BotScript with ...'"),
+                            List.of()))
+                    .toList());
+        }
+
+        if (!coreDeclaresUsesBotScript()) {
+            return LoadReport.EMPTY;
+        }
+
+        List<ScriptLoadResult> results = new ArrayList<>();
+        ModuleLayer bootLayer = ModuleLayer.boot();
+        for (ModuleReference ref : moduleReferences) {
+            results.addAll(loadOneModule(ref, finder, bootLayer));
+        }
+        return new LoadReport(results);
+    }
+
+    private static List<Path> listJars(Path scriptsDir) {
+        try (var stream = Files.list(scriptsDir)) {
+            return stream.filter(p -> p.toString().endsWith(".jar")).toList();
+        } catch (IOException e) {
+            log.error("Failed to scan scripts directory: {}", e.getMessage());
             return List.of();
         }
+    }
 
-        // Fail-fast: if this module (core) doesn't declare 'uses BotScript',
-        // ServiceLoader will silently return empty for ALL script JARs.
+    /**
+     * Fail-fast: if this module (core) doesn't declare {@code uses BotScript},
+     * ServiceLoader will silently return empty for ALL script JARs. Returns
+     * {@code true} when the {@code uses} clause is present (or this module is
+     * unnamed, in which case ServiceLoader works regardless).
+     */
+    private static boolean coreDeclaresUsesBotScript() {
         Module coreModule = LocalScriptLoader.class.getModule();
-        if (coreModule.isNamed()) {
-            boolean declaresUses = coreModule.getDescriptor().uses()
-                    .contains(BotScript.class.getName());
-            if (!declaresUses) {
-                log.error("FATAL: Module '{}' is missing 'uses com.botwithus.bot.api.BotScript;' in module-info.java", coreModule.getName());
-                log.error("ServiceLoader will not discover any scripts without it!");
-                return List.of();
-            }
+        if (!coreModule.isNamed()) {
+            return true;
+        }
+        boolean declaresUses = coreModule.getDescriptor().uses()
+                .contains(BotScript.class.getName());
+        if (!declaresUses) {
+            log.error("FATAL: Module '{}' is missing 'uses com.botwithus.bot.api.BotScript;' in module-info.java",
+                    coreModule.getName());
+            log.error("ServiceLoader will not discover any scripts without it!");
+        }
+        return declaresUses;
+    }
+
+    private static List<ScriptLoadResult> loadOneModule(ModuleReference ref, ModuleFinder finder,
+                                                        ModuleLayer bootLayer) {
+        String name = ref.descriptor().name();
+        Path jar = ref.location().map(Path::of).orElse(Path.of(name));
+
+        if (ref.location().isEmpty()) {
+            return List.of(ScriptLoadResult.failure(jar,
+                    new IllegalStateException("Module " + name + " has no resolvable location"),
+                    List.of()));
         }
 
-        List<BotScript> allScripts = new ArrayList<>();
-        ModuleLayer bootLayer = ModuleLayer.boot();
+        try {
+            URL jarURL = ref.location().get().toURL();
+            Configuration cfg = bootLayer.configuration().resolve(
+                    finder, ModuleFinder.of(), Collections.singleton(name));
+            URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
+            previousLoaders.add(classLoader);
+            ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
 
-        for (ModuleReference ref : moduleReferences) {
-            String name = ref.descriptor().name();
-            var location = ref.location();
-            if (location.isEmpty()) {
-                log.info("Module {} has no location, skipping.", name);
-                continue;
+            Optional<Module> module = layer.findModule(name);
+            if (module.isEmpty()) {
+                return List.of(ScriptLoadResult.failure(jar,
+                        new IllegalStateException("Module " + name + " not found in defined layer"),
+                        List.of()));
             }
 
-            try {
-                URL jarURL = location.get().toURL();
-                Configuration cfg = bootLayer.configuration().resolve(
-                        finder, ModuleFinder.of(), Collections.singleton(name));
-                URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
-                previousLoaders.add(classLoader);
-                ModuleLayer layer = bootLayer.defineModulesWithOneLoader(
-                        cfg, classLoader);
+            boolean providesBotScript = module.get().getDescriptor().provides().stream()
+                    .anyMatch(p -> p.service().equals(BotScript.class.getName()));
 
-                Optional<Module> module = layer.findModule(name);
-                if (module.isEmpty()) {
-                    log.info("Module {} could not be found in layer, skipping.", name);
-                    continue;
-                }
-
-                // Check if the module declares 'provides BotScript'
-                boolean providesBotScript = module.get().getDescriptor().provides().stream()
-                        .anyMatch(p -> p.service().equals(BotScript.class.getName()));
-
-                ServiceLoader<BotScript> loader = ServiceLoader.load(layer, BotScript.class);
-                int countBefore = allScripts.size();
-                for (BotScript script : loader) {
-                    allScripts.add(script);
-                    log.info("Loaded: {}", script.getClass().getName());
-                }
-
-                int loaded = allScripts.size() - countBefore;
-                if (loaded == 0 && providesBotScript) {
-                    log.warn("Module '{}' declares 'provides BotScript' but ServiceLoader found 0 implementations.", name);
-                } else if (loaded == 0) {
-                    log.info("Module '{}' contains no BotScript providers — skipping.", name);
-                }
-            } catch (Exception e) {
-                log.error("Failed to load module {}: {}", name, e.getMessage(), e);
+            List<ScriptLoadResult> results = new ArrayList<>();
+            ServiceLoader<BotScript> loader = ServiceLoader.load(layer, BotScript.class);
+            for (BotScript script : loader) {
+                log.info("Loaded: {}", script.getClass().getName());
+                results.add(ScriptLoadResult.success(jar, script, List.of()));
             }
+
+            if (results.isEmpty() && providesBotScript) {
+                String msg = "Module '" + name
+                        + "' declares 'provides BotScript' but ServiceLoader found 0 implementations";
+                log.warn(msg);
+                return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), List.of()));
+            }
+            if (results.isEmpty()) {
+                String msg = "Module '" + name + "' contains no BotScript providers";
+                log.info(msg);
+                return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), List.of()));
+            }
+            return results;
+        } catch (Exception e) {
+            log.error("Failed to load module {}: {}", name, e.getMessage(), e);
+            return List.of(ScriptLoadResult.failure(jar, e, List.of()));
         }
-
-        return allScripts;
     }
 }

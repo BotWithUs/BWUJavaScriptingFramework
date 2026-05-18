@@ -95,6 +95,25 @@ public class RpcClient implements AutoCloseable {
     }
 
     /**
+     * Swaps the underlying pipe transport to point at {@code pipeName} and
+     * restarts the reader loop. Used by {@code ReconnectController} after the
+     * remote agent comes back. Acquires {@link #pipeLock} for the duration of
+     * the swap so no concurrent send/read can observe a half-open transport.
+     *
+     * @throws com.botwithus.bot.core.pipe.PipeException if the new transport
+     *         fails to open; the previous transport remains untouched.
+     */
+    public void reconnect(String pipeName) {
+        pipeLock.lock();
+        try {
+            pipe.reconnect(pipeName);
+        } finally {
+            pipeLock.unlock();
+        }
+        start();
+    }
+
+    /**
      * Starts the background reader thread. Must be called before any RPC calls.
      */
     public void start() {
