@@ -7,6 +7,7 @@ import com.botwithus.bot.test.MockScriptContext;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
@@ -66,7 +67,7 @@ class ExampleScriptDryRunTest {
 
     @Test
     void onLoop_queuesNoActionsByDefault() {
-        List<String> sink = new java.util.ArrayList<>();
+        List<String> sink = new ArrayList<>();
         MockScriptContext ctx = MockScriptContext.builder()
                 .recordingActionsInto(sink)
                 .build();
