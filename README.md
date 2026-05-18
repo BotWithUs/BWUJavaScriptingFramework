@@ -239,6 +239,39 @@ module my.script {
 
 The `render()` method is called every frame on the UI thread. Each script with a UI gets its own tab in the Script UI panel.
 
+## Live Config
+
+Scripts expose runtime-editable parameters by overriding two methods on `BotScript`:
+
+```java
+@Override
+public List<ConfigField> getConfigFields() {
+    return List.of(
+            ConfigField.intField("loopDelay", "Loop Delay (ms)", 5000),
+            ConfigField.boolField("verbose", "Verbose Logging", true),
+            ConfigField.choiceField("mode", "Operating Mode",
+                    List.of("Passive", "Active", "Aggressive"), "Passive"),
+            ConfigField.itemIdField("axeId", "Axe Item ID", 1351),
+            ConfigField.stringField("greeting", "Greeting Text", "hello"));
+}
+
+@Override
+public void onConfigUpdate(ScriptConfig config) {
+    this.loopDelay = config.getInt("loopDelay", 5000);
+    this.verbose = config.getBoolean("verbose", true);
+    this.mode = config.getString("mode", "Passive");
+}
+```
+
+`ConfigField` supports five kinds: `INT`, `STRING`, `BOOLEAN`, `CHOICE`, and `ITEM_ID`. The framework renders a typed widget per field — number spinner for `INT`/`ITEM_ID`, text input for `STRING`, checkbox for `BOOLEAN`, dropdown for `CHOICE`. Open the panel from the Scripts list (Configure button on each script card).
+
+`onConfigUpdate(ScriptConfig)` fires twice:
+
+1. **At startup** — once the saved config is loaded from disk (or the defaults if nothing is persisted yet). This happens before `onLoop` begins.
+2. **At runtime** — every time the user clicks "Apply" in the config panel. The script keeps running; treat this as a hot reload of your tuning knobs.
+
+Persistence: configs are written to `~/.botwithus/config/<scriptName>.json` after every "Apply". The same file is read at script start. Editing the JSON by hand works — the change picks up on next start. Delete the file to reset to declared defaults.
+
 ## Personality & Humanization
 
 The `Personality` profile provides per-user behavioral characteristics and live session stats. Scripts can use this to adapt timing, click precision, and break scheduling for more human-like behavior.
@@ -328,3 +361,15 @@ Javadoc is generated for the API module and published to GitHub Pages. Build loc
 ```bash
 ./gradlew :api:javadoc
 ```
+
+## Troubleshooting
+
+**Pipe not found.** Connect fails with "no pipe matching `\\.\pipe\BotWithUs_*` found". The agent DLL (`BotWithUsDll.dll`) hasn't injected, or it injected into a different client PID. Check that the game client is running, that the loader actually injected (loader console will show the injection result), and that the PID matches. `PipeClient.firstAvailableOrThrow` walks `\\.\pipe\` and picks the first match — if multiple game clients are running, pass an explicit pipe name to `connect`.
+
+**Agent not injected.** The game client launched but no `\\.\pipe\BotWithUs_<pid>` ever appears. Two common causes: (1) the loader's `phantom_load` was blocked by an antivirus / EDR; (2) the agent DLL panicked during DllMain (look for `bwu_agent.log` next to the loader). The agent writes a startup line on success — its absence is the signal.
+
+**Protocol-version mismatch.** Connect succeeds but reads fail immediately with "shared region protocol version X, expected Y" — the consumer (`Layout.PROTOCOL_VERSION`) and the producer (`kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h`) drifted. Rebuild both sides from matching commits; `SharedRegion.open()` refuses to map a region whose version byte doesn't match.
+
+**Missing `provides` clause.** A JAR is placed in `scripts/` but doesn't show up in the Scripts panel. The most common cause is forgetting `provides com.botwithus.bot.api.BotScript with my.script.MyScript;` in the script's `module-info.java`. `LocalScriptLoader` emits a WARN-level log line when a module-bearing JAR contains no `BotScript` provider — check the log to confirm.
+
+**Scripts folder discovery order.** `LocalScriptLoader.resolveScriptsDir()` checks the `botwithus.scripts.dir` system property first; if unset, it walks up from the current working directory looking for an existing `scripts/` subdirectory (up to three parents — handles running from a sub-module's working dir). If nothing is found, it falls back to creating `./scripts` in the current working directory. If your script JAR isn't being picked up, the most common cause is running the CLI from a working directory the loader can't see — set `-Dbotwithus.scripts.dir=/absolute/path/to/scripts` or check the log for the resolved path.
