@@ -35,10 +35,15 @@ import com.botwithus.bot.core.runtime.ManagementScriptLoader;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.cache.NXTCache;
 
+import com.botwithus.bot.core.resolver.Repository;
 import com.botwithus.bot.core.resolver.config.CredentialsStore;
 import com.botwithus.bot.core.resolver.config.RepositoryConfigStore;
 import com.botwithus.bot.core.resolver.install.InstalledIndex;
 import com.botwithus.bot.core.resolver.install.ScriptInstaller;
+import com.botwithus.bot.core.resolver.pgp.BouncyCastlePgpVerifier;
+import com.botwithus.bot.core.resolver.pgp.KeyRing;
+import com.botwithus.bot.core.resolver.pgp.KeyRingStore;
+import com.botwithus.bot.core.resolver.pgp.PgpSignaturePolicy;
 import com.botwithus.bot.core.resolver.pgp.PgpVerifier;
 import com.botwithus.bot.core.resolver.pipeline.Resolver;
 import com.botwithus.bot.core.resolver.search.SearchService;
@@ -61,6 +66,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class CliContext {
@@ -108,6 +114,7 @@ public class CliContext {
     private RepositoryConfigStore repositoryConfigStore;
     private CredentialsStore credentialsStore;
     private InstalledIndex installedIndex;
+    private KeyRingStore keyRingStore;
     private SearchService searchService;
     private HttpClient resolverHttpClient;
     private NXTCache nxtCache;
@@ -624,6 +631,18 @@ public class CliContext {
         return installedIndex;
     }
 
+    public KeyRingStore getKeyRingStore() {
+        if (keyRingStore == null) {
+            keyRingStore = new KeyRingStore(KeyRingStore.DEFAULT_KEYRING_PATH, KeyRingStore.DEFAULT_METADATA_PATH);
+            try {
+                keyRingStore.load();
+            } catch (IOException e) {
+                log.warn("failed to load {}: {}", KeyRingStore.DEFAULT_METADATA_PATH, e.getMessage());
+            }
+        }
+        return keyRingStore;
+    }
+
     public SearchService getSearchService() {
         if (searchService == null) {
             Resolver probe = buildResolver();
@@ -656,8 +675,28 @@ public class CliContext {
         return Resolver.withDiscoveredDrivers(
                 getRepositoryConfigStore().all(),
                 transport,
-                PgpVerifier.ALWAYS_REJECT,
-                stagingRoot);
+                new BouncyCastlePgpVerifier(),
+                stagingRoot,
+                this::pgpPolicyFor);
+    }
+
+    /**
+     * Repository-level PGP policy lookup wired against the in-process
+     * {@link KeyRingStore}. Repos with {@code requireSignature: false}
+     * map to {@link PgpSignaturePolicy.NotRequired} unconditionally; repos
+     * with {@code requireSignature: true} map to
+     * {@link PgpSignaturePolicy.Required} carrying the user's current
+     * trusted-key set. The verifier rejects unsigned artifacts when no
+     * keys are trusted yet, which is the correct fail-closed behavior.
+     */
+    private PgpSignaturePolicy pgpPolicyFor(Repository repo) {
+        if (!repo.requireSignature()) {
+            return PgpSignaturePolicy.NotRequired.INSTANCE;
+        }
+        KeyRingStore store = getKeyRingStore();
+        KeyRing keyRing = store.currentKeyRing()
+                .orElseGet(() -> new KeyRing(store.keyringFile(), Set.of()));
+        return new PgpSignaturePolicy.Required(keyRing);
     }
 
     private HttpClient getResolverHttpClient() {

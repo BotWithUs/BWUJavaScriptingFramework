@@ -15,12 +15,14 @@ import com.botwithus.bot.core.resolver.config.RepositoryConfigStore;
 import com.botwithus.bot.core.resolver.driver.MavenRepositoryDriver;
 import com.botwithus.bot.core.resolver.install.InstalledEntry;
 import com.botwithus.bot.core.resolver.install.ScriptInstaller;
+import com.botwithus.bot.core.resolver.pgp.TrustedKey;
 import com.botwithus.bot.core.resolver.search.SearchService;
 import com.botwithus.bot.core.resolver.transport.TransportResult;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
@@ -61,7 +63,7 @@ public final class ScriptsResolverDispatcher {
             return false;
         }
         return switch (sub) {
-            case "install", "update", "uninstall", "search", "repo", "adopt" -> true;
+            case "install", "update", "uninstall", "search", "repo", "adopt", "trust" -> true;
             default -> false;
         };
     }
@@ -69,7 +71,7 @@ public final class ScriptsResolverDispatcher {
     public void dispatch(ParsedCommand parsed) {
         String sub = parsed.arg(0);
         if (sub == null) {
-            ctx.out().println("Usage: scripts <install|update|uninstall|search|repo|adopt|list --installed> ...");
+            ctx.out().println("Usage: scripts <install|update|uninstall|search|repo|adopt|trust|list --installed> ...");
             return;
         }
         switch (sub) {
@@ -79,6 +81,7 @@ public final class ScriptsResolverDispatcher {
             case "search" -> search(parsed);
             case "repo" -> repo(parsed);
             case "adopt" -> adopt(parsed);
+            case "trust" -> trust(parsed);
             default -> ctx.out().println("Unknown subcommand: " + sub);
         }
     }
@@ -311,6 +314,71 @@ public final class ScriptsResolverDispatcher {
         }
         InstallResult result = ctx.getInstaller().adopt(jarName);
         printInstallResult(result);
+    }
+
+    private void trust(ParsedCommand parsed) {
+        String op = parsed.arg(1);
+        if (op == null) {
+            ctx.out().println("Usage: scripts trust <add|remove|list> ...");
+            return;
+        }
+        switch (op) {
+            case "add" -> trustAdd(parsed);
+            case "remove" -> trustRemove(parsed);
+            case "list" -> trustList();
+            default -> ctx.out().println("Unknown trust op: " + op);
+        }
+    }
+
+    private void trustAdd(ParsedCommand parsed) {
+        String pathStr = parsed.arg(2);
+        if (pathStr == null) {
+            ctx.out().println("Usage: scripts trust add <keyfile>");
+            return;
+        }
+        Path keyFile = Path.of(pathStr);
+        try {
+            List<String> imported = ctx.getKeyRingStore().addKey(keyFile);
+            if (imported.isEmpty()) {
+                ctx.out().println("No keys imported from " + keyFile);
+                return;
+            }
+            for (String keyId : imported) {
+                ctx.out().println(AnsiCodes.colorize("Trusted ", AnsiCodes.GREEN) + keyId);
+            }
+        } catch (IOException e) {
+            ctx.out().println(AnsiCodes.colorize("Failed to import key: ", AnsiCodes.RED) + e.getMessage());
+        }
+    }
+
+    private void trustRemove(ParsedCommand parsed) {
+        String keyId = parsed.arg(2);
+        if (keyId == null) {
+            ctx.out().println("Usage: scripts trust remove <keyId>");
+            return;
+        }
+        try {
+            if (ctx.getKeyRingStore().removeKey(keyId)) {
+                ctx.out().println(AnsiCodes.colorize("Removed ", AnsiCodes.GREEN) + keyId);
+            } else {
+                ctx.out().println("Key not in trust store: " + keyId);
+            }
+        } catch (IOException e) {
+            ctx.out().println(AnsiCodes.colorize("Failed to remove key: ", AnsiCodes.RED) + e.getMessage());
+        }
+    }
+
+    private void trustList() {
+        List<TrustedKey> keys = ctx.getKeyRingStore().list();
+        if (keys.isEmpty()) {
+            ctx.out().println("No trusted keys. Use 'scripts trust add <keyfile>' to trust one.");
+            return;
+        }
+        TableFormatter table = new TableFormatter().headers("Key ID", "User ID", "Added");
+        for (TrustedKey k : keys) {
+            table.row(k.keyId(), k.userId(), k.addedAt().toString());
+        }
+        ctx.out().print(table.build());
     }
 
     private void printInstallResult(InstallResult result) {

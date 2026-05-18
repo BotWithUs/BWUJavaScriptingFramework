@@ -117,7 +117,12 @@ public final class RepositoryConfigStore {
                 BUNDLED_CENTRAL_URL,
                 MavenRepositoryDriver.TYPE_ID,
                 /* snapshots */ false,
-                /* requireSignature */ false,
+                // PR-E 12.3: public repos default to PGP-required. Users
+                // who want unsigned Central artifacts must `scripts repo
+                // add` a custom repo or edit ~/.botwithus/repositories.json.
+                // Until at least one key is trusted via `scripts trust add`,
+                // installs from `central` fail closed with SignatureInvalid.
+                /* requireSignature */ true,
                 Optional.empty(),
                 Optional.of(BUNDLED_CENTRAL_SEARCH)));
     }
