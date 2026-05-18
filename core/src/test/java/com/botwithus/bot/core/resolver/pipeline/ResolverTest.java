@@ -1,12 +1,13 @@
 package com.botwithus.bot.core.resolver.pipeline;
 
 import com.botwithus.bot.core.resolver.MavenCoord;
-import com.botwithus.bot.core.resolver.RepoType;
 import com.botwithus.bot.core.resolver.Repository;
 import com.botwithus.bot.core.resolver.ResolveOutcome;
 import com.botwithus.bot.core.resolver.TestRepoFixture;
+import com.botwithus.bot.core.resolver.driver.MavenRepositoryDriver;
+import com.botwithus.bot.core.resolver.driver.RepositoryDriver;
 import com.botwithus.bot.core.resolver.pgp.PgpVerifier;
-import com.botwithus.bot.core.resolver.transport.FileMavenTransport;
+import com.botwithus.bot.core.resolver.transport.FileTransport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -15,6 +16,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -33,8 +36,9 @@ class ResolverTest {
     void setUp() {
         repoRoot = tempDir.resolve("repo");
         staging = tempDir.resolve("staging");
-        repo = Repository.unauthenticated("test", repoRoot.toUri(), RepoType.RELEASE, false);
-        resolver = new Resolver(List.of(repo), new FileMavenTransport(), PgpVerifier.ALWAYS_REJECT, staging);
+        repo = Repository.mavenRelease("test", repoRoot.toUri(), false);
+        Map<String, RepositoryDriver> drivers = Map.of(MavenRepositoryDriver.TYPE_ID, new MavenRepositoryDriver());
+        resolver = new Resolver(List.of(repo), new FileTransport(), drivers, PgpVerifier.ALWAYS_REJECT, staging);
         fixture = new TestRepoFixture(repoRoot);
     }
 
@@ -75,7 +79,8 @@ class ResolverTest {
 
     @Test
     void emptyRepositoryListYieldsNotFound() {
-        Resolver empty = new Resolver(List.of(), new FileMavenTransport(), PgpVerifier.ALWAYS_REJECT, staging);
+        Map<String, RepositoryDriver> drivers = Map.of(MavenRepositoryDriver.TYPE_ID, new MavenRepositoryDriver());
+        Resolver empty = new Resolver(List.of(), new FileTransport(), drivers, PgpVerifier.ALWAYS_REJECT, staging);
         ResolveOutcome outcome = empty.resolve(MavenCoord.of("com.example", "art"));
         assertInstanceOf(ResolveOutcome.NotFound.class, outcome);
     }
@@ -89,5 +94,17 @@ class ResolverTest {
         ResolveOutcome outcome = resolver.resolve(MavenCoord.of("com.example", "art", "1.0.0"));
         ResolveOutcome.Resolved r = assertInstanceOf(ResolveOutcome.Resolved.class, outcome);
         assertEquals("1.0.0", r.artifact().resolvedVersion());
+    }
+
+    @Test
+    void unknownDriverYieldsNotFound() {
+        Repository custom = new Repository(
+                "custom", repoRoot.toUri(), "no-such-driver", false, false,
+                Optional.empty(), Optional.empty());
+        Map<String, RepositoryDriver> drivers = Map.of(MavenRepositoryDriver.TYPE_ID, new MavenRepositoryDriver());
+        Resolver r = new Resolver(List.of(custom), new FileTransport(), drivers, PgpVerifier.ALWAYS_REJECT, staging);
+
+        ResolveOutcome outcome = r.resolve(MavenCoord.of("com.example", "art"));
+        assertInstanceOf(ResolveOutcome.NotFound.class, outcome);
     }
 }

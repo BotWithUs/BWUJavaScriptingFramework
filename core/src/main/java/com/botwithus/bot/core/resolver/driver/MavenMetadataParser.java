@@ -1,4 +1,4 @@
-package com.botwithus.bot.core.resolver.metadata;
+package com.botwithus.bot.core.resolver.driver;
 
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamConstants;
@@ -21,7 +21,7 @@ import java.util.Optional;
  * is disabled, {@code SUPPORT_DTD} is disabled. The format we care about
  * does not use either.</p>
  */
-public final class MavenMetadataParser {
+final class MavenMetadataParser {
 
     private static final String EL_GROUP_ID = "groupId";
     private static final String EL_ARTIFACT_ID = "artifactId";
@@ -31,14 +31,14 @@ public final class MavenMetadataParser {
     private static final String EL_VERSIONS = "versions";
     private static final String EL_VERSION = "version";
 
-    public MavenMetadata parse(Path xmlFile) throws IOException, MetadataParseException {
+    MavenMetadata parse(Path xmlFile) throws IOException, MetadataParseException {
         Objects.requireNonNull(xmlFile, "xmlFile");
         try (InputStream in = Files.newInputStream(xmlFile)) {
             return parse(in);
         }
     }
 
-    public MavenMetadata parse(InputStream stream) throws MetadataParseException {
+    MavenMetadata parse(InputStream stream) throws MetadataParseException {
         Objects.requireNonNull(stream, "stream");
         XMLInputFactory factory = XMLInputFactory.newDefaultFactory();
         factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, Boolean.FALSE);
@@ -145,12 +145,12 @@ public final class MavenMetadataParser {
     }
 
     /** Thrown when {@code maven-metadata.xml} cannot be parsed. */
-    public static final class MetadataParseException extends Exception {
-        public MetadataParseException(String message) {
+    static final class MetadataParseException extends Exception {
+        MetadataParseException(String message) {
             super(message);
         }
 
-        public MetadataParseException(String message, Throwable cause) {
+        MetadataParseException(String message, Throwable cause) {
             super(message, cause);
         }
     }

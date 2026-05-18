@@ -11,12 +11,12 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class FileMavenTransportTest {
+class FileTransportTest {
 
     @TempDir
     Path tempDir;
 
-    private final FileMavenTransport transport = new FileMavenTransport();
+    private final FileTransport transport = new FileTransport();
 
     @Test
     void copiesExistingFile() throws IOException {

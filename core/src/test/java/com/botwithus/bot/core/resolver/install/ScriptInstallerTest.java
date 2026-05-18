@@ -2,12 +2,13 @@ package com.botwithus.bot.core.resolver.install;
 
 import com.botwithus.bot.core.resolver.InstallResult;
 import com.botwithus.bot.core.resolver.MavenCoord;
-import com.botwithus.bot.core.resolver.RepoType;
 import com.botwithus.bot.core.resolver.Repository;
 import com.botwithus.bot.core.resolver.TestRepoFixture;
+import com.botwithus.bot.core.resolver.driver.MavenRepositoryDriver;
+import com.botwithus.bot.core.resolver.driver.RepositoryDriver;
 import com.botwithus.bot.core.resolver.pgp.PgpVerifier;
 import com.botwithus.bot.core.resolver.pipeline.Resolver;
-import com.botwithus.bot.core.resolver.transport.FileMavenTransport;
+import com.botwithus.bot.core.resolver.transport.FileTransport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -17,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -41,8 +43,9 @@ class ScriptInstallerTest {
         scriptsDir = tempDir.resolve("scripts");
         stagingRoot = tempDir.resolve("staging");
         indexFile = tempDir.resolve(".installed.json");
-        Repository repo = Repository.unauthenticated("test", repoRoot.toUri(), RepoType.RELEASE, false);
-        resolver = new Resolver(List.of(repo), new FileMavenTransport(), PgpVerifier.ALWAYS_REJECT, stagingRoot);
+        Repository repo = Repository.mavenRelease("test", repoRoot.toUri(), false);
+        Map<String, RepositoryDriver> drivers = Map.of(MavenRepositoryDriver.TYPE_ID, new MavenRepositoryDriver());
+        resolver = new Resolver(List.of(repo), new FileTransport(), drivers, PgpVerifier.ALWAYS_REJECT, stagingRoot);
         index = new InstalledIndex(indexFile);
         fixture = new TestRepoFixture(repoRoot);
         changeCount = new AtomicInteger();

@@ -1,6 +1,6 @@
-package com.botwithus.bot.core.resolver.metadata;
+package com.botwithus.bot.core.resolver.driver;
 
-import com.botwithus.bot.core.resolver.metadata.MavenMetadataParser.MetadataParseException;
+import com.botwithus.bot.core.resolver.driver.MavenMetadataParser.MetadataParseException;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
