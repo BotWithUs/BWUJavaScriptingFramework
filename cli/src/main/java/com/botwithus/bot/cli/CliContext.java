@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.diag.StubGuard;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -217,7 +218,8 @@ public class CliContext {
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
                     iface -> pump.region().snapshot().ifaceVersion(iface),
-                    () -> new GameSnapshotImpl(pump.region().snapshot()));
+                    () -> new GameSnapshotImpl(pump.region().snapshot()),
+                    new StubGuard());
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
             rpc.start();
