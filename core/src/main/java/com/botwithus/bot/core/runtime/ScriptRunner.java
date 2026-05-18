@@ -6,14 +6,19 @@ import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.ScriptCrashedEvent;
+import com.botwithus.bot.api.runtime.LastCrash;
+import com.botwithus.bot.api.runtime.Phase;
+import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.core.config.ScriptConfigStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -30,16 +35,19 @@ public class ScriptRunner implements Runnable {
     private final ScriptContext context;
     private final Consumer<String> connectionTagger;
     private final Runnable connectionCleaner;
+    private final Consumer<GameEvent> eventSink;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean disposed = new AtomicBoolean(false);
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
+    private final AtomicReference<ScriptHealth> healthRef =
+            new AtomicReference<>(ScriptHealth.HEALTHY);
     private volatile CountDownLatch stopLatch;
     private Thread thread;
     private String connectionName;
 
     @FunctionalInterface
     public interface ErrorHandler {
-        void onError(String scriptName, String phase, Throwable error);
+        void onError(LastCrash crash);
     }
 
     private ErrorHandler errorHandler;
@@ -54,17 +62,39 @@ public class ScriptRunner implements Runnable {
     }
 
     /**
-     * Constructs a runner that tags / clears its thread via the supplied callbacks.
-     * The runner does not depend on any global state; the wiring code is responsible
-     * for passing in whatever connection-context propagator is appropriate
-     * (typically {@code ConnectionContext::set} and {@code ConnectionContext::clear}).
+     * Returns the latest {@link ScriptHealth} snapshot for this runner. Never
+     * {@code null}; {@link ScriptHealth#HEALTHY} when the script has never
+     * crashed.
+     */
+    public ScriptHealth health() {
+        return healthRef.get();
+    }
+
+    /**
+     * Constructs a runner that tags / clears its thread via the supplied callbacks
+     * and publishes {@link ScriptCrashedEvent}s through the supplied sink.
+     *
+     * <p>None of the arguments may be {@code null}. Wiring code that doesn't want
+     * to publish crash events should pass {@code e -> {}} explicitly.</p>
      */
     public ScriptRunner(BotScript script, ScriptContext context,
-                        Consumer<String> connectionTagger, Runnable connectionCleaner) {
+                        Consumer<String> connectionTagger, Runnable connectionCleaner,
+                        Consumer<GameEvent> eventSink) {
         this.script = script;
         this.context = context;
         this.connectionTagger = connectionTagger;
         this.connectionCleaner = connectionCleaner;
+        this.eventSink = eventSink;
+    }
+
+    /**
+     * Three-arg variant without an event sink — crashes are still captured into
+     * {@link #health()}, but no {@link ScriptCrashedEvent} is published. Kept
+     * for wiring code that doesn't have an {@code EventBus} handy yet.
+     */
+    public ScriptRunner(BotScript script, ScriptContext context,
+                        Consumer<String> connectionTagger, Runnable connectionCleaner) {
+        this(script, context, connectionTagger, connectionCleaner, e -> {});
     }
 
     /**
@@ -74,7 +104,7 @@ public class ScriptRunner implements Runnable {
      * threads.
      */
     public ScriptRunner(BotScript script, ScriptContext context) {
-        this(script, context, ConnectionContext::set, ConnectionContext::clear);
+        this(script, context, ConnectionContext::set, ConnectionContext::clear, e -> {});
     }
 
     public void start() {
@@ -170,7 +200,8 @@ public class ScriptRunner implements Runnable {
         try {
             script.onConfigUpdate(config);
         } catch (Exception e) {
-            log.error("Error in onConfigUpdate for {}: {}", getScriptName(), e.getMessage());
+            log.error("Error in onConfigUpdate for {}: {}", name, e.getMessage());
+            notifyError(Phase.ON_CONFIG_UPDATE, e);
         }
     }
 
@@ -188,7 +219,7 @@ public class ScriptRunner implements Runnable {
             script.onStart(context);
         } catch (Exception e) {
             log.error("onStart error in {}: {}", name, e.getMessage());
-            notifyError(name, "onStart", e);
+            notifyError(Phase.ON_START, e);
             running.set(false);
             connectionCleaner.run();
             return;
@@ -204,6 +235,7 @@ public class ScriptRunner implements Runnable {
             }
         } catch (Exception e) {
             log.error("Config load error in {}: {}", name, e.getMessage());
+            notifyError(Phase.ON_CONFIG_UPDATE, e);
         }
 
         GameAPI gameAPI = context.getGameAPI();
@@ -224,14 +256,14 @@ public class ScriptRunner implements Runnable {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.error("onLoop error in {}: {}", name, e.getMessage());
-            notifyError(name, "onLoop", e);
+            notifyError(Phase.ON_LOOP, e);
         } finally {
             running.set(false);
             try {
                 script.onStop();
             } catch (Exception e) {
                 log.error("onStop error in {}: {}", name, e.getMessage());
-                notifyError(name, "onStop", e);
+                notifyError(Phase.ON_STOP, e);
             }
             try {
                 context.getNavigation().cleanup();
@@ -258,14 +290,23 @@ public class ScriptRunner implements Runnable {
         return baseDelay;
     }
 
-    private void notifyError(String scriptName, String phase, Throwable error) {
+    private void notifyError(Phase phase, Throwable error) {
+        LastCrash crash = new LastCrash(phase, profiler.getLoopCount(), Instant.now(), error);
+        healthRef.updateAndGet(h -> h.withCrash(crash));
         ErrorHandler handler = this.errorHandler;
         if (handler != null) {
             try {
-                handler.onError(scriptName, phase, error);
+                handler.onError(crash);
             } catch (Exception e) {
-                log.error("Error handler itself threw for {}/{}: {}", scriptName, phase, e.getMessage());
+                log.error("Error handler itself threw for {}/{}: {}",
+                        getScriptName(), phase, e.getMessage());
             }
+        }
+        try {
+            eventSink.accept(new ScriptCrashedEvent(getScriptName(), connectionName, crash));
+        } catch (Exception e) {
+            log.warn("Event sink threw on ScriptCrashedEvent for {}/{}: {}",
+                    getScriptName(), phase, e.getMessage());
         }
     }
 }

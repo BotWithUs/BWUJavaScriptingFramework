@@ -17,4 +17,5 @@ module com.botwithus.bot.api {
     exports com.botwithus.bot.api.launcher;
     exports com.botwithus.bot.api.script;
     exports com.botwithus.bot.api.ui;
+    exports com.botwithus.bot.api.runtime;
 }

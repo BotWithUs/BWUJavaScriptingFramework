@@ -62,6 +62,17 @@ public final class SDNScriptLoader {
     }
 
     /**
+     * Loads local scripts and returns the full per-JAR {@link LoadReport}.
+     * Enforces process lockdown after loading completes, exactly like
+     * {@link #loadScripts()}.
+     */
+    public static LoadReport loadLocalReport() {
+        LoadReport report = LocalScriptLoader.loadReport();
+        enforceLockdown(report.scripts());
+        return report;
+    }
+
+    /**
      * Loads scripts from the SDN via encrypted bundle transfer.
      * Performs ECDH key exchange with the server and decrypts the script bundle.
      *
