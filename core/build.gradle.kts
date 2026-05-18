@@ -43,3 +43,15 @@ tasks.register<JavaExec>("componentCacheProbe") {
     mainClass = "com.botwithus.bot.core.impl.ComponentCacheProbe"
     // Pass CLI args: ./gradlew :core:componentCacheProbe --args="1473 0"
 }
+
+tasks.register<Test>("smokeTest") {
+    description = "Maven Central / resolver smoke test (requires network)"
+    group = "verification"
+    useJUnitPlatform()
+    systemProperty("botwithus.smoke.network", "true")
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.resolver.pipeline.MavenCentralSmokeTest")
+    }
+}

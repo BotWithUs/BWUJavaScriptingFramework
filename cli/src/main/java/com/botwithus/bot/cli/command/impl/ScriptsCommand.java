@@ -18,11 +18,21 @@ public class ScriptsCommand implements Command {
     @Override public String name() { return "scripts"; }
     @Override public List<String> aliases() { return List.of("s"); }
     @Override public String description() { return "Manage scripts on active connection"; }
-    @Override public String usage() { return "scripts [list|start <name>|stop <name>|restart <name>|info <name>|config <name>|status] [--group=<name>]"; }
+    @Override public String usage() { return "scripts [list|start|stop|restart|info|config|status|install|update|uninstall|search|repo|adopt] ..."; }
 
     @Override
     public void execute(ParsedCommand parsed, CliContext ctx) {
         String sub = parsed.arg(0);
+
+        // Resolver subcommands (PR-E item 12) work without an active connection.
+        if (ScriptsResolverDispatcher.handles(sub)) {
+            new ScriptsResolverDispatcher(ctx).dispatch(parsed);
+            return;
+        }
+        if ("list".equals(sub) && parsed.hasFlag("installed")) {
+            new ScriptsResolverDispatcher(ctx).listInstalled(parsed.hasFlag("outdated"));
+            return;
+        }
 
         // 'status' works without an active connection — shows all connections
         if ("status".equals(sub)) {

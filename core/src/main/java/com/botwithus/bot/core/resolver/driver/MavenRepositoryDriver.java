@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -167,7 +168,7 @@ public final class MavenRepositoryDriver implements RepositoryDriver {
 
     private static boolean isCentralStyle(URI endpoint) {
         String host = endpoint.getHost();
-        return host != null && host.toLowerCase().contains(CENTRAL_HOST);
+        return host != null && host.toLowerCase(Locale.ROOT).contains(CENTRAL_HOST);
     }
 
     private static URI buildCentralUri(URI endpoint, String query, int limit) {

@@ -4,6 +4,7 @@ import com.botwithus.bot.core.resolver.InstallResult;
 import com.botwithus.bot.core.resolver.MavenCoord;
 import com.botwithus.bot.core.resolver.ResolveOutcome;
 import com.botwithus.bot.core.resolver.metadata.ChecksumDigest;
+import com.botwithus.bot.core.resolver.metadata.PomProperties;
 import com.botwithus.bot.core.resolver.pipeline.Resolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +16,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -172,6 +174,81 @@ public final class ScriptInstaller {
     public List<InstalledEntry> listInstalled() {
         return index.all();
     }
+
+    /**
+     * Bridges a manually-dropped JAR into the install index by reading
+     * its {@code META-INF/maven/.../pom.properties}. Used by
+     * {@code scripts adopt}.
+     *
+     * @param jarFileName filename within {@link #scriptsDir}
+     */
+    public InstallResult adopt(String jarFileName) {
+        Objects.requireNonNull(jarFileName, "jarFileName");
+        Path jar = scriptsDir.resolve(jarFileName);
+        if (!Files.isRegularFile(jar)) {
+            return new InstallResult.IoError(
+                    MavenCoord.of("unknown", jarFileName),
+                    new IOException("not a regular file: " + jar));
+        }
+        Optional<PomProperties> props;
+        try {
+            props = PomProperties.read(jar);
+        } catch (IOException e) {
+            return new InstallResult.IoError(MavenCoord.of("unknown", jarFileName), e);
+        }
+        if (props.isEmpty()) {
+            return new InstallResult.IoError(
+                    MavenCoord.of("unknown", jarFileName),
+                    new IOException("no META-INF/maven/.../pom.properties entry in " + jarFileName));
+        }
+        MavenCoord coord = props.get().coord();
+        if (index.find(coord).isPresent()) {
+            return new InstallResult.AlreadyInstalled(coord, jar);
+        }
+        try {
+            String digest = ChecksumDigest.of(jar).toHex();
+            index.put(new InstalledEntry(jarFileName, coord, Instant.now(clock), digest, ADOPTED_REPO_ID));
+            index.save();
+            onScriptsChanged.run();
+            return new InstallResult.Installed(coord, jar);
+        } catch (IOException e) {
+            return new InstallResult.IoError(coord, e);
+        }
+    }
+
+    /**
+     * Returns installed entries that have a newer version available in
+     * any configured repository. Backs {@code scripts list --installed
+     * --outdated} and {@code scripts update --all}.
+     */
+    public List<OutdatedEntry> listOutdated() {
+        List<OutdatedEntry> out = new ArrayList<>();
+        for (InstalledEntry entry : index.all()) {
+            MavenCoord lookup = MavenCoord.of(entry.coord().groupId(), entry.coord().artifactId());
+            ResolveOutcome outcome = resolver.resolve(lookup);
+            Optional<ResolveOutcome.Resolved> resolvedOpt = asResolved(outcome);
+            if (resolvedOpt.isEmpty()) {
+                continue;
+            }
+            ResolveOutcome.Resolved resolved = resolvedOpt.get();
+            String latest = resolved.artifact().resolvedVersion();
+            if (!latest.equals(entry.version())) {
+                out.add(new OutdatedEntry(entry, latest));
+            }
+            try {
+                Files.deleteIfExists(resolved.artifact().jar());
+            } catch (IOException e) {
+                log.debug("failed to delete staged jar {} after listOutdated", resolved.artifact().jar(), e);
+            }
+        }
+        return List.copyOf(out);
+    }
+
+    /** Repository id used for entries adopted from JARs not installed by the resolver. */
+    public static final String ADOPTED_REPO_ID = "adopted";
+
+    /** One row of {@link #listOutdated()}. */
+    public record OutdatedEntry(InstalledEntry installed, String latestVersion) {}
 
     /**
      * Deletes the previous JAR for the same {@code groupId:artifactId} (if

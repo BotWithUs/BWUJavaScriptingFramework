@@ -86,6 +86,15 @@ class ResolverTest {
     }
 
     @Test
+    void fallsBackToSha1WhenSha256Absent() throws IOException {
+        byte[] jarBytes = TestRepoFixture.buildJar("com.example", "legacy", "1.0.0");
+        fixture.publishSha1Only("com.example", "legacy", "1.0.0", jarBytes);
+
+        ResolveOutcome outcome = resolver.resolve(MavenCoord.of("com.example", "legacy"));
+        assertInstanceOf(ResolveOutcome.Resolved.class, outcome);
+    }
+
+    @Test
     void explicitVersionWinsOverMetadata() throws IOException {
         fixture.publish("com.example", "art", "1.0.0", TestRepoFixture.buildJar("com.example", "art", "1.0.0"));
         byte[] v11 = TestRepoFixture.buildJar("com.example", "art", "1.1.0");
