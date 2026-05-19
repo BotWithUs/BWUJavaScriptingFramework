@@ -63,3 +63,19 @@ tasks.register<Test>("smokeTest") {
         includeTestsMatching("com.botwithus.bot.core.resolver.pipeline.MavenCentralSmokeTest")
     }
 }
+
+tasks.register<Test>("liveSmokeTest") {
+    description = "Live-producer smoke tests (requires NXTLibrary DLL injected into a running game)"
+    group = "verification"
+    useJUnitPlatform()
+    systemProperty("botwithus.smoke.live", "true")
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveLocationsSmokeTest")
+    }
+}
