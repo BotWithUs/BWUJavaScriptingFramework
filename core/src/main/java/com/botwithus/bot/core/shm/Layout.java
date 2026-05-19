@@ -23,7 +23,7 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h. */
-    public static final int PROTOCOL_VERSION = 11;
+    public static final int PROTOCOL_VERSION = 12;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -34,6 +34,7 @@ public final class Layout {
 
     public static final int NPC_CAP            = 1024;
     public static final int PLAYER_CAP         = 2048;
+    public static final int LOCATION_CAP       = 8192;
     public static final int SKILL_CAP          = 32;
     public static final int INVENTORY_CAP      = 32;
     public static final int INVENTORY_ITEM_CAP = 2048;
@@ -44,6 +45,17 @@ public final class Layout {
 
     /** Bit flag shared between NpcEntry and PlayerEntry. */
     public static final int FLAG_MOVING = 1;
+
+    // ------------------------------------------------------------------
+    // LocationEntry flag bits (mirrors kLocFlag* in SharedLayout.h)
+    // ------------------------------------------------------------------
+
+    /** Set when the producer observed the Location's hidden byte non-zero. */
+    public static final int LOC_FLAG_HIDDEN            = 1 << 0;
+    /** Set on rows emitted from a COMBINED_LOCATION_SECTION (vs a direct LOCATION). */
+    public static final int LOC_FLAG_COMBINED_SECTION  = 1 << 1;
+    /** Set when the producer observed loc_deleted non-zero (direct LOCATIONs only). */
+    public static final int LOC_FLAG_DELETED           = 1 << 2;
 
     // ------------------------------------------------------------------
     // SharedHeader
@@ -80,6 +92,24 @@ public final class Layout {
     public static final int NPC_STANCEID_OFFSET       = 20;   // i32
     public static final int NPC_HP_OFFSET             = 24;   // i32
     public static final int NPC_MAXHP_OFFSET          = 28;   // i32
+
+    // ------------------------------------------------------------------
+    // LocationEntry (20 bytes) — mirrors ipc::LocationEntry in SharedLayout.h.
+    // typeId/interactId/animationId are -1 when not applicable. interactId is
+    // always -1 on COMBINED_LOCATION_SECTION rows (see Location.h::InteractId).
+    // ------------------------------------------------------------------
+
+    public static final int LOCATION_ENTRY_SIZE = 20;
+
+    public static final int LOC_TYPEID_OFFSET      = 0;    // i32
+    public static final int LOC_INTERACTID_OFFSET  = 4;    // i32
+    public static final int LOC_ANIMATIONID_OFFSET = 8;    // i32
+    public static final int LOC_TILEX_OFFSET       = 12;   // i16
+    public static final int LOC_TILEY_OFFSET       = 14;   // i16
+    public static final int LOC_PLANE_OFFSET       = 16;   // i8
+    public static final int LOC_SHAPE_OFFSET       = 17;   // u8
+    public static final int LOC_ROTATION_OFFSET    = 18;   // u8
+    public static final int LOC_FLAGS_OFFSET       = 19;   // u8
 
     // ------------------------------------------------------------------
     // PlayerEntry (24 bytes)
@@ -164,8 +194,17 @@ public final class Layout {
     public static final int SNAP_PLAYERCOUNT_OFFSET = SNAP_NPCS_OFFSET + NPC_CAP * NPC_ENTRY_SIZE;
     public static final int SNAP_PLAYERS_OFFSET     = SNAP_PLAYERCOUNT_OFFSET + 4;
 
-    public static final int SNAP_INVENTORYCOUNT_OFFSET = SNAP_PLAYERS_OFFSET
-                                                       + PLAYER_CAP * PLAYER_ENTRY_SIZE;
+    public static final int SNAP_LOCATIONCOUNT_OFFSET = SNAP_PLAYERS_OFFSET
+                                                      + PLAYER_CAP * PLAYER_ENTRY_SIZE;
+    public static final int SNAP_LOCATIONS_OFFSET     = SNAP_LOCATIONCOUNT_OFFSET + 4;
+
+    // 4-byte explicit pad after the locations array keeps the following
+    // ProducerState (alignof 8) 8-aligned. Mirrors Snapshot::_padAfterLocations
+    // in SharedLayout.h; not accessed from Java but must be reserved here so
+    // SNAP_INVENTORYCOUNT_OFFSET matches the C++ side.
+    public static final int SNAP_INVENTORYCOUNT_OFFSET = SNAP_LOCATIONS_OFFSET
+                                                       + LOCATION_CAP * LOCATION_ENTRY_SIZE
+                                                       + 4;
     public static final int SNAP_INVENTORIES_OFFSET    = SNAP_INVENTORYCOUNT_OFFSET + 4;
 
     public static final int SNAP_INVITEMCOUNT_OFFSET = SNAP_INVENTORIES_OFFSET
@@ -187,6 +226,10 @@ public final class Layout {
     public static final int PRODUCER_ONBREAK_OFFSET             = 5;    // u8
     public static final int PRODUCER_LASTACTIONTIMEMS_OFFSET    = 8;    // u64
     public static final int PRODUCER_BREAKUNTILMS_OFFSET        = 16;   // u64
+    /** Bumps when the producer's loaded_map_squares vector identity changes
+     *  — a coarse "scene was streamed" signal consumers can use to invalidate
+     *  per-region caches. Mirrors ProducerState::sceneVersion. */
+    public static final int PRODUCER_SCENEVERSION_OFFSET        = 24;   // u32
 
     public static final int SNAPSHOT_SIZE = SNAP_PRODUCER_OFFSET + PRODUCER_SIZE;
 

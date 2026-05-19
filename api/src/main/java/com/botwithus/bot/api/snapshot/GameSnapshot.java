@@ -44,8 +44,19 @@ public interface GameSnapshot {
     /** Player table accessor. */
     Players players();
 
+    /** Scene Location table accessor (doors / trees / rocks / scenery). */
+    Locations locations();
+
     /** Inventory table accessor. */
     Inventories inventories();
+
+    /**
+     * Producer-side scene-shape version. Bumps whenever the streamed
+     * {@code loaded_map_squares} identity changes — region crossings, login,
+     * teleport. Use as a cache key on per-region structures derived from
+     * snapshot data; a change invalidates anything keyed on the prior scene.
+     */
+    int sceneVersion();
 
     interface Npcs {
         int count();
@@ -69,6 +80,16 @@ public interface GameSnapshot {
         List<Player> filter(PlayerFilter filter);
 
         Stream<Player> stream();
+    }
+
+    interface Locations {
+        int count();
+
+        Location at(int index);
+
+        List<Location> filter(LocationFilter filter);
+
+        Stream<Location> stream();
     }
 
     interface Inventories {

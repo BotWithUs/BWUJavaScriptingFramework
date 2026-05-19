@@ -4,12 +4,15 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.LocationFilter;
 import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.shm.LocalPlayerView;
+import com.botwithus.bot.core.shm.LocationEntry;
 import com.botwithus.bot.core.shm.NpcEntry;
 import com.botwithus.bot.core.shm.PlayerEntry;
 import com.botwithus.bot.core.shm.SkillEntry;
@@ -98,8 +101,18 @@ public final class GameSnapshotImpl implements GameSnapshot {
     }
 
     @Override
+    public Locations locations() {
+        return new LocationsImpl();
+    }
+
+    @Override
     public Inventories inventories() {
         return new InventoriesImpl();
+    }
+
+    @Override
+    public int sceneVersion() {
+        return view.sceneVersion();
     }
 
     private static Npc toNpc(NpcEntry e) {
@@ -128,6 +141,19 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.animationId(),
                 e.stanceId(),
                 e.combatLevel());
+    }
+
+    private static Location toLocation(LocationEntry e) {
+        return new Location(
+                e.typeId(),
+                e.interactId(),
+                e.animationId(),
+                e.tileX(),
+                e.tileY(),
+                e.plane(),
+                e.shape(),
+                e.rotation(),
+                e.flags());
     }
 
     private final class NpcsImpl implements Npcs {
@@ -213,6 +239,37 @@ public final class GameSnapshotImpl implements GameSnapshot {
         @Override
         public Stream<Player> stream() {
             return IntStream.range(0, view.playerCount()).mapToObj(this::at);
+        }
+    }
+
+    private final class LocationsImpl implements Locations {
+
+        @Override
+        public int count() {
+            return view.locationCount();
+        }
+
+        @Override
+        public Location at(int index) {
+            return toLocation(view.locationAt(index));
+        }
+
+        @Override
+        public List<Location> filter(LocationFilter filter) {
+            int n = view.locationCount();
+            List<Location> out = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                Location rec = toLocation(view.locationAt(i));
+                if (filter.test(rec)) {
+                    out.add(rec);
+                }
+            }
+            return out;
+        }
+
+        @Override
+        public Stream<Location> stream() {
+            return IntStream.range(0, view.locationCount()).mapToObj(this::at);
         }
     }
 

@@ -111,6 +111,43 @@ public final class SnapshotView {
     }
 
     // ------------------------------------------------------------------
+    // Location array
+    // ------------------------------------------------------------------
+
+    public int locationCount() {
+        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_LOCATIONCOUNT_OFFSET);
+        return n < 0 ? 0 : Math.min(n, Layout.LOCATION_CAP);
+    }
+
+    public LocationEntry locationAt(int i) {
+        if (i < 0 || i >= locationCount()) {
+            throw new IndexOutOfBoundsException(i);
+        }
+        long base = Layout.SNAP_LOCATIONS_OFFSET + (long) i * Layout.LOCATION_ENTRY_SIZE;
+        return new LocationEntry(
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.LOC_TYPEID_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.LOC_INTERACTID_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.LOC_ANIMATIONID_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.LOC_TILEX_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.LOC_TILEY_OFFSET),
+                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.LOC_PLANE_OFFSET),
+                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.LOC_SHAPE_OFFSET) & 0xFF,
+                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.LOC_ROTATION_OFFSET) & 0xFF,
+                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.LOC_FLAGS_OFFSET) & 0xFF);
+    }
+
+    /**
+     * Producer-side counter bumped whenever the loaded_map_squares vector
+     * identity changes — i.e. the streamed scene shape has changed (region
+     * crossing, login, etc). Consumers use the value as a cache key on any
+     * per-region structure derived from snapshot data.
+     */
+    public int sceneVersion() {
+        return seg.get(ValueLayout.JAVA_INT,
+                       Layout.SNAP_PRODUCER_OFFSET + Layout.PRODUCER_SCENEVERSION_OFFSET);
+    }
+
+    // ------------------------------------------------------------------
     // Inventory array + flat item buffer
     // ------------------------------------------------------------------
 

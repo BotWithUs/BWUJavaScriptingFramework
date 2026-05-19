@@ -3,6 +3,8 @@ package com.botwithus.bot.test;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.LocationFilter;
 import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
@@ -33,7 +35,9 @@ public record CannedSnapshot(
         LocalPlayer self,
         Npcs npcs,
         Players players,
-        Inventories inventories
+        Locations locations,
+        Inventories inventories,
+        int sceneVersion
 ) implements GameSnapshot {
 
     /** Game state code returned by the producer when the client is on the login screen. */
@@ -47,9 +51,11 @@ public record CannedSnapshot(
 
     private static final long DEFAULT_TICK_ID = 0L;
     private static final int NO_LOCAL_PLAYER_INDEX = -1;
+    private static final int DEFAULT_SCENE_VERSION = 0;
 
     private static final Npcs EMPTY_NPCS = new Npcs(List.of());
     private static final Players EMPTY_PLAYERS = new Players(List.of());
+    private static final Locations EMPTY_LOCATIONS = new Locations(List.of());
     private static final Inventories EMPTY_INVENTORIES = new Inventories(List.of());
 
     /** Snapshot with no in-game player, no NPCs, no other players, no inventories. */
@@ -61,7 +67,9 @@ public record CannedSnapshot(
                 null,
                 EMPTY_NPCS,
                 EMPTY_PLAYERS,
-                EMPTY_INVENTORIES);
+                EMPTY_LOCATIONS,
+                EMPTY_INVENTORIES,
+                DEFAULT_SCENE_VERSION);
     }
 
     /** Snapshot in-game with the supplied local player and empty entity tables. */
@@ -76,12 +84,15 @@ public record CannedSnapshot(
                 self,
                 EMPTY_NPCS,
                 EMPTY_PLAYERS,
-                EMPTY_INVENTORIES);
+                EMPTY_LOCATIONS,
+                EMPTY_INVENTORIES,
+                DEFAULT_SCENE_VERSION);
     }
 
     /** Returns a copy with a different {@link #tickId()} for advancing time in tests. */
     public CannedSnapshot withTickId(long newTickId) {
-        return new CannedSnapshot(newTickId, gameState, ownIndex, self, npcs, players, inventories);
+        return new CannedSnapshot(newTickId, gameState, ownIndex, self,
+                                  npcs, players, locations, inventories, sceneVersion);
     }
 
     public record Npcs(List<Npc> all) implements GameSnapshot.Npcs {
@@ -142,6 +153,32 @@ public record CannedSnapshot(
 
         @Override
         public Stream<Player> stream() {
+            return all.stream();
+        }
+    }
+
+    public record Locations(List<Location> all) implements GameSnapshot.Locations {
+        public Locations {
+            all = List.copyOf(all);
+        }
+
+        @Override
+        public int count() {
+            return all.size();
+        }
+
+        @Override
+        public Location at(int index) {
+            return index >= 0 && index < all.size() ? all.get(index) : null;
+        }
+
+        @Override
+        public List<Location> filter(LocationFilter filter) {
+            return all.stream().filter(filter::test).toList();
+        }
+
+        @Override
+        public Stream<Location> stream() {
             return all.stream();
         }
     }
