@@ -4,6 +4,8 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.LocationFilter;
 import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
@@ -277,6 +279,72 @@ class GameSnapshotImplTest {
     }
 
     // ------------------------------------------------------------------
+    // locations()
+    // ------------------------------------------------------------------
+
+    @Test
+    void locationsEmptyByDefault() {
+        try (Arena arena = Arena.ofConfined()) {
+            GameSnapshot.Locations locs = build(allocSnapshot(arena)).locations();
+            assertEquals(0, locs.count());
+            assertEquals(0L, locs.stream().count());
+            assertThrows(IndexOutOfBoundsException.class, () -> locs.at(0));
+        }
+    }
+
+    @Test
+    void locationsAtBuildsRecordAndFlagsRoundTrip() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_LOCATIONCOUNT_OFFSET, 2);
+            writeLocation(seg, 0, /* typeId */ 38732, /* interactId */ 7,
+                    /* animationId */ -1, (short) 3200, (short) 3300,
+                    /* plane */ (byte) 0, /* shape */ 10, /* rotation */ 1,
+                    /* flags */ Layout.LOC_FLAG_HIDDEN);
+            writeLocation(seg, 1, 123, -1, 456, (short) 3201, (short) 3300,
+                    (byte) 1, 22, 3, Layout.LOC_FLAG_COMBINED_SECTION);
+
+            GameSnapshot.Locations locs = build(seg).locations();
+            assertEquals(2, locs.count());
+
+            Location l0 = locs.at(0);
+            assertEquals(38732, l0.typeId());
+            assertEquals(7, l0.interactId());
+            assertEquals(-1, l0.animationId());
+            assertEquals(3200, l0.tileX());
+            assertEquals(3300, l0.tileY());
+            assertEquals(0, l0.plane());
+            assertEquals(10, l0.shape());
+            assertEquals(1, l0.rotation());
+            assertTrue(l0.isHidden());
+            assertFalse(l0.isCombinedSection());
+
+            Location l1 = locs.at(1);
+            assertTrue(l1.isCombinedSection());
+            assertEquals(456, l1.animationId());
+
+            List<Location> sections = locs.filter(LocationFilter.combinedSection());
+            assertEquals(1, sections.size());
+            assertEquals(123, sections.get(0).typeId());
+
+            List<Location> animating = locs.filter(LocationFilter.animating());
+            assertEquals(1, animating.size());
+            assertEquals(456, animating.get(0).animationId());
+        }
+    }
+
+    @Test
+    void sceneVersionRoundTrips() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT,
+                    Layout.SNAP_PRODUCER_OFFSET + Layout.PRODUCER_SCENEVERSION_OFFSET,
+                    42);
+            assertEquals(42, build(seg).sceneVersion());
+        }
+    }
+
+    // ------------------------------------------------------------------
     // inventories()
     // ------------------------------------------------------------------
 
@@ -449,6 +517,22 @@ class GameSnapshotImplTest {
         seg.set(ValueLayout.JAVA_INT,   base + Layout.PLAYER_ANIMATIONID_OFFSET,    animationId);
         seg.set(ValueLayout.JAVA_INT,   base + Layout.PLAYER_STANCEID_OFFSET,       stanceId);
         seg.set(ValueLayout.JAVA_INT,   base + Layout.PLAYER_COMBATLEVEL_OFFSET,    combatLevel);
+    }
+
+    private static void writeLocation(MemorySegment seg, int index,
+                                      int typeId, int interactId, int animationId,
+                                      short tileX, short tileY, byte plane,
+                                      int shape, int rotation, int flags) {
+        long base = Layout.SNAP_LOCATIONS_OFFSET + (long) index * Layout.LOCATION_ENTRY_SIZE;
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.LOC_TYPEID_OFFSET,      typeId);
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.LOC_INTERACTID_OFFSET,  interactId);
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.LOC_ANIMATIONID_OFFSET, animationId);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.LOC_TILEX_OFFSET,       tileX);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.LOC_TILEY_OFFSET,       tileY);
+        seg.set(ValueLayout.JAVA_BYTE,  base + Layout.LOC_PLANE_OFFSET,       plane);
+        seg.set(ValueLayout.JAVA_BYTE,  base + Layout.LOC_SHAPE_OFFSET,       (byte) shape);
+        seg.set(ValueLayout.JAVA_BYTE,  base + Layout.LOC_ROTATION_OFFSET,    (byte) rotation);
+        seg.set(ValueLayout.JAVA_BYTE,  base + Layout.LOC_FLAGS_OFFSET,       (byte) flags);
     }
 
     private static void writeInvHeader(MemorySegment seg, int index, int invId,

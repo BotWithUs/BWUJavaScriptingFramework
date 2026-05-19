@@ -306,6 +306,16 @@ class GameAPIImplEntitiesTest {
             };
         }
 
+        @Override public Locations locations() {
+            return new Locations() {
+                @Override public int count() { return 0; }
+                @Override public com.botwithus.bot.api.snapshot.Location at(int i) { throw new IndexOutOfBoundsException(i); }
+                @Override public List<com.botwithus.bot.api.snapshot.Location> filter(
+                        com.botwithus.bot.api.snapshot.LocationFilter f) { return List.of(); }
+                @Override public Stream<com.botwithus.bot.api.snapshot.Location> stream() { return Stream.empty(); }
+            };
+        }
+
         @Override public Inventories inventories() {
             return new Inventories() {
                 @Override public int count() { return 0; }
@@ -314,5 +324,7 @@ class GameAPIImplEntitiesTest {
                 @Override public Stream<com.botwithus.bot.api.snapshot.Inventory> stream() { return Stream.empty(); }
             };
         }
+
+        @Override public int sceneVersion() { return 0; }
     }
 }
