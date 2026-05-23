@@ -43,8 +43,7 @@ import java.util.Map;
  * <ul>
  *   <li>{@link SystemAPI} — pipe ping / introspection</li>
  *   <li>{@link ActionAPI} — action queue + behavior modifiers</li>
- *   <li>{@link NavigationAPI} — walker, pathfinder queries, nav graph CRUD,
- *       teleport registry</li>
+ *   <li>{@link NavigationAPI} — walker, pathfinder queries, region cache</li>
  * </ul>
  *
  * <p>Reads of game state (local player, NPCs, players, inventories) and

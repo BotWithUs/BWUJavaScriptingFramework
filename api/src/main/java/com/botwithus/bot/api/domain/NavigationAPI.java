@@ -1,20 +1,11 @@
 package com.botwithus.bot.api.domain;
 
-import com.botwithus.bot.api.model.NavClimbover;
-import com.botwithus.bot.api.model.NavDoor;
-import com.botwithus.bot.api.model.NavPlaneTransition;
-import com.botwithus.bot.api.model.NavShortcut;
-import com.botwithus.bot.api.model.NavStats;
-import com.botwithus.bot.api.model.NavTeleport;
-import com.botwithus.bot.api.model.NavTransport;
 import com.botwithus.bot.api.model.PathResult;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldPathConfig;
 
-import java.util.List;
-
 /**
- * Navigation, pathfinding, and navigation link management.
+ * Navigation and pathfinding.
  *
  * @see com.botwithus.bot.api.GameAPI
  */
@@ -160,34 +151,4 @@ public interface NavigationAPI {
      * Invalidates all cached region collision data.
      */
     void clearRegionCache();
-
-    // ============================== Navigation Links ==============================
-
-    void navAddTransport(NavTransport transport);
-    void navRemoveTransport(int objectId, int x, int y, int plane);
-    List<NavTransport> navListTransports();
-
-    void navAddDoor(NavDoor door);
-    void navRemoveDoor(int objectId, int x, int y, int plane);
-    List<NavDoor> navListDoors();
-
-    void navAddShortcut(NavShortcut shortcut);
-    void navRemoveShortcut(int objectId, int x, int y, int plane);
-
-    void navAddPlaneTransition(NavPlaneTransition transition);
-    void navRemovePlaneTransition(int objectId, int x, int y, int plane);
-
-    void navAddClimbover(NavClimbover climbover);
-    void navRemoveClimbover(int objectId, int x, int y, int plane);
-
-    int navLoadJson(List<NavTransport> links);
-    void navSaveLinks(String path);
-    int navLoadLinks(String path);
-    NavStats navGetStats();
-
-    // ============================== Teleports ==============================
-
-    int navRegisterTeleports(String json, String format);
-    int navClearScriptTeleports();
-    List<NavTeleport> navListTeleports(boolean scriptOnly);
 }
