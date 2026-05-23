@@ -36,6 +36,8 @@ import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.loader.BwuClient;
+import com.botwithus.bot.core.loader.bootstrap.NativeArtifactDownloader;
+import com.botwithus.bot.core.loader.bootstrap.NativeArtifactManifest;
 
 import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
@@ -159,6 +161,7 @@ public class ImGuiApp extends Application {
         wireDisplayHooks();
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
 
+        runNativeBootstrap();
         BwuClient bwu = resolveBwuClient();
         ctx.initManagementRuntime(bwu);
         autoStartManager.start();
@@ -287,6 +290,23 @@ public class ImGuiApp extends Application {
                         ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
             }
         });
+    }
+
+    /**
+     * Fetch native artifacts (bwu.dll, helper-libs zip) into
+     * {@code ~/.botwithus/native/} before any consumer goes looking for
+     * them. Synchronous so {@link #resolveBwuClient} sees the populated
+     * cache; safe to run when URLs are unconfigured because the downloader
+     * treats stub entries as no-ops.
+     */
+    private void runNativeBootstrap() {
+        try {
+            new NativeArtifactDownloader().downloadAll(NativeArtifactManifest.defaults());
+        } catch (RuntimeException e) {
+            // Bootstrap is best-effort: the existing BwuClient fallbacks
+            // (working-dir / bundled resource) keep the app launchable.
+            log.warn("Native bootstrap failed; falling back to bundled artifacts", e);
+        }
     }
 
     /**

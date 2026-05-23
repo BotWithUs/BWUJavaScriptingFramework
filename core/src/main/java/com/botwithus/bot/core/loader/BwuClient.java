@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.loader;
 
+import com.botwithus.bot.core.loader.bootstrap.NativeCache;
 import com.botwithus.bot.core.util.Throwables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,12 +89,18 @@ public final class BwuClient implements AutoCloseable {
     }
 
     /**
-     * Resolve bwu.dll using a three-stage strategy:
+     * Resolve bwu.dll using a four-stage strategy:
      * <ol>
      *   <li>{@code BWU_DLL_PATH} env var (dev override)</li>
      *   <li>Filesystem — DLL next to the executable or in the working directory</li>
+     *   <li>Native cache — {@code ~/.botwithus/native/bwu.dll}, populated by
+     *       {@link com.botwithus.bot.core.loader.bootstrap.NativeArtifactDownloader}</li>
      *   <li>Bundled resource — extract {@code /native/bwu.dll} to a temp file</li>
      * </ol>
+     *
+     * <p>This method is read-only with respect to the cache; the downloader
+     * is invoked separately (typically by the CLI bootstrap) before
+     * {@code resolve} is called.</p>
      *
      * @param resourceAnchor class whose classloader contains the bundled resource
      * @return path to the DLL, or {@code null} if unavailable
@@ -112,6 +119,12 @@ public final class BwuClient implements AutoCloseable {
         Path fsPath = Path.of("bwu.dll");
         if (Files.isRegularFile(fsPath)) {
             return fsPath;
+        }
+
+        Path cachedPath = new NativeCache().resolve("bwu.dll");
+        if (Files.isRegularFile(cachedPath)) {
+            log.info("Using bwu.dll from native cache: {}", cachedPath);
+            return cachedPath;
         }
 
         try (InputStream in = resourceAnchor.getResourceAsStream("/native/bwu.dll")) {
