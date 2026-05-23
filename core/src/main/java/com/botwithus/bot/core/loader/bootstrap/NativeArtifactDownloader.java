@@ -13,7 +13,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -35,20 +34,18 @@ import java.util.zip.ZipInputStream;
  *       {@link NativeArtifactManifest#STUB_DIGEST} return
  *       {@link Result.Skipped} without touching the network. This lets the
  *       bootstrap ship before real hosting is wired up.</li>
- *   <li><b>Cache check</b> — for a {@link Entry.Dll}, the cached file is
- *       SHA-256'd and compared to the manifest's expected digest; for a
- *       {@link Entry.Zip}, a sibling marker file ({@code <name>.installed})
- *       records the digest of the archive last extracted. A match returns
- *       {@link Result.AlreadyCached} without any HTTP request.</li>
- *   <li><b>Fetch</b> — bytes stream into a sibling {@code .part} file. The
- *       cache is observed in only two states: empty (or stale), or fully
- *       written and digest-verified.</li>
+ *   <li><b>Cache check</b> — a sibling marker file
+ *       ({@code <name>.installed}) records the digest of the archive last
+ *       extracted. A match returns {@link Result.AlreadyCached} without
+ *       any HTTP request.</li>
+ *   <li><b>Fetch</b> — bytes stream into a sibling {@code .part} file.
+ *       The cache is observed in only two states: empty (or stale), or
+ *       fully written and digest-verified.</li>
  *   <li><b>Verify</b> — SHA-256 of the {@code .part} file is compared to
  *       the manifest digest. Mismatch deletes the partial file and returns
  *       {@link Result.ChecksumMismatch}.</li>
- *   <li><b>Place</b> — DLLs atomic-rename into the cache; zips extract
- *       (with a zip-slip guard) into the cache, the staged archive is
- *       deleted, and the marker file is written.</li>
+ *   <li><b>Place</b> — the staged archive is extracted (with a zip-slip
+ *       guard) into the cache, deleted, and the marker file is written.</li>
  * </ol>
  *
  * <p>All failures are returned as {@link Result} values; no exception
@@ -107,58 +104,30 @@ public final class NativeArtifactDownloader {
             return new Result.Skipped(entry, "URL not configured");
         }
         try {
-            return switch (entry) {
-                case Entry.Dll dll -> downloadDll(dll);
-                case Entry.Zip zip -> downloadZip(zip);
-            };
+            Path marker = cache.resolve(entry.destFilename() + MARKER_SUFFIX);
+            if (markerMatches(marker, entry.sha256Hex())) {
+                return new Result.AlreadyCached(entry, cache.cacheDir());
+            }
+            cache.ensureExists();
+            Path stagedZip = cache.resolve(entry.destFilename() + PART_SUFFIX);
+            FetchOutcome fetched = fetchToPart(entry.url(), stagedZip);
+            Result failure = toFailure(entry, fetched);
+            if (failure != null) {
+                return failure;
+            }
+            String actual = hex(sha256(stagedZip));
+            if (!actual.equalsIgnoreCase(entry.sha256Hex())) {
+                Files.deleteIfExists(stagedZip);
+                return new Result.ChecksumMismatch(entry, entry.sha256Hex(), actual);
+            }
+            long bytes = Files.size(stagedZip);
+            extractZip(stagedZip, cache.cacheDir());
+            Files.deleteIfExists(stagedZip);
+            writeMarker(marker, entry.sha256Hex());
+            return new Result.Downloaded(entry, cache.cacheDir(), bytes);
         } catch (IOException e) {
             return new Result.IoFailure(entry, describe(e));
         }
-    }
-
-    private Result downloadDll(Entry.Dll dll) throws IOException {
-        Path target = cache.resolve(dll.destFilename());
-        if (Files.isRegularFile(target) && digestMatches(target, dll.sha256Hex())) {
-            return new Result.AlreadyCached(dll, target);
-        }
-        cache.ensureExists();
-        Path partFile = cache.resolve(dll.destFilename() + PART_SUFFIX);
-        FetchOutcome fetched = fetchToPart(dll.url(), partFile);
-        Result failure = toFailure(dll, fetched);
-        if (failure != null) {
-            return failure;
-        }
-        String actual = hex(sha256(partFile));
-        if (!actual.equalsIgnoreCase(dll.sha256Hex())) {
-            Files.deleteIfExists(partFile);
-            return new Result.ChecksumMismatch(dll, dll.sha256Hex(), actual);
-        }
-        atomicMove(partFile, target);
-        return new Result.Downloaded(dll, target, Files.size(target));
-    }
-
-    private Result downloadZip(Entry.Zip zip) throws IOException {
-        Path marker = cache.resolve(zip.destFilename() + MARKER_SUFFIX);
-        if (markerMatches(marker, zip.sha256Hex())) {
-            return new Result.AlreadyCached(zip, cache.cacheDir());
-        }
-        cache.ensureExists();
-        Path stagedZip = cache.resolve(zip.destFilename() + PART_SUFFIX);
-        FetchOutcome fetched = fetchToPart(zip.url(), stagedZip);
-        Result failure = toFailure(zip, fetched);
-        if (failure != null) {
-            return failure;
-        }
-        String actual = hex(sha256(stagedZip));
-        if (!actual.equalsIgnoreCase(zip.sha256Hex())) {
-            Files.deleteIfExists(stagedZip);
-            return new Result.ChecksumMismatch(zip, zip.sha256Hex(), actual);
-        }
-        long bytes = Files.size(stagedZip);
-        extractZip(stagedZip, cache.cacheDir());
-        Files.deleteIfExists(stagedZip);
-        writeMarker(marker, zip.sha256Hex());
-        return new Result.Downloaded(zip, cache.cacheDir(), bytes);
     }
 
     private FetchOutcome fetchToPart(URI source, Path partFile) {
@@ -219,15 +188,6 @@ public final class NativeArtifactDownloader {
         }
     }
 
-    private boolean digestMatches(Path file, String expectedHex) {
-        try {
-            return hex(sha256(file)).equalsIgnoreCase(expectedHex);
-        } catch (IOException e) {
-            log.debug("digest check failed for {}: {}", file, describe(e));
-            return false;
-        }
-    }
-
     private boolean markerMatches(Path marker, String expectedHex) {
         if (!Files.isRegularFile(marker)) {
             return false;
@@ -268,15 +228,6 @@ public final class NativeArtifactDownloader {
 
     private static String hex(byte[] bytes) {
         return HexFormat.of().formatHex(bytes);
-    }
-
-    private static void atomicMove(Path source, Path destination) throws IOException {
-        try {
-            Files.move(source, destination,
-                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        } catch (AtomicMoveNotSupportedException atomicFailed) {
-            Files.move(source, destination, StandardCopyOption.REPLACE_EXISTING);
-        }
     }
 
     private static void deleteQuiet(Path path) {

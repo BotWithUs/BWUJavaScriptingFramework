@@ -37,49 +37,26 @@ public record NativeArtifactManifest(List<Entry> entries) {
     /** Built-in manifest used by the CLI bootstrap. URLs are stubbed until real hosting lands. */
     public static NativeArtifactManifest defaults() {
         return new NativeArtifactManifest(List.of(
-                new Entry.Dll(
-                        "bwu.dll",
-                        URI.create("https://" + STUB_HOST + "/bwu.dll"),
-                        STUB_DIGEST),
-                new Entry.Zip(
+                new Entry(
                         "native-libs.zip",
                         URI.create("https://" + STUB_HOST + "/native-libs.zip"),
                         STUB_DIGEST)));
     }
 
     /**
-     * A single artifact to download. The two shapes have distinct
-     * post-download semantics: a {@link Entry.Dll} is placed into the
-     * cache directory as-is; a {@link Entry.Zip} is extracted into the
-     * cache directory and the staged archive is then deleted.
+     * A zip of native libraries (including {@code bwu.dll}); extracted
+     * into {@code <cacheDir>/}, the staged archive deleted on success.
+     *
+     * @param destFilename staging archive name under the cache directory
+     * @param url          source URL; host {@link #STUB_HOST} marks an unconfigured entry
+     * @param sha256Hex    expected SHA-256 of the downloaded archive, lowercase hex;
+     *                     value {@link #STUB_DIGEST} marks an unconfigured entry
      */
-    public sealed interface Entry permits Entry.Dll, Entry.Zip {
-
-        /** Filename under the cache directory (for {@link Zip}, the staging archive name). */
-        String destFilename();
-
-        /** Source URL. The host {@link #STUB_HOST} marks an unconfigured entry. */
-        URI url();
-
-        /** Expected SHA-256 of the downloaded bytes, lowercase hex. The value {@link #STUB_DIGEST} marks an unconfigured entry. */
-        String sha256Hex();
-
-        /** A standalone native library; placed at {@code <cacheDir>/<destFilename>}. */
-        record Dll(String destFilename, URI url, String sha256Hex) implements Entry {
-            public Dll {
-                Objects.requireNonNull(destFilename, "destFilename");
-                Objects.requireNonNull(url, "url");
-                Objects.requireNonNull(sha256Hex, "sha256Hex");
-            }
-        }
-
-        /** A zip of native libraries; extracted into {@code <cacheDir>/}, staging archive deleted on success. */
-        record Zip(String destFilename, URI url, String sha256Hex) implements Entry {
-            public Zip {
-                Objects.requireNonNull(destFilename, "destFilename");
-                Objects.requireNonNull(url, "url");
-                Objects.requireNonNull(sha256Hex, "sha256Hex");
-            }
+    public record Entry(String destFilename, URI url, String sha256Hex) {
+        public Entry {
+            Objects.requireNonNull(destFilename, "destFilename");
+            Objects.requireNonNull(url, "url");
+            Objects.requireNonNull(sha256Hex, "sha256Hex");
         }
     }
 }
