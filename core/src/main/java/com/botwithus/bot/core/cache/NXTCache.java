@@ -7,6 +7,7 @@ import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.core.loader.bootstrap.NativeCache;
 import com.botwithus.bot.core.util.Throwables;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -22,6 +23,7 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
@@ -74,16 +76,29 @@ public final class NXTCache implements AutoCloseable {
     private static final Linker LINKER = Linker.nativeLinker();
     private static final SymbolLookup LIB = locateLibrary();
 
+    private static final String NXTCACHE_DLL_NAME = "NXTCache.dll";
+
     private static SymbolLookup locateLibrary() {
-        String dll = System.getProperty("nxtcache.dll");
-        if (dll == null || dll.isBlank()) {
-            throw new IllegalStateException(
-                    "NXTCache binary not located. Set -Dnxtcache.dll=<path> "
-                            + "(no fallback — System.loadLibrary path removed for "
-                            + "compliance with java-rules §Banned 2)");
-        }
+        Path resolved = resolveDllPath();
         Arena scope = Arena.ofShared();
-        return SymbolLookup.libraryLookup(Path.of(dll), scope);
+        return SymbolLookup.libraryLookup(resolved, scope);
+    }
+
+    private static Path resolveDllPath() {
+        String override = System.getProperty("nxtcache.dll");
+        if (override != null && !override.isBlank()) {
+            return Path.of(override);
+        }
+        Path cached = new NativeCache().resolve(NXTCACHE_DLL_NAME);
+        if (Files.isRegularFile(cached)) {
+            log.debug("Using {} from native cache: {}", NXTCACHE_DLL_NAME, cached);
+            return cached;
+        }
+        throw new IllegalStateException(
+                "NXTCache binary not located. Set -Dnxtcache.dll=<path>, "
+                        + "or let the native bootstrap download it into "
+                        + "~/.botwithus/native/" + NXTCACHE_DLL_NAME
+                        + " (no System.loadLibrary fallback — see java-rules §Banned 2).");
     }
 
     private static MethodHandle dl(String name, FunctionDescriptor fd) {
