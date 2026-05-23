@@ -4,9 +4,9 @@ A modular Java 21 game scripting framework that communicates with a game server 
 
 ## Requirements
 
-- Java 21+
-- Windows (named pipe transport)
-- Gradle 8.14+ (included via wrapper)
+- Java 25 (auto-provisioned by Gradle's toolchain — no manual install needed if Gradle has network access)
+- Windows (named pipe + shared-memory transports)
+- Gradle 9.5+ (included via wrapper)
 
 ## Quick Start
 
@@ -22,20 +22,24 @@ The GUI provides a tabbed interface for connecting to the game server, managing 
 
 ## Module Architecture
 
-Four Gradle subprojects with strict dependency layering:
+Five Gradle subprojects with strict dependency layering:
 
 ```
-api                 (slf4j-api)      — Public interfaces, models, query builders
+api                 (slf4j-api)                — Public interfaces, models, snapshot view, query builders
   ↑ required by
-core                (api + msgpack + logback) — RPC client, pipe transport, script runtime
-  ↑ required by
-cli                 (api + core)     — Interactive GUI, command system
-example-script      (api only)       — Example BotScript implementations
+core                (api + msgpack + logback   — Pipe + SHM transport, RPC client, script runtime,
+                     + bouncycastle + panama)    Maven resolver, loader DLL bridge
+  ↑ required by                                ↑
+cli                 (api + core + imgui)       test-support  (api)
+                                               — Mocks for downstream script projects
+example-script      (api only)                 — Example BotScript implementations
 ```
 
 ### api
 
-Pure interface module whose only dependency is `slf4j-api` (exposed transitively so scripts get SLF4J for free). Contains `BotScript` (the SPI), `GameAPI` (100+ methods for game interaction), fluent entity query builders (`Npcs`, `Players`, `SceneObjects`, `GroundItems`), inventory wrappers (`Backpack`, `Bank`, `Equipment`), an event bus, and inter-script communication via `MessageBus`.
+Pure interface module whose only dependency is `slf4j-api` (exposed transitively so scripts get SLF4J for free). Contains `BotScript` (the SPI), `Client` / `ClientProvider`, `GameAPI` (slim RPC surface composed of `SystemAPI` / `ActionAPI` / `NavigationAPI` for mutations and state probes), `GameSnapshot` (the tick-scoped read view backed by shared memory), fluent entity query builders (`Npcs`, `Players`, `SceneObjects`, `GroundItems`, `WorldMapElements`), inventory wrappers (`Backpack`, `Bank`, `Equipment`), an event bus, and inter-script communication via `MessageBus`.
+
+> **Reads vs writes.** Live state (local player, NPCs, players, locations, inventories) is read from `Client.snapshot()` — a per-tick shared-memory view, no RPC round-trip. `GameAPI` is for mutations, login/break controls, client-script execution, and cache-type lookups.
 
 Key packages:
 - **`blueprint`** — Visual graph workflow model (`BlueprintGraph`, `NodeInstance`, `Link`, `PinDefinition`)
@@ -51,7 +55,7 @@ Key packages:
 
 ### core
 
-Runtime and communication layer. Handles Windows named pipe I/O (`PipeClient`), synchronous JSON-RPC with MessagePack serialization (`RpcClient`), script discovery from JAR files (`ScriptLoader`), and script lifecycle management on virtual threads (`ScriptRuntime`, `ScriptRunner`).
+Runtime and communication layer. Owns both transports: Windows named pipe I/O (`pipe/PipeClient`, `\\.\pipe\BotWithUs_<pid>`) for synchronous msgpack JSON-RPC (`rpc/RpcClient`), and the shared-memory mapping (`shm/SharedRegion`, `Local\nxt_snapshot_<pid>`) that exposes the producer's per-tick snapshot + event ring. Discovers script JARs from the `scripts/` directory (`runtime/LocalScriptLoader`) and runs each script on a virtual thread (`runtime/ScriptRuntime`, `runtime/ScriptRunner`).
 
 Key features:
 - **RPC timeouts** — Configurable per-call timeouts with `RpcTimeoutException`
@@ -61,6 +65,8 @@ Key features:
 - **Error isolation** — Per-phase error handling in `ScriptRunner` (onStart/onLoop/onStop)
 - **Structured logging** — SLF4J + Logback with MDC-based context tagging (`script.name`, `connection.name`)
 - **GUI log bridge** — Custom `LogBufferAppender` feeds Logback events into the in-memory `LogBuffer` for the GUI log panel
+- **Loader bridge** — Project Panama FFI binding to `bwu.dll` (`loader/BwuClient`) for auth, accounts, and agent injection; native artifacts auto-download to `~/.botwithus/native`
+- **Maven resolver** — `resolver/` pipeline (drivers via `RepositoryDriver` SPI, BouncyCastle PGP verification, SHA-1/SHA-256 sidecar validation) for `scripts install` (see [Script Repositories](#script-repositories))
 
 ### cli
 
@@ -101,7 +107,11 @@ GUI panels:
 
 ### example-script
 
-Reference implementations (`ExampleScript`, `WoodcuttingFletcherScript`). `ExampleScript` demonstrates the custom Script UI system with status display, controls, and an entity summary table. Building this module automatically installs the JAR to the `scripts/` directory.
+Reference implementations: `ExampleScript` (Script UI demo with status display, controls, and entity summary table), `WoodcuttingFletcherScript`, `LocationProbeScript` (smoke test against the live producer's scene Locations table), `WalkToFlagScript`, and `DivinationScript`. Building this module automatically installs the JAR to the `scripts/` directory.
+
+### test-support
+
+Published as `bot-test-support`. Mocks for downstream script projects to unit-test against the API: `MockGameAPI`, `MockScriptContext`, `CannedSnapshot`, `InMemoryEventBus`.
 
 ## Writing a Script
 
@@ -132,9 +142,11 @@ public class MyScript implements BotScript {
     @Override
     public int onLoop() {
         GameAPI api = ctx.getGameAPI();
-        // Query entities, interact with the game
-        Npcs npcs = new Npcs(api);
-        // ...
+        GameSnapshot snap = api.snapshot();         // tick-scoped read view (SHM-backed)
+        // Read live state from the snapshot, mutate via api
+        if (snap != null && snap.self() != null) {
+            // ...
+        }
         return 1000; // delay in ms before next loop, or -1 to stop
     }
 
@@ -457,11 +469,25 @@ When enabled (`autostart on`), the app scans for new pipes in the background and
 
 ## Communication Flow
 
+The producer (an injected C++ DLL) exposes two transports under the same `<pid>` suffix; both bind together via `Client`:
+
 ```
-BotScript → GameAPI → RpcClient → PipeClient → Game Server (named pipe)
+                          ┌──────────────────────────────┐
+                          │  Injected NXTLibrary DLL     │
+                          │  (game process, per-pid)     │
+                          └─────────┬────────────────┬───┘
+                                    │                │
+              \\.\pipe\BotWithUs_<pid>      Local\nxt_snapshot_<pid>
+                  (msgpack JSON-RPC)        (per-tick snapshot + event ring)
+                                    │                │
+       ┌──── mutations / probes ────┘                └──── live reads ─────┐
+       ▼                                                                   ▼
+  BotScript → GameAPI → RpcClient → PipeClient                  Client.snapshot() → GameSnapshot
+                                                                                    (via SharedRegion)
 ```
 
-The pipe transport uses length-prefixed MessagePack frames over `\\.\pipe\BotWithUs`. The RPC client provides synchronous request/response semantics with async event dispatch.
+- **Pipe (RPC)**: length-prefixed MessagePack frames, synchronous request/response. Used for mutations, login/break control, action queueing, navigation, client-script execution, and cache-type lookups.
+- **SHM (snapshot + events)**: `core/shm/SharedRegion` maps the producer's double-buffered snapshot region; readers honour acquire-load on `frontIdx` and per-slot `seq` so reads tear-free. The event ring carries push-style notifications consumed by `EventBus`. `Layout.PROTOCOL_VERSION` must match the producer's `kProtocolVersion`.
 
 ## Testing
 
