@@ -70,7 +70,7 @@ public final class ScriptProfileStore {
     }
 
     public boolean isAutoConnect() {
-        return Boolean.parseBoolean(globalSettings.getProperty("autoConnect", "false"));
+        return Boolean.parseBoolean(globalSettings.getProperty("autoConnect", "true"));
     }
 
     public void setAutoConnect(boolean enabled) {

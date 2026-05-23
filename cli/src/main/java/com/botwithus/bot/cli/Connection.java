@@ -27,6 +27,7 @@ public class Connection {
     private ReconnectController reconnectController;
     private String accountName;
     private Map<String, Object> accountInfo;
+    private boolean lobbyLoginAttempted;
 
     public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime) {
         this.name = name;
@@ -59,6 +60,15 @@ public class Connection {
 
     public void setAccountInfo(Map<String, Object> accountInfo) { this.accountInfo = accountInfo; }
     public Map<String, Object> getAccountInfo() { return accountInfo; }
+
+    /**
+     * Whether the auto-discovery loop has already dispatched a
+     * {@code login_to_lobby} kick for this connection. The flag prevents
+     * the scan loop from re-issuing the RPC on every tick once a kick is
+     * in flight; it's cleared when the connection is closed and recreated.
+     */
+    public boolean isLobbyLoginAttempted() { return lobbyLoginAttempted; }
+    public void setLobbyLoginAttempted(boolean attempted) { this.lobbyLoginAttempted = attempted; }
 
     /** Returns true if the underlying pipe is still open. */
     public boolean isAlive() {

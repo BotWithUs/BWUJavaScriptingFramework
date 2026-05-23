@@ -8,10 +8,14 @@ import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.PrintStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Orchestrates pipe detection, account identification, and script auto-starting.
@@ -20,8 +24,11 @@ import java.util.Map;
  */
 public class AutoStartManager {
 
+    private static final Logger log = LoggerFactory.getLogger(AutoStartManager.class);
+
     private final CliContext ctx;
     private final ScriptProfileStore profileStore;
+    private final AtomicBoolean lobbyStubWarned = new AtomicBoolean(false);
     private volatile boolean running;
     private Thread scanThread;
 
@@ -141,13 +148,14 @@ public class AutoStartManager {
         }
     }
 
+    private static final long INITIAL_SCAN_DELAY_MS = 1000L;
+
     private void scanLoop() {
         String prefix = profileStore.getPipePrefix();
         long interval = profileStore.getScanIntervalMs();
 
-        // Initial delay to let the app finish starting up
         try {
-            Thread.sleep(1000);
+            Thread.sleep(INITIAL_SCAN_DELAY_MS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return;
@@ -155,32 +163,54 @@ public class AutoStartManager {
 
         while (running) {
             try {
-                List<String> pipes = PipeClient.scanPipes(prefix);
-                for (String pipeName : pipes) {
-                    // Skip if already connected
-                    boolean alreadyConnected = ctx.getConnections().stream()
-                            .anyMatch(c -> c.getName().equals(pipeName));
-                    if (alreadyConnected) {
-                        continue;
-                    }
-
-                    out().println("[AutoStart] Found new pipe: " + pipeName);
-                    try {
-                        ctx.connect(pipeName);
-                        Connection conn = findConnectionByName(pipeName);
-                        if (conn != null) {
-                            probeAndAutoStart(conn);
-                        }
-                    } catch (Exception e) {
-                        out().println("[AutoStart] Failed to connect to " + pipeName + ": " + e.getMessage());
-                    }
-                }
-
+                connectNewPipes(prefix);
+                reprobeUnidentifiedConnections();
                 Thread.sleep(interval);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             }
+        }
+    }
+
+    private void connectNewPipes(String prefix) {
+        List<String> pipes = PipeClient.scanPipes(prefix);
+        for (String pipeName : pipes) {
+            boolean alreadyConnected = ctx.getConnections().stream()
+                    .anyMatch(c -> c.getName().equals(pipeName));
+            if (alreadyConnected) {
+                continue;
+            }
+
+            out().println("[AutoStart] Found new pipe: " + pipeName);
+            try {
+                ctx.connect(pipeName);
+                Connection conn = findConnectionByName(pipeName);
+                if (conn != null) {
+                    probeAndAutoStart(conn);
+                }
+            } catch (Exception e) {
+                out().println("[AutoStart] Failed to connect to " + pipeName + ": " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Walks every live connection and retries the account-info probe on
+     * any that haven't resolved an identity yet. This catches pipes that
+     * connected pre-login: the first probe at connect time returns empty,
+     * we kick {@code login_to_lobby}, and subsequent ticks resolve the
+     * display name once the game advances past the title screen.
+     */
+    private void reprobeUnidentifiedConnections() {
+        for (Connection conn : ctx.getConnections()) {
+            if (!conn.isAlive()) {
+                continue;
+            }
+            if (conn.getAccountName() != null && !conn.getAccountName().isEmpty()) {
+                continue;
+            }
+            probeAndAutoStart(conn);
         }
     }
 
@@ -203,9 +233,39 @@ public class AutoStartManager {
                     conn.getRuntime().registerScript(bp);
                 }
                 onConnectionEstablished(conn, displayName);
+                return;
             }
+            kickLobbyLogin(conn);
         } catch (Exception e) {
             out().println("[AutoStart] Failed to probe account on " + conn.getName() + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Sends a single {@code login_to_lobby} kick per connection when the
+     * account-info probe came back empty. The producer-side handler is
+     * currently a stub on some builds; we log once at WARN level so the
+     * user understands why the game may not advance even though the
+     * Java side dispatched the RPC.
+     */
+    private void kickLobbyLogin(Connection conn) {
+        if (conn.isLobbyLoginAttempted()) {
+            return;
+        }
+        conn.setLobbyLoginAttempted(true);
+        try {
+            conn.getRpc().callSync("login_to_lobby", Map.of());
+            out().println("[AutoStart] " + conn.getName()
+                    + " — no account identity yet; sent login_to_lobby.");
+            if (lobbyStubWarned.compareAndSet(false, true)) {
+                log.warn("login_to_lobby was dispatched but the producer-side handler may"
+                        + " still be a stub on this build — Java will keep re-probing for"
+                        + " an identity but the game will not advance until the producer"
+                        + " ships a real implementation.");
+            }
+        } catch (Exception e) {
+            out().println("[AutoStart] login_to_lobby failed on "
+                    + conn.getName() + ": " + e.getMessage());
         }
     }
 
