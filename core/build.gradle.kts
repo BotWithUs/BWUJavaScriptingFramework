@@ -77,5 +77,6 @@ tasks.register<Test>("liveSmokeTest") {
     classpath = sourceSets["test"].runtimeClasspath
     filter {
         includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveLocationsSmokeTest")
+        includeTestsMatching("com.botwithus.bot.core.rpc.LiveStaleRpcSmokeTest")
     }
 }
