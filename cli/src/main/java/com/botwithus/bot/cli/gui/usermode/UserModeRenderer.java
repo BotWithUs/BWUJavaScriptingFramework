@@ -21,8 +21,8 @@ import java.util.function.Consumer;
  */
 public class UserModeRenderer {
 
-    private static final float MIN_CARD_WIDTH = 320f;
-    private static final float CARD_SPACING = 10f;
+    /** Minimum card width as a multiple of the current font size. ~352px at 16px font. */
+    private static final float MIN_CARD_WIDTH_EM = 22f;
 
     private final ClientCard clientCard = new ClientCard();
     private final ScriptPickerPopup scriptPicker = new ScriptPickerPopup();
@@ -59,8 +59,12 @@ public class UserModeRenderer {
 
     private void renderCardGrid(CliContext ctx, List<Connection> connections) {
         float availWidth = ImGui.getContentRegionAvailX();
-        int columns = Math.max(1, (int) (availWidth / MIN_CARD_WIDTH));
-        float cardWidth = (availWidth - (columns - 1) * CARD_SPACING) / columns;
+        float fontH = ImGui.getFontSize();
+        float minCardWidth = fontH * MIN_CARD_WIDTH_EM;
+        float cardSpacing = ImGui.getStyle().getItemSpacingX() * 1.5f;
+
+        int columns = Math.max(1, (int) ((availWidth + cardSpacing) / (minCardWidth + cardSpacing)));
+        float cardWidth = (availWidth - (columns - 1) * cardSpacing) / columns;
 
         ImGui.spacing();
 
@@ -69,7 +73,7 @@ public class UserModeRenderer {
             Connection connection = connections.get(i);
 
             if (col > 0) {
-                ImGui.sameLine(0, CARD_SPACING);
+                ImGui.sameLine(0, cardSpacing);
             }
 
             ClientCard.CardAction action = clientCard.render(connection, cardWidth, i);
@@ -81,7 +85,7 @@ public class UserModeRenderer {
             col++;
             if (col >= columns) {
                 col = 0;
-                ImGui.spacing();
+                ImGui.dummy(0f, cardSpacing * 0.5f);
             }
         }
     }
@@ -118,6 +122,7 @@ public class UserModeRenderer {
     private void renderEmptyState() {
         float windowWidth = ImGui.getWindowWidth();
         float windowHeight = ImGui.getWindowHeight();
+        float lineH = ImGui.getTextLineHeight();
 
         String icon = Icons.GAMEPAD;
         String title = "No game clients connected";
@@ -125,41 +130,27 @@ public class UserModeRenderer {
         String subtitle2 = "appear here automatically.";
         String hint = "Press F12 to cycle modes \u2022 Use Launcher tab to add accounts";
 
-        // Center vertically
-        float totalHeight = ImGui.getTextLineHeight() * 5 + 40f;
-        ImGui.setCursorPosY((windowHeight - totalHeight) / 2f);
+        // Center vertically \u2014 estimate total stack height
+        float totalHeight = lineH * 7f;
+        ImGui.setCursorPosY((windowHeight - totalHeight) * 0.5f);
 
-        // Icon (large, dim accent)
-        float iconWidth = ImGui.calcTextSize(icon).x;
-        ImGui.setCursorPosX((windowWidth - iconWidth) / 2f);
-        ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f, icon);
+        centerText(icon, windowWidth, () ->
+                ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f, icon));
 
-        ImGui.spacing();
-        ImGui.spacing();
+        ImGui.dummy(0f, lineH * 0.4f);
 
-        // Title
-        float titleWidth = ImGui.calcTextSize(title).x;
-        ImGui.setCursorPosX((windowWidth - titleWidth) / 2f);
-        ImGui.text(title);
+        centerText(title, windowWidth, () -> ImGui.text(title));
+        centerText(subtitle, windowWidth, () -> GuiHelpers.textSecondary(subtitle));
+        centerText(subtitle2, windowWidth, () -> GuiHelpers.textSecondary(subtitle2));
 
-        ImGui.spacing();
+        ImGui.dummy(0f, lineH * 0.6f);
 
-        // Subtitle lines
-        float sub1Width = ImGui.calcTextSize(subtitle).x;
-        ImGui.setCursorPosX((windowWidth - sub1Width) / 2f);
-        GuiHelpers.textSecondary(subtitle);
+        centerText(hint, windowWidth, () -> GuiHelpers.textMuted(hint));
+    }
 
-        float sub2Width = ImGui.calcTextSize(subtitle2).x;
-        ImGui.setCursorPosX((windowWidth - sub2Width) / 2f);
-        GuiHelpers.textSecondary(subtitle2);
-
-        ImGui.spacing();
-        ImGui.spacing();
-        ImGui.spacing();
-
-        // Hint
-        float hintWidth = ImGui.calcTextSize(hint).x;
-        ImGui.setCursorPosX((windowWidth - hintWidth) / 2f);
-        GuiHelpers.textMuted(hint);
+    private static void centerText(String text, float windowWidth, Runnable draw) {
+        float width = ImGui.calcTextSize(text).x;
+        ImGui.setCursorPosX((windowWidth - width) * 0.5f);
+        draw.run();
     }
 }
