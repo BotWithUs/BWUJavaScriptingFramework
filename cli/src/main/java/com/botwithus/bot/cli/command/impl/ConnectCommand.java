@@ -303,16 +303,8 @@ public class ConnectCommand implements Command {
 
             return new PipeInfo(pipeName, displayName, worldId, loggedIn, isMember);
         } catch (Exception e) {
-            // Fallback: try get_local_player
             log.warn("get_account_info failed for {}: {}", pipeName, e.getMessage());
-            try {
-                Map<String, Object> r = rpc.callSync("get_local_player", Map.of());
-                String name = getString(r, "name");
-                return new PipeInfo(pipeName, name, -1, name != null && !name.isEmpty(), false);
-            } catch (Exception e2) {
-                log.warn("get_local_player fallback also failed for {}: {}", pipeName, e2.getMessage());
-                return new PipeInfo(pipeName, null, -1, false, false);
-            }
+            return new PipeInfo(pipeName, null, -1, false, false);
         }
     }
 
