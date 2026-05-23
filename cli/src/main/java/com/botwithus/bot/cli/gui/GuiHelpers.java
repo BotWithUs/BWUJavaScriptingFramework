@@ -303,21 +303,29 @@ public final class GuiHelpers {
     // ─────────────────────────────────────────────────────────────────────
 
     public static boolean buttonPrimary(String label) {
+        return buttonPrimary(label, 0f, 0f);
+    }
+
+    public static boolean buttonPrimary(String label, float width, float height) {
         ImGui.pushStyleColor(ImGuiCol.Button, ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.25f);
         ImGui.pushStyleColor(ImGuiCol.ButtonHovered, ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.40f);
         ImGui.pushStyleColor(ImGuiCol.ButtonActive, ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.55f);
         ImGui.pushStyleColor(ImGuiCol.Text, ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
-        boolean clicked = ImGui.button(label);
+        boolean clicked = ImGui.button(label, width, height);
         ImGui.popStyleColor(4);
         return clicked;
     }
 
     public static boolean buttonDanger(String label) {
+        return buttonDanger(label, 0f, 0f);
+    }
+
+    public static boolean buttonDanger(String label, float width, float height) {
         ImGui.pushStyleColor(ImGuiCol.Button, ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.2f);
         ImGui.pushStyleColor(ImGuiCol.ButtonHovered, ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.35f);
         ImGui.pushStyleColor(ImGuiCol.ButtonActive, ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.5f);
         ImGui.pushStyleColor(ImGuiCol.Text, ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f);
-        boolean clicked = ImGui.button(label);
+        boolean clicked = ImGui.button(label, width, height);
         ImGui.popStyleColor(4);
         return clicked;
     }
@@ -333,10 +341,14 @@ public final class GuiHelpers {
     }
 
     public static boolean buttonSecondary(String label) {
+        return buttonSecondary(label, 0f, 0f);
+    }
+
+    public static boolean buttonSecondary(String label, float width, float height) {
         ImGui.pushStyleColor(ImGuiCol.Button, ImGuiTheme.ELEVATED_R, ImGuiTheme.ELEVATED_G, ImGuiTheme.ELEVATED_B, 1f);
         ImGui.pushStyleColor(ImGuiCol.ButtonHovered, ImGuiTheme.ELEVATED_R + 0.05f, ImGuiTheme.ELEVATED_G + 0.05f, ImGuiTheme.ELEVATED_B + 0.05f, 1f);
         ImGui.pushStyleColor(ImGuiCol.ButtonActive, ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f);
-        boolean clicked = ImGui.button(label);
+        boolean clicked = ImGui.button(label, width, height);
         ImGui.popStyleColor(3);
         return clicked;
     }

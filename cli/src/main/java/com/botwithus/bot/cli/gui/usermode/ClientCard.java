@@ -10,90 +10,126 @@ import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImDrawList;
 import imgui.ImGui;
+import imgui.ImGuiStyle;
+import imgui.flag.ImDrawFlags;
 import imgui.flag.ImGuiCol;
+import imgui.flag.ImGuiStyleVar;
 
 import java.util.List;
 
 /**
  * Renders a single client connection card in User Mode.
- * Three visual states: script running, idle, disconnected.
+ *
+ * The card is hand-drawn (rounded surface, left status stripe, soft corner glow when running)
+ * rather than relying on default ImGui chrome. All sizing is derived from the current font
+ * size and {@link ImGuiStyle} accessors, so the card scales correctly across DPI changes.
  */
 public class ClientCard {
 
-    /**
-     * Render a client card. Returns a {@link CardAction} if the user triggered one, or null.
-     */
+    /** Card outer rounding as a fraction of font size. */
+    private static final float ROUNDING_EM = 0.5f;
+    /** Left status stripe width as a fraction of font size. */
+    private static final float STRIPE_EM = 0.22f;
+    /** Horizontal interior padding as a fraction of font size. */
+    private static final float PAD_X_EM = 0.95f;
+    /** Vertical interior padding as a fraction of font size. */
+    private static final float PAD_Y_EM = 0.75f;
+
     public CardAction render(Connection connection, float cardWidth, int cardIndex) {
-        CardAction action = null;
         boolean alive = connection.isAlive();
+        List<ScriptRunner> runners = alive
+                ? connection.getRuntime().getRunners()
+                : List.of();
+        ScriptRunner activeRunner = runners.stream()
+                .filter(ScriptRunner::isRunning)
+                .findFirst().orElse(null);
 
-        // Push reduced opacity for disconnected clients
+        // ── Dimensions (font-relative) ─────────────────────────────────
+        ImGuiStyle style = ImGui.getStyle();
+        float fontH = ImGui.getFontSize();
+        float frameH = ImGui.getFrameHeight();
+        float lineH = ImGui.getTextLineHeightWithSpacing();
+        float padX = fontH * PAD_X_EM;
+        float padY = fontH * PAD_Y_EM;
+        float stripeW = Math.max(2f, fontH * STRIPE_EM);
+        float rounding = fontH * ROUNDING_EM;
+        float gapY = style.getItemSpacingY();
+
+        // Layout (top to bottom):
+        //   padY · header line · spacing · separator · spacing · content · gap · button row · padY
+        int contentLines = (alive && activeRunner != null) ? 2 : 1;
+        float cardHeight = padY * 2f
+                + lineH                  // header
+                + gapY * 3f              // spacing + separator gap + spacing
+                + lineH * contentLines   // content lines
+                + gapY                   // pre-button breathing room
+                + frameH;                // button row
+
+        // ── Accent palette per state ────────────────────────────────────
+        float aR, aG, aB;
         if (!alive) {
-            ImGui.pushStyleVar(imgui.flag.ImGuiStyleVar.Alpha, 0.55f);
-        }
-
-        ImGui.pushStyleColor(ImGuiCol.ChildBg,
-                ImGuiTheme.SURFACE_R, ImGuiTheme.SURFACE_G, ImGuiTheme.SURFACE_B, 1f);
-        ImGui.pushStyleColor(ImGuiCol.Border,
-                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.4f);
-        ImGui.pushStyleVar(imgui.flag.ImGuiStyleVar.ChildRounding, 8f);
-
-        // Dynamic height — calculate based on content
-        float cardHeight = estimateCardHeight(connection, alive);
-
-        ImGui.beginChild("##clientCard" + cardIndex, cardWidth, cardHeight, true);
-        ImGui.popStyleColor(2);
-        ImGui.popStyleVar(); // ChildRounding
-
-        // --- Header: Status dot + Connection name ---
-        renderHeader(connection, alive);
-
-        ImGui.spacing();
-        GuiHelpers.subtleSeparator();
-        ImGui.spacing();
-
-        // --- Script status section ---
-        if (!alive) {
-            // Disconnected state
-            GuiHelpers.textMuted(Icons.CIRCLE + "  Disconnected");
-            ImGui.spacing();
-            ImGui.spacing();
-            if (GuiHelpers.buttonSecondary(Icons.PLUG + "  Reconnect##" + cardIndex)) {
-                action = new CardAction(CardAction.Type.RECONNECT, connection, null);
+            aR = ImGuiTheme.RED_R; aG = ImGuiTheme.RED_G; aB = ImGuiTheme.RED_B;
+        } else if (activeRunner != null) {
+            ScriptManifest manifest = activeRunner.getManifest();
+            if (manifest != null) {
+                CategoryStyle.Style cs = CategoryStyle.of(manifest.category());
+                aR = cs.r(); aG = cs.g(); aB = cs.b();
+            } else {
+                aR = ImGuiTheme.ACCENT_R; aG = ImGuiTheme.ACCENT_G; aB = ImGuiTheme.ACCENT_B;
             }
         } else {
-            List<ScriptRunner> runners = connection.getRuntime().getRunners();
-            ScriptRunner activeRunner = runners.stream()
-                    .filter(ScriptRunner::isRunning)
-                    .findFirst().orElse(null);
+            aR = ImGuiTheme.TEXT_SEC_R; aG = ImGuiTheme.TEXT_SEC_G; aB = ImGuiTheme.TEXT_SEC_B;
+        }
 
-            if (activeRunner != null) {
-                // Running state
-                renderRunningScript(activeRunner, cardIndex);
-                ImGui.spacing();
+        // ── Custom-drawn card background (parent draw list) ─────────────
+        float x0 = ImGui.getCursorScreenPosX();
+        float y0 = ImGui.getCursorScreenPosY();
+        float x1 = x0 + cardWidth;
+        float y1 = y0 + cardHeight;
+        ImDrawList draw = ImGui.getWindowDrawList();
 
-                // Action buttons
-                boolean hasUI = activeRunner.getScript().getUI() != null
-                        || (activeRunner.getConfigFields() != null && !activeRunner.getConfigFields().isEmpty());
-                if (hasUI) {
-                    if (GuiHelpers.buttonSecondary(Icons.GEAR + "  Configure##" + cardIndex)) {
-                        action = new CardAction(CardAction.Type.CONFIGURE, connection, activeRunner);
-                    }
-                    ImGui.sameLine(0, 8);
-                }
-                if (GuiHelpers.buttonDanger(Icons.STOP + "  Stop##" + cardIndex)) {
-                    action = new CardAction(CardAction.Type.STOP, connection, activeRunner);
-                }
-            } else {
-                // Idle state
-                ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.8f,
-                        Icons.STOP + "  No script running");
-                ImGui.spacing();
-                ImGui.spacing();
-                if (GuiHelpers.buttonPrimary(Icons.PLAY + "  Start Script" + "##" + cardIndex)) {
-                    action = new CardAction(CardAction.Type.START_SCRIPT, connection, null);
-                }
-            }
+        int surfaceCol = ImGuiTheme.imCol32(
+                ImGuiTheme.SURFACE_R, ImGuiTheme.SURFACE_G, ImGuiTheme.SURFACE_B, 1f);
+        int borderCol = ImGuiTheme.imCol32(
+                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, alive ? 0.6f : 0.35f);
+        int stripeCol = ImGuiTheme.imCol32(aR, aG, aB, alive ? 0.95f : 0.7f);
+
+        draw.addRectFilled(x0, y0, x1, y1, surfaceCol, rounding);
+
+        // Subtle corner glow when running — clip to card bounds so the soft edge doesn't bleed
+        if (activeRunner != null) {
+            draw.pushClipRect(x0, y0, x1, y1, true);
+            int glowOuter = ImGuiTheme.imCol32(aR, aG, aB, 0.05f);
+            int glowInner = ImGuiTheme.imCol32(aR, aG, aB, 0.10f);
+            draw.addCircleFilled(x1 - fontH * 0.5f, y0 + fontH * 0.4f, fontH * 3.5f, glowOuter, 28);
+            draw.addCircleFilled(x1 - fontH * 0.5f, y0 + fontH * 0.4f, fontH * 1.8f, glowInner, 24);
+            draw.popClipRect();
+        }
+
+        // Left accent stripe (rounded on the left side to follow the card corner)
+        draw.addRectFilled(x0, y0, x0 + stripeW, y1, stripeCol, rounding, ImDrawFlags.RoundCornersLeft);
+        // Outer border
+        draw.addRect(x0, y0, x1, y1, borderCol, rounding);
+
+        // ── Interior layout via a borderless transparent child ──────────
+        ImGui.pushStyleColor(ImGuiCol.ChildBg, 0f, 0f, 0f, 0f);
+        ImGui.pushStyleColor(ImGuiCol.Border, 0f, 0f, 0f, 0f);
+        // Reserve space for the stripe on the left; standard padding everywhere else.
+        ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, padX + stripeW * 0.4f, padY);
+
+        if (!alive) {
+            ImGui.pushStyleVar(ImGuiStyleVar.Alpha, 0.65f);
+        }
+
+        ImGui.beginChild("##clientCard" + cardIndex, cardWidth, cardHeight, false);
+
+        CardAction action;
+        if (!alive) {
+            action = renderDisconnected(connection, cardIndex);
+        } else if (activeRunner != null) {
+            action = renderRunning(connection, activeRunner, cardIndex);
+        } else {
+            action = renderIdle(connection, cardIndex);
         }
 
         ImGui.endChild();
@@ -101,108 +137,165 @@ public class ClientCard {
         if (!alive) {
             ImGui.popStyleVar(); // Alpha
         }
+        ImGui.popStyleVar();   // WindowPadding
+        ImGui.popStyleColor(2);
 
         return action;
     }
 
-    private void renderHeader(Connection connection, boolean alive) {
-        // Status dot
-        if (alive) {
-            // Pulsing green dot
-            float pulse = 0.75f + 0.25f * (float) Math.sin(ImGui.getTime() * 2.0);
-            GuiHelpers.statusDot(
-                    ImGuiTheme.GREEN_R * pulse,
-                    ImGuiTheme.GREEN_G * pulse,
-                    ImGuiTheme.GREEN_B * pulse);
+    // ── Header ─────────────────────────────────────────────────────────
+
+    private void renderHeader(Connection connection, boolean alive, boolean running) {
+        if (running) {
+            GuiHelpers.pulsingDot(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B);
+        } else if (alive) {
+            GuiHelpers.statusDot(ImGuiTheme.BLUE_R, ImGuiTheme.BLUE_G, ImGuiTheme.BLUE_B);
         } else {
             GuiHelpers.statusDot(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
         }
-        ImGui.sameLine(0, 6);
+        ImGui.sameLine(0, ImGui.getStyle().getItemInnerSpacingX());
 
-        // Connection name (primary identifier)
         String displayName = connection.getAccountName();
         if (displayName == null || displayName.isEmpty()) {
             displayName = connection.getName();
         }
         ImGui.text(displayName);
 
-        // Subtitle: pipe name if we have an account name
         String accountName = connection.getAccountName();
         if (accountName != null && !accountName.isEmpty()) {
-            ImGui.sameLine(0, 12);
+            ImGui.sameLine(0, ImGui.getStyle().getItemSpacingX());
             GuiHelpers.textMuted(connection.getName());
         }
     }
 
-    private void renderRunningScript(ScriptRunner runner, int cardIndex) {
-        ScriptManifest manifest = runner.getManifest();
-        String scriptName = runner.getScriptName();
+    // ── State variants ─────────────────────────────────────────────────
 
-        // Script icon + name
+    private CardAction renderDisconnected(Connection connection, int cardIndex) {
+        renderHeader(connection, false, false);
+        ImGui.spacing();
+        GuiHelpers.subtleSeparator();
+        ImGui.spacing();
+
+        GuiHelpers.textMuted(Icons.PLUG + "  Disconnected");
+        ImGui.dummy(0f, ImGui.getStyle().getItemSpacingY() * 0.5f);
+
+        if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reconnect##" + cardIndex,
+                ImGui.getContentRegionAvailX(), ImGui.getFrameHeight())) {
+            return new CardAction(CardAction.Type.RECONNECT, connection, null);
+        }
+        return null;
+    }
+
+    private CardAction renderIdle(Connection connection, int cardIndex) {
+        renderHeader(connection, true, false);
+        ImGui.spacing();
+        GuiHelpers.subtleSeparator();
+        ImGui.spacing();
+
+        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.85f,
+                Icons.STOP + "  No script running");
+        ImGui.dummy(0f, ImGui.getStyle().getItemSpacingY() * 0.5f);
+
+        if (GuiHelpers.buttonPrimary(Icons.PLAY + "  Start Script##" + cardIndex,
+                ImGui.getContentRegionAvailX(), ImGui.getFrameHeight())) {
+            return new CardAction(CardAction.Type.START_SCRIPT, connection, null);
+        }
+        return null;
+    }
+
+    private CardAction renderRunning(Connection connection, ScriptRunner runner, int cardIndex) {
+        renderHeader(connection, true, true);
+        ImGui.spacing();
+        GuiHelpers.subtleSeparator();
+        ImGui.spacing();
+
+        renderRunningScript(runner);
+
+        ImGui.dummy(0f, ImGui.getStyle().getItemSpacingY() * 0.5f);
+
+        return renderRunningButtons(connection, runner, cardIndex);
+    }
+
+    private void renderRunningScript(ScriptRunner runner) {
+        ScriptManifest manifest = runner.getManifest();
+        float fontH = ImGui.getFontSize();
+        ImGuiStyle style = ImGui.getStyle();
+
         if (manifest != null) {
-            CategoryStyle.Style catStyle = CategoryStyle.of(manifest.category());
-            ImGui.textColored(catStyle.r(), catStyle.g(), catStyle.b(), 1f, catStyle.icon());
-            ImGui.sameLine(0, 6);
+            CategoryStyle.Style cs = CategoryStyle.of(manifest.category());
+            ImGui.textColored(cs.r(), cs.g(), cs.b(), 1f, cs.icon());
         } else {
             ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f,
                     Icons.PLAY);
-            ImGui.sameLine(0, 6);
         }
+        ImGui.sameLine(0, style.getItemInnerSpacingX());
+        ImGui.text(runner.getScriptName());
 
-        ImGui.text(scriptName);
-
-        // Performance info from profiler
+        // Right-align an avg-ms metric if we have data
         long loops = runner.getProfiler().getLoopCount();
         long avgMs = loops > 0
                 ? runner.getProfiler().getTotalLoopTimeNanos() / loops / 1_000_000L
                 : 0;
         if (avgMs > 0) {
-            ImGui.sameLine(0, 12);
-            GuiHelpers.statusBadge(avgMs + "ms",
+            String badge = avgMs + "ms";
+            float badgeW = ImGui.calcTextSize(badge).x + fontH * 0.8f; // approximate visual width
+            ImGui.sameLine();
+            float remaining = ImGui.getContentRegionAvailX();
+            if (remaining > badgeW) {
+                ImGui.setCursorPosX(ImGui.getCursorPosX() + remaining - badgeW);
+            }
+            GuiHelpers.statusBadge(badge,
                     ImGuiTheme.BLUE_ACCENT_R, ImGuiTheme.BLUE_ACCENT_G, ImGuiTheme.BLUE_ACCENT_B);
         }
 
-        // Author + version subtitle
+        // Subtitle: author · v1.0
         if (manifest != null) {
-            StringBuilder sub = new StringBuilder();
-            if (!manifest.author().isEmpty()) {
-                sub.append("by ").append(manifest.author());
-            }
-            if (!manifest.version().isEmpty()) {
-                if (!sub.isEmpty()) {
-                    sub.append(" \u00B7 ");
-                }
-                sub.append("v").append(manifest.version());
-            }
-            if (!sub.isEmpty()) {
-                GuiHelpers.textMuted(sub.toString());
+            String subtitle = formatSubtitle(manifest);
+            if (!subtitle.isEmpty()) {
+                GuiHelpers.textMuted(subtitle);
             }
         }
     }
 
-    private float estimateCardHeight(Connection connection, boolean alive) {
-        float lineHeight = ImGui.getTextLineHeightWithSpacing();
-        float padding = ImGui.getStyle().getWindowPaddingY() * 2;
-        float separator = 8f;
+    private static String formatSubtitle(ScriptManifest manifest) {
+        StringBuilder sb = new StringBuilder();
+        if (!manifest.author().isEmpty()) {
+            sb.append("by ").append(manifest.author());
+        }
+        if (!manifest.version().isEmpty()) {
+            if (!sb.isEmpty()) {
+                sb.append(" · ");
+            }
+            sb.append("v").append(manifest.version());
+        }
+        return sb.toString();
+    }
 
-        // Header (1 line) + separator + content
-        float base = lineHeight + separator + padding + 10f;
+    private CardAction renderRunningButtons(Connection connection, ScriptRunner runner, int cardIndex) {
+        boolean hasUI = runner.getScript().getUI() != null
+                || (runner.getConfigFields() != null && !runner.getConfigFields().isEmpty());
 
-        if (!alive) {
-            // Disconnected: 1 line text + button
-            return base + lineHeight + ImGui.getFrameHeightWithSpacing() + 8f;
+        float availW = ImGui.getContentRegionAvailX();
+        float btnH = ImGui.getFrameHeight();
+        float gap = ImGui.getStyle().getItemSpacingX();
+
+        if (hasUI) {
+            float half = (availW - gap) * 0.5f;
+            CardAction action = null;
+            if (GuiHelpers.buttonSecondary(Icons.GEAR + "  Configure##" + cardIndex, half, btnH)) {
+                action = new CardAction(CardAction.Type.CONFIGURE, connection, runner);
+            }
+            ImGui.sameLine(0, gap);
+            if (GuiHelpers.buttonDanger(Icons.STOP + "  Stop##" + cardIndex, half, btnH)) {
+                action = new CardAction(CardAction.Type.STOP, connection, runner);
+            }
+            return action;
         }
 
-        List<ScriptRunner> runners = connection.getRuntime().getRunners();
-        boolean hasRunning = runners.stream().anyMatch(ScriptRunner::isRunning);
-
-        if (hasRunning) {
-            // Running: script name line + subtitle + buttons
-            return base + lineHeight * 2.5f + ImGui.getFrameHeightWithSpacing() + 12f;
-        } else {
-            // Idle: status text + button
-            return base + lineHeight + ImGui.getFrameHeightWithSpacing() + 8f;
+        if (GuiHelpers.buttonDanger(Icons.STOP + "  Stop##" + cardIndex, availW, btnH)) {
+            return new CardAction(CardAction.Type.STOP, connection, runner);
         }
+        return null;
     }
 
     /**
