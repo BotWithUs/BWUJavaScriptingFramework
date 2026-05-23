@@ -25,15 +25,12 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NativeArtifactDownloaderTest {
-
-    private static final byte[] DLL_BYTES = "fake-dll-bytes".getBytes(StandardCharsets.UTF_8);
 
     @TempDir
     Path tempDir;
@@ -66,9 +63,9 @@ class NativeArtifactDownloaderTest {
     @Test
     void stubEntryIsSkippedWithoutNetworkCall() {
         // Server never started — any HTTP attempt would fail.
-        Entry.Dll stubbed = new Entry.Dll(
-                "bwu.dll",
-                URI.create("https://" + NativeArtifactManifest.STUB_HOST + "/bwu.dll"),
+        Entry stubbed = new Entry(
+                "native-libs.zip",
+                URI.create("https://" + NativeArtifactManifest.STUB_HOST + "/native-libs.zip"),
                 NativeArtifactManifest.STUB_DIGEST);
 
         NativeArtifactDownloader.Result result = downloader.download(stubbed);
@@ -76,85 +73,60 @@ class NativeArtifactDownloaderTest {
         NativeArtifactDownloader.Result.Skipped skipped =
                 assertInstanceOf(NativeArtifactDownloader.Result.Skipped.class, result);
         assertEquals(stubbed, skipped.entry());
-        assertFalse(Files.exists(cache.resolve("bwu.dll")));
-    }
-
-    @Test
-    void dllDownloadsAndPlacesIntoCache() throws IOException {
-        server.createContext("/bwu.dll", ex -> respond(ex, 200, DLL_BYTES));
-        server.start();
-
-        Entry.Dll entry = new Entry.Dll("bwu.dll", baseUri().resolve("bwu.dll"), sha256Hex(DLL_BYTES));
-
-        NativeArtifactDownloader.Result result = downloader.download(entry);
-
-        NativeArtifactDownloader.Result.Downloaded ok =
-                assertInstanceOf(NativeArtifactDownloader.Result.Downloaded.class, result);
-        Path placed = cache.resolve("bwu.dll");
-        assertEquals(placed, ok.location());
-        assertEquals(DLL_BYTES.length, ok.bytesWritten());
-        assertArrayEquals(DLL_BYTES, Files.readAllBytes(placed));
-        assertFalse(Files.exists(cache.resolve("bwu.dll.part")));
-    }
-
-    @Test
-    void secondRunReportsAlreadyCached() throws IOException {
-        server.createContext("/bwu.dll", ex -> respond(ex, 200, DLL_BYTES));
-        server.start();
-
-        Entry.Dll entry = new Entry.Dll("bwu.dll", baseUri().resolve("bwu.dll"), sha256Hex(DLL_BYTES));
-        downloader.download(entry);
-
-        NativeArtifactDownloader.Result second = downloader.download(entry);
-
-        assertInstanceOf(NativeArtifactDownloader.Result.AlreadyCached.class, second);
+        assertFalse(Files.exists(cache.resolve("native-libs.zip")));
     }
 
     @Test
     void checksumMismatchDeletesPartAndRejects() throws IOException {
-        server.createContext("/bwu.dll", ex -> respond(ex, 200, DLL_BYTES));
+        byte[] zipBytes = buildZip(List.of(
+                new ZipMember("bwu.dll", "payload".getBytes(StandardCharsets.UTF_8))));
+        server.createContext("/libs.zip", ex -> respond(ex, 200, zipBytes));
         server.start();
 
         String wrongDigest = sha256Hex("different-bytes".getBytes(StandardCharsets.UTF_8));
-        Entry.Dll entry = new Entry.Dll("bwu.dll", baseUri().resolve("bwu.dll"), wrongDigest);
+        Entry entry = new Entry("libs.zip", baseUri().resolve("libs.zip"), wrongDigest);
 
         NativeArtifactDownloader.Result result = downloader.download(entry);
 
         NativeArtifactDownloader.Result.ChecksumMismatch mismatch =
                 assertInstanceOf(NativeArtifactDownloader.Result.ChecksumMismatch.class, result);
         assertEquals(wrongDigest, mismatch.expected());
-        assertFalse(Files.exists(cache.resolve("bwu.dll")));
-        assertFalse(Files.exists(cache.resolve("bwu.dll.part")));
+        assertFalse(Files.exists(cache.resolve("libs.zip")));
+        assertFalse(Files.exists(cache.resolve("libs.zip.part")));
+        assertFalse(Files.exists(cache.resolve("libs.zip.installed")));
     }
 
     @Test
     void httpErrorSurfacesAsNetworkFailure() throws IOException {
-        server.createContext("/bwu.dll", ex -> respond(ex, 500, new byte[0]));
+        server.createContext("/libs.zip", ex -> respond(ex, 500, new byte[0]));
         server.start();
 
-        Entry.Dll entry = new Entry.Dll("bwu.dll", baseUri().resolve("bwu.dll"), sha256Hex(DLL_BYTES));
+        Entry entry = new Entry("libs.zip", baseUri().resolve("libs.zip"),
+                sha256Hex("anything".getBytes(StandardCharsets.UTF_8)));
 
         NativeArtifactDownloader.Result result = downloader.download(entry);
 
         NativeArtifactDownloader.Result.NetworkFailure failure =
                 assertInstanceOf(NativeArtifactDownloader.Result.NetworkFailure.class, result);
         assertTrue(failure.message().contains("500"));
-        assertFalse(Files.exists(cache.resolve("bwu.dll")));
+        assertFalse(Files.exists(cache.resolve("libs.zip")));
     }
 
     @Test
     void zipExtractsContentsAndWritesMarker() throws IOException {
         byte[] zipBytes = buildZip(List.of(
+                new ZipMember("bwu.dll", "loader-payload".getBytes(StandardCharsets.UTF_8)),
                 new ZipMember("NXTCache.dll", "nxt-payload".getBytes(StandardCharsets.UTF_8)),
                 new ZipMember("subdir/helper.dll", "helper-payload".getBytes(StandardCharsets.UTF_8))));
         server.createContext("/libs.zip", ex -> respond(ex, 200, zipBytes));
         server.start();
 
-        Entry.Zip entry = new Entry.Zip("libs.zip", baseUri().resolve("libs.zip"), sha256Hex(zipBytes));
+        Entry entry = new Entry("libs.zip", baseUri().resolve("libs.zip"), sha256Hex(zipBytes));
 
         NativeArtifactDownloader.Result result = downloader.download(entry);
 
         assertInstanceOf(NativeArtifactDownloader.Result.Downloaded.class, result);
+        assertTrue(Files.exists(cache.resolve("bwu.dll")));
         assertTrue(Files.exists(cache.resolve("NXTCache.dll")));
         assertTrue(Files.exists(cache.resolve("subdir/helper.dll")));
         assertFalse(Files.exists(cache.resolve("libs.zip")), "staging archive should be deleted");
@@ -165,11 +137,11 @@ class NativeArtifactDownloaderTest {
     @Test
     void zipSecondRunReportsAlreadyCached() throws IOException {
         byte[] zipBytes = buildZip(List.of(
-                new ZipMember("NXTCache.dll", "payload".getBytes(StandardCharsets.UTF_8))));
+                new ZipMember("bwu.dll", "payload".getBytes(StandardCharsets.UTF_8))));
         server.createContext("/libs.zip", ex -> respond(ex, 200, zipBytes));
         server.start();
 
-        Entry.Zip entry = new Entry.Zip("libs.zip", baseUri().resolve("libs.zip"), sha256Hex(zipBytes));
+        Entry entry = new Entry("libs.zip", baseUri().resolve("libs.zip"), sha256Hex(zipBytes));
         downloader.download(entry);
 
         NativeArtifactDownloader.Result second = downloader.download(entry);
@@ -184,7 +156,7 @@ class NativeArtifactDownloaderTest {
         server.createContext("/evil.zip", ex -> respond(ex, 200, zipBytes));
         server.start();
 
-        Entry.Zip entry = new Entry.Zip("evil.zip", baseUri().resolve("evil.zip"), sha256Hex(zipBytes));
+        Entry entry = new Entry("evil.zip", baseUri().resolve("evil.zip"), sha256Hex(zipBytes));
 
         NativeArtifactDownloader.Result result = downloader.download(entry);
 
