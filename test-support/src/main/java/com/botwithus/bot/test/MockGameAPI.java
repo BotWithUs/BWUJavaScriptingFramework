@@ -17,13 +17,6 @@ import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.LoginState;
-import com.botwithus.bot.api.model.NavClimbover;
-import com.botwithus.bot.api.model.NavDoor;
-import com.botwithus.bot.api.model.NavPlaneTransition;
-import com.botwithus.bot.api.model.NavShortcut;
-import com.botwithus.bot.api.model.NavStats;
-import com.botwithus.bot.api.model.NavTeleport;
-import com.botwithus.bot.api.model.NavTransport;
 import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.PathResult;
 import com.botwithus.bot.api.model.PlayerStat;
@@ -219,101 +212,6 @@ final class MockGameAPI implements GameAPI {
     @Override
     public void clearRegionCache() {
         throw notStubbed("clearRegionCache");
-    }
-
-    @Override
-    public void navAddTransport(NavTransport transport) {
-        throw notStubbed("navAddTransport");
-    }
-
-    @Override
-    public void navRemoveTransport(int objectId, int x, int y, int plane) {
-        throw notStubbed("navRemoveTransport");
-    }
-
-    @Override
-    public List<NavTransport> navListTransports() {
-        throw notStubbed("navListTransports");
-    }
-
-    @Override
-    public void navAddDoor(NavDoor door) {
-        throw notStubbed("navAddDoor");
-    }
-
-    @Override
-    public void navRemoveDoor(int objectId, int x, int y, int plane) {
-        throw notStubbed("navRemoveDoor");
-    }
-
-    @Override
-    public List<NavDoor> navListDoors() {
-        throw notStubbed("navListDoors");
-    }
-
-    @Override
-    public void navAddShortcut(NavShortcut shortcut) {
-        throw notStubbed("navAddShortcut");
-    }
-
-    @Override
-    public void navRemoveShortcut(int objectId, int x, int y, int plane) {
-        throw notStubbed("navRemoveShortcut");
-    }
-
-    @Override
-    public void navAddPlaneTransition(NavPlaneTransition transition) {
-        throw notStubbed("navAddPlaneTransition");
-    }
-
-    @Override
-    public void navRemovePlaneTransition(int objectId, int x, int y, int plane) {
-        throw notStubbed("navRemovePlaneTransition");
-    }
-
-    @Override
-    public void navAddClimbover(NavClimbover climbover) {
-        throw notStubbed("navAddClimbover");
-    }
-
-    @Override
-    public void navRemoveClimbover(int objectId, int x, int y, int plane) {
-        throw notStubbed("navRemoveClimbover");
-    }
-
-    @Override
-    public int navLoadJson(List<NavTransport> links) {
-        throw notStubbed("navLoadJson");
-    }
-
-    @Override
-    public void navSaveLinks(String path) {
-        throw notStubbed("navSaveLinks");
-    }
-
-    @Override
-    public int navLoadLinks(String path) {
-        throw notStubbed("navLoadLinks");
-    }
-
-    @Override
-    public NavStats navGetStats() {
-        throw notStubbed("navGetStats");
-    }
-
-    @Override
-    public int navRegisterTeleports(String json, String format) {
-        throw notStubbed("navRegisterTeleports");
-    }
-
-    @Override
-    public int navClearScriptTeleports() {
-        throw notStubbed("navClearScriptTeleports");
-    }
-
-    @Override
-    public List<NavTeleport> navListTeleports(boolean scriptOnly) {
-        throw notStubbed("navListTeleports");
     }
 
     // ---- Entity / inventory facades ----------------------------------------

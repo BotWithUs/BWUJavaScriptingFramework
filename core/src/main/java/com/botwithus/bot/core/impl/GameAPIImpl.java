@@ -24,13 +24,6 @@ import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.LoginState;
-import com.botwithus.bot.api.model.NavClimbover;
-import com.botwithus.bot.api.model.NavDoor;
-import com.botwithus.bot.api.model.NavPlaneTransition;
-import com.botwithus.bot.api.model.NavShortcut;
-import com.botwithus.bot.api.model.NavStats;
-import com.botwithus.bot.api.model.NavTeleport;
-import com.botwithus.bot.api.model.NavTransport;
 import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.PathResult;
 import com.botwithus.bot.api.model.PlayerStat;
@@ -56,7 +49,6 @@ import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
-import static com.botwithus.bot.core.impl.MapHelper.getDouble;
 import static com.botwithus.bot.core.impl.MapHelper.getInt;
 import static com.botwithus.bot.core.impl.MapHelper.getIntList;
 import static com.botwithus.bot.core.impl.MapHelper.getList;
@@ -742,180 +734,12 @@ public class GameAPIImpl implements GameAPI {
         rpc.callSync("region_cache_clear", Map.of());
     }
 
-    // ---------------------------------------------------------------- Nav graph CRUD
-
-    @Override
-    public void navAddTransport(NavTransport t) {
-        rpc.callSync("nav.add_transport", transportToMap(t));
-    }
-
-    @Override
-    public void navRemoveTransport(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_transport", objectId, x, y, plane);
-    }
-
-    @Override
-    public List<NavTransport> navListTransports() {
-        Map<String, Object> r = rpc.callSync("nav.list_transports", Map.of());
-        List<Map<String, Object>> list = getList(r, "transports");
-        return list.stream().map(m -> new NavTransport(
-                getInt(m, "object_id"), getInt(m, "x"), getInt(m, "y"), getInt(m, "plane"),
-                getInt(m, "shape"), getInt(m, "rotation"), getInt(m, "option_index"),
-                getInt(m, "dest_x"), getInt(m, "dest_y"), getInt(m, "dest_plane")
-        )).toList();
-    }
-
-    @Override
-    public void navAddDoor(NavDoor d) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", d.objectId());
-        params.put("x", d.x());
-        params.put("y", d.y());
-        if (d.plane() != 0) params.put("plane", d.plane());
-        if (d.shape() != 0) params.put("shape", d.shape());
-        if (d.rotation() != 0) params.put("rotation", d.rotation());
-        rpc.callSync("nav.add_door", params);
-    }
-
-    @Override
-    public void navRemoveDoor(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_door", objectId, x, y, plane);
-    }
-
-    @Override
-    public List<NavDoor> navListDoors() {
-        Map<String, Object> r = rpc.callSync("nav.list_doors", Map.of());
-        List<Map<String, Object>> list = getList(r, "doors");
-        return list.stream().map(m -> new NavDoor(
-                getInt(m, "object_id"), getInt(m, "x"), getInt(m, "y"), getInt(m, "plane"),
-                getInt(m, "shape"), getInt(m, "rotation")
-        )).toList();
-    }
-
-    @Override
-    public void navAddShortcut(NavShortcut s) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", s.objectId());
-        params.put("x", s.x());
-        params.put("y", s.y());
-        if (s.plane() != 0) params.put("plane", s.plane());
-        if (s.shape() != 0) params.put("shape", s.shape());
-        if (s.rotation() != 0) params.put("rotation", s.rotation());
-        if (s.agilityLevel() != 1) params.put("agility_level", s.agilityLevel());
-        rpc.callSync("nav.add_shortcut", params);
-    }
-
-    @Override
-    public void navRemoveShortcut(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_shortcut", objectId, x, y, plane);
-    }
-
-    @Override
-    public void navAddPlaneTransition(NavPlaneTransition t) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", t.objectId());
-        params.put("x", t.x());
-        params.put("y", t.y());
-        if (t.plane() != 0) params.put("plane", t.plane());
-        if (t.shape() != 10) params.put("shape", t.shape());
-        if (t.rotation() != 0) params.put("rotation", t.rotation());
-        if (t.sizeX() != 1) params.put("size_x", t.sizeX());
-        if (t.sizeY() != 1) params.put("size_y", t.sizeY());
-        if (t.destX() >= 0) params.put("dest_x", t.destX());
-        if (t.destY() >= 0) params.put("dest_y", t.destY());
-        if (t.destPlane() != 0) params.put("dest_plane", t.destPlane());
-        rpc.callSync("nav.add_plane_transition", params);
-    }
-
-    @Override
-    public void navRemovePlaneTransition(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_plane_transition", objectId, x, y, plane);
-    }
-
-    @Override
-    public void navAddClimbover(NavClimbover c) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", c.objectId());
-        params.put("x", c.x());
-        params.put("y", c.y());
-        if (c.plane() != 0) params.put("plane", c.plane());
-        if (c.shape() != 0) params.put("shape", c.shape());
-        if (c.rotation() != 0) params.put("rotation", c.rotation());
-        rpc.callSync("nav.add_climbover", params);
-    }
-
-    @Override
-    public void navRemoveClimbover(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_climbover", objectId, x, y, plane);
-    }
-
-    @Override
-    public int navLoadJson(List<NavTransport> links) {
-        List<Map<String, Object>> linkMaps = links.stream().map(this::transportToMap).toList();
-        Map<String, Object> r = rpc.callSync("nav.load_json", Map.of("links", linkMaps));
-        return getInt(r, "added");
-    }
-
-    @Override
-    public void navSaveLinks(String path) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (path != null) params.put("path", path);
-        rpc.callSync("nav.save_links", params);
-    }
-
-    @Override
-    public int navLoadLinks(String path) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (path != null) params.put("path", path);
-        Map<String, Object> r = rpc.callSync("nav.load_links", params);
-        return getInt(r, "loaded");
-    }
-
-    @Override
-    public NavStats navGetStats() {
-        Map<String, Object> r = rpc.callSync("nav.stats", Map.of());
-        return new NavStats(
-                getInt(r, "regions"), getInt(r, "doors"), getInt(r, "shortcuts"),
-                getInt(r, "plane_transitions"), getInt(r, "climbovers"), getInt(r, "transports"),
-                getInt(r, "teleports"), getInt(r, "teleports_builtin"), getInt(r, "teleports_script")
-        );
-    }
-
-    @Override
-    public int navRegisterTeleports(String json, String format) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("json", json);
-        if (format != null && !format.equals("item_teleports")) params.put("format", format);
-        Map<String, Object> r = rpc.callSync("nav.register_teleports", params);
-        return getInt(r, "added");
-    }
-
-    @Override
-    public int navClearScriptTeleports() {
-        Map<String, Object> r = rpc.callSync("nav.clear_script_teleports", Map.of());
-        return getInt(r, "removed");
-    }
-
-    @Override
-    public List<NavTeleport> navListTeleports(boolean scriptOnly) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (scriptOnly) params.put("script_only", true);
-        Map<String, Object> r = rpc.callSync("nav.list_teleports", params);
-        List<Map<String, Object>> list = getList(r, "teleports");
-        return list.stream().map(m -> new NavTeleport(
-                getInt(m, "index"), getString(m, "name"), getBool(m, "global"),
-                getInt(m, "dest_x"), getInt(m, "dest_y"), getInt(m, "dest_plane"),
-                getDouble(m, "cost"), getDouble(m, "cost_quick"),
-                getInt(m, "chain_steps"), getInt(m, "requirements"), getBool(m, "builtin")
-        )).toList();
-    }
-
     // ---------------------------------------------------------------- Config-type lookups (NXTCache-backed)
     //
     // Each lookup goes through the embedded NXTCache.dll (sqlite + live JS5
-    // fallback) instead of round-tripping over the pipe to a producer-side
-    // sentinel. The producer's get_*_type RPC handlers are dead code now —
-    // safe to delete in NXTLibrary's Handlers.cpp.
+    // fallback) instead of round-tripping over the pipe. The producer-side
+    // get_*_type RPC handlers were removed alongside the nav graph CRUD —
+    // these methods are the sole config-type entry point now.
 
     @Override
     public ItemType getItemType(int id) {
@@ -953,30 +777,6 @@ public class GameAPIImpl implements GameAPI {
     }
 
     // ---------------------------------------------------------------- Helpers
-
-    private void navRemoveLink(String method, int objectId, int x, int y, int plane) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", objectId);
-        params.put("x", x);
-        params.put("y", y);
-        if (plane != 0) params.put("plane", plane);
-        rpc.callSync(method, params);
-    }
-
-    private Map<String, Object> transportToMap(NavTransport t) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", t.objectId());
-        params.put("x", t.x());
-        params.put("y", t.y());
-        if (t.plane() != 0) params.put("plane", t.plane());
-        if (t.shape() != 10) params.put("shape", t.shape());
-        if (t.rotation() != 0) params.put("rotation", t.rotation());
-        if (t.optionIndex() != 0) params.put("option_index", t.optionIndex());
-        params.put("dest_x", t.destX());
-        params.put("dest_y", t.destY());
-        if (t.destPlane() != 0) params.put("dest_plane", t.destPlane());
-        return params;
-    }
 
     @SuppressWarnings("unchecked")
     private PathResult mapPathResult(Map<String, Object> r) {
