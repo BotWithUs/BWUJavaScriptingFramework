@@ -568,7 +568,7 @@ public class AccountsPanel implements GuiPanel {
         GuiHelpers.textSecondary("Bank PIN");
         ImGui.sameLine(0, 8);
         ImGui.pushItemWidth(ImGui.getFrameHeight() * 3);
-        ImGui.inputText("##addPin", addPin);
+        ImGui.inputText("##addPin", addPin, ImGuiInputTextFlags.Password);
         ImGui.popItemWidth();
 
         ImGui.sameLine(0, 16);

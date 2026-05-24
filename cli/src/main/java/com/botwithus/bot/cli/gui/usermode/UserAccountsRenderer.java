@@ -421,7 +421,7 @@ public class UserAccountsRenderer {
 
         GuiHelpers.textSecondary("Bank PIN");
         ImGui.pushItemWidth(ImGui.getFrameHeight() * 3);
-        ImGui.inputText("##addClassicPin", addPin);
+        ImGui.inputText("##addClassicPin", addPin, ImGuiInputTextFlags.Password);
         ImGui.popItemWidth();
         ImGui.sameLine(0, 16);
         GuiHelpers.textSecondary("World");

@@ -12,6 +12,7 @@ import com.botwithus.bot.core.loader.NativeCache;
 import imgui.ImDrawList;
 import imgui.ImGui;
 import imgui.flag.ImGuiCol;
+import imgui.flag.ImGuiInputTextFlags;
 import imgui.flag.ImGuiStyleVar;
 import imgui.type.ImBoolean;
 import imgui.type.ImString;
@@ -473,7 +474,7 @@ public class LoaderScreen {
 
         ImGui.setCursorPosX(startX + shakeOffset);
         ImGui.pushItemWidth(formWidth);
-        ImGui.inputTextWithHint("##tokenInput", "Paste your auth token", tokenInput);
+        ImGui.inputTextWithHint("##tokenInput", "Paste your auth token", tokenInput, ImGuiInputTextFlags.Password);
         ImGui.popItemWidth();
 
         ImGui.spacing();
