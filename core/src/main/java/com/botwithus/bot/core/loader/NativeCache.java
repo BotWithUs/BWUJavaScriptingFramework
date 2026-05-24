@@ -1,4 +1,4 @@
-package com.botwithus.bot.core.loader.bootstrap;
+package com.botwithus.bot.core.loader;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -12,10 +12,13 @@ import java.util.Objects;
  * (credentials, repository config, trusted PGP keys).
  *
  * <p>Construction is side-effect free; {@link #ensureExists()} creates
- * the directory on demand. Callers that only read the path (the BwuClient
- * resolver fallback) can use {@link #cacheDir()} directly without
+ * the directory on demand. Callers that only read the path can use
+ * {@link #cacheDir()} or {@link #resolve(String)} directly without
  * creating the directory; callers that intend to write into it should
  * call {@link #ensureExists()} first.</p>
+ *
+ * <p>Cache population is handled by the loader DLL, not Java — this
+ * class only provides the path convention.</p>
  */
 public final class NativeCache {
 

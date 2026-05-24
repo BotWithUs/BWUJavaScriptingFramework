@@ -16,7 +16,7 @@ These three files are the spec. Future hosts (Python, C#, etc.) consume the same
 
 ## Repos involved
 
-- `E:\BotWithUs V2\JBotWithUsV2` — Java consumer
+- `E:\BotWithUsv2.5\JBotWithUsV2` — Java consumer
 - `E:\BotWithUsv2.5\NXTLibrary` — C++ producer (injected DLL)
 
 Branch: create `gameapi-rewrite` off current `slice2-mmap-shared-memory` head before starting slice 1.

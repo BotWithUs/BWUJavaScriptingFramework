@@ -7,7 +7,7 @@ import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
-import com.botwithus.bot.core.loader.bootstrap.NativeCache;
+import com.botwithus.bot.core.loader.NativeCache;
 import com.botwithus.bot.core.util.Throwables;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
