@@ -1,220 +1,187 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
-import com.botwithus.bot.api.model.Entity;
-import com.botwithus.bot.api.query.EntityFilter;
-import com.botwithus.bot.api.query.EntityType;
-import com.botwithus.bot.api.query.MatchType;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
- * Fluent query builder for entities. Wraps {@link EntityFilter} with a
- * friendlier API and returns rich {@link EntityContext} subclasses.
+ * Fluent query builder shared across entity types. Subclasses bind the
+ * concrete result type {@code T} (Npc, Player, ...) and provide the
+ * snapshot-backed source stream plus the bits that are entity-specific
+ * (id field, name resolution).
  *
- * <p>Subclassed by {@link Npcs.Query}, {@link SceneObjects.Query}, and
- * {@link Players.Query} to return the appropriate wrapper type.</p>
+ * <p>Filters compose: each call narrows the set. Terminal operations
+ * ({@link #all()}, {@link #nearest()}, {@link #first()}, {@link #count()},
+ * {@link #exists()}, {@link #stream()}) materialise the result. The builder
+ * is single-use — once you call a terminal it's done; build a new query
+ * for another lookup.</p>
  *
- * @param <T> the rich entity wrapper type (e.g., {@link Npc})
- * @param <Q> self-type for fluent chaining
+ * <p>All filters run client-side against the published snapshot, so a query
+ * is a few microseconds plus whatever definition lookups the rich wrappers
+ * trigger (which are cached by id on the entity facade).</p>
+ *
+ * @param <T> rich entity type
+ * @param <Q> self-type for fluent chaining (CRTP)
  */
-@SuppressWarnings("unchecked")
 public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery<T, Q>> {
 
     protected final GameAPI api;
-    protected final EntityFilter.Builder filterBuilder;
-    private Predicate<T> postFilter;
+    private Predicate<T> filter = t -> true;
+    private boolean sortByDistance = false;
+    private int limit = Integer.MAX_VALUE;
 
-    protected EntityQuery(GameAPI api, String entityType) {
+    protected EntityQuery(GameAPI api) {
         this.api = api;
-        this.filterBuilder = EntityFilter.builder().type(entityType);
     }
 
-    protected EntityQuery(GameAPI api, EntityType entityType) {
-        this.api = api;
-        this.filterBuilder = EntityFilter.builder().type(entityType);
+    @SuppressWarnings("unchecked")
+    private Q self() { return (Q) this; }
+
+    // ---------------- Filters ----------------
+
+    /** Adds a predicate; multiple calls AND together. */
+    public Q filter(Predicate<T> predicate) {
+        this.filter = this.filter.and(predicate);
+        return self();
     }
 
-    /** Filter by name (contains match, case-insensitive). */
+    /** Filter by display name (case-insensitive substring). */
     public Q named(String name) {
-        filterBuilder.namePattern(name);
-        return self();
+        String needle = name.toLowerCase();
+        return filter(t -> {
+            String n = nameOf(t);
+            return n != null && n.toLowerCase().contains(needle);
+        });
     }
 
-    /** Filter by name with exact match. */
+    /** Filter by display name (case-insensitive exact match). */
     public Q namedExact(String name) {
-        filterBuilder.namePattern(name).matchType(MatchType.EXACT);
-        return self();
+        return filter(t -> name.equalsIgnoreCase(nameOf(t)));
     }
 
     /**
-     * Filter by name using a regex pattern.
+     * Filter by display name (regex match against the full name).
      *
-     * @throws PatternSyntaxException if the regex is invalid
+     * @throws PatternSyntaxException if {@code regex} is malformed
      */
     public Q nameMatching(String regex) {
-        // Validate regex to prevent ReDoS and catch errors early
-        java.util.regex.Pattern.compile(regex);
-        filterBuilder.namePattern(regex).matchType(MatchType.REGEX);
-        return self();
+        Pattern compiled = Pattern.compile(regex);
+        return filter(t -> {
+            String n = nameOf(t);
+            return n != null && compiled.matcher(n).matches();
+        });
     }
 
-    /** Filter by type/definition ID. */
+    /** Filter by type/definition id. */
     public Q withId(int typeId) {
-        filterBuilder.typeId(typeId);
-        return self();
+        return filter(t -> rawTypeId(t) == typeId);
     }
 
-    /** Filter by pre-computed name hash. */
-    public Q withNameHash(int hash) {
-        filterBuilder.nameHash(hash);
-        return self();
-    }
-
-    /** Only include visible (non-hidden) entities. */
-    public Q visible() {
-        filterBuilder.visibleOnly(true);
-        return self();
-    }
-
-    /** Only include entities on the specified plane. */
+    /** Filter to a specific plane. */
     public Q onPlane(int plane) {
-        filterBuilder.plane(plane);
-        return self();
+        return filter(t -> t.plane() == plane);
     }
 
-    /** Only include entities within the given radius of a tile. */
+    /**
+     * Filter to entities within {@code radius} tiles (Chebyshev) of the
+     * given world tile.
+     */
     public Q within(int tileX, int tileY, int radius) {
-        filterBuilder.tileX(tileX).tileY(tileY).radius(radius);
-        return self();
+        return filter(t -> t.distanceTo(tileX, tileY) <= radius);
     }
 
-    /** Only include entities within the given radius of the local player. */
+    /**
+     * Filter to entities within {@code radius} tiles of the local player.
+     * Returns no results when the local player is not in-game.
+     */
     public Q withinDistance(int radius) {
-        var lp = api.getLocalPlayer();
-        filterBuilder.tileX(lp.tileX()).tileY(lp.tileY()).radius(radius);
+        LocalPlayer lp = api.getLocalPlayer();
+        if (lp == null) {
+            return filter(t -> false);
+        }
+        int x = lp.tileX(), y = lp.tileY();
+        return filter(t -> t.distanceTo(x, y) <= radius);
+    }
+
+    /** Sort results by distance from the local player, ascending. */
+    public Q sortByDistance() {
+        this.sortByDistance = true;
         return self();
     }
 
-    /** Only include moving entities. */
-    public Q moving() {
-        filterBuilder.movingOnly(true);
-        return self();
-    }
-
-    /** Only include stationary entities. */
-    public Q stationary() {
-        filterBuilder.stationaryOnly(true);
-        return self();
-    }
-
-    /** Only include entities in combat. */
-    public Q inCombat() {
-        filterBuilder.inCombat(true);
-        return self();
-    }
-
-    /** Only include entities not in combat. */
-    public Q notInCombat() {
-        filterBuilder.notInCombat(true);
-        return self();
-    }
-
-    /** Limit the maximum number of results. */
+    /** Cap the number of results. Applied after sorting. */
     public Q limit(int max) {
-        filterBuilder.maxResults(max);
+        this.limit = Math.max(0, max);
         return self();
     }
 
-    /**
-     * Adds a post-query filter predicate applied after results are wrapped.
-     * Use this for conditions the server-side filter can't express
-     * (e.g., checking definition fields).
-     */
-    public Q filter(Predicate<T> predicate) {
-        this.postFilter = this.postFilter == null ? predicate : this.postFilter.and(predicate);
-        return self();
-    }
+    // ---------------- Terminal Operations ----------------
 
-    // ========================== Terminal Operations ==========================
-
-    /**
-     * Returns all matching entities as rich wrappers.
-     */
     public List<T> all() {
-        List<Entity> raw = api.queryEntities(filterBuilder.build());
-        List<T> results = raw.stream().map(wrapFunction()).collect(Collectors.toList());
-        if (postFilter != null) {
-            results = results.stream().filter(postFilter).collect(Collectors.toList());
+        Stream<T> stream = source().filter(filter);
+        if (sortByDistance) {
+            LocalPlayer lp = api.getLocalPlayer();
+            if (lp != null) {
+                int px = lp.tileX(), py = lp.tileY();
+                stream = stream.sorted(Comparator.comparingInt(t -> t.distanceTo(px, py)));
+            }
         }
-        return results;
+        if (limit < Integer.MAX_VALUE) {
+            stream = stream.limit(limit);
+        }
+        return stream.collect(Collectors.toList());
     }
 
-    /**
-     * Returns the nearest matching entity, or null.
-     */
+    /** Nearest result, or {@code null} when no match. Implies {@code sortByDistance()}. */
     public T nearest() {
-        filterBuilder.sortByDistance(true);
-        if (postFilter == null) {
-            filterBuilder.maxResults(1);
-        }
-        List<T> results = all();
-        return results.isEmpty() ? null : results.getFirst();
+        sortByDistance();
+        List<T> list = all();
+        return list.isEmpty() ? null : list.getFirst();
     }
 
-    /**
-     * Returns the nearest matching entity as an {@link Optional}.
-     */
+    /** Nearest as Optional. */
     public Optional<T> findNearest() {
         return Optional.ofNullable(nearest());
     }
 
-    /**
-     * Returns the first matching entity (no distance sort), or null.
-     */
+    /** First match in source order, or {@code null}. No distance sort applied. */
     public T first() {
-        if (postFilter == null) {
-            filterBuilder.maxResults(1);
-        }
-        List<T> results = all();
-        return results.isEmpty() ? null : results.getFirst();
+        List<T> list = all();
+        return list.isEmpty() ? null : list.getFirst();
     }
 
-    /**
-     * Returns the first matching entity as an {@link Optional} (no distance sort).
-     */
+    /** First match as Optional. */
     public Optional<T> findFirst() {
         return Optional.ofNullable(first());
     }
 
-    /**
-     * Returns the count of matching entities.
-     */
-    public int count() {
-        return all().size();
-    }
+    public int count() { return all().size(); }
+
+    public boolean exists() { return !all().isEmpty(); }
+
+    /** Stream over the materialised result list (filters/sort already applied). */
+    public Stream<T> stream() { return all().stream(); }
+
+    // ---------------- Subclass Hooks ----------------
+
+    /** Snapshot-backed source: yield each rich-wrapped entity for this query type. */
+    protected abstract Stream<T> source();
+
+    /** Type/definition id from the snapshot record (no defn lookup). */
+    protected abstract int rawTypeId(T t);
 
     /**
-     * Returns true if at least one entity matches.
+     * Display name for {@code named()} / {@code nameMatching()}; resolved
+     * via the entity-specific definition cache. May trigger an RPC on first
+     * sight of a typeId, then cache for the rest of the session.
      */
-    public boolean exists() {
-        if (postFilter == null) {
-            filterBuilder.maxResults(1);
-        }
-        return !all().isEmpty();
-    }
-
-    // ========================== Abstract ==========================
-
-    /** Wrapping function that converts a raw Entity to the rich type. */
-    protected abstract Function<Entity, T> wrapFunction();
-
-    private Q self() {
-        return (Q) this;
-    }
+    protected abstract String nameOf(T t);
 }

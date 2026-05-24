@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.gui;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.cli.CliContext;
+import com.botwithus.bot.cli.ClientManager;
 import com.botwithus.bot.core.runtime.ManagementScriptRunner;
 import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
 
@@ -121,7 +122,7 @@ public class ManagementScriptsPanel implements GuiPanel {
                     if (ImGui.smallButton(Icons.REDO + " Restart")) {
                         executor.submit(() -> {
                             runner.stop();
-                            runner.awaitStop(2000);
+                            runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
                             runner.start();
                         });
                     }

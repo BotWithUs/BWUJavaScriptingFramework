@@ -21,6 +21,11 @@ import java.util.ServiceLoader;
 public final class SDNScriptLoader {
 
     private static final Logger log = LoggerFactory.getLogger(SDNScriptLoader.class);
+    // rule-exception: §Banned 5 (mutable static). One-shot gate for the
+    // process-global SdnLoader.lockdown() native call — once enforced, no
+    // unsigned DLL can ever load again in this process, so the flag is
+    // intrinsically process-scoped. See JBotWithUsV2/CLAUDE.md → "Java
+    // rules exceptions".
     private static volatile boolean lockdownCalled = false;
 
     private SDNScriptLoader() {}
@@ -54,6 +59,17 @@ public final class SDNScriptLoader {
      */
     public static List<BotScript> loadLocalScripts(Path scriptsDir) {
         return LocalScriptLoader.loadScripts(scriptsDir);
+    }
+
+    /**
+     * Loads local scripts and returns the full per-JAR {@link LoadReport}.
+     * Enforces process lockdown after loading completes, exactly like
+     * {@link #loadScripts()}.
+     */
+    public static LoadReport loadLocalReport() {
+        LoadReport report = LocalScriptLoader.loadReport();
+        enforceLockdown(report.scripts());
+        return report;
     }
 
     /**

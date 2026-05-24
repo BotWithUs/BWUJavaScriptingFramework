@@ -1,28 +1,35 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
-import com.botwithus.bot.api.blueprint.BlueprintGraph;
+import com.botwithus.bot.api.diag.StubGuard;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.stream.StreamManager;
-import com.botwithus.bot.core.blueprint.execution.BlueprintBotScript;
-import com.botwithus.bot.core.blueprint.serialization.BlueprintSerializer;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
-import com.botwithus.bot.core.impl.EventDispatcher;
+import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
+import com.botwithus.bot.core.rpc.ReconnectController;
+import com.botwithus.bot.core.rpc.ReconnectPolicy;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
+import com.botwithus.bot.core.runtime.ConnectionContext;
+import com.botwithus.bot.core.runtime.LoadReport;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
+import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.shm.SharedRegionEventPump;
 
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.cli.watch.ScriptWatcher;
@@ -34,21 +41,40 @@ import com.botwithus.bot.core.impl.SharedStateImpl;
 import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
 import com.botwithus.bot.api.script.ManagementScript;
+import com.botwithus.bot.core.cache.NXTCache;
+
+import com.botwithus.bot.core.resolver.Repository;
+import com.botwithus.bot.core.resolver.config.CredentialsStore;
+import com.botwithus.bot.core.resolver.config.RepositoryConfigStore;
+import com.botwithus.bot.core.resolver.install.InstalledIndex;
+import com.botwithus.bot.core.resolver.install.ScriptInstaller;
+import com.botwithus.bot.core.resolver.pgp.BouncyCastlePgpVerifier;
+import com.botwithus.bot.core.resolver.pgp.KeyRing;
+import com.botwithus.bot.core.resolver.pgp.KeyRingStore;
+import com.botwithus.bot.core.resolver.pgp.PgpSignaturePolicy;
+import com.botwithus.bot.core.resolver.pgp.PgpVerifier;
+import com.botwithus.bot.core.resolver.pipeline.Resolver;
+import com.botwithus.bot.core.resolver.search.SearchService;
+import com.botwithus.bot.core.resolver.transport.HttpTransport;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class CliContext {
@@ -81,16 +107,59 @@ public class CliContext {
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
-    private com.botwithus.bot.cli.watch.ScriptWatcher scriptWatcher;
+    private Consumer<Connection> onConnect;
+    private LoadReport lastLoadReport = LoadReport.EMPTY;
+    private ScriptWatcher scriptWatcher;
     private ScriptProfileStore profileStore;
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
     private ManagementScriptRuntime managementRuntime;
 
+    // Resolver wiring (PR-E item 12). Lazily built on first access so the
+    // CLI startup cost is not paid for users who never run a resolver
+    // subcommand. The installer is rebuilt every time so a freshly added
+    // repository (`scripts repo add ...`) takes effect on the next
+    // install/update without a CLI restart — addresses the cache-staleness
+    // concern in the 12.2 review.
+    private RepositoryConfigStore repositoryConfigStore;
+    private CredentialsStore credentialsStore;
+    private InstalledIndex installedIndex;
+    private KeyRingStore keyRingStore;
+    private SearchService searchService;
+    private HttpClient resolverHttpClient;
+    private NXTCache nxtCache;
+    private boolean nxtCacheInitAttempted;
+
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
         this.logCapture = logCapture;
         this.clientManager = new ClientManager(this);
+    }
+
+    /**
+     * Lazy-init the process-wide NXTCache handle the first time a connection
+     * is made. The same handle is shared across all GameAPIImpl instances —
+     * sqlite is safe to read from one connection, and reopening it per
+     * connection would waste startup time. Returns {@code null} when the
+     * cache isn't configured ({@code -Dnxtcache.path} unset) or fails to
+     * open; callers (i.e. config-type lookups) will surface a clear error.
+     */
+    private synchronized NXTCache getOrInitNxtCache() {
+        if (nxtCacheInitAttempted) {
+            return nxtCache;
+        }
+        nxtCacheInitAttempted = true;
+        try {
+            nxtCache = NXTCache.tryOpenFromSystemProperty();
+            if (nxtCache != null) {
+                log.info("NXTCache opened (config-type lookups now cache-backed)");
+            } else {
+                log.debug("NXTCache not configured — set -Dnxtcache.path=<dir> to enable config-type lookups");
+            }
+        } catch (Throwable t) {
+            log.warn("NXTCache failed to open: {}", t.getMessage());
+        }
+        return nxtCache;
     }
 
     public void setStreamManager(StreamManager sm) { this.streamManager = sm; }
@@ -123,7 +192,9 @@ public class CliContext {
      * of loading a second copy of bwu.dll (which would conflict).
      */
     public void initManagementRuntime(BwuClient existingClient) {
-        if (managementRuntime != null) return;
+        if (managementRuntime != null) {
+            return;
+        }
         var messageBus = new MessageBusImpl();
         var sharedState = new SharedStateImpl();
 
@@ -159,46 +230,73 @@ public class CliContext {
      * them in the management runtime.
      */
     public List<ManagementScript> loadManagementScripts() {
-        if (managementRuntime == null) initManagementRuntime();
+        if (managementRuntime == null) {
+            initManagementRuntime();
+        }
         return ManagementScriptLoader.loadScripts();
     }
 
     public void connect(String pipeName) {
-        String connName = pipeName != null ? pipeName : "BotWithUs";
-        if (connections.containsKey(connName)) {
-            out().println("Already connected to '" + connName + "'. Use 'use " + connName + "' to switch.");
+        String resolvedName = pipeName != null ? pipeName : PipeClient.firstAvailableOrThrow();
+        if (connections.containsKey(resolvedName)) {
+            out().println("Already connected to '" + resolvedName + "'. Use 'use " + resolvedName + "' to switch.");
             return;
         }
+        long pid = SharedRegion.parsePid(resolvedName).orElseThrow(() ->
+                new IllegalStateException("Pipe '" + resolvedName + "' has no embedded pid"));
         try {
-            PipeClient pipe = pipeName != null ? new PipeClient(pipeName) : new PipeClient();
+            PipeClient pipe = new PipeClient(resolvedName);
             RpcClient rpc = new RpcClient(pipe);
-            rpc.setConnectionName(connName);
+            rpc.setConnectionName(resolvedName);
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
-            GameAPIImpl gameAPI = new GameAPIImpl(rpc);
-            ClientImpl client = new ClientImpl(connName, gameAPI, eventBus, pipe::isOpen);
-            clientProvider.putClient(connName, client);
+
+            // Pump owns the SHM mapping; we open it before constructing
+            // GameAPIImpl so both the component cache (per-iface invalidation
+            // tokens) and the entity facades (snapshot reads) can read from
+            // the same region. ClientImpl borrows the same region.
+            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+            GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
+                    iface -> pump.region().snapshot().ifaceVersion(iface),
+                    () -> new GameSnapshotImpl(pump.region().snapshot()),
+                    new StubGuard());
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
-            var dispatcher = new EventDispatcher(eventBus);
-            dispatcher.bindAutoSubscription(gameAPI);
-            rpc.setEventHandler(dispatcher::dispatch);
             rpc.start();
 
-            ScriptRuntime runtime = new ScriptRuntime(context);
-            runtime.setConnectionName(connName);
+            ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen, pump.region());
+            clientProvider.putClient(resolvedName, client);
+
+            ScriptRuntime runtime = new ScriptRuntime(context,
+                    ConnectionContext::set, ConnectionContext::clear, eventBus::publish);
+            runtime.setConnectionName(resolvedName);
 
             // Wire up ScriptManager so scripts can manage other scripts
             var scriptManager = new ScriptManagerImpl(runtime);
             context.setScriptManager(scriptManager);
 
-            Connection conn = new Connection(connName, pipe, rpc, runtime);
+            ReconnectController reconnect = new ReconnectController(rpc, pipe, resolvedName,
+                    resolvedName, ReconnectPolicy.DEFAULT,
+                    state -> { /* state is observable via Connection.currentReconnectState() */ },
+                    eventBus::publish);
+            reconnect.arm();
+
+            Connection conn = new Connection(resolvedName, pipe, rpc, runtime);
             conn.setEventBus(eventBus);
-            connections.put(connName, conn);
-            activeConnectionName = connName;
+            conn.setEventPump(pump);
+            conn.setReconnectController(reconnect);
+            connections.put(resolvedName, conn);
+            activeConnectionName = resolvedName;
+            if (onConnect != null) {
+                try {
+                    onConnect.accept(conn);
+                } catch (RuntimeException e) {
+                    log.warn("onConnect hook threw for '{}': {}", resolvedName, e.getMessage());
+                }
+            }
             out().println("Connected to pipe: " + pipe.getPipePath());
             if (connections.size() > 1) {
-                out().println("Active connection set to '" + connName + "'.");
+                out().println("Active connection set to '" + resolvedName + "'.");
             }
         } catch (Exception e) {
             out().println("Connection failed: " + e.getMessage());
@@ -273,27 +371,47 @@ public class CliContext {
     }
 
     public List<BotScript> loadScripts() {
-        return SDNScriptLoader.loadScripts();
+        return loadScriptReport().scripts();
     }
 
     /**
-     * Scans the {@code scripts/blueprints/} directory for {@code *.blueprint.json} files,
-     * deserializes each into a {@link BlueprintGraph}, and wraps them as {@link BlueprintBotScript} instances.
+     * Loads scripts and returns the full {@link LoadReport} including per-JAR
+     * failures. As a side effect, publishes a {@link ScriptLoadFailedEvent}
+     * onto every active connection's event bus for each failure so the
+     * notification overlay and Scripts panel can surface it.
+     */
+    public LoadReport loadScriptReport() {
+        LoadReport report = SDNScriptLoader.loadLocalReport();
+        this.lastLoadReport = report;
+        for (ScriptLoadResult failure : report.failures()) {
+            ScriptLoadFailedEvent event = new ScriptLoadFailedEvent(
+                    failure.jar(), failure.error().orElse(new IllegalStateException("unknown")));
+            broadcastEvent(event);
+        }
+        return report;
+    }
+
+    /** Snapshot of the most recent {@link #loadScriptReport()} call. Never null. */
+    public LoadReport getLastLoadReport() {
+        return lastLoadReport;
+    }
+
+    private void broadcastEvent(GameEvent event) {
+        for (Connection conn : connections.values()) {
+            EventBusImpl bus = conn.getEventBus();
+            if (bus != null) {
+                bus.publish(event);
+            }
+        }
+    }
+
+    /**
+     * Stub: blueprint loading was removed in slice 3 (the blueprint
+     * subsystem depended on the legacy RPC-shaped read surface). Returns
+     * an empty list so callers don't need a guard.
      */
     public List<BotScript> loadBlueprints() {
-        Path dir = Path.of("scripts", "blueprints");
-        if (!Files.isDirectory(dir)) return List.of();
-        try {
-            List<BlueprintGraph> graphs = BlueprintSerializer.loadAllFromDirectory(dir);
-            List<BotScript> scripts = new ArrayList<>();
-            for (BlueprintGraph graph : graphs) {
-                scripts.add(new BlueprintBotScript(graph));
-            }
-            return scripts;
-        } catch (Exception e) {
-            log.error("Failed to load blueprints", e);
-            return List.of();
-        }
+        return List.of();
     }
 
     /**
@@ -344,9 +462,18 @@ public class CliContext {
     public void setProgressDisplay(ProgressDisplay d) { this.progressDisplay = d; }
     public ProgressDisplay getProgressDisplay() { return progressDisplay; }
 
+    /**
+     * Wiring hook for an observer that wants to react to a successful
+     * {@link #connect}, e.g. the notification overlay subscribing to the
+     * new connection's event bus.
+     */
+    public void setOnConnect(Consumer<Connection> hook) { this.onConnect = hook; }
+
     public void setConfigPanelOpener(Consumer<ScriptRunner> opener) { this.configPanelOpener = opener; }
     public void openConfigPanel(ScriptRunner runner) {
-        if (configPanelOpener != null) configPanelOpener.accept(runner);
+        if (configPanelOpener != null) {
+            configPanelOpener.accept(runner);
+        }
     }
 
     // --- Connection Group management & persistence ---
@@ -366,7 +493,9 @@ public class CliContext {
 
     /** Loads persisted groups from ~/.botwithus/groups.json. */
     public void loadGroups() {
-        if (!Files.exists(GROUPS_FILE)) return;
+        if (!Files.exists(GROUPS_FILE)) {
+            return;
+        }
         try {
             String json = Files.readString(GROUPS_FILE);
             Gson gson = new Gson();
@@ -377,8 +506,12 @@ public class CliContext {
                 for (var entry : data.entrySet()) {
                     ConnectionGroup group = new ConnectionGroup(entry.getKey());
                     GroupData gd = entry.getValue();
-                    if (gd.description != null) group.setDescription(gd.description);
-                    if (gd.members != null) gd.members.forEach(group::add);
+                    if (gd.description != null) {
+                        group.setDescription(gd.description);
+                    }
+                    if (gd.members != null) {
+                        gd.members.forEach(group::add);
+                    }
                     groups.put(entry.getKey(), group);
                 }
             }
@@ -410,7 +543,9 @@ public class CliContext {
 
     public boolean deleteGroup(String name) {
         boolean removed = groups.remove(name) != null;
-        if (removed) saveGroups();
+        if (removed) {
+            saveGroups();
+        }
         return removed;
     }
 
@@ -444,7 +579,9 @@ public class CliContext {
      */
     public List<Connection> getGroupConnections(String groupName) {
         ConnectionGroup group = groups.get(groupName);
-        if (group == null) return List.of();
+        if (group == null) {
+            return List.of();
+        }
         List<Connection> result = new ArrayList<>();
         for (String connName : group.getConnectionNames()) {
             Connection conn = connections.get(connName);
@@ -469,9 +606,13 @@ public class CliContext {
     public String getMountedConnectionName() { return mountedConnectionName; }
 
     public void startScriptWatcher() {
-        if (scriptWatcher != null && scriptWatcher.isRunning()) return;
-        java.nio.file.Path scriptsDir = java.nio.file.Path.of("scripts");
-        if (!java.nio.file.Files.isDirectory(scriptsDir)) return;
+        if (scriptWatcher != null && scriptWatcher.isRunning()) {
+            return;
+        }
+        Path scriptsDir = Path.of("scripts");
+        if (!Files.isDirectory(scriptsDir)) {
+            return;
+        }
         scriptWatcher = new ScriptWatcher(scriptsDir, () -> {
             out().println("[ScriptWatcher] Script files changed — reloading...");
             for (Connection conn : connections.values()) {
@@ -503,5 +644,151 @@ public class CliContext {
 
     private Path resolveBwuDll() {
         return BwuClient.resolve(getClass());
+    }
+
+    // === Resolver wiring (PR-E item 12) ==================================
+    //
+    // Stores are cached (cheap, no IO after load); the resolver and
+    // installer are rebuilt every call so they always see the current
+    // repository list. ServiceLoader scan happens once at first request.
+
+    private static final String SCRIPTS_DIR_PROPERTY = "botwithus.scripts.dir";
+    private static final String DEFAULT_SCRIPTS_DIR_NAME = "scripts";
+    private static final int SCRIPTS_DIR_WALK_UP_LIMIT = 3;
+    private static final String STAGING_SUBDIR = ".staging";
+    private static final Duration RESOLVER_HTTP_CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    private static final Duration RESOLVER_HTTP_REQUEST_TIMEOUT = Duration.ofSeconds(60);
+
+    public RepositoryConfigStore getRepositoryConfigStore() {
+        if (repositoryConfigStore == null) {
+            repositoryConfigStore = new RepositoryConfigStore(RepositoryConfigStore.DEFAULT_PATH);
+            try {
+                repositoryConfigStore.load();
+            } catch (IOException e) {
+                log.warn("failed to load {}: {}", RepositoryConfigStore.DEFAULT_PATH, e.getMessage());
+            }
+        }
+        return repositoryConfigStore;
+    }
+
+    public CredentialsStore getCredentialsStore() {
+        if (credentialsStore == null) {
+            credentialsStore = new CredentialsStore(CredentialsStore.DEFAULT_PATH);
+            try {
+                credentialsStore.load();
+            } catch (IOException e) {
+                log.warn("failed to load {}: {}", CredentialsStore.DEFAULT_PATH, e.getMessage());
+            }
+        }
+        return credentialsStore;
+    }
+
+    public InstalledIndex getInstalledIndex() {
+        if (installedIndex == null) {
+            installedIndex = new InstalledIndex(InstalledIndex.DEFAULT_PATH);
+            try {
+                installedIndex.load();
+            } catch (IOException e) {
+                log.warn("failed to load {}: {}", InstalledIndex.DEFAULT_PATH, e.getMessage());
+            }
+        }
+        return installedIndex;
+    }
+
+    public KeyRingStore getKeyRingStore() {
+        if (keyRingStore == null) {
+            keyRingStore = new KeyRingStore(KeyRingStore.DEFAULT_KEYRING_PATH, KeyRingStore.DEFAULT_METADATA_PATH);
+            try {
+                keyRingStore.load();
+            } catch (IOException e) {
+                log.warn("failed to load {}: {}", KeyRingStore.DEFAULT_METADATA_PATH, e.getMessage());
+            }
+        }
+        return keyRingStore;
+    }
+
+    public SearchService getSearchService() {
+        if (searchService == null) {
+            Resolver probe = buildResolver();
+            searchService = new SearchService(getResolverHttpClient(), probe.drivers(),
+                    repo -> getCredentialsStore()
+                            .lookup(repo.credentialsRef().orElse(repo.id())));
+        }
+        return searchService;
+    }
+
+    /**
+     * Returns a freshly built {@link ScriptInstaller}. Re-reads the
+     * repository list on every call so {@code scripts repo add ...}
+     * takes effect on the next install/update without restart.
+     */
+    public ScriptInstaller getInstaller() {
+        Resolver resolver = buildResolver();
+        return new ScriptInstaller(
+                resolver,
+                resolveResolverScriptsDir(),
+                getInstalledIndex(),
+                () -> log.info("Scripts changed; run 'reload' to pick up new JARs."));
+    }
+
+    private Resolver buildResolver() {
+        Path scriptsDir = resolveResolverScriptsDir();
+        Path stagingRoot = scriptsDir.resolve(STAGING_SUBDIR);
+        HttpTransport transport = new HttpTransport(
+                getResolverHttpClient(), RESOLVER_HTTP_REQUEST_TIMEOUT);
+        return Resolver.withDiscoveredDrivers(
+                getRepositoryConfigStore().all(),
+                transport,
+                new BouncyCastlePgpVerifier(),
+                stagingRoot,
+                this::pgpPolicyFor);
+    }
+
+    /**
+     * Repository-level PGP policy lookup wired against the in-process
+     * {@link KeyRingStore}. Repos with {@code requireSignature: false}
+     * map to {@link PgpSignaturePolicy.NotRequired} unconditionally; repos
+     * with {@code requireSignature: true} map to
+     * {@link PgpSignaturePolicy.Required} carrying the user's current
+     * trusted-key set. The verifier rejects unsigned artifacts when no
+     * keys are trusted yet, which is the correct fail-closed behavior.
+     */
+    private PgpSignaturePolicy pgpPolicyFor(Repository repo) {
+        if (!repo.requireSignature()) {
+            return PgpSignaturePolicy.NotRequired.INSTANCE;
+        }
+        KeyRingStore store = getKeyRingStore();
+        KeyRing keyRing = store.currentKeyRing()
+                .orElseGet(() -> new KeyRing(store.keyringFile(), Set.of()));
+        return new PgpSignaturePolicy.Required(keyRing);
+    }
+
+    private HttpClient getResolverHttpClient() {
+        if (resolverHttpClient == null) {
+            resolverHttpClient = HttpClient.newBuilder()
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .connectTimeout(RESOLVER_HTTP_CONNECT_TIMEOUT)
+                    .build();
+        }
+        return resolverHttpClient;
+    }
+
+    private static Path resolveResolverScriptsDir() {
+        String override = System.getProperty(SCRIPTS_DIR_PROPERTY);
+        if (override != null) {
+            return Path.of(override);
+        }
+        Path dir = Path.of("").toAbsolutePath();
+        for (int i = 0; i < SCRIPTS_DIR_WALK_UP_LIMIT; i++) {
+            Path candidate = dir.resolve(DEFAULT_SCRIPTS_DIR_NAME);
+            if (Files.isDirectory(candidate)) {
+                return candidate;
+            }
+            dir = dir.getParent();
+            if (dir == null) {
+                break;
+            }
+        }
+        return Path.of(DEFAULT_SCRIPTS_DIR_NAME);
     }
 }

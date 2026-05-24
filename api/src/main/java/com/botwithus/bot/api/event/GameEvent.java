@@ -1,49 +1,41 @@
 package com.botwithus.bot.api.event;
 
 /**
- * Base class for all game events distributed through the {@link EventBus}.
+ * Common interface for every typed game event distributed through the {@link EventBus}.
  *
- * <p>Each event carries a type identifier and a timestamp indicating when it occurred.
- * Subclass this to create specific event types (e.g., {@link ChatMessageEvent}).</p>
+ * <p>The hierarchy is closed: each variant is a {@code record} permitted below.
+ * Consumers can dispatch with an exhaustive switch over {@code GameEvent}, and
+ * the compiler will refuse to build when a new variant is added without coverage.</p>
+ *
+ * <p>Every event carries a millisecond {@link #timestamp()}; {@link #type()} returns
+ * the event's simple class name, which is the stable, scriptable discriminator.</p>
  *
  * @see EventBus
  */
-public class GameEvent {
-    private final String type;
-    private final long timestamp;
+public sealed interface GameEvent
+        permits ActionExecutedEvent,
+                BreakEndedEvent,
+                BreakStartedEvent,
+                ChatMessageEvent,
+                ConnectionLostEvent,
+                KeyInputEvent,
+                LoginStateChangeEvent,
+                ReconnectStateChangedEvent,
+                ScriptCrashedEvent,
+                ScriptLoadFailedEvent,
+                TickEvent,
+                VarChangeEvent,
+                VarbitChangeEvent,
+                VarcChangeEvent,
+                WalkArrivedEvent,
+                WalkCancelledEvent,
+                WalkFailedEvent {
 
-    /**
-     * Creates a new game event with the current system time as timestamp.
-     *
-     * @param type the event type identifier
-     */
-    public GameEvent(String type) {
-        this.type = type;
-        this.timestamp = System.currentTimeMillis();
+    /** Timestamp at which the event was constructed, in milliseconds since epoch. */
+    long timestamp();
+
+    /** Returns the event's simple class name as a stable string discriminator. */
+    default String type() {
+        return getClass().getSimpleName();
     }
-
-    /**
-     * Creates a new game event with an explicit timestamp.
-     *
-     * @param type      the event type identifier
-     * @param timestamp the event timestamp in milliseconds since epoch
-     */
-    public GameEvent(String type, long timestamp) {
-        this.type = type;
-        this.timestamp = timestamp;
-    }
-
-    /**
-     * Returns the event type identifier.
-     *
-     * @return the event type string
-     */
-    public String getType() { return type; }
-
-    /**
-     * Returns the timestamp when this event occurred.
-     *
-     * @return the timestamp in milliseconds since epoch
-     */
-    public long getTimestamp() { return timestamp; }
 }

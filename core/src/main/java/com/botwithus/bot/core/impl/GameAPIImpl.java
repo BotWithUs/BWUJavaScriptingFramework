@@ -1,27 +1,321 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
-import com.botwithus.bot.api.model.*;
-import com.botwithus.bot.api.query.ComponentFilter;
-import com.botwithus.bot.api.query.EntityFilter;
-import com.botwithus.bot.api.query.InventoryFilter;
-import com.botwithus.bot.api.query.WorldMapElementFilter;
-import com.botwithus.bot.api.query.WorldMapIconFilter;
+import com.botwithus.bot.api.diag.StubGuard;
+import com.botwithus.bot.api.entities.GroundItems;
+import com.botwithus.bot.api.entities.Npcs;
+import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.entities.SceneObjects;
+import com.botwithus.bot.api.entities.WorldMapElements;
+import com.botwithus.bot.api.inventory.Backpack;
+import com.botwithus.bot.api.inventory.Bank;
+import com.botwithus.bot.api.inventory.Equipment;
+import com.botwithus.bot.api.model.ActionEntry;
+import com.botwithus.bot.api.model.GroundItemInfo;
+import com.botwithus.bot.api.model.ResourceItem;
+import com.botwithus.bot.api.model.ResourceSection;
+import com.botwithus.bot.api.model.SceneObjectInfo;
+import com.botwithus.bot.api.model.SkillRequirement;
+import com.botwithus.bot.api.model.WorldMapElement;
+import com.botwithus.bot.api.model.WorldMapPlacement;
+import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.EnumType;
+import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.ItemType;
+import com.botwithus.bot.api.model.LocationType;
+import com.botwithus.bot.api.model.LoginState;
+import com.botwithus.bot.api.model.NpcType;
+import com.botwithus.bot.api.model.PathResult;
+import com.botwithus.bot.api.model.PlayerStat;
+import com.botwithus.bot.api.model.QuestType;
+import com.botwithus.bot.api.model.ScriptResult;
+import com.botwithus.bot.api.model.SequenceType;
+import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.model.WalkStatus;
+import com.botwithus.bot.api.model.WorldPathConfig;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.snapshot.Skill;
+import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.shm.Layout;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.IntUnaryOperator;
+import java.util.function.Supplier;
 
-import static com.botwithus.bot.core.impl.MapHelper.*;
+import static com.botwithus.bot.core.impl.MapHelper.getBool;
+import static com.botwithus.bot.core.impl.MapHelper.getInt;
+import static com.botwithus.bot.core.impl.MapHelper.getIntList;
+import static com.botwithus.bot.core.impl.MapHelper.getList;
+import static com.botwithus.bot.core.impl.MapHelper.getLong;
+import static com.botwithus.bot.core.impl.MapHelper.getMapList;
+import static com.botwithus.bot.core.impl.MapHelper.getObjectMap;
+import static com.botwithus.bot.core.impl.MapHelper.getString;
+import static com.botwithus.bot.core.impl.MapHelper.getStringList;
 
 public class GameAPIImpl implements GameAPI {
 
     private final RpcClient rpc;
+    private final NXTCache cache;
 
+    /**
+     * Source of per-iface invalidation tokens for the {@code getComponent}
+     * cache. Production wiring is {@code iface -> region.snapshot().ifaceVersion(iface)};
+     * tests pass a stub. {@code null} disables caching entirely — the legacy
+     * 1-/2-arg constructors take this path so existing callers and tests
+     * keep their RPC-every-call semantics.
+     */
+    private final IntUnaryOperator ifaceVersionSource;
+
+    /**
+     * Cache of {@code getComponent} results keyed on {@code (ifaceId, compId)}
+     * packed into a long. Each entry remembers the {@code ifaceVersion} the
+     * cached {@link Component} was fetched at; on lookup we re-read the
+     * current version and treat any mismatch as eviction. {@code null} when
+     * caching is disabled (no version source). Sized via the natural growth
+     * pattern — scripts touch only a handful of unique components, so we
+     * don't bound this and let the JVM's hash map auto-resize.
+     */
+    private final ConcurrentHashMap<Long, ComponentCacheEntry> componentCache;
+
+    /**
+     * Snapshot supplier used by the entity facades and the local-player
+     * helpers. Production wiring is {@code () -> new GameSnapshotImpl(region.snapshot())};
+     * tests pass a stub. {@code null} means no SHM bound — entity queries
+     * yield empty, getLocalPlayer returns null, getPlayerStat returns null.
+     */
+    private final Supplier<GameSnapshot> snapshotSource;
+
+    /**
+     * One-shot WARN-once channel for stub producer calls. Instance-scoped so
+     * each {@link GameAPIImpl} throttles independently — tests that want a
+     * fresh slate just build a fresh impl.
+     */
+    private final StubGuard stubGuard;
+
+    private final Npcs npcsFacade = new Npcs(this);
+    private final Players playersFacade = new Players(this);
+    private final Backpack backpackFacade = new Backpack(this);
+    private final Bank bankFacade = new Bank(this);
+    private final Equipment equipmentFacade = new Equipment(this);
+    private final SceneObjects objectsFacade = new SceneObjects(this);
+    private final GroundItems groundItemsFacade = new GroundItems(this);
+    private final WorldMapElements mapElementsFacade = new WorldMapElements(this);
+
+    /** Legacy constructor used by tests; config-type lookups will throw. */
     public GameAPIImpl(RpcClient rpc) {
-        this.rpc = rpc;
+        this(rpc, null, null, null);
     }
 
-    // ========================== System ==========================
+    public GameAPIImpl(RpcClient rpc, NXTCache cache) {
+        this(rpc, cache, null, null);
+    }
+
+    /**
+     * Slice-17 ctor: cache enabled, no snapshot source. Kept for the existing
+     * cache test which doesn't need entity queries; new production callers
+     * should use the 4-arg form.
+     */
+    public GameAPIImpl(RpcClient rpc, NXTCache cache, IntUnaryOperator ifaceVersionSource) {
+        this(rpc, cache, ifaceVersionSource, null);
+    }
+
+    /**
+     * Full ctor — wires the component cache and the entity-facade snapshot
+     * source. {@code ifaceVersionSource} can be {@code null} to disable the
+     * cache only; {@code snapshotSource} can be {@code null} to disable
+     * snapshot-derived helpers (entity queries and {@code getLocalPlayer}).
+     * Production callers pass both:
+     * <pre>{@code
+     *   new GameAPIImpl(rpc, nxtCache,
+     *       iface -> region.snapshot().ifaceVersion(iface),
+     *       () -> new GameSnapshotImpl(region.snapshot()));
+     * }</pre>
+     */
+    public GameAPIImpl(RpcClient rpc, NXTCache cache,
+                       IntUnaryOperator ifaceVersionSource,
+                       Supplier<GameSnapshot> snapshotSource) {
+        this(rpc, cache, ifaceVersionSource, snapshotSource, new StubGuard());
+    }
+
+    /**
+     * Full ctor accepting a {@link StubGuard} for instrumented WARN-once
+     * reporting of producer stubs ({@link #queryLocations}, {@link #queryGroundItems},
+     * {@link #queryWorldMapElements}). Production wiring constructs one
+     * {@code StubGuard} per session in {@code CliContext} and passes it
+     * through here; the 4-arg ctor chains to a default {@code StubGuard}
+     * for tests and legacy callers that don't care about the warn channel.
+     */
+    public GameAPIImpl(RpcClient rpc, NXTCache cache,
+                       IntUnaryOperator ifaceVersionSource,
+                       Supplier<GameSnapshot> snapshotSource,
+                       StubGuard stubGuard) {
+        if (stubGuard == null) {
+            throw new IllegalArgumentException("stubGuard");
+        }
+        this.rpc = rpc;
+        this.cache = cache;
+        this.ifaceVersionSource = ifaceVersionSource;
+        this.componentCache = ifaceVersionSource != null ? new ConcurrentHashMap<>() : null;
+        this.snapshotSource = snapshotSource;
+        this.stubGuard = stubGuard;
+    }
+
+    private record ComponentCacheEntry(int version, Component component) {}
+
+    // ---------------------------------------------------------------- Snapshot + entities
+
+    @Override
+    public GameSnapshot snapshot() {
+        return snapshotSource != null ? snapshotSource.get() : null;
+    }
+
+    @Override
+    public Npcs npcs() { return npcsFacade; }
+
+    @Override
+    public Players players() { return playersFacade; }
+
+    @Override
+    public Backpack backpack() { return backpackFacade; }
+
+    @Override
+    public Bank bank() { return bankFacade; }
+
+    @Override
+    public Equipment equipment() { return equipmentFacade; }
+
+    @Override
+    public SceneObjects objects() { return objectsFacade; }
+
+    @Override
+    public GroundItems groundItems() { return groundItemsFacade; }
+
+    @Override
+    public List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max) {
+        stubGuard.warnOnce("queryLocations");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("tile_x", centerX);
+        params.put("tile_y", centerY);
+        params.put("radius", radius);
+        params.put("plane", plane);
+        params.put("max", max);
+        return rpc.callSyncList("query_locations", params).stream()
+                .map(m -> new SceneObjectInfo(
+                        getInt(m, "handle"),
+                        getInt(m, "type_id"),
+                        getInt(m, "tile_x"),
+                        getInt(m, "tile_y"),
+                        getInt(m, "plane"),
+                        getString(m, "name"),
+                        getStringList(m, "options")))
+                .toList();
+    }
+
+    @Override
+    public WorldMapElements mapElements() { return mapElementsFacade; }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public List<WorldMapElement> queryWorldMapElements(Map<String, Object> filter) {
+        stubGuard.warnOnce("queryWorldMapElements");
+        return rpc.callSyncList("query_world_map_elements", filter).stream()
+                .map(m -> new WorldMapElement(
+                        getInt(m, "id"),
+                        getInt(m, "tile_x"),
+                        getInt(m, "tile_y"),
+                        getInt(m, "plane"),
+                        getInt(m, "category"),
+                        getInt(m, "sprite_id"),
+                        getInt(m, "element_id"),
+                        getString(m, "name"),
+                        getString(m, "tooltip"),
+                        getString(m, "description"),
+                        getInt(m, "min_level"),
+                        getInt(m, "level_tier1"),
+                        getInt(m, "level_tier2"),
+                        getInt(m, "level_tier3"),
+                        getMapList(m, "skill_requirements").stream()
+                                .map(sr -> new SkillRequirement(
+                                        getInt(sr, "skill_id"),
+                                        getInt(sr, "level"),
+                                        getString(sr, "skill_name")))
+                                .toList(),
+                        getMapList(m, "resources").stream()
+                                .map(rs -> new ResourceSection(
+                                        getString(rs, "title"),
+                                        getMapList(rs, "items").stream()
+                                                .map(ri -> new ResourceItem(
+                                                        getInt(ri, "item_id"),
+                                                        getInt(ri, "level"),
+                                                        getInt(ri, "quantity")))
+                                                .toList()))
+                                .toList(),
+                        getMapList(m, "placements").stream()
+                                .map(pl -> new WorldMapPlacement(
+                                        getInt(pl, "plane"),
+                                        getInt(pl, "tile_x"),
+                                        getInt(pl, "tile_y"),
+                                        getBool(pl, "members_only")))
+                                .toList()))
+                .toList();
+    }
+
+    @Override
+    public List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max) {
+        stubGuard.warnOnce("queryGroundItems");
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("tile_x", centerX);
+        params.put("tile_y", centerY);
+        params.put("radius", radius);
+        params.put("plane", plane);
+        params.put("max", max);
+        return rpc.callSyncList("query_ground_items", params).stream()
+                .map(m -> new GroundItemInfo(
+                        getInt(m, "handle"),
+                        getInt(m, "item_id"),
+                        getInt(m, "quantity"),
+                        getInt(m, "tile_x"),
+                        getInt(m, "tile_y"),
+                        getInt(m, "plane")))
+                .toList();
+    }
+
+    @Override
+    public LocalPlayer getLocalPlayer() {
+        GameSnapshot snap = snapshot();
+        return snap == null ? null : snap.self();
+    }
+
+    @Override
+    public PlayerStat getPlayerStat(int skillId) {
+        LocalPlayer self = getLocalPlayer();
+        if (self == null) {
+            return null;
+        }
+        for (Skill s : self.skills()) {
+            if (s.typeId() == skillId) {
+                return new PlayerStat(s.typeId(), s.actualLevel(), s.boostedLevel(), s.experience());
+            }
+        }
+        return null;
+    }
+
+    private NXTCache requireCache() {
+        if (cache == null) {
+            throw new IllegalStateException(
+                    "Config-type lookup requires NXTCache. Pass -Dnxtcache.path=<cache dir> "
+                            + "and -Dnxtcache.dll=<NXTCache.dll path> when launching.");
+        }
+        return cache;
+    }
+
+    // ---------------------------------------------------------------- System
 
     @Override
     public boolean ping() {
@@ -40,42 +334,12 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
-    public void subscribe(String event) {
-        rpc.callSync("rpc.subscribe", Map.of("event", event));
-    }
-
-    @Override
-    public void unsubscribe(String event) {
-        rpc.callSync("rpc.unsubscribe", Map.of("event", event));
-    }
-
-    @Override
     public int getClientCount() {
         Map<String, Object> r = rpc.callSync("rpc.client_count", Map.of());
         return getInt(r, "count");
     }
 
-    @Override
-    @SuppressWarnings("unchecked")
-    public List<String> listEvents() {
-        Object raw = rpc.callSyncRaw("rpc.list_events", Map.of());
-        if (raw instanceof List<?> list) {
-            return list.stream().map(Object::toString).toList();
-        }
-        return List.of();
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public List<String> getSubscriptions() {
-        Object raw = rpc.callSyncRaw("rpc.get_subscriptions", Map.of());
-        if (raw instanceof List<?> list) {
-            return list.stream().map(Object::toString).toList();
-        }
-        return List.of();
-    }
-
-    // ========================== Actions ==========================
+    // ---------------------------------------------------------------- Actions
 
     @Override
     public void queueAction(GameAction action) {
@@ -128,22 +392,6 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
-    public void setBehaviorMod(int modId, float value) {
-        rpc.callSync("set_behavior_mod", Map.of("mod_id", modId, "value", value));
-    }
-
-    @Override
-    public void clearBehaviorMod(int modId) {
-        rpc.callSync("clear_behavior_mod", Map.of("mod_id", modId));
-    }
-
-    @Override
-    public float getBehaviorMod(int modId) {
-        Map<String, Object> r = rpc.callSync("get_behavior_mod", Map.of("mod_id", modId));
-        return getFloat(r, "value");
-    }
-
-    @Override
     public boolean areActionsBlocked() {
         Map<String, Object> r = rpc.callSync("are_actions_blocked", Map.of());
         return getBool(r, "blocked");
@@ -154,363 +402,7 @@ public class GameAPIImpl implements GameAPI {
         rpc.callSync("set_actions_blocked", Map.of("blocked", blocked));
     }
 
-    // ========================== Entity Queries ==========================
-
-    @Override
-    public List<Entity> queryEntities(EntityFilter filter) {
-        return rpc.callSyncList("query_entities", filter.toParams()).stream()
-                .map(this::mapEntity).toList();
-    }
-
-    @Override
-    public EntityInfo getEntityInfo(int handle) {
-        Map<String, Object> r = rpc.callSync("get_entity_info", Map.of("handle", handle));
-        return new EntityInfo(
-                getInt(r, "handle"), getInt(r, "server_index"), getInt(r, "type_id"),
-                getInt(r, "tile_x"), getInt(r, "tile_y"), getInt(r, "tile_z"),
-                getString(r, "name"), getInt(r, "name_hash"),
-                getBool(r, "is_moving"), getBool(r, "is_hidden"),
-                getInt(r, "health"), getInt(r, "max_health"),
-                getInt(r, "animation_id"), getInt(r, "stance_id"),
-                getInt(r, "following_index"),
-                getString(r, "overhead_text"), getInt(r, "combat_level"),
-                mapHitmarks(r), mapHeadbars(r), getIntList(r, "spot_anims")
-        );
-    }
-
-    @Override
-    public String getEntityName(int handle) {
-        Map<String, Object> r = rpc.callSync("get_entity_name", Map.of("handle", handle));
-        return getString(r, "name");
-    }
-
-    @Override
-    public EntityHealth getEntityHealth(int handle) {
-        Map<String, Object> r = rpc.callSync("get_entity_health", Map.of("handle", handle));
-        return new EntityHealth(getInt(r, "health"), getInt(r, "max_health"));
-    }
-
-    @Override
-    public EntityPosition getEntityPosition(int handle) {
-        Map<String, Object> r = rpc.callSync("get_entity_position", Map.of("handle", handle));
-        return new EntityPosition(getInt(r, "tile_x"), getInt(r, "tile_y"), getInt(r, "plane"));
-    }
-
-    @Override
-    public boolean isEntityValid(int handle) {
-        Map<String, Object> r = rpc.callSync("is_entity_valid", Map.of("handle", handle));
-        return getBool(r, "valid");
-    }
-
-    @Override
-    public List<Hitmark> getEntityHitmarks(int handle) {
-        return rpc.callSyncList("get_entity_hitmarks", Map.of("handle", handle)).stream()
-                .map(m -> new Hitmark(getInt(m, "damage"), getInt(m, "type"), getInt(m, "cycle")))
-                .toList();
-    }
-
-    @Override
-    public List<Headbar> getEntityHeadbars(int handle) {
-        return rpc.callSyncList("get_entity_headbars", Map.of("handle", handle)).stream()
-                .map(m -> new Headbar(getInt(m, "id"), getInt(m, "width")))
-                .toList();
-    }
-
-    @Override
-    public List<Integer> getEntitySpotAnims(int handle) {
-        return toIntList(rpc.callSyncRaw("get_entity_spot_anims", Map.of("handle", handle)));
-    }
-
-    @Override
-    public int getEntityAnimation(int handle) {
-        Map<String, Object> r = rpc.callSync("get_entity_animation", Map.of("handle", handle));
-        return getInt(r, "animation_id");
-    }
-
-    @Override
-    public String getEntityOverheadText(int handle) {
-        Map<String, Object> r = rpc.callSync("get_entity_overhead_text", Map.of("handle", handle));
-        return getString(r, "text");
-    }
-
-    @Override
-    public int getAnimationLength(int animationId) {
-        Map<String, Object> r = rpc.callSync("get_animation_length", Map.of("animation_id", animationId));
-        return getInt(r, "length");
-    }
-
-    // ========================== Ground Items ==========================
-
-    @Override
-    public List<GroundItemStack> queryGroundItems(EntityFilter filter) {
-        return rpc.callSyncList("query_ground_items", filter.toParams()).stream()
-                .map(this::mapGroundItemStack).toList();
-    }
-
-    @Override
-    public List<GroundItem> getObjStackItems(int handle) {
-        return rpc.callSyncList("get_obj_stack_items", Map.of("handle", handle)).stream()
-                .map(m -> new GroundItem(getInt(m, "item_id"), getInt(m, "quantity")))
-                .toList();
-    }
-
-    @Override
-    public List<Entity> queryObjStacks(EntityFilter filter) {
-        return rpc.callSyncList("query_obj_stacks", filter.toParams()).stream()
-                .map(this::mapEntity).toList();
-    }
-
-    // ========================== Projectiles ==========================
-
-    @Override
-    public List<Projectile> queryProjectiles(int projectileId, int plane, int maxResults) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (projectileId >= 0) params.put("projectile_id", projectileId);
-        if (plane >= 0) params.put("plane", plane);
-        if (maxResults > 0) params.put("max_results", maxResults);
-        return rpc.callSyncList("query_projectiles", params).stream()
-                .map(m -> new Projectile(
-                        getInt(m, "handle"), getInt(m, "projectile_id"),
-                        getInt(m, "start_x"), getInt(m, "start_y"),
-                        getInt(m, "end_x"), getInt(m, "end_y"), getInt(m, "plane"),
-                        getInt(m, "target_index"), getInt(m, "source_index"),
-                        getInt(m, "start_cycle"), getInt(m, "end_cycle")))
-                .toList();
-    }
-
-    // ========================== Spot Anims ==========================
-
-    @Override
-    public List<SpotAnim> querySpotAnims(int animId, int plane, int maxResults) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (animId >= 0) params.put("anim_id", animId);
-        if (plane >= 0) params.put("plane", plane);
-        if (maxResults > 0) params.put("max_results", maxResults);
-        return rpc.callSyncList("query_spot_anims", params).stream()
-                .map(m -> new SpotAnim(getInt(m, "handle"), getInt(m, "anim_id"),
-                        getInt(m, "tile_x"), getInt(m, "tile_y"), getInt(m, "tile_z")))
-                .toList();
-    }
-
-    // ========================== Hint Arrows ==========================
-
-    @Override
-    public List<HintArrow> queryHintArrows(int maxResults) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (maxResults > 0) params.put("max_results", maxResults);
-        return rpc.callSyncList("query_hint_arrows", params).stream()
-                .map(m -> new HintArrow(getInt(m, "handle"), getInt(m, "type"),
-                        getInt(m, "tile_x"), getInt(m, "tile_y"), getInt(m, "tile_z"),
-                        getInt(m, "target_index")))
-                .toList();
-    }
-
-    // ========================== Worlds ==========================
-
-    @Override
-    public List<World> queryWorlds(boolean includeActivity) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (includeActivity) params.put("include_activity", true);
-        return rpc.callSyncList("query_worlds", params).stream()
-                .map(this::mapWorld).toList();
-    }
-
-    @Override
-    public World getCurrentWorld() {
-        Map<String, Object> r = rpc.callSync("get_current_world", Map.of());
-        return mapWorld(r);
-    }
-
-    @Override
-    public int computeNameHash(String name) {
-        Map<String, Object> r = rpc.callSync("compute_name_hash", Map.of("name", name));
-        return getInt(r, "hash");
-    }
-
-    @Override
-    public void updateQueryContext() {
-        rpc.callSync("update_query_context", Map.of());
-    }
-
-    @Override
-    public void invalidateQueryContext() {
-        rpc.callSync("invalidate_query_context", Map.of());
-    }
-
-    // ========================== World Map Elements ==========================
-
-    @Override
-    public List<WorldMapElement> queryWorldMapElements(WorldMapElementFilter filter) {
-        Map<String, Object> r = rpc.callSync("query_world_map_elements", filter.toParams());
-        List<Map<String, Object>> elements = getList(r, "elements");
-        return elements.stream().map(this::mapWorldMapElement).toList();
-    }
-
-    @Override
-    public WorldMapElement getWorldMapElement(int id) {
-        Map<String, Object> r = rpc.callSync("get_world_map_element", Map.of("id", id));
-        if (r == null || r.containsKey("error")) return null;
-        return mapWorldMapElement(r);
-    }
-
-    @Override
-    public int getWorldMapElementCount() {
-        Map<String, Object> r = rpc.callSync("get_world_map_element_count", Map.of());
-        return getInt(r, "count");
-    }
-
-    @Override
-    public List<WorldMapIconResult> queryWorldMapIcons(WorldMapIconFilter filter) {
-        Map<String, Object> r = rpc.callSync("query_world_map_icons", filter.toParams());
-        List<Map<String, Object>> icons = getList(r, "icons");
-        return icons.stream().map(this::mapWorldMapIcon).toList();
-    }
-
-    private WorldMapIconResult mapWorldMapIcon(Map<String, Object> m) {
-        return new WorldMapIconResult(
-                getInt(m, "world_map_element_id"),
-                getInt(m, "plane"),
-                getInt(m, "world_x"),
-                getInt(m, "world_y"),
-                getBool(m, "members_only"),
-                m.containsKey("sprite_id") ? getInt(m, "sprite_id") : -1,
-                m.containsKey("category") ? getInt(m, "category") : -1,
-                getString(m, "name"),
-                getString(m, "tooltip")
-        );
-    }
-
-    // ========================== Components & Interfaces ==========================
-
-    @Override
-    public List<Component> queryComponents(ComponentFilter filter) {
-        return rpc.callSyncList("query_components", filter.toParams()).stream()
-                .map(this::mapComponent).toList();
-    }
-
-    @Override
-    public boolean isComponentValid(int interfaceId, int componentId, int subComponentId) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("interface_id", interfaceId);
-        params.put("component_id", componentId);
-        if (subComponentId >= 0) params.put("sub_component_id", subComponentId);
-        Map<String, Object> r = rpc.callSync("is_component_valid", params);
-        return getBool(r, "valid");
-    }
-
-    @Override
-    public String getComponentText(int interfaceId, int componentId) {
-        Map<String, Object> r = rpc.callSync("get_component_text",
-                Map.of("interface_id", interfaceId, "component_id", componentId));
-        return getString(r, "text");
-    }
-
-    @Override
-    public InventoryItem getComponentItem(int interfaceId, int componentId, int subComponentId) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("interface_id", interfaceId);
-        params.put("component_id", componentId);
-        if (subComponentId >= 0) params.put("sub_component_id", subComponentId);
-        Map<String, Object> r = rpc.callSync("get_component_item", params);
-        return new InventoryItem(0, getInt(r, "item_id"), getInt(r, "count"), 0);
-    }
-
-    @Override
-    public ComponentPosition getComponentPosition(int interfaceId, int componentId) {
-        Map<String, Object> r = rpc.callSync("get_component_position",
-                Map.of("interface_id", interfaceId, "component_id", componentId));
-        return new ComponentPosition(getInt(r, "x"), getInt(r, "y"), getInt(r, "width"), getInt(r, "height"));
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public List<String> getComponentOptions(int interfaceId, int componentId) {
-        Object raw = rpc.callSyncRaw("get_component_options",
-                Map.of("interface_id", interfaceId, "component_id", componentId));
-        if (raw instanceof List<?> list) {
-            return list.stream().map(Object::toString).toList();
-        }
-        return List.of();
-    }
-
-    @Override
-    public int getComponentSpriteId(int interfaceId, int componentId) {
-        Map<String, Object> r = rpc.callSync("get_component_sprite_id",
-                Map.of("interface_id", interfaceId, "component_id", componentId));
-        return getInt(r, "sprite_id");
-    }
-
-    @Override
-    public ComponentTypeInfo getComponentType(int interfaceId, int componentId) {
-        Map<String, Object> r = rpc.callSync("get_component_type",
-                Map.of("interface_id", interfaceId, "component_id", componentId));
-        return new ComponentTypeInfo(getInt(r, "type"), getString(r, "type_name"));
-    }
-
-    @Override
-    public List<Component> getComponentChildren(int interfaceId, int componentId) {
-        return rpc.callSyncList("get_component_children",
-                Map.of("interface_id", interfaceId, "component_id", componentId)).stream()
-                .map(this::mapComponent).toList();
-    }
-
-    @Override
-    public int getComponentByHash(int interfaceId, int componentId, int subComponentId) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("interface_id", interfaceId);
-        params.put("component_id", componentId);
-        if (subComponentId >= 0) params.put("sub_component_id", subComponentId);
-        Map<String, Object> r = rpc.callSync("get_component_by_hash", params);
-        return getInt(r, "handle");
-    }
-
-    @Override
-    public List<OpenInterface> getOpenInterfaces() {
-        return rpc.callSyncList("get_open_interfaces", Map.of()).stream()
-                .map(m -> new OpenInterface(getInt(m, "parent_hash"), getInt(m, "interface_id")))
-                .toList();
-    }
-
-    @Override
-    public boolean isInterfaceOpen(int interfaceId) {
-        Map<String, Object> r = rpc.callSync("is_interface_open", Map.of("interface_id", interfaceId));
-        return getBool(r, "open");
-    }
-
-    // ========================== Game Variables ==========================
-
-    @Override
-    public int getVarp(int varId) {
-        Map<String, Object> r = rpc.callSync("get_varp", Map.of("var_id", varId));
-        return getInt(r, "value");
-    }
-
-    @Override
-    public int getVarbit(int varbitId) {
-        Map<String, Object> r = rpc.callSync("get_varbit", Map.of("varbit_id", varbitId));
-        return getInt(r, "value");
-    }
-
-    @Override
-    public int getVarcInt(int varcId) {
-        Map<String, Object> r = rpc.callSync("get_varc_int", Map.of("varc_id", varcId));
-        return getInt(r, "value");
-    }
-
-    @Override
-    public String getVarcString(int varcId) {
-        Map<String, Object> r = rpc.callSync("get_varc_string", Map.of("varc_id", varcId));
-        return getString(r, "value");
-    }
-
-    @Override
-    public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
-        return rpc.callSyncList("query_varbits", Map.of("varbit_ids", varbitIds)).stream()
-                .map(m -> new VarbitValue(getInt(m, "varbit_id"), getInt(m, "value")))
-                .toList();
-    }
-
-    // ========================== Script Execution ==========================
+    // ---------------------------------------------------------------- Script execution
 
     @Override
     public long getScriptHandle(int scriptId) {
@@ -550,34 +442,102 @@ public class GameAPIImpl implements GameAPI {
                 "interface_id", interfaceId, "component_id", componentId, "input", input));
     }
 
-    // ========================== Game State ==========================
+    // ---------------------------------------------------------------- Interface tree walk
 
     @Override
-    public LocalPlayer getLocalPlayer() {
-        Map<String, Object> r = rpc.callSync("get_local_player", Map.of());
-        return new LocalPlayer(
-                getInt(r, "server_index"), getString(r, "name"),
-                getInt(r, "tile_x"), getInt(r, "tile_y"), getInt(r, "plane"),
-                getBool(r, "is_member"), getBool(r, "is_moving"),
-                getInt(r, "animation_id"), getInt(r, "stance_id"),
-                getInt(r, "health"), getInt(r, "max_health"), getInt(r, "combat_level"),
-                getString(r, "overhead_text"), getInt(r, "target_index"), getInt(r, "target_type"),
-                mapHitmarks(r), mapHeadbars(r), getIntList(r, "spot_anims")
-        );
+    public Component getComponent(int interfaceId, int componentId) {
+        // Bypass the cache when (a) it's disabled, (b) the iface id is outside
+        // the version-token array, or (c) compId is negative — none of these
+        // fit our (iface, comp, version) keying scheme. Out-of-range ids fall
+        // through to the RPC, which is responsible for "not found" responses.
+        if (componentCache == null
+                || interfaceId < 0
+                || interfaceId >= Layout.IFACE_VERSION_CAP
+                || componentId < 0) {
+            return rpcGetComponent(interfaceId, componentId);
+        }
+        long key = ((long) interfaceId << 32) | (componentId & 0xFFFFFFFFL);
+        // Read the version BEFORE the RPC. If the producer bumps mid-RPC the
+        // cached entry is stored under the older version, which the next
+        // lookup will detect as a mismatch and refresh. Caching under the
+        // older version is cheaper-but-correct vs reading post-RPC and
+        // potentially hiding a bump that happened during the call.
+        int version = ifaceVersionSource.applyAsInt(interfaceId);
+        ComponentCacheEntry cached = componentCache.get(key);
+        if (cached != null && cached.version == version) {
+            return cached.component;
+        }
+        Component fetched = rpcGetComponent(interfaceId, componentId);
+        if (fetched != null) {
+            componentCache.put(key, new ComponentCacheEntry(version, fetched));
+        } else {
+            // RPC said "not found" — drop any stale entry rather than caching
+            // a null sentinel. Future calls will RPC again, which is cheap
+            // for the not-found path and avoids carrying negative state.
+            componentCache.remove(key);
+        }
+        return fetched;
+    }
+
+    private Component rpcGetComponent(int interfaceId, int componentId) {
+        Map<String, Object> r = rpc.callSync("get_component",
+                Map.of("iface", interfaceId, "comp", componentId));
+        // Producer signals "not found" by writing iface=-1 in an otherwise
+        // populated map; map to null on the consumer side.
+        int iface = getInt(r, "iface");
+        if (iface < 0) {
+            return null;
+        }
+        return new Component(
+                iface,
+                getInt(r, "comp"),
+                getInt(r, "sub"),
+                getInt(r, "type"),
+                getInt(r, "x"),
+                getInt(r, "y"),
+                getInt(r, "w"),
+                getInt(r, "h"),
+                getInt(r, "raw_x"),
+                getInt(r, "raw_y"),
+                getInt(r, "raw_w"),
+                getInt(r, "raw_h"),
+                getInt(r, "x_pos_mode"),
+                getInt(r, "y_pos_mode"),
+                getInt(r, "x_size_mode"),
+                getInt(r, "y_size_mode"),
+                getInt(r, "abs_screen_pos"),
+                getString(r, "text"),
+                getInt(r, "hidden"),
+                getInt(r, "sprite_id"),
+                getInt(r, "item_id"),
+                getInt(r, "item_amount"));
+    }
+
+    /** Diagnostics: number of cached (iface, comp) entries; 0 when caching is disabled. */
+    public int componentCacheSize() {
+        return componentCache == null ? 0 : componentCache.size();
+    }
+
+    /** Diagnostics/test hook: drop all cached components. */
+    public void clearComponentCache() {
+        if (componentCache != null) componentCache.clear();
     }
 
     @Override
-    public AccountInfo getAccountInfo() {
-        Map<String, Object> r = rpc.callSync("get_account_info", Map.of());
-        return new AccountInfo(
-                getInt(r, "client_type"), getInt(r, "client_state"),
-                getString(r, "session_id"), getInt(r, "ip_hash"),
-                getString(r, "jx_display_name"), getString(r, "jx_character_id"),
-                getString(r, "display_name"), getBool(r, "is_member"),
-                getInt(r, "server_index"), getBool(r, "logged_in"),
-                getInt(r, "login_progress"), getInt(r, "login_status")
-        );
+    public List<Integer> getStaticChildren(int interfaceId, int componentId) {
+        Map<String, Object> r = rpc.callSync("get_static_children",
+                Map.of("iface", interfaceId, "comp", componentId));
+        return getIntList(r, "children");
     }
+
+    @Override
+    public List<Integer> getDynamicChildren(int interfaceId, int componentId) {
+        Map<String, Object> r = rpc.callSync("get_dynamic_children",
+                Map.of("iface", interfaceId, "comp", componentId));
+        return getIntList(r, "children");
+    }
+
+    // ---------------------------------------------------------------- State probes
 
     @Override
     public int getGameCycle() {
@@ -591,92 +551,7 @@ public class GameAPIImpl implements GameAPI {
         return new LoginState(getInt(r, "state"), getInt(r, "login_progress"), getInt(r, "login_status"));
     }
 
-    @Override
-    public List<MiniMenuEntry> getMiniMenu() {
-        return rpc.callSyncList("get_mini_menu", Map.of()).stream()
-                .map(m -> new MiniMenuEntry(
-                        getString(m, "option_text"), getInt(m, "action_id"), getInt(m, "type_id"),
-                        getInt(m, "item_id"), getInt(m, "param1"), getInt(m, "param2"), getInt(m, "param3")))
-                .toList();
-    }
-
-    @Override
-    public List<GrandExchangeOffer> getGrandExchangeOffers() {
-        return rpc.callSyncList("get_grand_exchange_offers", Map.of()).stream()
-                .map(m -> new GrandExchangeOffer(
-                        getInt(m, "slot"), getInt(m, "status"), getInt(m, "type"), getInt(m, "item_id"),
-                        getInt(m, "price"), getInt(m, "count"), getInt(m, "completed_count"), getInt(m, "completed_gold")))
-                .toList();
-    }
-
-    @Override
-    public ScreenPosition getWorldToScreen(int tileX, int tileY) {
-        Map<String, Object> r = rpc.callSync("get_world_to_screen", Map.of("tile_x", tileX, "tile_y", tileY));
-        return new ScreenPosition(getDouble(r, "screen_x"), getDouble(r, "screen_y"));
-    }
-
-    @Override
-    public List<ScreenPosition> batchWorldToScreen(List<int[]> tiles) {
-        List<Map<String, Object>> tileList = tiles.stream()
-                .map(t -> Map.<String, Object>of("x", t[0], "y", t[1]))
-                .toList();
-        Map<String, Object> r = rpc.callSync("batch_world_to_screen", Map.of("tiles", tileList));
-        List<Map<String, Object>> results = getList(r, "results");
-        return results.stream()
-                .map(m -> new ScreenPosition(getDouble(m, "screen_x"), getDouble(m, "screen_y")))
-                .toList();
-    }
-
-    @Override
-    public ViewportInfo getViewportInfo() {
-        Map<String, Object> r = rpc.callSync("get_viewport_info", Map.of());
-        return new ViewportInfo(
-                getInt(r, "viewport_width"), getInt(r, "viewport_height"),
-                getFloatArray(r, "projection_matrix"), getFloatArray(r, "view_matrix")
-        );
-    }
-
-    @Override
-    public List<EntityScreenPosition> getEntityScreenPositions(List<Integer> handles) {
-        Map<String, Object> r = rpc.callSync("get_entity_screen_positions", Map.of("handles", handles));
-        List<Map<String, Object>> results = getList(r, "results");
-        return results.stream()
-                .map(m -> new EntityScreenPosition(
-                        getInt(m, "handle"), getDouble(m, "screen_x"), getDouble(m, "screen_y"), getBool(m, "valid")))
-                .toList();
-    }
-
-    @Override
-    public GameWindowRect getGameWindowRect() {
-        Map<String, Object> r = rpc.callSync("get_game_window_rect", Map.of());
-        return new GameWindowRect(
-                getInt(r, "x"), getInt(r, "y"), getInt(r, "width"), getInt(r, "height"),
-                getInt(r, "client_x"), getInt(r, "client_y"), getInt(r, "client_width"), getInt(r, "client_height")
-        );
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public CacheFile getCacheFile(int indexId, int archiveId, int fileId) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("index_id", indexId);
-        params.put("archive_id", archiveId);
-        if (fileId > 0) params.put("file_id", fileId);
-        Map<String, Object> r = rpc.callSync("get_cache_file", params);
-        Object data = r.get("data");
-        byte[] bytes = data instanceof byte[] b ? b : new byte[0];
-        return new CacheFile(bytes, getInt(r, "size"));
-    }
-
-    @Override
-    public int getCacheFileCount(int indexId, int archiveId, int shift) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("index_id", indexId);
-        if (archiveId > 0) params.put("archive_id", archiveId);
-        if (shift > 0) params.put("shift", shift);
-        Map<String, Object> r = rpc.callSync("get_cache_file_count", params);
-        return getInt(r, "count");
-    }
+    // ---------------------------------------------------------------- Login / breaks (mutations)
 
     @Override
     public void setWorld(int worldId) {
@@ -707,14 +582,6 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
-    public CacheFile getNavigationArchive() {
-        Map<String, Object> r = rpc.callSync("get_navigation_archive", Map.of());
-        Object data = r.get("data");
-        byte[] bytes = data instanceof byte[] b ? b : new byte[0];
-        return new CacheFile(bytes, getInt(r, "size"));
-    }
-
-    @Override
     public boolean getAutoLogin() {
         Map<String, Object> r = rpc.callSync("get_auto_login", Map.of());
         return getBool(r, "enabled");
@@ -725,186 +592,7 @@ public class GameAPIImpl implements GameAPI {
         rpc.callSync("set_auto_login", Map.of("enabled", enabled));
     }
 
-    @Override
-    public CacheFile takeScreenshot() {
-        Map<String, Object> r = rpc.callSync("take_screenshot", Map.of());
-        Object data = r.get("data");
-        byte[] bytes = data instanceof byte[] b ? b : new byte[0];
-        return new CacheFile(bytes, getInt(r, "size"));
-    }
-
-    // ========================== Streaming ==========================
-
-    @Override
-    public StreamInfo startStream(int frameSkip, int quality, int width, int height) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (frameSkip > 0) params.put("frame_skip", frameSkip);
-        if (quality > 0) params.put("quality", quality);
-        if (width > 0) params.put("width", width);
-        if (height > 0) params.put("height", height);
-        Map<String, Object> r = rpc.callSync("start_stream", params);
-        return new StreamInfo(
-                getString(r, "pipe_name"), getInt(r, "frame_skip"),
-                getInt(r, "quality"), getInt(r, "width"), getInt(r, "height")
-        );
-    }
-
-    @Override
-    public void stopStream() {
-        rpc.callSync("stop_stream", Map.of());
-    }
-
-    // ========================== Humanization ==========================
-
-    @Override
-    public boolean getHumanizationEnabled() {
-        Map<String, Object> r = rpc.callSync("get_humanization_enabled", Map.of());
-        return getBool(r, "enabled");
-    }
-
-    @Override
-    public void setHumanizationEnabled(boolean enabled) {
-        rpc.callSync("set_humanization_enabled", Map.of("enabled", enabled));
-    }
-
-    @Override
-    public Personality getPersonality() {
-        Map<String, Object> r;
-        try {
-            r = rpc.callSync("get_personality", Map.of());
-        } catch (Exception e) {
-            return null;
-        }
-        if (r == null || r.containsKey("error")) return null;
-
-        Map<String, Object> sp = getObjectMap(r, "speed");
-        Map<String, Object> pa = getObjectMap(r, "path");
-        Map<String, Object> pr = getObjectMap(r, "precision");
-        Map<String, Object> tr = getObjectMap(r, "tremor");
-        Map<String, Object> ti = getObjectMap(r, "timing");
-        Map<String, Object> fa = getObjectMap(r, "fatigue");
-        Map<String, Object> ca = getObjectMap(r, "camera");
-        Map<String, Object> se = getObjectMap(r, "session");
-
-        return new Personality(
-                getLong(r, "personality_id"),
-                new Personality.Speed(getDouble(sp, "bias"), getDouble(sp, "consistency")),
-                new Personality.Path(getDouble(pa, "curvature_bias"), getString(pa, "handedness"), getDouble(pa, "variability")),
-                new Personality.Precision(getDouble(pr, "overshoot_tendency"), getDouble(pr, "correction_speed"), getDouble(pr, "target_precision")),
-                new Personality.Tremor(getDouble(tr, "frequency_bias"), getDouble(tr, "amplitude_bias")),
-                new Personality.Timing(getDouble(ti, "reaction_speed"), getDouble(ti, "rhythm_consistency"), getDouble(ti, "pause_tendency")),
-                new Personality.Fatigue(getDouble(fa, "resistance"), getDouble(fa, "recovery")),
-                new Personality.Camera(getDouble(ca, "sensitivity"), getDouble(ca, "smoothness"), getDouble(ca, "overshoot_tendency"),
-                        getDouble(ca, "idle_drift_amount"), getDouble(ca, "settling_speed")),
-                getDouble(r, "daily_variance"),
-                new Personality.Session(getDouble(se, "fatigue_level"), getDouble(se, "attention_level"), getDouble(se, "cumulative_risk"),
-                        getDouble(se, "ban_probability"), getString(se, "risk_level"), getDouble(se, "session_duration_hours"),
-                        getInt(se, "total_actions"), getInt(se, "total_errors"), getInt(se, "breaks_taken"))
-        );
-    }
-
-    // ========================== Inventory & Items ==========================
-
-    @Override
-    public List<InventoryInfo> queryInventories() {
-        return rpc.callSyncList("query_inventories", Map.of()).stream()
-                .map(m -> new InventoryInfo(getInt(m, "inventory_id"), getInt(m, "item_count"), getInt(m, "capacity")))
-                .toList();
-    }
-
-    @Override
-    public List<InventoryItem> queryInventoryItems(InventoryFilter filter) {
-        return rpc.callSyncList("query_inventory_items", filter.toParams()).stream()
-                .map(m -> new InventoryItem(getInt(m, "handle"), getInt(m, "item_id"), getInt(m, "quantity"), getInt(m, "slot")))
-                .toList();
-    }
-
-    @Override
-    public InventoryItem getInventoryItem(int inventoryId, int slot) {
-        Map<String, Object> r = rpc.callSync("get_inventory_item",
-                Map.of("inventory_id", inventoryId, "slot", slot));
-        return new InventoryItem(getInt(r, "handle"), getInt(r, "item_id"), getInt(r, "quantity"), getInt(r, "slot"));
-    }
-
-    @Override
-    public List<ItemVar> getItemVars(int inventoryId, int slot) {
-        return rpc.callSyncList("get_item_vars", Map.of("inventory_id", inventoryId, "slot", slot)).stream()
-                .map(m -> new ItemVar(getInt(m, "var_id"), getInt(m, "value")))
-                .toList();
-    }
-
-    @Override
-    public int getItemVarValue(int inventoryId, int slot, int varId) {
-        Map<String, Object> r = rpc.callSync("get_item_var_value",
-                Map.of("inventory_id", inventoryId, "slot", slot, "var_id", varId));
-        return getInt(r, "value");
-    }
-
-    @Override
-    public boolean isInventoryItemValid(int inventoryId, int slot) {
-        Map<String, Object> r = rpc.callSync("is_inventory_item_valid",
-                Map.of("inventory_id", inventoryId, "slot", slot));
-        return getBool(r, "valid");
-    }
-
-    // ========================== Player Stats ==========================
-
-    @Override
-    public List<PlayerStat> getPlayerStats() {
-        return rpc.callSyncList("get_player_stats", Map.of()).stream()
-                .map(this::mapPlayerStat).toList();
-    }
-
-    @Override
-    public PlayerStat getPlayerStat(int skillId) {
-        Map<String, Object> r = rpc.callSync("get_player_stat", Map.of("skill_id", skillId));
-        return mapPlayerStat(r);
-    }
-
-    @Override
-    public int getPlayerStatCount() {
-        Map<String, Object> r = rpc.callSync("get_player_stat_count", Map.of());
-        return getInt(r, "count");
-    }
-
-    // ========================== Chat ==========================
-
-    @Override
-    public List<ChatMessage> queryChatHistory(int messageType, int maxResults) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (messageType >= 0) params.put("message_type", messageType);
-        if (maxResults > 0) params.put("max_results", maxResults);
-        return rpc.callSyncList("query_chat_history", params).stream()
-                .map(m -> new ChatMessage(getInt(m, "index"), getInt(m, "message_type"),
-                        getString(m, "text"), getString(m, "player_name")))
-                .toList();
-    }
-
-    @Override
-    public String getChatMessageText(int index) {
-        Map<String, Object> r = rpc.callSync("get_chat_message_text", Map.of("index", index));
-        return getString(r, "text");
-    }
-
-    @Override
-    public String getChatMessagePlayer(int index) {
-        Map<String, Object> r = rpc.callSync("get_chat_message_player", Map.of("index", index));
-        return getString(r, "player_name");
-    }
-
-    @Override
-    public int getChatMessageType(int index) {
-        Map<String, Object> r = rpc.callSync("get_chat_message_type", Map.of("index", index));
-        return getInt(r, "message_type");
-    }
-
-    @Override
-    public int getChatHistorySize() {
-        Map<String, Object> r = rpc.callSync("get_chat_history_size", Map.of());
-        return getInt(r, "size");
-    }
-
-    // ========================== Navigation & Pathfinding ==========================
+    // ---------------------------------------------------------------- Walker / pathfinder
 
     @Override
     public void walkToAsync(int x, int y) {
@@ -925,22 +613,55 @@ public class GameAPIImpl implements GameAPI {
         if (exactDestTile) params.put("exact_dest_tile", true);
         if (config != null && config != WorldPathConfig.DEFAULT) {
             Map<String, Object> cfg = new LinkedHashMap<>();
-            if (config.agilityLevel() > 1) cfg.put("agility_level", config.agilityLevel());
-            if (config.maxIterations() != 500_000) cfg.put("max_iterations", config.maxIterations());
-            if (!config.allowDoors()) cfg.put("allow_doors", false);
-            if (!config.allowShortcuts()) cfg.put("allow_shortcuts", false);
-            if (!config.allowPlaneTransitions()) cfg.put("allow_plane_transitions", false);
-            if (!config.allowClimbovers()) cfg.put("allow_climbovers", false);
-            if (!config.allowTransports()) cfg.put("allow_transports", false);
-            if (!config.allowTeleports()) cfg.put("allow_teleports", false);
-            if (config.doorCost() != 5.0f) cfg.put("door_cost", config.doorCost());
-            if (config.transitionCost() != 10.0f) cfg.put("transition_cost", config.transitionCost());
-            if (config.shortcutCost() != 3.0f) cfg.put("shortcut_cost", config.shortcutCost());
-            if (config.climboverCost() != 3.0f) cfg.put("climbover_cost", config.climboverCost());
-            if (config.transportCost() != 15.0f) cfg.put("transport_cost", config.transportCost());
-            if (config.globalTeleportMinHeuristic() != 100.0f) cfg.put("global_teleport_min_heuristic", config.globalTeleportMinHeuristic());
-            if (config.heuristicWeight() != 1.0f) cfg.put("heuristic_weight", config.heuristicWeight());
-            if (!cfg.isEmpty()) params.put("config", cfg);
+            WorldPathConfig defaults = WorldPathConfig.DEFAULT;
+            if (config.agilityLevel() > 1) {
+                cfg.put("agility_level", config.agilityLevel());
+            }
+            if (config.maxIterations() != defaults.maxIterations()) {
+                cfg.put("max_iterations", config.maxIterations());
+            }
+            if (!config.allowDoors()) {
+                cfg.put("allow_doors", false);
+            }
+            if (!config.allowShortcuts()) {
+                cfg.put("allow_shortcuts", false);
+            }
+            if (!config.allowPlaneTransitions()) {
+                cfg.put("allow_plane_transitions", false);
+            }
+            if (!config.allowClimbovers()) {
+                cfg.put("allow_climbovers", false);
+            }
+            if (!config.allowTransports()) {
+                cfg.put("allow_transports", false);
+            }
+            if (!config.allowTeleports()) {
+                cfg.put("allow_teleports", false);
+            }
+            if (config.doorCost() != defaults.doorCost()) {
+                cfg.put("door_cost", config.doorCost());
+            }
+            if (config.transitionCost() != defaults.transitionCost()) {
+                cfg.put("transition_cost", config.transitionCost());
+            }
+            if (config.shortcutCost() != defaults.shortcutCost()) {
+                cfg.put("shortcut_cost", config.shortcutCost());
+            }
+            if (config.climboverCost() != defaults.climboverCost()) {
+                cfg.put("climbover_cost", config.climboverCost());
+            }
+            if (config.transportCost() != defaults.transportCost()) {
+                cfg.put("transport_cost", config.transportCost());
+            }
+            if (config.globalTeleportMinHeuristic() != defaults.globalTeleportMinHeuristic()) {
+                cfg.put("global_teleport_min_heuristic", config.globalTeleportMinHeuristic());
+            }
+            if (config.heuristicWeight() != defaults.heuristicWeight()) {
+                cfg.put("heuristic_weight", config.heuristicWeight());
+            }
+            if (!cfg.isEmpty()) {
+                params.put("config", cfg);
+            }
         }
         rpc.callSync("walk_world_path", params);
     }
@@ -1013,356 +734,49 @@ public class GameAPIImpl implements GameAPI {
         rpc.callSync("region_cache_clear", Map.of());
     }
 
-    // ========================== Navigation Links & Teleports ==========================
+    // ---------------------------------------------------------------- Config-type lookups (NXTCache-backed)
+    //
+    // Each lookup goes through the embedded NXTCache.dll (sqlite + live JS5
+    // fallback) instead of round-tripping over the pipe. The producer-side
+    // get_*_type RPC handlers were removed alongside the nav graph CRUD —
+    // these methods are the sole config-type entry point now.
 
     @Override
-    public void navAddTransport(NavTransport t) {
-        rpc.callSync("nav.add_transport", transportToMap(t));
-    }
-
-    @Override
-    public void navRemoveTransport(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_transport", objectId, x, y, plane);
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public List<NavTransport> navListTransports() {
-        Map<String, Object> r = rpc.callSync("nav.list_transports", Map.of());
-        List<Map<String, Object>> list = getList(r, "transports");
-        return list.stream().map(m -> new NavTransport(
-                getInt(m, "object_id"), getInt(m, "x"), getInt(m, "y"), getInt(m, "plane"),
-                getInt(m, "shape"), getInt(m, "rotation"), getInt(m, "option_index"),
-                getInt(m, "dest_x"), getInt(m, "dest_y"), getInt(m, "dest_plane")
-        )).toList();
-    }
-
-    @Override
-    public void navAddDoor(NavDoor d) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", d.objectId());
-        params.put("x", d.x());
-        params.put("y", d.y());
-        if (d.plane() != 0) params.put("plane", d.plane());
-        if (d.shape() != 0) params.put("shape", d.shape());
-        if (d.rotation() != 0) params.put("rotation", d.rotation());
-        rpc.callSync("nav.add_door", params);
-    }
-
-    @Override
-    public void navRemoveDoor(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_door", objectId, x, y, plane);
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public List<NavDoor> navListDoors() {
-        Map<String, Object> r = rpc.callSync("nav.list_doors", Map.of());
-        List<Map<String, Object>> list = getList(r, "doors");
-        return list.stream().map(m -> new NavDoor(
-                getInt(m, "object_id"), getInt(m, "x"), getInt(m, "y"), getInt(m, "plane"),
-                getInt(m, "shape"), getInt(m, "rotation")
-        )).toList();
-    }
-
-    @Override
-    public void navAddShortcut(NavShortcut s) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", s.objectId());
-        params.put("x", s.x());
-        params.put("y", s.y());
-        if (s.plane() != 0) params.put("plane", s.plane());
-        if (s.shape() != 0) params.put("shape", s.shape());
-        if (s.rotation() != 0) params.put("rotation", s.rotation());
-        if (s.agilityLevel() != 1) params.put("agility_level", s.agilityLevel());
-        rpc.callSync("nav.add_shortcut", params);
-    }
-
-    @Override
-    public void navRemoveShortcut(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_shortcut", objectId, x, y, plane);
-    }
-
-    @Override
-    public void navAddPlaneTransition(NavPlaneTransition t) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", t.objectId());
-        params.put("x", t.x());
-        params.put("y", t.y());
-        if (t.plane() != 0) params.put("plane", t.plane());
-        if (t.shape() != 10) params.put("shape", t.shape());
-        if (t.rotation() != 0) params.put("rotation", t.rotation());
-        if (t.sizeX() != 1) params.put("size_x", t.sizeX());
-        if (t.sizeY() != 1) params.put("size_y", t.sizeY());
-        if (t.destX() >= 0) params.put("dest_x", t.destX());
-        if (t.destY() >= 0) params.put("dest_y", t.destY());
-        if (t.destPlane() != 0) params.put("dest_plane", t.destPlane());
-        rpc.callSync("nav.add_plane_transition", params);
-    }
-
-    @Override
-    public void navRemovePlaneTransition(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_plane_transition", objectId, x, y, plane);
-    }
-
-    @Override
-    public void navAddClimbover(NavClimbover c) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", c.objectId());
-        params.put("x", c.x());
-        params.put("y", c.y());
-        if (c.plane() != 0) params.put("plane", c.plane());
-        if (c.shape() != 0) params.put("shape", c.shape());
-        if (c.rotation() != 0) params.put("rotation", c.rotation());
-        rpc.callSync("nav.add_climbover", params);
-    }
-
-    @Override
-    public void navRemoveClimbover(int objectId, int x, int y, int plane) {
-        navRemoveLink("nav.remove_climbover", objectId, x, y, plane);
-    }
-
-    @Override
-    public int navLoadJson(List<NavTransport> links) {
-        List<Map<String, Object>> linkMaps = links.stream().map(this::transportToMap).toList();
-        Map<String, Object> r = rpc.callSync("nav.load_json", Map.of("links", linkMaps));
-        return getInt(r, "added");
-    }
-
-    @Override
-    public void navSaveLinks(String path) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (path != null) params.put("path", path);
-        rpc.callSync("nav.save_links", params);
-    }
-
-    @Override
-    public int navLoadLinks(String path) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (path != null) params.put("path", path);
-        Map<String, Object> r = rpc.callSync("nav.load_links", params);
-        return getInt(r, "loaded");
-    }
-
-    @Override
-    public NavStats navGetStats() {
-        Map<String, Object> r = rpc.callSync("nav.stats", Map.of());
-        return new NavStats(
-                getInt(r, "regions"), getInt(r, "doors"), getInt(r, "shortcuts"),
-                getInt(r, "plane_transitions"), getInt(r, "climbovers"), getInt(r, "transports"),
-                getInt(r, "teleports"), getInt(r, "teleports_builtin"), getInt(r, "teleports_script")
-        );
-    }
-
-    @Override
-    public int navRegisterTeleports(String json, String format) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("json", json);
-        if (format != null && !format.equals("item_teleports")) params.put("format", format);
-        Map<String, Object> r = rpc.callSync("nav.register_teleports", params);
-        return getInt(r, "added");
-    }
-
-    @Override
-    public int navClearScriptTeleports() {
-        Map<String, Object> r = rpc.callSync("nav.clear_script_teleports", Map.of());
-        return getInt(r, "removed");
-    }
-
-    @Override
-    @SuppressWarnings("unchecked")
-    public List<NavTeleport> navListTeleports(boolean scriptOnly) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        if (scriptOnly) params.put("script_only", true);
-        Map<String, Object> r = rpc.callSync("nav.list_teleports", params);
-        List<Map<String, Object>> list = getList(r, "teleports");
-        return list.stream().map(m -> new NavTeleport(
-                getInt(m, "index"), getString(m, "name"), getBool(m, "global"),
-                getInt(m, "dest_x"), getInt(m, "dest_y"), getInt(m, "dest_plane"),
-                getDouble(m, "cost"), getDouble(m, "cost_quick"),
-                getInt(m, "chain_steps"), getInt(m, "requirements"), getBool(m, "builtin")
-        )).toList();
-    }
-
-    // ========================== Navigation Helpers ==========================
-
-    private void navRemoveLink(String method, int objectId, int x, int y, int plane) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", objectId);
-        params.put("x", x);
-        params.put("y", y);
-        if (plane != 0) params.put("plane", plane);
-        rpc.callSync(method, params);
-    }
-
-    private Map<String, Object> transportToMap(NavTransport t) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("object_id", t.objectId());
-        params.put("x", t.x());
-        params.put("y", t.y());
-        if (t.plane() != 0) params.put("plane", t.plane());
-        if (t.shape() != 10) params.put("shape", t.shape());
-        if (t.rotation() != 0) params.put("rotation", t.rotation());
-        if (t.optionIndex() != 0) params.put("option_index", t.optionIndex());
-        params.put("dest_x", t.destX());
-        params.put("dest_y", t.destY());
-        if (t.destPlane() != 0) params.put("dest_plane", t.destPlane());
-        return params;
-    }
-
-    // ========================== Config Type Lookups ==========================
-
-    @Override
-    @SuppressWarnings("unchecked")
     public ItemType getItemType(int id) {
-        Map<String, Object> r = rpc.callSync("get_item_type", Map.of("id", id));
-        return new ItemType(
-                getInt(r, "id"), getString(r, "name"),
-                getBool(r, "members"), getBool(r, "stackable"),
-                getInt(r, "shop_price"), getInt(r, "ge_buy_limit"),
-                getInt(r, "category"), getInt(r, "noted_id"), getInt(r, "wearpos"),
-                getBool(r, "exchangeable"),
-                getStringList(r, "ground_options"), getStringList(r, "inventory_options"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getItem(id);
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public NpcType getNpcType(int id) {
-        Map<String, Object> r = rpc.callSync("get_npc_type", Map.of("id", id));
-        return new NpcType(
-                getInt(r, "id"), getString(r, "name"), getInt(r, "combat_level"),
-                getBool(r, "visible"), getBool(r, "clickable"),
-                getStringList(r, "options"),
-                getInt(r, "varbit_id"), getInt(r, "varp_id"),
-                getIntList(r, "transforms"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getNpc(id);
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public LocationType getLocationType(int id) {
-        Map<String, Object> r = rpc.callSync("get_location_type", Map.of("id", id));
-        return new LocationType(
-                getInt(r, "id"), getString(r, "name"),
-                getInt(r, "size_x"), getInt(r, "size_y"),
-                getInt(r, "interact_type"), getInt(r, "solid_type"),
-                getBool(r, "members"),
-                getStringList(r, "options"),
-                getInt(r, "varbit_id"), getInt(r, "varp_id"),
-                getIntList(r, "transforms"),
-                getInt(r, "map_sprite_id"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getLocation(id);
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public EnumType getEnumType(int id) {
-        Map<String, Object> r = rpc.callSync("get_enum_type", Map.of("id", id));
-        return new EnumType(
-                getInt(r, "id"), getInt(r, "input_type_id"), getInt(r, "output_type_id"),
-                getInt(r, "int_default"), getString(r, "string_default"),
-                getInt(r, "entry_count"),
-                getObjectMap(r, "entries")
-        );
+        return requireCache().getEnum(id);
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public StructType getStructType(int id) {
-        Map<String, Object> r = rpc.callSync("get_struct_type", Map.of("id", id));
-        return new StructType(getInt(r, "id"), getObjectMap(r, "params"));
+        return requireCache().getStruct(id);
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public SequenceType getSequenceType(int id) {
-        Map<String, Object> r = rpc.callSync("get_sequence_type", Map.of("id", id));
-        return new SequenceType(
-                getInt(r, "id"), getInt(r, "frame_count"),
-                getIntList(r, "frame_lengths"),
-                getInt(r, "loop_offset"), getInt(r, "priority"),
-                getInt(r, "off_hand"), getInt(r, "main_hand"),
-                getInt(r, "max_loops"),
-                getInt(r, "animating_precedence"), getInt(r, "walking_precedence"),
-                getInt(r, "replay_mode"), getBool(r, "tweened"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getSequence(id);
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public QuestType getQuestType(int id) {
-        Map<String, Object> r = rpc.callSync("get_quest_type", Map.of("id", id));
-        return new QuestType(
-                getInt(r, "id"), getString(r, "name"), getString(r, "list_name"),
-                getInt(r, "category"), getInt(r, "difficulty"),
-                getBool(r, "members_only"),
-                getInt(r, "quest_points"), getInt(r, "quest_point_req"),
-                getInt(r, "quest_item_sprite"),
-                getIntList(r, "start_locations"),
-                getInt(r, "alternate_start_location"),
-                getIntList(r, "dependent_quest_ids"),
-                getMapList(r, "skill_requirements"),
-                getMapList(r, "progress_varps"),
-                getMapList(r, "progress_varbits"),
-                getObjectMap(r, "params")
-        );
+        return requireCache().getQuest(id);
     }
 
-    // ========================== Helpers ==========================
-
-    private Entity mapEntity(Map<String, Object> m) {
-        int typeId = getInt(m, "type_id");
-        int transformedTypeId = m.containsKey("transformed_type_id")
-                ? getInt(m, "transformed_type_id") : typeId;
-        return new Entity(
-                getInt(m, "handle"), getInt(m, "server_index"), typeId,
-                getInt(m, "tile_x"), getInt(m, "tile_y"), getInt(m, "tile_z"),
-                getString(m, "name"), getInt(m, "name_hash"),
-                getBool(m, "is_moving"), getBool(m, "is_hidden"),
-                mapHitmarks(m), mapHeadbars(m), getIntList(m, "spot_anims"),
-                getStringList(m, "options"), transformedTypeId
-        );
-    }
-
-    private List<Hitmark> mapHitmarks(Map<String, Object> m) {
-        return getMapList(m, "hitmarks").stream()
-                .map(h -> new Hitmark(getInt(h, "damage"), getInt(h, "type"), getInt(h, "cycle")))
-                .toList();
-    }
-
-    private List<Headbar> mapHeadbars(Map<String, Object> m) {
-        return getMapList(m, "headbars").stream()
-                .map(h -> new Headbar(getInt(h, "id"), getInt(h, "width")))
-                .toList();
-    }
-
-    private Component mapComponent(Map<String, Object> m) {
-        return new Component(
-                getInt(m, "handle"), getInt(m, "interface_id"), getInt(m, "component_id"),
-                getInt(m, "sub_component_id"), getInt(m, "type"),
-                getInt(m, "item_id"), getInt(m, "item_count"), getInt(m, "sprite_id")
-        );
-    }
-
-    private PlayerStat mapPlayerStat(Map<String, Object> m) {
-        return new PlayerStat(
-                getInt(m, "skill_id"), getInt(m, "level"), getInt(m, "boosted_level"),
-                getInt(m, "max_level"), getInt(m, "xp")
-        );
-    }
-
-    private World mapWorld(Map<String, Object> m) {
-        return new World(
-                getInt(m, "world_id"), getInt(m, "properties"),
-                getInt(m, "population"), getInt(m, "ping"),
-                getString(m, "activity")
-        );
-    }
+    // ---------------------------------------------------------------- Helpers
 
     @SuppressWarnings("unchecked")
     private PathResult mapPathResult(Map<String, Object> r) {
@@ -1374,47 +788,4 @@ public class GameAPIImpl implements GameAPI {
                 .toList();
         return new PathResult(found, pathLength, path);
     }
-
-    private WorldMapElement mapWorldMapElement(Map<String, Object> m) {
-        List<Map<String, Object>> rawReqs = getList(m, "skill_requirements");
-        List<SkillRequirement> skillReqs = rawReqs.stream()
-                .map(r -> new SkillRequirement(getInt(r, "skill_id"), getInt(r, "level"), getString(r, "skill_name")))
-                .toList();
-        List<Map<String, Object>> rawResources = getList(m, "resources");
-        List<ResourceSection> resources = rawResources.stream()
-                .map(this::mapResourceSection)
-                .toList();
-        List<Map<String, Object>> rawPlacements = getList(m, "placements");
-        List<WorldMapPlacement> placements = rawPlacements.stream()
-                .map(p -> new WorldMapPlacement(getInt(p, "plane"), getInt(p, "tile_x"), getInt(p, "tile_y"), getBool(p, "members_only")))
-                .toList();
-        return new WorldMapElement(
-                getInt(m, "id"), getInt(m, "tile_x"), getInt(m, "tile_y"),
-                getInt(m, "plane"), getInt(m, "category"), getInt(m, "sprite_id"),
-                getInt(m, "element_id"), getString(m, "name"), getString(m, "tooltip"),
-                getString(m, "description"), getInt(m, "min_level"),
-                getInt(m, "level_tier_1"), getInt(m, "level_tier_2"), getInt(m, "level_tier_3"),
-                skillReqs, resources, placements
-        );
-    }
-
-    private ResourceSection mapResourceSection(Map<String, Object> m) {
-        List<Map<String, Object>> rawItems = getList(m, "items");
-        List<ResourceItem> items = rawItems.stream()
-                .map(i -> new ResourceItem(getInt(i, "item_id"), getInt(i, "level"), getInt(i, "quantity")))
-                .toList();
-        return new ResourceSection(getString(m, "title"), items);
-    }
-
-    @SuppressWarnings("unchecked")
-    private GroundItemStack mapGroundItemStack(Map<String, Object> m) {
-        List<Map<String, Object>> rawItems = getList(m, "items");
-        List<GroundItem> items = rawItems.stream()
-                .map(i -> new GroundItem(getInt(i, "item_id"), getInt(i, "quantity")))
-                .toList();
-        return new GroundItemStack(
-                getInt(m, "handle"), getInt(m, "tile_x"), getInt(m, "tile_y"), getInt(m, "tile_z"), items
-        );
-    }
-
 }

@@ -28,7 +28,7 @@ import java.util.Map;
  * scheduler.cancel(id);
  *
  * // See what's scheduled
- * scheduler.listScheduled().forEach(s -> System.out.println(s.scriptName() + " → " + s.nextRun()));
+ * scheduler.listScheduled().forEach(s -> log.info("{} → {}", s.scriptName(), s.nextRun()));
  * }</pre>
  */
 public interface ScriptScheduler {

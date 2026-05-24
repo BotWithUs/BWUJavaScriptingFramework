@@ -18,7 +18,9 @@ public class CommandRegistry {
 
     public Command resolve(String name) {
         Command cmd = commands.get(name.toLowerCase());
-        if (cmd != null) return cmd;
+        if (cmd != null) {
+            return cmd;
+        }
         return aliasMap.get(name.toLowerCase());
     }
 

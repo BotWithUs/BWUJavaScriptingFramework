@@ -3,6 +3,8 @@ val imguiVersion = "1.90.0"
 dependencies {
     implementation(project(":api"))
     compileOnly("io.github.spair:imgui-java-binding:$imguiVersion")
+    testImplementation("io.github.spair:imgui-java-binding:$imguiVersion")
+    testImplementation(project(":test-support"))
 }
 
 // Copy the built script JAR into the scripts/ directory for the runtime to discover

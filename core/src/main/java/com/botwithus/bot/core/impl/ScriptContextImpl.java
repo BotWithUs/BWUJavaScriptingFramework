@@ -19,20 +19,16 @@ public class ScriptContextImpl implements ScriptContext {
     private final Navigation navigation;
     private volatile ScriptManager scriptManager;
 
-    public ScriptContextImpl(GameAPI gameAPI, EventBus eventBus, MessageBus messageBus, ClientProvider clientProvider, SharedState sharedState) {
+    public ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, MessageBus messageBus, ClientProvider clientProvider, SharedState sharedState) {
         this.gameAPI = gameAPI;
         this.eventBus = eventBus;
         this.messageBus = messageBus;
         this.clientProvider = clientProvider;
         this.sharedState = sharedState;
-        if (eventBus instanceof EventBusImpl eventBusImpl) {
-            this.navigation = new Walker(gameAPI, eventBusImpl);
-        } else {
-            throw new IllegalArgumentException("EventBus must be EventBusImpl for Walker support");
-        }
+        this.navigation = new Walker(gameAPI, eventBus);
     }
 
-    public ScriptContextImpl(GameAPI gameAPI, EventBus eventBus, MessageBus messageBus, ClientProvider clientProvider) {
+    public ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, MessageBus messageBus, ClientProvider clientProvider) {
         this(gameAPI, eventBus, messageBus, clientProvider, new SharedStateImpl());
     }
 

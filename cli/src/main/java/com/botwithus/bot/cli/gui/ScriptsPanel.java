@@ -3,11 +3,19 @@ package com.botwithus.bot.cli.gui;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.api.runtime.LastCrash;
+import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptProfiler;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.time.format.DateTimeFormatter;
+import java.time.ZoneId;
 
 import imgui.ImDrawList;
 import imgui.ImGui;
@@ -63,7 +71,47 @@ public class ScriptsPanel implements GuiPanel {
 
     @Override
     public void render(CliContext ctx) {
-        // ── Toolbar Row 1: Reload, Auto-start, Watcher ──
+        renderToolbarRow1(ctx);
+
+        var connections = new ArrayList<>(ctx.getConnections());
+        if (connections.isEmpty()) {
+            ImGui.spacing();
+            GuiHelpers.textMuted("No active connections. Connect first via the Connections tab.");
+            return;
+        }
+        renderConnectionSelector(connections);
+
+        renderLoadFailures(ctx);
+
+        Connection conn = connections.get(selectedConnection.get());
+        List<ScriptRunner> runners = new ArrayList<>(conn.getRuntime().getRunners());
+        if (runners.isEmpty()) {
+            ImGui.spacing();
+            ImGui.spacing();
+            GuiHelpers.textMuted("No scripts loaded. Click 'Reload' to discover scripts.");
+            return;
+        }
+
+        ImGui.spacing();
+        renderToolbarRow2(runners);
+
+        ImGui.spacing();
+        renderCategoryPills(buildPresentCategories(runners), runners);
+
+        ImGui.spacing();
+        GuiHelpers.subtleSeparator();
+        ImGui.spacing();
+
+        String searchText = searchQuery.get().trim().toLowerCase(Locale.ROOT);
+        List<ScriptRunner> filtered = filterRunners(runners, searchText);
+        sortRunners(filtered);
+
+        renderCountSummary(filtered);
+        ImGui.spacing();
+        renderScriptCardList(ctx, filtered);
+    }
+
+    private void renderToolbarRow1(CliContext ctx) {
         if (GuiHelpers.buttonPrimary(Icons.ROTATE + "  Reload")) {
             boolean startAfter = autoStartOnReload.get();
             executor.submit(() -> reloadScripts(ctx, startAfter));
@@ -72,8 +120,7 @@ public class ScriptsPanel implements GuiPanel {
         ImGui.checkbox("Auto-start", autoStartOnReload);
 
         ImGui.sameLine(0, 24);
-        boolean watcherRunning = ctx.isWatcherRunning();
-        if (watcherRunning) {
+        if (ctx.isWatcherRunning()) {
             if (GuiHelpers.buttonDanger(Icons.STOP + "  Watcher")) {
                 ctx.stopScriptWatcher();
             }
@@ -85,15 +132,9 @@ public class ScriptsPanel implements GuiPanel {
                 ctx.startScriptWatcher();
             }
         }
+    }
 
-        // Connection selector if multiple connections
-        var connections = new ArrayList<>(ctx.getConnections());
-        if (connections.isEmpty()) {
-            ImGui.spacing();
-            GuiHelpers.textMuted("No active connections. Connect first via the Connections tab.");
-            return;
-        }
-
+    private void renderConnectionSelector(List<Connection> connections) {
         if (connections.size() > 1) {
             ImGui.sameLine(0, 24);
             GuiHelpers.textSecondary("Connection:");
@@ -108,21 +149,10 @@ public class ScriptsPanel implements GuiPanel {
         } else {
             selectedConnection.set(0);
         }
+    }
 
-        Connection conn = connections.get(selectedConnection.get());
-        ScriptRuntime runtime = conn.getRuntime();
-        List<ScriptRunner> runners = new ArrayList<>(runtime.getRunners());
-
-        if (runners.isEmpty()) {
-            ImGui.spacing();
-            ImGui.spacing();
-            GuiHelpers.textMuted("No scripts loaded. Click 'Reload' to discover scripts.");
-            return;
-        }
-
-        ImGui.spacing();
-
-        // ── Toolbar Row 2: Search + Status Filters + Sort + Bulk Actions ──
+    private void renderToolbarRow2(List<ScriptRunner> runners) {
+        // Search + Status Filters + Sort + Bulk Actions
         ImGui.pushItemWidth(200);
         ImGui.inputTextWithHint("##scriptSearch", Icons.SEARCH + "  Filter scripts...", searchQuery);
         ImGui.popItemWidth();
@@ -134,7 +164,11 @@ public class ScriptsPanel implements GuiPanel {
         ImGui.sameLine(0, 4);
         renderStatusFilter(Icons.CIRCLE + " Stopped", FILTER_STOPPED);
 
-        // Sort selector
+        renderSortSelector();
+        renderBulkActions(runners);
+    }
+
+    private void renderSortSelector() {
         ImGui.sameLine(0, 16);
         GuiHelpers.textSecondary(Icons.SORT);
         ImGui.sameLine(0, 4);
@@ -150,37 +184,28 @@ public class ScriptsPanel implements GuiPanel {
             sortMode = sortIdx.get();
         }
         ImGui.popItemWidth();
+    }
 
-        // Bulk actions
+    private static void renderBulkActions(List<ScriptRunner> runners) {
         ImGui.sameLine(0, 20);
         if (GuiHelpers.buttonPrimary(Icons.PLAY + "  Start All")) {
             for (ScriptRunner r : runners) {
-                if (!r.isRunning()) r.start();
+                if (!r.isRunning()) {
+                    r.start();
+                }
             }
         }
         ImGui.sameLine(0, 4);
         if (GuiHelpers.buttonDanger(Icons.STOP + "  Stop All")) {
             for (ScriptRunner r : runners) {
-                if (r.isRunning()) r.stop();
+                if (r.isRunning()) {
+                    r.stop();
+                }
             }
         }
+    }
 
-        ImGui.spacing();
-
-        // ── Toolbar Row 3: Category pill strip ──
-        List<ScriptCategory> presentCategories = buildPresentCategories(runners);
-        renderCategoryPills(presentCategories, runners);
-
-        ImGui.spacing();
-        GuiHelpers.subtleSeparator();
-        ImGui.spacing();
-
-        // ── Apply filters + sort ──
-        String searchText = searchQuery.get().trim().toLowerCase(Locale.ROOT);
-        List<ScriptRunner> filtered = filterRunners(runners, searchText);
-        sortRunners(filtered);
-
-        // ── Script Count Summary ──
+    private static void renderCountSummary(List<ScriptRunner> filtered) {
         long runningCount = filtered.stream().filter(ScriptRunner::isRunning).count();
         long stoppedCount = filtered.size() - runningCount;
         GuiHelpers.textSecondary(filtered.size() + " script" + (filtered.size() != 1 ? "s" : ""));
@@ -190,20 +215,18 @@ public class ScriptsPanel implements GuiPanel {
         ImGui.sameLine(0, 8);
         ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.7f,
                 stoppedCount + " stopped");
+    }
 
-        ImGui.spacing();
-
-        // ── Script Cards (scrollable region) ──
+    private void renderScriptCardList(CliContext ctx, List<ScriptRunner> filtered) {
         float availH = ImGui.getContentRegionAvailY();
         ImGui.beginChild("##scriptCards", 0, availH, false);
 
-        // When sorting by category, render group headers
+        // When sorting by category, render group headers between transitions
         ScriptCategory lastGroupCat = null;
         for (int i = 0; i < filtered.size(); i++) {
             ScriptRunner runner = filtered.get(i);
             ScriptCategory cat = getCategory(runner);
 
-            // Category group header when sorting by category
             if (sortMode == SORT_CATEGORY && cat != lastGroupCat) {
                 if (lastGroupCat != null) {
                     ImGui.spacing();
@@ -262,10 +285,14 @@ public class ScriptsPanel implements GuiPanel {
     }
 
     private int countForCategory(List<ScriptRunner> runners, ScriptCategory category) {
-        if (category == null) return runners.size();
+        if (category == null) {
+            return runners.size();
+        }
         int n = 0;
         for (ScriptRunner r : runners) {
-            if (getCategory(r) == category) n++;
+            if (getCategory(r) == category) {
+                n++;
+            }
         }
         return n;
     }
@@ -297,29 +324,121 @@ public class ScriptsPanel implements GuiPanel {
 
     // ── Script card ──────────────────────────────────────────────────────────
 
+    private static final float CARD_PAD_X = 10f;
+    private static final float CARD_PAD_Y = 6f;
+    private static final float CARD_BUTTON_AREA_W = 140f;
+    private static final long CARD_RESTART_DELAY_MS = 100L;
+
     private void renderScriptCard(CliContext ctx, ScriptRunner runner) {
-        ScriptManifest manifest = runner.getManifest();
-        ScriptProfiler profiler = runner.getProfiler();
         boolean running = runner.isRunning();
         ScriptCategory category = getCategory(runner);
         CategoryStyle.Style catStyle = CategoryStyle.of(category);
 
-        ImDrawList draw = ImGui.getWindowDrawList();
         float availW = ImGui.getContentRegionAvailX();
         float cardH = ImGui.getTextLineHeightWithSpacing() * 2.2f;
-        float padX = 10f;
-        float padY = 6f;
-
         float startX = ImGui.getCursorScreenPosX();
         float startY = ImGui.getCursorScreenPosY();
 
-        // Card background
+        drawCardBackground(startX, startY, availW, cardH, running, category);
+
+        float row1Y = startY + CARD_PAD_Y;
+        float nameX = drawCategoryAndStatus(startX + CARD_PAD_X, row1Y, catStyle, category, running);
+        drawNameAndPerf(nameX, row1Y, runner);
+        drawAuthorAndCategoryBadge(nameX, row1Y, runner.getManifest(), catStyle, category);
+        renderCardActions(ctx, runner, running, startX, startY, availW, cardH);
+
+        // Advance cursor past the card + spacing
+        ImGui.setCursorScreenPos(startX, startY + cardH + 4f);
+        ImGui.dummy(0, 0);
+
+        renderCrashHeader(runner);
+    }
+
+    private static final DateTimeFormatter CRASH_TIME_FMT =
+            DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault());
+
+    private static void renderLoadFailures(CliContext ctx) {
+        List<ScriptLoadResult> failures = ctx.getLastLoadReport().failures();
+        if (failures.isEmpty()) {
+            return;
+        }
+        ImGui.spacing();
+        ImGui.pushStyleColor(ImGuiCol.Text, ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.95f);
+        String label = String.format("%s  %d JAR(s) failed to load",
+                Icons.WARNING, failures.size());
+        boolean expanded = ImGui.collapsingHeader(label + "##load_failures");
+        ImGui.popStyleColor();
+        if (!expanded) {
+            return;
+        }
+        for (ScriptLoadResult failure : failures) {
+            Throwable cause = failure.error().orElse(null);
+            String name = failure.jar().getFileName().toString();
+            String oneLiner = cause != null
+                    ? cause.getClass().getSimpleName() + ": " + safeMessage(cause)
+                    : "unknown failure";
+            GuiHelpers.textSecondary(name);
+            ImGui.sameLine(0, 12);
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.85f, oneLiner);
+            if (cause != null && ImGui.treeNode("Stack trace##" + name)) {
+                ImGui.beginChild("##failTrace_" + name, 0, ImGui.getFontSize() * 10f, true);
+                ImGui.textUnformatted(stackTraceOf(cause));
+                ImGui.endChild();
+                ImGui.treePop();
+            }
+        }
+        ImGui.dummy(0, 4f);
+    }
+
+    private static String safeMessage(Throwable t) {
+        String msg = t.getMessage();
+        return msg != null ? msg : "<no message>";
+    }
+
+    private static String stackTraceOf(Throwable t) {
+        StringWriter sw = new StringWriter();
+        t.printStackTrace(new PrintWriter(sw));
+        return sw.toString();
+    }
+
+    private static void renderCrashHeader(ScriptRunner runner) {
+        ScriptHealth health = runner.health();
+        if (health.lastCrash().isEmpty()) {
+            return;
+        }
+        LastCrash crash = health.lastCrash().get();
+        String headerLabel = String.format("%s  Last crash: %s in %s @ %s (%d total)",
+                Icons.WARNING,
+                crash.cause().getClass().getSimpleName(),
+                crash.phase(),
+                CRASH_TIME_FMT.format(crash.when()),
+                health.totalCrashes());
+
+        ImGui.pushStyleColor(ImGuiCol.Text, ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.9f);
+        boolean expanded = ImGui.collapsingHeader(headerLabel + "##crash_" + runner.getScriptName());
+        ImGui.popStyleColor();
+        if (expanded) {
+            String msg = crash.cause().getMessage();
+            if (msg != null && !msg.isEmpty()) {
+                GuiHelpers.textSecondary(msg);
+            }
+            ImGui.beginChild("##crashTrace_" + runner.getScriptName(), 0,
+                    ImGui.getFontSize() * 10f, true);
+            ImGui.textUnformatted(crash.stackTrace());
+            ImGui.endChild();
+        }
+        ImGui.dummy(0, 4f);
+    }
+
+    private static void drawCardBackground(float startX, float startY, float availW, float cardH,
+                                           boolean running, ScriptCategory category) {
+        ImDrawList draw = ImGui.getWindowDrawList();
         int bgCol = ImGuiTheme.imCol32(ImGuiTheme.SURFACE_R, ImGuiTheme.SURFACE_G, ImGuiTheme.SURFACE_B, 1f);
         int borderCol = ImGuiTheme.imCol32(ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.3f);
         draw.addRectFilled(startX, startY, startX + availW, startY + cardH, bgCol, 6f);
         draw.addRect(startX, startY, startX + availW, startY + cardH, borderCol, 6f);
 
-        // Left accent bar — category color when running, dim when stopped
+        // Left accent bar -- category color when running
         if (running) {
             int accentCol = CategoryStyle.color(category, 0.8f);
             draw.addRectFilled(startX, startY + 2f, startX + 3f, startY + cardH - 2f, accentCol, 2f);
@@ -330,12 +449,13 @@ public class ScriptsPanel implements GuiPanel {
             int hoverCol = CategoryStyle.color(category, 0.05f);
             draw.addRectFilled(startX, startY, startX + availW, startY + cardH, hoverCol, 6f);
         }
+    }
 
-        // ── Row 1: Category icon + Status dot + Name + Perf badge ──
-        float row1Y = startY + padY;
-        float contentX = startX + padX;
-
-        // Category icon (color-coded)
+    /** Returns the X coordinate at which the script name should start (after icon + status dot). */
+    private static float drawCategoryAndStatus(float contentX, float row1Y,
+                                               CategoryStyle.Style catStyle, ScriptCategory category,
+                                               boolean running) {
+        ImDrawList draw = ImGui.getWindowDrawList();
         int catIconCol = CategoryStyle.color(category, 0.7f);
         draw.addText(contentX, row1Y, catIconCol, catStyle.icon());
         ImVec2 iconSize = new ImVec2();
@@ -354,31 +474,39 @@ public class ScriptsPanel implements GuiPanel {
             int dotCol = ImGuiTheme.imCol32(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.6f);
             draw.addCircleFilled(dotX, dotY, 3f, dotCol);
         }
+        return dotX + 12f;
+    }
 
-        // Script name
-        float nameX = dotX + 12f;
+    private static void drawNameAndPerf(float nameX, float row1Y, ScriptRunner runner) {
+        ImDrawList draw = ImGui.getWindowDrawList();
         int nameCol = ImGuiTheme.imCol32(ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 1f);
         draw.addText(nameX, row1Y, nameCol, runner.getScriptName());
 
-        // Performance badge next to name
+        ScriptProfiler profiler = runner.getProfiler();
+        if (profiler.getLoopCount() <= 0) {
+            return;
+        }
+
         ImVec2 nameSize = new ImVec2();
         ImGui.calcTextSize(nameSize, runner.getScriptName());
         float badgeX = nameX + nameSize.x + 12f;
-        if (profiler.getLoopCount() > 0) {
-            String perfText = String.format("%.1fms", profiler.avgLoopMs());
-            ImVec2 perfSize = new ImVec2();
-            ImGui.calcTextSize(perfSize, perfText);
 
-            float bpX = 3f, bpY = 1f;
-            int perfBg = ImGuiTheme.imCol32(ImGuiTheme.BLUE_ACCENT_R, ImGuiTheme.BLUE_ACCENT_G, ImGuiTheme.BLUE_ACCENT_B, 0.12f);
-            int perfBorder = ImGuiTheme.imCol32(ImGuiTheme.BLUE_ACCENT_R, ImGuiTheme.BLUE_ACCENT_G, ImGuiTheme.BLUE_ACCENT_B, 0.25f);
-            int perfTextCol = ImGuiTheme.imCol32(ImGuiTheme.BLUE_ACCENT_R, ImGuiTheme.BLUE_ACCENT_G, ImGuiTheme.BLUE_ACCENT_B, 0.85f);
-            draw.addRectFilled(badgeX, row1Y, badgeX + perfSize.x + bpX * 2, row1Y + perfSize.y + bpY * 2, perfBg, 3f);
-            draw.addRect(badgeX, row1Y, badgeX + perfSize.x + bpX * 2, row1Y + perfSize.y + bpY * 2, perfBorder, 3f);
-            draw.addText(badgeX + bpX, row1Y + bpY, perfTextCol, perfText);
-        }
+        String perfText = String.format("%.1fms", profiler.avgLoopMs());
+        ImVec2 perfSize = new ImVec2();
+        ImGui.calcTextSize(perfSize, perfText);
 
-        // ── Row 2: Author + Version + Category badge ──
+        float bpX = 3f, bpY = 1f;
+        int perfBg = ImGuiTheme.imCol32(ImGuiTheme.BLUE_ACCENT_R, ImGuiTheme.BLUE_ACCENT_G, ImGuiTheme.BLUE_ACCENT_B, 0.12f);
+        int perfBorder = ImGuiTheme.imCol32(ImGuiTheme.BLUE_ACCENT_R, ImGuiTheme.BLUE_ACCENT_G, ImGuiTheme.BLUE_ACCENT_B, 0.25f);
+        int perfTextCol = ImGuiTheme.imCol32(ImGuiTheme.BLUE_ACCENT_R, ImGuiTheme.BLUE_ACCENT_G, ImGuiTheme.BLUE_ACCENT_B, 0.85f);
+        draw.addRectFilled(badgeX, row1Y, badgeX + perfSize.x + bpX * 2, row1Y + perfSize.y + bpY * 2, perfBg, 3f);
+        draw.addRect(badgeX, row1Y, badgeX + perfSize.x + bpX * 2, row1Y + perfSize.y + bpY * 2, perfBorder, 3f);
+        draw.addText(badgeX + bpX, row1Y + bpY, perfTextCol, perfText);
+    }
+
+    private static void drawAuthorAndCategoryBadge(float nameX, float row1Y, ScriptManifest manifest,
+                                                   CategoryStyle.Style catStyle, ScriptCategory category) {
+        ImDrawList draw = ImGui.getWindowDrawList();
         float row2Y = row1Y + ImGui.getTextLineHeightWithSpacing();
         String author = manifest != null && !manifest.author().isEmpty() ? manifest.author() : "Unknown";
         String version = manifest != null ? manifest.version() : "?";
@@ -386,7 +514,6 @@ public class ScriptsPanel implements GuiPanel {
         int metaCol = ImGuiTheme.imCol32(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.8f);
         draw.addText(nameX, row2Y, metaCol, meta);
 
-        // Category badge (always shown, color-coded)
         ImVec2 metaSize = new ImVec2();
         ImGui.calcTextSize(metaSize, meta);
         float catBadgeX = nameX + metaSize.x + 12f;
@@ -400,13 +527,14 @@ public class ScriptsPanel implements GuiPanel {
         draw.addRectFilled(catBadgeX, row2Y, catBadgeX + catSize.x + cpX * 2, row2Y + catSize.y + cpY * 2, catBg, 3f);
         draw.addRect(catBadgeX, row2Y, catBadgeX + catSize.x + cpX * 2, row2Y + catSize.y + cpY * 2, catBorder, 3f);
         draw.addText(catBadgeX + cpX, row2Y + cpY, catTextCol, catText);
+    }
 
-        // ── Action buttons (right-aligned) ──
-        float btnAreaWidth = 140f;
-        float btnX = startX + availW - btnAreaWidth - padX;
+    private void renderCardActions(CliContext ctx, ScriptRunner runner, boolean running,
+                                   float startX, float startY, float availW, float cardH) {
+        float btnX = startX + availW - CARD_BUTTON_AREA_W - CARD_PAD_X;
         float btnY = startY + (cardH - ImGui.getFrameHeight()) / 2f;
-
         ImGui.setCursorScreenPos(btnX, btnY);
+
         if (running) {
             if (GuiHelpers.smallButtonDanger(Icons.STOP + "##stop")) {
                 runner.stop();
@@ -415,7 +543,11 @@ public class ScriptsPanel implements GuiPanel {
             if (ImGui.smallButton(Icons.REDO + "##restart")) {
                 executor.submit(() -> {
                     runner.stop();
-                    try { Thread.sleep(100); } catch (InterruptedException ignored) {}
+                    try {
+                        Thread.sleep(CARD_RESTART_DELAY_MS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
                     runner.start();
                 });
             }
@@ -425,7 +557,6 @@ public class ScriptsPanel implements GuiPanel {
             }
         }
 
-        // Config button
         var configFields = runner.getConfigFields();
         boolean hasConfig = (configFields != null && !configFields.isEmpty()) || runner.getScript().getUI() != null;
         if (hasConfig) {
@@ -434,10 +565,6 @@ public class ScriptsPanel implements GuiPanel {
                 ctx.openConfigPanel(runner);
             }
         }
-
-        // Advance cursor past the card + spacing
-        ImGui.setCursorScreenPos(startX, startY + cardH + 4f);
-        ImGui.dummy(0, 0);
     }
 
     // ── Filtering ────────────────────────────────────────────────────────────
@@ -446,13 +573,19 @@ public class ScriptsPanel implements GuiPanel {
         List<ScriptRunner> result = new ArrayList<>();
         for (ScriptRunner r : runners) {
             // Status filter
-            if (statusFilter == FILTER_RUNNING && !r.isRunning()) continue;
-            if (statusFilter == FILTER_STOPPED && r.isRunning()) continue;
+            if (statusFilter == FILTER_RUNNING && !r.isRunning()) {
+                continue;
+            }
+            if (statusFilter == FILTER_STOPPED && r.isRunning()) {
+                continue;
+            }
 
             // Category filter
             if (categoryFilter != null) {
                 ScriptCategory cat = getCategory(r);
-                if (cat != categoryFilter) continue;
+                if (cat != categoryFilter) {
+                    continue;
+                }
             }
 
             // Search filter (matches name, author, category)
@@ -461,7 +594,9 @@ public class ScriptsPanel implements GuiPanel {
                 ScriptManifest m = r.getManifest();
                 String author = m != null ? m.author().toLowerCase(Locale.ROOT) : "";
                 String catName = getCategory(r).getDisplayName().toLowerCase(Locale.ROOT);
-                if (!name.contains(search) && !author.contains(search) && !catName.contains(search)) continue;
+                if (!name.contains(search) && !author.contains(search) && !catName.contains(search)) {
+                    continue;
+                }
             }
             result.add(r);
         }
@@ -520,11 +655,13 @@ public class ScriptsPanel implements GuiPanel {
     }
 
     private void reloadScripts(CliContext ctx, boolean autoStart) {
-        List<BotScript> scripts = ctx.loadScripts();
+        List<BotScript> scripts = ctx.loadScriptReport().scripts();
         List<BotScript> blueprints = ctx.loadBlueprints();
 
         for (Connection conn : ctx.getConnections()) {
-            if (!conn.isAlive()) continue;
+            if (!conn.isAlive()) {
+                continue;
+            }
             ScriptRuntime runtime = conn.getRuntime();
             runtime.stopAll();
             for (BotScript script : scripts) {

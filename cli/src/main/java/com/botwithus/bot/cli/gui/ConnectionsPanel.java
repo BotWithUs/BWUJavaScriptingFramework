@@ -91,7 +91,9 @@ public class ConnectionsPanel implements GuiPanel {
         Thread.ofVirtual().name("pipe-scan").start(() -> {
             try {
                 String filter = scanFilter.get().trim();
-                if (filter.isEmpty()) filter = "BotWithUs";
+                if (filter.isEmpty()) {
+                    filter = "BotWithUs";
+                }
 
                 Command cmd = registry.resolve("connect");
                 if (cmd == null) {

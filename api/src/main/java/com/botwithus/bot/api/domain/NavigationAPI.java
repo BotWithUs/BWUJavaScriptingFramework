@@ -1,11 +1,11 @@
 package com.botwithus.bot.api.domain;
 
-import com.botwithus.bot.api.model.*;
-
-import java.util.List;
+import com.botwithus.bot.api.model.PathResult;
+import com.botwithus.bot.api.model.WalkStatus;
+import com.botwithus.bot.api.model.WorldPathConfig;
 
 /**
- * Navigation, pathfinding, and navigation link management.
+ * Navigation and pathfinding.
  *
  * @see com.botwithus.bot.api.GameAPI
  */
@@ -30,6 +30,19 @@ public interface NavigationAPI {
      * @param plane target plane (height level)
      */
     void walkWorldPathAsync(int x, int y, int plane);
+
+    /**
+     * Plane-aware convenience — equivalent to
+     * {@link #walkWorldPathAsync(int, int, int) walkWorldPathAsync(x, y, plane)}.
+     *
+     * <p>The no-plane convenience that walks to the local player's current
+     * plane lives on {@link com.botwithus.bot.api.GameAPI#walkWorldPath(int, int) GameAPI}
+     * because it needs {@code getLocalPlayer()}, which isn't part of this
+     * navigation surface.</p>
+     */
+    default void walkWorldPath(int x, int y, int plane) {
+        walkWorldPathAsync(x, y, plane);
+    }
 
     /**
      * Starts a world-scale walk with exact destination tile control.
@@ -138,34 +151,4 @@ public interface NavigationAPI {
      * Invalidates all cached region collision data.
      */
     void clearRegionCache();
-
-    // ============================== Navigation Links ==============================
-
-    void navAddTransport(NavTransport transport);
-    void navRemoveTransport(int objectId, int x, int y, int plane);
-    List<NavTransport> navListTransports();
-
-    void navAddDoor(NavDoor door);
-    void navRemoveDoor(int objectId, int x, int y, int plane);
-    List<NavDoor> navListDoors();
-
-    void navAddShortcut(NavShortcut shortcut);
-    void navRemoveShortcut(int objectId, int x, int y, int plane);
-
-    void navAddPlaneTransition(NavPlaneTransition transition);
-    void navRemovePlaneTransition(int objectId, int x, int y, int plane);
-
-    void navAddClimbover(NavClimbover climbover);
-    void navRemoveClimbover(int objectId, int x, int y, int plane);
-
-    int navLoadJson(List<NavTransport> links);
-    void navSaveLinks(String path);
-    int navLoadLinks(String path);
-    NavStats navGetStats();
-
-    // ============================== Teleports ==============================
-
-    int navRegisterTeleports(String json, String format);
-    int navClearScriptTeleports();
-    List<NavTeleport> navListTeleports(boolean scriptOnly);
 }

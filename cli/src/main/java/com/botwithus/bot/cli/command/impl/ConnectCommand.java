@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -33,6 +34,10 @@ public class ConnectCommand implements Command {
 
     private static final int LOBBY_POLL_INTERVAL_MS = 500;
     private static final int LOBBY_POLL_TIMEOUT_MS = 15_000;
+    private static final int LOBBY_RPC_TIMEOUT_MS = 5_000;
+    private static final int LOBBY_RETRY_DELAY_MS = 2_000;
+    private static final int PIPE_PROBE_TIMEOUT_S = 5;
+    private static final int PIPE_PROBE_TIMEOUT_MS = 3_000;
 
     /** Info gathered from probing a pipe. */
     public record PipeInfo(String pipeName, String displayName, int worldId, boolean loggedIn, boolean isMember) {}
@@ -197,7 +202,7 @@ public class ConnectCommand implements Command {
     private PipeInfo lobbyLoginAndProbe(String pipeName, CliContext ctx) {
         try (PipeClient pipe = new PipeClient(pipeName)) {
             RpcClient rpc = new RpcClient(pipe);
-            rpc.setTimeout(5_000);
+            rpc.setTimeout(LOBBY_RPC_TIMEOUT_MS);
 
             // Trigger lobby login (only works from login screen, state 10)
             try {
@@ -205,7 +210,7 @@ public class ConnectCommand implements Command {
                 // If server returned action: "new_game_session", need to retry after a delay
                 if ("new_game_session".equals(getString(result, "action"))) {
                     ctx.out().println("  " + pipeName + ": new game session requested, retrying...");
-                    Thread.sleep(2_000);
+                    Thread.sleep(LOBBY_RETRY_DELAY_MS);
                     rpc.callSync("login_to_lobby", Map.of());
                 }
             } catch (Exception e) {
@@ -251,8 +256,8 @@ public class ConnectCommand implements Command {
      */
     private PipeInfo probePipe(String pipeName) {
         try {
-            return CompletableFuture.supplyAsync(() -> probePipeBlocking(pipeName), java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor())
-                    .get(5, TimeUnit.SECONDS);
+            return CompletableFuture.supplyAsync(() -> probePipeBlocking(pipeName), Executors.newVirtualThreadPerTaskExecutor())
+                    .get(PIPE_PROBE_TIMEOUT_S, TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             log.warn("probePipe timed out for {}", pipeName);
             return new PipeInfo(pipeName, "(timeout)", -1, false, false);
@@ -265,7 +270,7 @@ public class ConnectCommand implements Command {
     private PipeInfo probePipeBlocking(String pipeName) {
         try (PipeClient pipe = new PipeClient(pipeName)) {
             RpcClient rpc = new RpcClient(pipe);
-            rpc.setTimeout(3_000);
+            rpc.setTimeout(PIPE_PROBE_TIMEOUT_MS);
             return probeWithRpc(pipeName, rpc);
         } catch (Exception e) {
             log.error("probePipe failed for {}", pipeName, e);
@@ -298,16 +303,8 @@ public class ConnectCommand implements Command {
 
             return new PipeInfo(pipeName, displayName, worldId, loggedIn, isMember);
         } catch (Exception e) {
-            // Fallback: try get_local_player
             log.warn("get_account_info failed for {}: {}", pipeName, e.getMessage());
-            try {
-                Map<String, Object> r = rpc.callSync("get_local_player", Map.of());
-                String name = getString(r, "name");
-                return new PipeInfo(pipeName, name, -1, name != null && !name.isEmpty(), false);
-            } catch (Exception e2) {
-                log.warn("get_local_player fallback also failed for {}: {}", pipeName, e2.getMessage());
-                return new PipeInfo(pipeName, null, -1, false, false);
-            }
+            return new PipeInfo(pipeName, null, -1, false, false);
         }
     }
 
@@ -317,7 +314,9 @@ public class ConnectCommand implements Command {
      */
     private void probeAndAutoStart(String connName, CliContext ctx) {
         AutoStartManager asm = ctx.getAutoStartManager();
-        if (asm == null) return;
+        if (asm == null) {
+            return;
+        }
 
         // Find the connection that was just created
         Connection found = null;
@@ -327,7 +326,9 @@ public class ConnectCommand implements Command {
                 break;
             }
         }
-        if (found == null) return;
+        if (found == null) {
+            return;
+        }
         final Connection conn = found;
 
         // Wire the state-change callback for auto-saving
@@ -403,13 +404,17 @@ public class ConnectCommand implements Command {
 
     private static int getInt(Map<String, Object> map, String key) {
         Object v = map.get(key);
-        if (v instanceof Number n) return n.intValue();
+        if (v instanceof Number n) {
+            return n.intValue();
+        }
         return -1;
     }
 
     private static boolean getBool(Map<String, Object> map, String key) {
         Object v = map.get(key);
-        if (v instanceof Boolean b) return b;
+        if (v instanceof Boolean b) {
+            return b;
+        }
         return false;
     }
 }

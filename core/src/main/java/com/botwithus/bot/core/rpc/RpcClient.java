@@ -31,13 +31,10 @@ import java.util.function.Consumer;
  *
  * <p>A background reader thread polls for incoming messages using
  * {@link PipeClient#available()} (which calls {@code PeekNamedPipe} on
- * Windows) so it never blocks on the pipe handle. When data is available
- * and no RPC call is in flight, the reader thread acquires the lock and
- * reads. Events are dispatched on virtual threads.</p>
- *
- * <p>When an RPC call is active ({@link #doCall}), the calling thread holds
- * the lock and reads responses itself (dispatching any interleaved events),
- * exactly like the original sequential model.</p>
+ * Windows) so it never blocks on the pipe handle. The pipe carries only
+ * RPC traffic now — game events are delivered via the shared-memory ring
+ * (see {@code SharedRegionEventPump}). The reader's remaining job is to
+ * detect a broken pipe and notify the disconnect handler.</p>
  */
 public class RpcClient implements AutoCloseable {
 
@@ -53,7 +50,6 @@ public class RpcClient implements AutoCloseable {
                 return t;
             });
 
-    private Consumer<Map<String, Object>> eventHandler;
     private Consumer<Throwable> disconnectHandler;
     private volatile boolean running;
     private String connectionName;
@@ -90,10 +86,6 @@ public class RpcClient implements AutoCloseable {
         return metrics;
     }
 
-    public void setEventHandler(Consumer<Map<String, Object>> handler) {
-        this.eventHandler = handler;
-    }
-
     /**
      * Optional callback invoked when the reader loop detects the pipe has
      * been closed/broken. Receives the originating exception (may be null).
@@ -103,11 +95,31 @@ public class RpcClient implements AutoCloseable {
     }
 
     /**
-     * Starts the background reader thread. Must be called after
-     * {@link #setEventHandler} and before any RPC calls.
+     * Swaps the underlying pipe transport to point at {@code pipeName} and
+     * restarts the reader loop. Used by {@code ReconnectController} after the
+     * remote agent comes back. Acquires {@link #pipeLock} for the duration of
+     * the swap so no concurrent send/read can observe a half-open transport.
+     *
+     * @throws com.botwithus.bot.core.pipe.PipeException if the new transport
+     *         fails to open; the previous transport remains untouched.
+     */
+    public void reconnect(String pipeName) {
+        pipeLock.lock();
+        try {
+            pipe.reconnect(pipeName);
+        } finally {
+            pipeLock.unlock();
+        }
+        start();
+    }
+
+    /**
+     * Starts the background reader thread. Must be called before any RPC calls.
      */
     public void start() {
-        if (running) return;
+        if (running) {
+            return;
+        }
         running = true;
         String connName = this.connectionName;
         Thread.ofVirtual().name("rpc-reader").start(() -> {
@@ -191,14 +203,12 @@ public class RpcClient implements AutoCloseable {
             try {
                 if (pipe.available() > 0 && pipeLock.tryLock()) {
                     try {
-                        // Drain all available messages while we hold the lock
+                        // The pipe carries only RPC responses now; doCall reads
+                        // its own response. Anything visible here while no call
+                        // is in flight is stray traffic — drain and discard so
+                        // the kernel buffer doesn't fill.
                         while (pipe.available() > 0) {
-                            byte[] data = pipe.readMessage();
-                            Map<String, Object> msg = MessagePackCodec.decode(data);
-                            if (msg.containsKey("event")) {
-                                dispatchEventAsync(msg);
-                            }
-                            // Non-event messages with no pending doCall — discard
+                            pipe.readMessage();
                         }
                     } finally {
                         pipeLock.unlock();
@@ -245,8 +255,7 @@ public class RpcClient implements AutoCloseable {
 
     /**
      * Sends the request, then reads messages until the response with the
-     * matching ID arrives. Events received in between are dispatched on
-     * virtual threads. Holds the pipe lock for the entire duration.
+     * matching ID arrives. Holds the pipe lock for the entire duration.
      *
      * <p>Timeout enforcement uses a scheduled watchdog task that forcibly
      * closes the pipe when the deadline expires. That unblocks any pending
@@ -276,7 +285,11 @@ public class RpcClient implements AutoCloseable {
 
             watchdogTask = watchdog.schedule(() -> {
                 if (settled.compareAndSet(false, true)) {
-                    try { pipe.close(); } catch (RuntimeException ignored) {}
+                    try {
+                        pipe.close();
+                    } catch (RuntimeException e) {
+                        log.debug("watchdog pipe.close threw", e);
+                    }
                 }
             }, timeoutMs, TimeUnit.MILLISECONDS);
 
@@ -295,16 +308,11 @@ public class RpcClient implements AutoCloseable {
                 }
                 Map<String, Object> msg = MessagePackCodec.decode(responseBytes);
 
-                if (msg.containsKey("event")) {
-                    dispatchEventAsync(msg);
-                    continue;
-                }
-
                 if (matchesId(msg, id)) {
                     settled.set(true);
                     return msg;
                 }
-                // Unknown message (no event, wrong id) — skip it
+                // Wrong id (stale response, mismatched call) — skip it
             }
         } catch (RpcException e) {
             throw e;
@@ -358,20 +366,9 @@ public class RpcClient implements AutoCloseable {
 
     private boolean matchesId(Map<String, Object> msg, int expectedId) {
         Object idObj = msg.get("id");
-        if (idObj instanceof Number n) return n.intValue() == expectedId;
-        return false;
-    }
-
-    private void dispatchEventAsync(Map<String, Object> msg) {
-        Consumer<Map<String, Object>> handler = this.eventHandler;
-        if (handler != null) {
-            String connName = this.connectionName;
-            Thread.startVirtualThread(() -> {
-                if (connName != null) {
-                    ConnectionContext.set(connName);
-                }
-                handler.accept(msg);
-            });
+        if (idObj instanceof Number n) {
+            return n.intValue() == expectedId;
         }
+        return false;
     }
 }

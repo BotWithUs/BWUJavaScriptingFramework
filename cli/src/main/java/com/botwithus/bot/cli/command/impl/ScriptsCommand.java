@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.command.impl;
 
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.cli.CliContext;
+import com.botwithus.bot.cli.ClientManager;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
@@ -17,11 +18,21 @@ public class ScriptsCommand implements Command {
     @Override public String name() { return "scripts"; }
     @Override public List<String> aliases() { return List.of("s"); }
     @Override public String description() { return "Manage scripts on active connection"; }
-    @Override public String usage() { return "scripts [list|start <name>|stop <name>|restart <name>|info <name>|config <name>|status] [--group=<name>]"; }
+    @Override public String usage() { return "scripts [list|start|stop|restart|info|config|status|install|update|uninstall|search|repo|adopt] ..."; }
 
     @Override
     public void execute(ParsedCommand parsed, CliContext ctx) {
         String sub = parsed.arg(0);
+
+        // Resolver subcommands (PR-E item 12) work without an active connection.
+        if (ScriptsResolverDispatcher.handles(sub)) {
+            new ScriptsResolverDispatcher(ctx).dispatch(parsed);
+            return;
+        }
+        if ("list".equals(sub) && parsed.hasFlag("installed")) {
+            new ScriptsResolverDispatcher(ctx).listInstalled(parsed.hasFlag("outdated"));
+            return;
+        }
 
         // 'status' works without an active connection — shows all connections
         if ("status".equals(sub)) {
@@ -68,20 +79,15 @@ public class ScriptsCommand implements Command {
             return;
         }
 
-        if (sub == null || sub.equals("list")) {
-            listScripts(runtime, ctx);
-        } else if (sub.equals("start")) {
-            startScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("stop")) {
-            stopScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("restart")) {
-            restartScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("info")) {
-            infoScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("config")) {
-            configScript(parsed.arg(1), runtime, ctx);
-        } else {
-            ctx.out().println("Unknown subcommand: " + sub + ". Use: list, start, stop, restart, info, config, status");
+        switch (sub == null ? "list" : sub) {
+            case "list" -> listScripts(runtime, ctx);
+            case "start" -> startScript(parsed.arg(1), runtime, ctx);
+            case "stop" -> stopScript(parsed.arg(1), runtime, ctx);
+            case "restart" -> restartScript(parsed.arg(1), runtime, ctx);
+            case "info" -> infoScript(parsed.arg(1), runtime, ctx);
+            case "config" -> configScript(parsed.arg(1), runtime, ctx);
+            default -> ctx.out().println(
+                    "Unknown subcommand: " + sub + ". Use: list, start, stop, restart, info, config, status");
         }
     }
 
@@ -147,7 +153,7 @@ public class ScriptsCommand implements Command {
         }
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
         }
         runner.start();
         ctx.out().println("Restarted: " + runner.getScriptName());
@@ -222,7 +228,7 @@ public class ScriptsCommand implements Command {
         }
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
         }
         runner.start();
         ctx.out().println("[" + connName + "] Restarted: " + runner.getScriptName());
@@ -230,7 +236,9 @@ public class ScriptsCommand implements Command {
 
     private void warnDisconnected(String groupName, List<Connection> activeConns, CliContext ctx) {
         var group = ctx.getGroup(groupName);
-        if (group == null) return;
+        if (group == null) {
+            return;
+        }
         for (String connName : group.getConnectionNames()) {
             if (activeConns.stream().noneMatch(c -> c.getName().equals(connName))) {
                 ctx.out().println("[" + connName + "] " + AnsiCodes.colorize("Warning: disconnected, skipped.", AnsiCodes.YELLOW));

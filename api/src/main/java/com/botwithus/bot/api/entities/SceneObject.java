@@ -2,182 +2,109 @@ package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.inventory.ActionTypes;
-import com.botwithus.bot.api.model.Entity;
-import com.botwithus.bot.api.model.EntityPosition;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.LocationType;
+import com.botwithus.bot.api.model.SceneObjectInfo;
 
 import java.util.List;
-import java.util.Map;
+import java.util.function.IntFunction;
 
 /**
- * Rich wrapper for a scene object (location) entity with convenient access
- * to the location definition and interaction helpers.
+ * Rich wrapper around {@link SceneObjectInfo} with lazy {@link LocationType}
+ * resolution and option-keyed {@link #interact(String) interact}.
  *
- * <p>Obtain instances through {@link SceneObjects}:</p>
- * <pre>{@code
- * SceneObjects objects = new SceneObjects(api);
- * SceneObject booth = objects.nearest("Bank booth");
- * if (booth != null) {
- *     System.out.println(booth.name() + " options: " + booth.getOptions());
- *     System.out.println("Size: " + booth.sizeX() + "x" + booth.sizeY());
- * }
- * }</pre>
- *
- * @see SceneObjects
- * @see EntityContext
+ * <p>Obtained through {@link SceneObjects#query()} — don't construct
+ * directly. The facade owns the LocationType cache that backs
+ * {@link #getType()} repeats.</p>
  */
-public class SceneObject extends EntityContext {
+public final class SceneObject implements EntityContext {
 
+    private final GameAPI api;
+    private final SceneObjectInfo raw;
+    private final IntFunction<LocationType> typeLookup;
     private LocationType cachedType;
 
-    public SceneObject(GameAPI api, Entity raw) {
-        super(api, raw);
+    SceneObject(GameAPI api, SceneObjectInfo raw, IntFunction<LocationType> typeLookup) {
+        this.api = api;
+        this.raw = raw;
+        this.typeLookup = typeLookup;
     }
 
+    public SceneObjectInfo raw() { return raw; }
+
+    public int handle()  { return raw.handle(); }
+    public int typeId()  { return raw.typeId(); }
+
     /**
-     * Returns the location cache definition, fetched lazily.
+     * Display name. Prefers the pre-resolved {@code raw.name} from the RPC
+     * (cheap, no defn fetch) and falls back to the LocationType when the
+     * producer didn't fill it in.
      */
+    public String name() {
+        if (raw.name() != null && !raw.name().isEmpty()) return raw.name();
+        LocationType t = getType();
+        return t == null ? null : t.name();
+    }
+
+    @Override public int tileX() { return raw.tileX(); }
+    @Override public int tileY() { return raw.tileY(); }
+    @Override public int plane() { return raw.plane(); }
+
+    /** Cached LocationType for this object's typeId. {@code null} if lookup fails. */
     public LocationType getType() {
         if (cachedType == null) {
-            cachedType = api.getLocationType(typeId());
+            cachedType = typeLookup.apply(typeId());
         }
         return cachedType;
     }
 
     /**
-     * The right-click interaction options for this object, resolved through any active transformation.
-     * Prefers the pre-resolved options from the entity query (C++ side) when available,
-     * falling back to the resolved location type definition.
+     * Right-click options. Prefers the pre-resolved {@code raw.options} from
+     * the RPC (already covers transform-resolution server-side); falls back
+     * to {@link LocationType#options()} when raw came back empty.
      */
     public List<String> getOptions() {
-        List<String> entityOptions = raw.options();
-        if (entityOptions != null && !entityOptions.isEmpty()) {
-            return entityOptions;
-        }
-        return resolveTransform().options();
+        if (!raw.options().isEmpty()) return raw.options();
+        LocationType t = getType();
+        return t == null ? List.of() : t.options();
     }
 
-    /** Whether this object has a specific right-click option (case-insensitive). */
+    /** True if any option matches {@code option} case-insensitively. */
     public boolean hasOption(String option) {
-        return containsOption(getOptions(), option);
-    }
-
-    /** X dimension of this object in tiles. */
-    public int sizeX() {
-        return getType().sizeX();
-    }
-
-    /** Y dimension of this object in tiles. */
-    public int sizeY() {
-        return getType().sizeY();
-    }
-
-    /** The interaction type from the definition. */
-    public int getInteractType() {
-        return getType().interactType();
-    }
-
-    /** The collision/solid type from the definition. */
-    public int getSolidType() {
-        return getType().solidType();
-    }
-
-    /** Whether this is a members-only object. */
-    public boolean isMembers() {
-        return getType().members();
-    }
-
-    /** The minimap sprite ID, or 0 if none. */
-    public int getMapSpriteId() {
-        return getType().mapSpriteId();
-    }
-
-    /** Additional parameters from the object definition. */
-    public Map<String, Object> getParams() {
-        return getType().params();
-    }
-
-    /**
-     * Whether this object can transform based on a varbit/varp.
-     */
-    public boolean canTransform() {
-        return getType().varbitId() != -1 || getType().varpId() != -1;
-    }
-
-    /** The varbit controlling transformation, or -1. */
-    public int getVarbitId() {
-        return getType().varbitId();
-    }
-
-    /** The varp controlling transformation, or -1. */
-    public int getVarpId() {
-        return getType().varpId();
-    }
-
-    /** The possible type IDs this object can transform into. */
-    public List<Integer> getTransforms() {
-        return getType().transforms();
-    }
-
-    /**
-     * Resolves the current transform of this object based on varbit/varp state.
-     * Returns this object's type ID if no transformation is active,
-     * or the transformed type ID.
-     */
-    public int resolveTransformId() {
-        LocationType type = getType();
-        int value = -1;
-        if (type.varbitId() != -1) {
-            value = api.getVarbit(type.varbitId());
-        } else if (type.varpId() != -1) {
-            value = api.getVarp(type.varpId());
+        for (String o : getOptions()) {
+            if (o != null && o.equalsIgnoreCase(option)) return true;
         }
-        if (value < 0 || type.transforms().isEmpty()) {
-            return typeId();
-        }
-        if (value < type.transforms().size()) {
-            int transformed = type.transforms().get(value);
-            return transformed != -1 ? transformed : typeId();
-        }
-        // Last entry is the default fallback
-        int last = type.transforms().getLast();
-        return last != -1 ? last : typeId();
+        return false;
     }
 
     /**
-     * Returns the resolved {@link LocationType} after applying any varbit/varp transformation.
-     */
-    public LocationType resolveTransform() {
-        int id = resolveTransformId();
-        return id == typeId() ? getType() : api.getLocationType(id);
-    }
-
-    // ========================== Interaction ==========================
-
-    /**
-     * Interacts with this scene object using the given right-click option name.
+     * Queue an action by 1-based right-click option index.
      *
-     * @param option the option text (e.g. "Open", "Bank", "Mine"), case-insensitive
-     * @return {@code true} if the option was found and the action was queued
-     */
-    public boolean interact(String option) {
-        int index = findOptionIndex(getOptions(), option);
-        if (index == -1) return false;
-        interact(index);
-        return true;
-    }
-
-    /**
-     * Interacts with this scene object using the given 1-based option index.
-     *
-     * @param optionIndex the 1-based option index (1–6)
+     * @throws IllegalArgumentException for {@code optionIndex} outside [1, 6]
      */
     public void interact(int optionIndex) {
         if (optionIndex < 1 || optionIndex >= ActionTypes.OBJECT_OPTIONS.length) {
             throw new IllegalArgumentException("Object option index out of range: " + optionIndex);
         }
-        api.queueAction(new GameAction(ActionTypes.OBJECT_OPTIONS[optionIndex], raw.typeId(), raw.tileX(), raw.tileY()));
+        api.queueAction(new GameAction(
+                ActionTypes.OBJECT_OPTIONS[optionIndex],
+                handle(), 0, 0));
+    }
+
+    /**
+     * Queue an action by option text. Returns {@code false} when the option
+     * isn't on this object's menu (no action queued).
+     */
+    public boolean interact(String option) {
+        List<String> opts = getOptions();
+        for (int i = 0; i < opts.size(); ++i) {
+            String o = opts.get(i);
+            if (o != null && o.equalsIgnoreCase(option)) {
+                interact(i + 1);
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

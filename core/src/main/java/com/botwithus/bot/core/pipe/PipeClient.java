@@ -3,10 +3,13 @@ package com.botwithus.bot.core.pipe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 /**
@@ -25,19 +28,47 @@ public class PipeClient implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(PipeClient.class);
     static final String PIPE_PREFIX = "\\\\.\\pipe\\";
-    private static final String DEFAULT_PIPE_NAME = "BotWithUs";
 
-    private final String pipePath;
+    /**
+     * Producer-side name prefix. NXTLibrary publishes one pipe per injected
+     * game as {@code BotWithUs_<pid>}; the legacy single {@code BotWithUs}
+     * name (no suffix) was retired so the suffix doubles as a discovery key
+     * for the snapshot mapping at {@code Local\nxt_snapshot_<pid>}.
+     */
+    public static final String NAME_PREFIX = "BotWithUs_";
+
+    private volatile String pipePath;
     private volatile Transport transport;
     private volatile boolean open = true;
 
+    /**
+     * Auto-discover: scans for an available {@code BotWithUs_<pid>} pipe and
+     * connects to the first match. Throws {@link PipeException} if none is
+     * visible — i.e. the DLL isn't injected into any running game.
+     *
+     * <p>For multi-game setups, prefer the explicit-name constructor with a
+     * pid you've selected via {@link #scanPipes()}.</p>
+     */
     public PipeClient() {
-        this(DEFAULT_PIPE_NAME);
+        this(firstAvailableOrThrow());
     }
 
     public PipeClient(String pipeName) {
         this.pipePath = PIPE_PREFIX + pipeName;
         this.transport = openTransport(pipePath);
+    }
+
+    /**
+     * Returns the first pipe name matching {@link #NAME_PREFIX}, or throws
+     * {@link PipeException} if none is visible.
+     */
+    public static String firstAvailableOrThrow() {
+        List<String> candidates = scanPipes(NAME_PREFIX);
+        if (candidates.isEmpty()) {
+            throw new PipeException(
+                    "No " + NAME_PREFIX + "<pid> pipes visible — is the BotWithUs DLL injected?");
+        }
+        return candidates.getFirst();
     }
 
     static Transport openTransport(String pipePath) {
@@ -55,11 +86,11 @@ public class PipeClient implements AutoCloseable {
     }
 
     public static List<String> scanPipes(String prefix) {
-        String lowerPrefix = prefix.toLowerCase(java.util.Locale.ROOT);
+        String lowerPrefix = prefix.toLowerCase(Locale.ROOT);
         try (Stream<Path> stream = Files.list(Path.of(PIPE_PREFIX))) {
             return stream
                     .map(p -> p.getFileName().toString())
-                    .filter(name -> name.toLowerCase(java.util.Locale.ROOT).contains(lowerPrefix))
+                    .filter(name -> name.toLowerCase(Locale.ROOT).contains(lowerPrefix))
                     .toList();
         } catch (IOException e) {
             return List.of();
@@ -79,7 +110,9 @@ public class PipeClient implements AutoCloseable {
      * Uses {@code PeekNamedPipe} on Windows.
      */
     public int available() {
-        if (!open) return 0;
+        if (!open) {
+            return 0;
+        }
         try {
             return transport.input.available();
         } catch (IOException e) {
@@ -92,7 +125,9 @@ public class PipeClient implements AutoCloseable {
      * <p>Not thread-safe — caller must ensure exclusive pipe access.</p>
      */
     public void send(byte[] data) {
-        if (!open) throw new PipeException("Pipe is closed");
+        if (!open) {
+            throw new PipeException("Pipe is closed");
+        }
         int n = data.length;
         byte[] frame = new byte[4 + n];
         frame[0] = (byte) n;
@@ -117,7 +152,9 @@ public class PipeClient implements AutoCloseable {
      * <p>Not thread-safe — caller must ensure exclusive pipe access.</p>
      */
     public byte[] readMessage() {
-        if (!open) throw new PipeException("Pipe is closed");
+        if (!open) {
+            throw new PipeException("Pipe is closed");
+        }
         try {
             byte[] header = new byte[4];
             readFully(header);
@@ -140,15 +177,15 @@ public class PipeClient implements AutoCloseable {
         int off = 0;
         while (off < buf.length) {
             int n = transport.pipe.read(buf, off, buf.length - off);
-            if (n < 0) throw new IOException("Pipe closed");
+            if (n < 0) {
+                throw new IOException("Pipe closed");
+            }
             off += n;
         }
     }
 
     /**
      * Swaps the underlying pipe transport atomically, closing the previous one.
-     * Used by {@link ReconnectablePipeClient} to replace a broken connection
-     * with a fresh one without forcing callers to hold a new {@code PipeClient}.
      *
      * <p>Caller must hold any external I/O lock (e.g. {@code RpcClient}'s pipe
      * lock) to ensure no thread is mid-read/write during the swap.</p>
@@ -160,18 +197,52 @@ public class PipeClient implements AutoCloseable {
         closeTransport(prev);
     }
 
+    /**
+     * Opens a fresh transport against the supplied pipe path and swaps the
+     * current one for it. The previous transport is closed.
+     *
+     * <p>This is the public-facing reconnect seam used by
+     * {@code ReconnectController} — it lets callers in other packages
+     * (notably {@code core.rpc}) drive the swap without exposing the
+     * package-private {@link Transport} type.</p>
+     *
+     * <p>Caller must hold any external I/O lock guarding {@link #send}/
+     * {@link #readMessage} so no thread is mid-read/write during the swap.</p>
+     *
+     * @throws PipeException if the new transport fails to open; the existing
+     *                       transport (if any) is left untouched in that case.
+     */
+    public void reconnect(String pipeName) {
+        String newPath = PIPE_PREFIX + pipeName;
+        Transport next = openTransport(newPath);
+        this.pipePath = newPath;
+        swapTransport(next);
+    }
+
     private static void closeTransport(Transport t) {
-        if (t == null) return;
-        try { t.input.close(); } catch (IOException ignored) {}
+        if (t == null) {
+            return;
+        }
+        try {
+            t.input.close();
+        } catch (IOException e) {
+            log.debug("Pipe input close failed", e);
+        }
         // RandomAccessFile and FileInputStream share the same FD; closing the
         // input above already closed the native handle. Calling pipe.close()
         // here lets the Java-side object release its bookkeeping.
-        try { t.pipe.close(); } catch (IOException ignored) {}
+        try {
+            t.pipe.close();
+        } catch (IOException e) {
+            log.debug("Pipe handle close failed", e);
+        }
     }
 
     @Override
     public void close() {
-        if (!open) return;
+        if (!open) {
+            return;
+        }
         open = false;
         closeTransport(transport);
     }

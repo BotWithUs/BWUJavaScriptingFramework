@@ -1,37 +1,23 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
-import com.botwithus.bot.api.model.Entity;
-import com.botwithus.bot.api.query.EntityType;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
 
 import java.util.List;
-import java.util.function.Function;
+import java.util.stream.Stream;
 
 /**
- * Query facade for player entities. Provides convenience methods and a
- * fluent query builder that returns rich {@link Player} wrappers.
+ * Player query facade. Singleton per {@link GameAPI}; obtain via
+ * {@code api.players()}.
  *
- * <h3>Quick usage:</h3>
- * <pre>{@code
- * Players players = new Players(api);
- *
- * // Nearest player
- * Player nearest = players.nearest();
- *
- * // Find a specific player
- * Player friend = players.nearest("PlayerName");
- *
- * // Fluent query
- * List<Player> nearby = players.query()
- *     .visible()
- *     .withinDistance(10)
- *     .all();
- * }</pre>
- *
- * @see Player
- * @see EntityQuery
+ * <p>Players don't carry a per-id type definition (no {@code PlayerType}
+ * cache like {@code NpcType}), so this facade is mostly a query entry point.
+ * Display names ride along on the snapshot in future slices once the
+ * producer surfaces them; for now {@link EntityQuery#named(String)} on
+ * players returns nothing — use index/position filters or the predicate
+ * form for arbitrary checks.</p>
  */
-public class Players {
+public final class Players {
 
     private final GameAPI api;
 
@@ -39,59 +25,45 @@ public class Players {
         this.api = api;
     }
 
-    /**
-     * Start a fluent player query.
-     */
+    /** Start a fluent query. */
     public Query query() {
         return new Query(api);
     }
 
-    /**
-     * Returns the nearest player (excluding the local player), or null.
-     */
-    public Player nearest() {
-        var lp = api.getLocalPlayer();
-        return query()
-                .filter(p -> p.serverIndex() != lp.serverIndex())
-                .nearest();
+    public Player byServerIndex(int serverIndex) {
+        return query().filter(p -> p.serverIndex() == serverIndex).first();
     }
 
-    /**
-     * Returns the nearest player with the given name, or null.
-     */
-    public Player nearest(String name) {
-        return query().named(name).nearest();
-    }
-
-    /**
-     * Returns all visible players (excluding the local player).
-     */
     public List<Player> all() {
-        var lp = api.getLocalPlayer();
-        return query()
-                .filter(p -> p.serverIndex() != lp.serverIndex())
-                .all();
+        return query().all();
     }
 
-    /**
-     * Returns all players matching the given name.
-     */
-    public List<Player> all(String name) {
-        return query().named(name).all();
-    }
-
-    /**
-     * Fluent query builder for players.
-     */
-    public static class Query extends EntityQuery<Player, Query> {
-
+    public static final class Query extends EntityQuery<Player, Query> {
         Query(GameAPI api) {
-            super(api, EntityType.PLAYER);
+            super(api);
         }
 
         @Override
-        protected Function<Entity, Player> wrapFunction() {
-            return e -> new Player(api, e);
+        protected Stream<Player> source() {
+            GameSnapshot snap = api.snapshot();
+            if (snap == null) {
+                return Stream.empty();
+            }
+            return snap.players().stream().map(raw -> new Player(api, raw));
+        }
+
+        @Override
+        protected int rawTypeId(Player t) {
+            // Players have no type id. Returning -1 makes withId(N) never match,
+            // which is the right behavior for callers who try.
+            return -1;
+        }
+
+        @Override
+        protected String nameOf(Player t) {
+            // Display names aren't on the wire yet; named()/nameMatching() will
+            // never match. Returning null is checked by EntityQuery's filters.
+            return null;
         }
     }
 }

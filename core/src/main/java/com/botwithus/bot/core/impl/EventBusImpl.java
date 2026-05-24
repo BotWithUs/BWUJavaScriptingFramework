@@ -16,45 +16,15 @@ public class EventBusImpl implements EventBus {
     private final Map<Class<? extends GameEvent>, List<Consumer<? extends GameEvent>>> listeners = new ConcurrentHashMap<>();
     private final Map<Class<? extends GameEvent>, LongAdder> eventCounts = new ConcurrentHashMap<>();
 
-    /** Called when the first listener registers for an event type. */
-    private Consumer<Class<? extends GameEvent>> onFirstSubscribe;
-
-    /** Called when the last listener unregisters for an event type. */
-    private Consumer<Class<? extends GameEvent>> onLastUnsubscribe;
-
-    /**
-     * Sets callbacks for automatic server-side subscription management.
-     * Called by the wiring layer so that subscribing to a typed event
-     * automatically subscribes to the pipe server event.
-     */
-    public void setSubscriptionHooks(Consumer<Class<? extends GameEvent>> onFirst,
-                                     Consumer<Class<? extends GameEvent>> onLast) {
-        this.onFirstSubscribe = onFirst;
-        this.onLastUnsubscribe = onLast;
-    }
-
     @Override
     public <T extends GameEvent> void subscribe(Class<T> eventType, Consumer<T> listener) {
-        listeners.compute(eventType, (key, list) -> {
-            if (list == null) {
-                list = new CopyOnWriteArrayList<>();
-            }
-            boolean wasEmpty = list.isEmpty();
-            list.add(listener);
-            if (wasEmpty && onFirstSubscribe != null) {
-                onFirstSubscribe.accept(key);
-            }
-            return list;
-        });
+        listeners.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>()).add(listener);
     }
 
     @Override
     public <T extends GameEvent> void unsubscribe(Class<T> eventType, Consumer<T> listener) {
         listeners.computeIfPresent(eventType, (key, list) -> {
             list.remove(listener);
-            if (list.isEmpty() && onLastUnsubscribe != null) {
-                onLastUnsubscribe.accept(key);
-            }
             return list.isEmpty() ? null : list;
         });
     }

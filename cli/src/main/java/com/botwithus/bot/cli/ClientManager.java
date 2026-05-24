@@ -21,6 +21,13 @@ import java.util.Set;
  */
 public class ClientManager implements ClientOrchestrator {
 
+    /**
+     * Default timeout (ms) given to a script's stop hook before it is
+     * restarted. Shared across CLI commands and GUI panels that implement
+     * a "restart" affordance so the user-visible wait stays consistent.
+     */
+    public static final int RESTART_STOP_TIMEOUT_MS = 2000;
+
     private final CliContext ctx;
 
     public ClientManager(CliContext ctx) {
@@ -61,7 +68,9 @@ public class ClientManager implements ClientOrchestrator {
 
     @Override
     public boolean createGroup(String name, String description) {
-        if (ctx.getGroup(name) != null) return false;
+        if (ctx.getGroup(name) != null) {
+            return false;
+        }
         ctx.createGroup(name);
         ConnectionGroup created = ctx.getGroup(name);
         if (created != null && description != null) {
@@ -73,7 +82,9 @@ public class ClientManager implements ClientOrchestrator {
     /** Creates a new group, returning the group object. */
     public ConnectionGroup createGroupAndGet(String name, String description) {
         ConnectionGroup existing = ctx.getGroup(name);
-        if (existing != null) return existing;
+        if (existing != null) {
+            return existing;
+        }
         ctx.createGroup(name);
         ConnectionGroup created = ctx.getGroup(name);
         if (created != null && description != null) {
@@ -125,14 +136,18 @@ public class ClientManager implements ClientOrchestrator {
 
     @Override
     public boolean addToGroup(String groupName, String clientName) {
-        if (ctx.getGroup(groupName) == null) return false;
+        if (ctx.getGroup(groupName) == null) {
+            return false;
+        }
         ctx.addToGroup(groupName, clientName);
         return true;
     }
 
     @Override
     public boolean removeFromGroup(String groupName, String clientName) {
-        if (ctx.getGroup(groupName) == null) return false;
+        if (ctx.getGroup(groupName) == null) {
+            return false;
+        }
         ctx.removeFromGroup(groupName, clientName);
         return true;
     }
@@ -147,12 +162,20 @@ public class ClientManager implements ClientOrchestrator {
     @Override
     public OpResult startScript(String clientName, String scriptName) {
         Connection conn = getClient(clientName);
-        if (conn == null) return new OpResult(false, clientName, scriptName, "client not found");
-        if (!conn.isAlive()) return new OpResult(false, clientName, scriptName, "client disconnected");
+        if (conn == null) {
+            return new OpResult(false, clientName, scriptName, "client not found");
+        }
+        if (!conn.isAlive()) {
+            return new OpResult(false, clientName, scriptName, "client disconnected");
+        }
 
         ScriptRunner runner = conn.getRuntime().findRunner(scriptName);
-        if (runner == null) return new OpResult(false, clientName, scriptName, "script not found");
-        if (runner.isRunning()) return new OpResult(false, clientName, scriptName, "already running");
+        if (runner == null) {
+            return new OpResult(false, clientName, scriptName, "script not found");
+        }
+        if (runner.isRunning()) {
+            return new OpResult(false, clientName, scriptName, "already running");
+        }
 
         runner.start();
         return new OpResult(true, clientName, scriptName, "started");
@@ -161,8 +184,12 @@ public class ClientManager implements ClientOrchestrator {
     @Override
     public OpResult stopScript(String clientName, String scriptName) {
         Connection conn = getClient(clientName);
-        if (conn == null) return new OpResult(false, clientName, scriptName, "client not found");
-        if (!conn.isAlive()) return new OpResult(false, clientName, scriptName, "client disconnected");
+        if (conn == null) {
+            return new OpResult(false, clientName, scriptName, "client not found");
+        }
+        if (!conn.isAlive()) {
+            return new OpResult(false, clientName, scriptName, "client disconnected");
+        }
 
         if (conn.getRuntime().stopScript(scriptName)) {
             return new OpResult(true, clientName, scriptName, "stopped");
@@ -173,15 +200,21 @@ public class ClientManager implements ClientOrchestrator {
     @Override
     public OpResult restartScript(String clientName, String scriptName) {
         Connection conn = getClient(clientName);
-        if (conn == null) return new OpResult(false, clientName, scriptName, "client not found");
-        if (!conn.isAlive()) return new OpResult(false, clientName, scriptName, "client disconnected");
+        if (conn == null) {
+            return new OpResult(false, clientName, scriptName, "client not found");
+        }
+        if (!conn.isAlive()) {
+            return new OpResult(false, clientName, scriptName, "client disconnected");
+        }
 
         ScriptRunner runner = conn.getRuntime().findRunner(scriptName);
-        if (runner == null) return new OpResult(false, clientName, scriptName, "script not found");
+        if (runner == null) {
+            return new OpResult(false, clientName, scriptName, "script not found");
+        }
 
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(RESTART_STOP_TIMEOUT_MS);
         }
         runner.start();
         return new OpResult(true, clientName, scriptName, "restarted");
@@ -207,7 +240,9 @@ public class ClientManager implements ClientOrchestrator {
     @Override
     public List<OpResult> stopAllScriptsOnGroup(String groupName) {
         ConnectionGroup group = ctx.getGroup(groupName);
-        if (group == null) return List.of(new OpResult(false, groupName, null, "group not found"));
+        if (group == null) {
+            return List.of(new OpResult(false, groupName, null, "group not found"));
+        }
 
         List<OpResult> results = new ArrayList<>();
         for (Connection conn : getGroupClients(groupName)) {
@@ -272,7 +307,9 @@ public class ClientManager implements ClientOrchestrator {
 
     private List<OpResult> executeOnGroup(String groupName, String scriptName, String action) {
         ConnectionGroup group = ctx.getGroup(groupName);
-        if (group == null) return List.of(new OpResult(false, groupName, scriptName, "group not found"));
+        if (group == null) {
+            return List.of(new OpResult(false, groupName, scriptName, "group not found"));
+        }
 
         List<Connection> clients = getGroupClients(groupName);
         if (clients.isEmpty()) {

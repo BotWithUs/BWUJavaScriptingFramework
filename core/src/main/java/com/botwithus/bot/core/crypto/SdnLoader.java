@@ -32,7 +32,10 @@ public final class SdnLoader {
 
     private final RpcClient rpc;
 
-    // Lazily resolved handles into jdk.internal.sdn.SdnClassLoader
+    // rule-exception: §Banned 5 (mutable static). Lazily resolved handles into
+    // jdk.internal.sdn.SdnClassLoader — the target class is JVM-injected and
+    // process-global, so the cached lookups are process-global by nature.
+    // See JBotWithUsV2/CLAUDE.md → "Java rules exceptions".
     private static volatile MethodHandle pubkey0Handle;
     private static volatile MethodHandle lockdown0Handle;
     private static Class<?> sdnClass;
@@ -87,6 +90,9 @@ public final class SdnLoader {
      * The native constructor derives the AES key via ECDH and decrypts/defines classes.
      */
     private static ClassLoader createSdnClassLoader(byte[] encryptedJar, byte[] serverPubKey, ClassLoader parent) {
+        // rule-exception: §Banned 1 (reflection). The target ctor lives in a
+        // JVM-injected class that has no build-time symbol to import. See
+        // JBotWithUsV2/CLAUDE.md → "Java rules exceptions".
         try {
             Class<?> clazz = getSdnClass();
             var ctor = clazz.getDeclaredConstructor(byte[].class, byte[].class, ClassLoader.class);
@@ -123,6 +129,9 @@ public final class SdnLoader {
     }
 
     private static Class<?> getSdnClass() {
+        // rule-exception: §Banned 1 (Class.forName for dispatch). The class
+        // is JVM-injected — name lookup is the only available handle. See
+        // JBotWithUsV2/CLAUDE.md → "Java rules exceptions".
         if (sdnClass == null) {
             try {
                 sdnClass = Class.forName(SDN_CLASS);
@@ -134,6 +143,8 @@ public final class SdnLoader {
     }
 
     private static MethodHandle getPubkey0Handle() {
+        // rule-exception: §Banned 1 (MethodHandles.privateLookupIn). Same reason
+        // as getSdnClass. See JBotWithUsV2/CLAUDE.md → "Java rules exceptions".
         if (pubkey0Handle == null) {
             try {
                 var lookup = MethodHandles.privateLookupIn(getSdnClass(), MethodHandles.lookup());
@@ -147,6 +158,8 @@ public final class SdnLoader {
     }
 
     private static MethodHandle getLockdown0Handle() {
+        // rule-exception: §Banned 1 (MethodHandles.privateLookupIn). Same reason
+        // as getSdnClass. See JBotWithUsV2/CLAUDE.md → "Java rules exceptions".
         if (lockdown0Handle == null) {
             try {
                 var lookup = MethodHandles.privateLookupIn(getSdnClass(), MethodHandles.lookup());
