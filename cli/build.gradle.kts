@@ -267,3 +267,78 @@ val renameMsi by tasks.registering {
 }
 
 tasks.named("jpackage").configure { finalizedBy(renameMsi) }
+
+// ── bwu.dll release-hygiene gate ───────────────────────────────────────────
+// bwu.dll is the auth bootstrap shipped inside the CLI jar. Because this repo
+// is open source and the DLL is a committed binary blob, this gate fails the
+// build if a *debug* build, or one carrying *symbols / a PDB path*, is ever
+// committed in its place:
+//   - debug build  → links the debug CRT (vcruntime###d.dll / ucrtbased.dll /
+//                    msvcr###d.dll …). A release links the non-debug CRT.
+//   - symbols leak → a CodeView record ("RSDS") and/or an embedded *.pdb path
+//                    that reveals the developer's local build directory.
+// It is a pure byte scan (no PE parser, no external toolchain) so it runs on
+// any OS that builds the jar. The shipped release DLL imports only
+// KERNEL32.dll + VCRUNTIME140.dll and embeds no PDB path, so it passes.
+val bwuDll = layout.projectDirectory.file("src/main/resources/native/bwu.dll")
+
+val verifyBwuDll by tasks.registering {
+    description = "Fails the build if the bundled bwu.dll is a debug build or carries symbols/PDB info."
+    group = "verification"
+    val dllFile = bwuDll.asFile
+    onlyIf { dllFile.exists() }
+    inputs.file(bwuDll).optional()
+    val marker = layout.buildDirectory.file("bwu-dll-verified.txt")
+    outputs.file(marker)
+    doLast {
+        val bytes = dllFile.readBytes()
+        // ISO-8859-1 is a 1:1 byte→char map, so raw byte patterns survive intact.
+        val text = String(bytes, Charsets.ISO_8859_1)
+
+        // Debug CRT import names — present only in a Debug build. The trailing
+        // `d` before `.dll` is what distinguishes them from the release CRT
+        // (vcruntime140d.dll vs vcruntime140.dll; ucrtbased.dll vs ucrtbase.dll).
+        val debugCrt = Regex(
+            "((vcruntime|msvcr|msvcp|concrt|vccorlib)\\d+d|ucrtbased)\\.dll",
+            RegexOption.IGNORE_CASE,
+        ).findAll(text).map { it.value.lowercase() }.distinct().sorted().toList()
+
+        // Embedded PDB path(s) — a maximal printable run ending in ".pdb".
+        val pdbPaths = Regex("[ -~]+\\.pdb", RegexOption.IGNORE_CASE)
+            .findAll(text).map { it.value }.distinct().toList()
+        val hasCodeView = text.contains("RSDS")
+
+        val problems = buildList {
+            if (debugCrt.isNotEmpty()) {
+                add("debug CRT imports → debug build: ${debugCrt.joinToString()}")
+            }
+            if (pdbPaths.isNotEmpty()) {
+                add("embedded PDB path → symbols leak: ${pdbPaths.joinToString()}")
+            } else if (hasCodeView) {
+                add("CodeView debug record (\"RSDS\") present → symbols leak")
+            }
+        }
+
+        if (problems.isNotEmpty()) {
+            throw GradleException(
+                "bwu.dll failed the release-hygiene gate ($dllFile):\n" +
+                    problems.joinToString("\n") { "  - $it" } +
+                    "\nReplace it with a Release build linked against the non-debug CRT and " +
+                    "stripped of debug info (e.g. link with /DEBUG:NONE, or strip the PDB " +
+                    "reference post-link). See BotWithUs-Loader for the build."
+            )
+        }
+        val out = marker.get().asFile
+        out.parentFile.mkdirs()
+        out.writeText("bwu.dll passed release-hygiene gate (${bytes.size} bytes)\n")
+        logger.lifecycle(
+            "bwu.dll release-hygiene gate passed: ${bytes.size} bytes, no debug CRT, no PDB path."
+        )
+    }
+}
+
+// Gate the DLL before it is bundled into the jar/image, and on `check` (so
+// `build`, which depends on both, always runs it). processResources is the
+// task that copies src/main/resources — including bwu.dll — into the output.
+tasks.named("processResources").configure { dependsOn(verifyBwuDll) }
+tasks.named("check").configure { dependsOn(verifyBwuDll) }
