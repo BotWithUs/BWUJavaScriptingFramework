@@ -36,8 +36,6 @@ import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.loader.BwuClient;
-import com.botwithus.bot.core.loader.bootstrap.NativeArtifactDownloader;
-import com.botwithus.bot.core.loader.bootstrap.NativeArtifactManifest;
 
 import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
@@ -141,6 +139,7 @@ public class ImGuiApp extends Application {
     protected void initImGui(Configuration config) {
         super.initImGui(config);
 
+        redirectImGuiIniToConfigDir();
         dpiScale = detectDpiScale();
         loadFonts(Math.round(UI_FONT_BASE_PX * dpiScale));
         setupTheme();
@@ -161,7 +160,6 @@ public class ImGuiApp extends Application {
         wireDisplayHooks();
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
 
-        runNativeBootstrap();
         BwuClient bwu = resolveBwuClient();
         ctx.initManagementRuntime(bwu);
         autoStartManager.start();
@@ -169,6 +167,24 @@ public class ImGuiApp extends Application {
         buildPanels(bwu);
         setupStatusBar(bwu);
         captureGlfwHandle();
+    }
+
+    private static void redirectImGuiIniToConfigDir() {
+        // Window/dock layout settings ship as imgui.ini, which ImGui writes
+        // next to the CWD by default. In the jpackage app-image the CWD
+        // varies (and the install dir may be read-only), so park the file
+        // alongside every other persistent BotWithUs store under
+        // ~/.botwithus/. Must run before any UI frame so ImGui picks it up
+        // for both the initial load and subsequent saves.
+        Path configDir = Path.of(System.getProperty("user.home"), ".botwithus");
+        try {
+            Files.createDirectories(configDir);
+        } catch (IOException e) {
+            log.warn("Could not create {}; imgui.ini will fall back to CWD: {}",
+                    configDir, e.getMessage());
+            return;
+        }
+        ImGui.getIO().setIniFilename(configDir.resolve("imgui.ini").toString());
     }
 
     private static float detectDpiScale() {
@@ -290,23 +306,6 @@ public class ImGuiApp extends Application {
                         ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
             }
         });
-    }
-
-    /**
-     * Fetch native artifacts (bwu.dll, helper-libs zip) into
-     * {@code ~/.botwithus/native/} before any consumer goes looking for
-     * them. Synchronous so {@link #resolveBwuClient} sees the populated
-     * cache; safe to run when URLs are unconfigured because the downloader
-     * treats stub entries as no-ops.
-     */
-    private void runNativeBootstrap() {
-        try {
-            new NativeArtifactDownloader().downloadAll(NativeArtifactManifest.defaults());
-        } catch (RuntimeException e) {
-            // Bootstrap is best-effort: the existing BwuClient fallbacks
-            // (working-dir / bundled resource) keep the app launchable.
-            log.warn("Native bootstrap failed; falling back to bundled artifacts", e);
-        }
     }
 
     /**

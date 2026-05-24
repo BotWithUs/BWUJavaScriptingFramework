@@ -30,6 +30,7 @@ public final class LocalScriptLoader {
     private static final Logger log = LoggerFactory.getLogger(LocalScriptLoader.class);
     private static final String SCRIPTS_DIR_NAME = "scripts";
     private static final String SCRIPTS_DIR_PROPERTY = "botwithus.scripts.dir";
+    private static final String USER_CONFIG_DIR_NAME = ".botwithus";
 
     /**
      * Track classloaders from previous loads so we can close them on reload.
@@ -69,15 +70,16 @@ public final class LocalScriptLoader {
     /**
      * Resolves the scripts directory. Checks (in order):
      * 1. System property {@code botwithus.scripts.dir}
-     * 2. {@code scripts/} relative to the user home {@code .botwithus/} directory
-     * 3. {@code scripts/} relative to the working directory
+     * 2. {@code scripts/} found by walking up from the working directory
+     *    (handles dev runs from a submodule subdirectory)
+     * 3. Fallback: {@code ~/.botwithus/scripts}, so an installed app whose
+     *    install folder may be read-only still has a writable drop point.
      */
     static Path resolveScriptsDir() {
         String override = System.getProperty(SCRIPTS_DIR_PROPERTY);
         if (override != null) {
             return Path.of(override);
         }
-        // Walk up from working directory to find scripts/ (handles submodule working dirs)
         Path dir = Path.of("").toAbsolutePath();
         for (int i = 0; i < 3; i++) {
             Path candidate = dir.resolve(SCRIPTS_DIR_NAME);
@@ -89,8 +91,7 @@ public final class LocalScriptLoader {
                 break;
             }
         }
-        // Fallback: create in working directory
-        return Path.of(SCRIPTS_DIR_NAME);
+        return Path.of(System.getProperty("user.home"), USER_CONFIG_DIR_NAME, SCRIPTS_DIR_NAME);
     }
 
     /**

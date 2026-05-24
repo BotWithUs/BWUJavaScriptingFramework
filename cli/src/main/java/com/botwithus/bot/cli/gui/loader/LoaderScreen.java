@@ -7,6 +7,7 @@ import com.botwithus.bot.core.loader.BwuClient;
 import com.botwithus.bot.core.loader.BwuException;
 import com.botwithus.bot.core.loader.BwuStatus;
 import com.botwithus.bot.core.loader.BwuUser;
+import com.botwithus.bot.core.loader.NativeCache;
 
 import imgui.ImDrawList;
 import imgui.ImGui;
@@ -45,6 +46,7 @@ public class LoaderScreen {
     private float shakeTimer = 0f;
     private float exitAlpha = 1f;
     private boolean firstFrame = true;
+    private boolean autoLoginAttempted = false;
 
     // Login form — token input for manual token entry
     private final ImString tokenInput = new ImString(512);
@@ -60,6 +62,13 @@ public class LoaderScreen {
     // Dev build detection (local module override via BWU_LOCAL_MODULE env var)
     private final boolean devBuild;
     private final String localModulePath;
+    // Tri-state: only matters when a dev DLL is paired with BWU_LOCAL_MODULE.
+    // UNCHOSEN forces the user to pick before Sign In becomes available.
+    // PROD_TEST means BWU_LOCAL_MODULE was cleared from the process env so the
+    // dev DLL's download phase falls through to the prod server. One-way per
+    // session: cannot be restored without restarting the app.
+    private enum BuildChoice { UNCHOSEN, DEBUG, PROD_TEST }
+    private BuildChoice buildChoice;
 
     // Error state
     private String errorTitle;
@@ -84,6 +93,20 @@ public class LoaderScreen {
         this.dllAvailable = bwuClient != null;
         this.devBuild = bwuClient != null && bwuClient.isDevBuild();
         this.localModulePath = BwuClient.getLocalModuleEnvPath();
+        // Force a choice only when a dev DLL is paired with BWU_LOCAL_MODULE.
+        // Without the env var there is nothing to override, so debug-mode is
+        // implicit and the user proceeds straight to Sign In.
+        this.buildChoice = (devBuild && localModulePath != null)
+                ? BuildChoice.UNCHOSEN
+                : BuildChoice.DEBUG;
+    }
+
+    private boolean needsBuildChoice() {
+        return devBuild && localModulePath != null && buildChoice == BuildChoice.UNCHOSEN;
+    }
+
+    private boolean prodForced() {
+        return buildChoice == BuildChoice.PROD_TEST;
     }
 
     /**
@@ -134,6 +157,12 @@ public class LoaderScreen {
 
         if (firstFrame) {
             firstFrame = false;
+        }
+        // Defer auto-login until the build-mode choice (if any) is resolved —
+        // otherwise loadToken() would trigger the module download against
+        // whichever mode happened to be active at startup.
+        if (!autoLoginAttempted && !needsBuildChoice() && state == LoaderState.LOGIN) {
+            autoLoginAttempted = true;
             tryAutoLogin();
         }
         if (state == LoaderState.UPDATING && bwuClient != null) {
@@ -178,17 +207,23 @@ public class LoaderScreen {
         float frameH = ImGui.getFrameHeightWithSpacing();
         float spacing = ImGui.getStyle().getItemSpacingY();
         float logoH = lineH * 3 + spacing * 4; // brand + version + spacing
-        if (devBuild && localModulePath != null) {
+        if (devBuild && localModulePath != null && !prodForced()) {
             logoH += lineH; // local module path line
         }
         float formH;
         if (state == LoaderState.LOGIN) {
-            formH = lineH * 2   // description text (approx 2 lines)
-                    + frameH    // checkbox
-                    + frameH    // main button
-                    + lineH     // separator text
-                    + frameH    // secondary button
-                    + spacing * 8; // spacing between elements
+            if (needsBuildChoice()) {
+                formH = lineH * 3       // description (wrapped ~3 lines)
+                        + frameH * 2    // two-line tall choice buttons
+                        + spacing * 6;
+            } else {
+                formH = lineH * 2   // description text (approx 2 lines)
+                        + frameH    // checkbox
+                        + frameH    // main button
+                        + lineH     // separator text
+                        + frameH    // secondary button
+                        + spacing * 8;
+            }
         } else {
             formH = lineH * 4 + frameH * 2 + spacing * 6; // spinner/progress + text + button
         }
@@ -265,12 +300,14 @@ public class LoaderScreen {
             }
         }
 
-        // Calculate total width for centering (version + optional DEV badge)
+        // Calculate total width for centering (version + optional dev/prod-test badge)
+        boolean prodForced = prodForced();
+        String badgeText = prodForced ? "PROD-TEST" : "DEV";
         float versionWidth = ImGui.calcTextSize(version).x;
         float devBadgeExtra = 0;
         if (devBuild) {
-            float devTextW = ImGui.calcTextSize("DEV").x;
-            devBadgeExtra = 8f + devTextW + 12f; // gap + text + padX*2
+            float badgeTextW = ImGui.calcTextSize(badgeText).x;
+            devBadgeExtra = 8f + badgeTextW + 12f; // gap + text + padX*2
         }
 
         ImGui.setCursorPosX((winW - versionWidth - devBadgeExtra) / 2f);
@@ -279,11 +316,15 @@ public class LoaderScreen {
 
         if (devBuild) {
             ImGui.sameLine(0, 8);
-            GuiHelpers.statusBadge("DEV", ImGuiTheme.ORANGE_R, ImGuiTheme.ORANGE_G, ImGuiTheme.ORANGE_B);
+            if (prodForced) {
+                GuiHelpers.statusBadge(badgeText, ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B);
+            } else {
+                GuiHelpers.statusBadge(badgeText, ImGuiTheme.ORANGE_R, ImGuiTheme.ORANGE_G, ImGuiTheme.ORANGE_B);
+            }
         }
 
-        // Local module path indicator (visible when BWU_LOCAL_MODULE env var is set)
-        if (devBuild && localModulePath != null) {
+        // Local module path indicator — only meaningful while we still honor the env var.
+        if (devBuild && localModulePath != null && !prodForced) {
             String fileName = Path.of(localModulePath).getFileName().toString();
             String pathLabel = Icons.FOLDER + "  " + fileName;
             float pathWidth = ImGui.calcTextSize(pathLabel).x;
@@ -311,10 +352,66 @@ public class LoaderScreen {
 
         if (!dllAvailable) {
             renderNoDllMessage(winW, formWidth, startX);
+        } else if (needsBuildChoice()) {
+            renderBuildChoice(winW, formWidth, startX, shakeOffset);
         } else if (showTokenInput) {
             renderTokenForm(winW, formWidth, startX, shakeOffset);
         } else {
             renderSsoForm(winW, formWidth, startX, shakeOffset);
+        }
+    }
+
+    /**
+     * Forced build-mode picker shown when a dev DLL is paired with
+     * BWU_LOCAL_MODULE. Blocks Sign In until the user chooses between loading
+     * the local module (Debug) or clearing the env var and downloading from
+     * the prod server (Prod-Test).
+     */
+    private void renderBuildChoice(float winW, float formWidth, float startX, float shakeOffset) {
+        ImGui.setCursorPosX(startX + shakeOffset);
+        ImGui.pushTextWrapPos(ImGui.getCursorPosX() + formWidth);
+        GuiHelpers.textSecondary(
+                "BWU_LOCAL_MODULE is set on this dev build. Choose how to load the agent before signing in.");
+        ImGui.popTextWrapPos();
+
+        ImGui.spacing();
+        ImGui.spacing();
+        ImGui.spacing();
+
+        float gap = ImGui.getStyle().getItemSpacingX();
+        float buttonW = (formWidth - gap) / 2f;
+        float buttonH = ImGui.getFrameHeight() * 2f;
+
+        // Left: Use Local DLL (Debug) — primary emerald
+        ImGui.setCursorPosX(startX);
+        ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
+        boolean useLocal = ImGui.button(Icons.FOLDER + "  Use Local DLL\n(Debug)", buttonW, buttonH);
+        ImGui.popStyleColor();
+        if (ImGui.isItemHovered()) {
+            ImGui.setTooltip(
+                    "Load the agent module from BWU_LOCAL_MODULE:\n" + localModulePath);
+        }
+
+        ImGui.sameLine(0, gap);
+
+        // Right: Test Prod Build — orange/warning style, one-way per session
+        ImGui.pushStyleColor(ImGuiCol.Button, ImGuiTheme.ORANGE_R, ImGuiTheme.ORANGE_G, ImGuiTheme.ORANGE_B, 0.9f);
+        ImGui.pushStyleColor(ImGuiCol.ButtonHovered, ImGuiTheme.ORANGE_R, ImGuiTheme.ORANGE_G, ImGuiTheme.ORANGE_B, 1f);
+        ImGui.pushStyleColor(ImGuiCol.ButtonActive, ImGuiTheme.ORANGE_R, ImGuiTheme.ORANGE_G, ImGuiTheme.ORANGE_B, 0.7f);
+        ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
+        boolean testProd = ImGui.button(Icons.BOLT + "  Test Prod Build", buttonW, buttonH);
+        ImGui.popStyleColor(4);
+        if (ImGui.isItemHovered()) {
+            ImGui.setTooltip(
+                    "Clear BWU_LOCAL_MODULE so the dev DLL downloads the agent\n" +
+                    "from the prod server. One-way per session — restart to undo.");
+        }
+
+        if (useLocal) {
+            buildChoice = BuildChoice.DEBUG;
+        } else if (testProd) {
+            BwuClient.clearLocalModuleEnvPath();
+            buildChoice = BuildChoice.PROD_TEST;
         }
     }
 
@@ -855,10 +952,37 @@ public class LoaderScreen {
         try {
             BwuStatus status = bwuClient.getStatus();
 
+            // Surface any download error before transitioning forward. The
+            // loader clears last_error at the start of bwu_download_module()
+            // and only sets it on failure, so a non-empty value here means
+            // either the agent module or the native artifacts download
+            // failed — both populate the same sticky field.
+            String lastError = status.lastError();
+            if (lastError != null && !lastError.isBlank()) {
+                log.error("Loader reported download error: {}", lastError);
+                errorTitle = "Download Failed";
+                errorMessage = lastError;
+                errorReturnState = LoaderState.LOGIN;
+                transitionTo(LoaderState.ERROR);
+                return;
+            }
+
             if (status.downloading()) {
                 updateStatus = "Downloading module... " + status.downloadProgress() + "%";
                 updateProgress = status.downloadProgress() / 100f;
             } else if (status.moduleReady()) {
+                // Module is loaded in memory. The native-artifacts thread
+                // (NXTCache.dll etc.) runs in parallel with module download
+                // and has no dedicated status flag — verify its product is on
+                // disk before handing off to startLoading(), which will link
+                // NXTCache eagerly via its static initializer.
+                Path nxtCache = new NativeCache().resolve("NXTCache.dll");
+                if (!Files.isRegularFile(nxtCache)) {
+                    updateStatus = "Downloading native libraries...";
+                    updateProgress = -1f;
+                    return;
+                }
+
                 updateStatus = "Up to date.";
                 updateProgress = 1.0f;
                 transitionTo(LoaderState.LOADING);
@@ -876,9 +1000,11 @@ public class LoaderScreen {
                 // with no download starting — the DLL handles this internally.
             }
         } catch (BwuException e) {
-            log.warn("Status poll error, proceeding: {}", e.getMessage());
-            transitionTo(LoaderState.LOADING);
-            startLoading();
+            log.error("Status poll failed: {}", e.getMessage());
+            errorTitle = "Update Check Failed";
+            errorMessage = "Could not read download status: " + e.getMessage();
+            errorReturnState = LoaderState.LOGIN;
+            transitionTo(LoaderState.ERROR);
         }
     }
 
