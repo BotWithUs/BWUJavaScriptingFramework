@@ -4,6 +4,7 @@ import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.runtime.Phase;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -64,12 +65,15 @@ class ScriptRunnerTest {
         ScriptContext ctx = mock(ScriptContext.class);
         ScriptRunner runner = new ScriptRunner(script, ctx);
 
-        AtomicReference<String> errorPhase = new AtomicReference<>();
-        runner.setErrorHandler((name, phase, error) -> errorPhase.set(phase));
+        AtomicReference<Phase> errorPhase = new AtomicReference<>();
+        runner.setErrorHandler(crash -> errorPhase.set(crash.phase()));
 
         runner.start();
         Thread.sleep(200);
-        assertEquals("onLoop", errorPhase.get());
+        assertEquals(Phase.ON_LOOP, errorPhase.get());
+        assertTrue(runner.health().lastCrash().isPresent());
+        assertEquals(Phase.ON_LOOP, runner.health().lastCrash().get().phase());
+        assertEquals(1L, runner.health().totalCrashes());
     }
 
     @Test

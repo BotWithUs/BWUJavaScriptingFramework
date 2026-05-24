@@ -2,47 +2,63 @@ package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.inventory.ActionTypes;
-import com.botwithus.bot.api.model.Entity;
 import com.botwithus.bot.api.model.GameAction;
 
 /**
- * Rich wrapper for a player entity.
+ * Rich wrapper around a snapshot {@link com.botwithus.bot.api.snapshot.Player}
+ * record. Players don't have a per-id type definition the way NPCs do —
+ * what would be on {@code NpcType} (name, options, ...) is per-instance and
+ * lives in the snapshot or arrives as packets — so this wrapper is thinner
+ * than {@link Npc}.
  *
- * <p>Obtain instances through {@link Players}:</p>
- * <pre>{@code
- * Players players = new Players(api);
- * Player nearest = players.nearest();
- * if (nearest != null) {
- *     System.out.println(nearest.name() + " combat: " + nearest.getCombatLevel());
- * }
- * }</pre>
- *
- * @see Players
- * @see EntityContext
+ * <p>Name collision note: the snapshot type {@code com.botwithus.bot.api.snapshot.Player}
+ * shares the simple name {@code Player} with this wrapper, so the snapshot
+ * type is fully qualified at the field declaration below and reflected
+ * mechanically on the constructor parameter and {@link #raw()} accessor
+ * (Java has no import aliasing, and the enclosing class shadows any
+ * import of the snapshot type).</p>
  */
-public class Player extends EntityContext {
+public final class Player implements EntityContext {
 
-    public Player(GameAPI api, Entity raw) {
-        super(api, raw);
+    private final GameAPI api;
+    // FQN: disambiguates from this-class entity Player — see class-level note.
+    private final com.botwithus.bot.api.snapshot.Player raw;
+
+    Player(GameAPI api, com.botwithus.bot.api.snapshot.Player raw) {
+        this.api = api;
+        this.raw = raw;
     }
 
-    // ========================== Interaction ==========================
+    public com.botwithus.bot.api.snapshot.Player raw() { return raw; }
+
+    public int serverIndex()    { return raw.serverIndex(); }
+    public int combatLevel()    { return raw.combatLevel(); }
+    public int followingIndex() { return raw.followingIndex(); }
+    public int animationId()    { return raw.animationId(); }
+    public int stanceId()       { return raw.stanceId(); }
+    public boolean isMoving()   { return raw.isMoving(); }
+
+    @Override public int tileX() { return raw.tileX(); }
+    @Override public int tileY() { return raw.tileY(); }
+    @Override public int plane() { return raw.plane(); }
 
     /**
-     * Interacts with this player using the given 1-based option index.
+     * Queue an action against this player by 1-based option index.
      *
-     * @param optionIndex the 1-based option index (1–10)
+     * @throws IllegalArgumentException for {@code optionIndex} outside [1, 10]
      */
     public void interact(int optionIndex) {
         if (optionIndex < 1 || optionIndex >= ActionTypes.PLAYER_OPTIONS.length) {
             throw new IllegalArgumentException("Player option index out of range: " + optionIndex);
         }
-        api.queueAction(new GameAction(ActionTypes.PLAYER_OPTIONS[optionIndex], raw.serverIndex(), 0, 0));
+        api.queueAction(new GameAction(
+                ActionTypes.PLAYER_OPTIONS[optionIndex],
+                serverIndex(), 0, 0));
     }
 
     @Override
     public String toString() {
-        return "Player{" + name()
+        return "Player{idx=" + serverIndex()
                 + " @" + tileX() + "," + tileY() + "," + plane() + "}";
     }
 }

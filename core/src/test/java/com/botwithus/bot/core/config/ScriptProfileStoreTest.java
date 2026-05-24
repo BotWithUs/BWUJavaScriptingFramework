@@ -197,9 +197,9 @@ class ScriptProfileStoreTest {
     // --- Global settings ---
 
     @Test
-    void isAutoConnect_defaultsFalse() {
+    void isAutoConnect_defaultsTrue() {
         ScriptProfileStore store = newStore();
-        assertFalse(store.isAutoConnect());
+        assertTrue(store.isAutoConnect());
     }
 
     @Test

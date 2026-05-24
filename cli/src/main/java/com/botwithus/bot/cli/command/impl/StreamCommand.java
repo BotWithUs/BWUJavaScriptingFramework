@@ -9,6 +9,11 @@ import java.util.List;
 
 public class StreamCommand implements Command {
 
+    private static final int DEFAULT_QUALITY = 60;
+    private static final int DEFAULT_FRAME_SKIP = 2;
+    private static final int DEFAULT_WIDTH = 960;
+    private static final int DEFAULT_HEIGHT = 540;
+
     @Override public String name() { return "stream"; }
     @Override public List<String> aliases() { return List.of("sv"); }
     @Override public String description() { return "Start or stop live game video streaming"; }
@@ -30,10 +35,10 @@ public class StreamCommand implements Command {
     }
 
     private void handleStart(ParsedCommand parsed, CliContext ctx) {
-        int quality = parsed.intFlag("quality", 60);
-        int frameSkip = parsed.intFlag("fps", 2);
-        int width = parsed.intFlag("width", 960);
-        int height = parsed.intFlag("height", 540);
+        int quality = parsed.intFlag("quality", DEFAULT_QUALITY);
+        int frameSkip = parsed.intFlag("fps", DEFAULT_FRAME_SKIP);
+        int width = parsed.intFlag("width", DEFAULT_WIDTH);
+        int height = parsed.intFlag("height", DEFAULT_HEIGHT);
 
         String groupName = parsed.flag("group");
         if (groupName != null) {
@@ -58,7 +63,9 @@ public class StreamCommand implements Command {
     private void handleStop(ParsedCommand parsed, CliContext ctx) {
         ctx.getStreamManager().stopAll(name -> {
             for (Connection c : ctx.getConnections()) {
-                if (c.getName().equals(name)) return c;
+                if (c.getName().equals(name)) {
+                    return c;
+                }
             }
             return null;
         });

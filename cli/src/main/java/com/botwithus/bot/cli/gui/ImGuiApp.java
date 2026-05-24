@@ -2,10 +2,31 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
-import com.botwithus.bot.cli.blueprint.BlueprintEditor;
 import com.botwithus.bot.cli.command.CommandRegistry;
-import com.botwithus.bot.cli.command.impl.*;
+import com.botwithus.bot.cli.command.impl.ActionsCommand;
+import com.botwithus.bot.cli.command.impl.AutoStartCommand;
+import com.botwithus.bot.cli.command.impl.ClearCommand;
+import com.botwithus.bot.cli.command.impl.ClientCommand;
+import com.botwithus.bot.cli.command.impl.ConfigCommand;
+import com.botwithus.bot.cli.command.impl.ConnectCommand;
+import com.botwithus.bot.cli.command.impl.EventsCommand;
+import com.botwithus.bot.cli.command.impl.ExitCommand;
+import com.botwithus.bot.cli.command.impl.GroupCommand;
+import com.botwithus.bot.cli.command.impl.HelpCommand;
+import com.botwithus.bot.cli.command.impl.LogsCommand;
+import com.botwithus.bot.cli.command.impl.ManagementScriptsCommand;
+import com.botwithus.bot.cli.command.impl.MetricsCommand;
+import com.botwithus.bot.cli.command.impl.MountCommand;
+import com.botwithus.bot.cli.command.impl.PingCommand;
+import com.botwithus.bot.cli.command.impl.ProfileCommand;
+import com.botwithus.bot.cli.command.impl.ReloadCommand;
+import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
+import com.botwithus.bot.cli.command.impl.ScriptsCommand;
+import com.botwithus.bot.cli.command.impl.StreamCommand;
+import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.config.CliConfig;
 import com.botwithus.bot.cli.gui.loader.LoaderScreen;
+import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.usermode.UserAccountsRenderer;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.log.LogBuffer;
@@ -26,10 +47,20 @@ import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiWindowFlags;
 
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.Appender;
+
 import org.lwjgl.glfw.GLFW;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -40,6 +71,10 @@ import java.util.concurrent.Executors;
  * Each tab renders via the {@link GuiPanel} interface.
  */
 public class ImGuiApp extends Application {
+
+    private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
+
+    private static final float UI_FONT_BASE_PX = 17f;
 
     private static final String BANNER = """
 
@@ -71,15 +106,15 @@ public class ImGuiApp extends Application {
     private int selectedPanel = 0;
     private float dpiScale = 1f;
 
-    // Blueprint editor mode
-    private boolean editorMode = false;
-    private BlueprintEditor blueprintEditor;
 
     // Script custom UI window (floating window)
     private ScriptUIWindow scriptUIWindow;
 
     // Management script config panel (floating window)
     private ManagementConfigPanel managementConfigPanel;
+
+    // Toast/banner overlay (event-driven, fixed-position, top-right)
+    private NotificationOverlay notificationOverlay;
 
     // GLFW window handle for title updates
     private long glfwWindow;
@@ -104,16 +139,65 @@ public class ImGuiApp extends Application {
     protected void initImGui(Configuration config) {
         super.initImGui(config);
 
-        // Detect monitor DPI scale via GLFW content scale
+        redirectImGuiIniToConfigDir();
+        dpiScale = detectDpiScale();
+        loadFonts(Math.round(UI_FONT_BASE_PX * dpiScale));
+        setupTheme();
+
+        textureManager = new TextureManager();
+        outputBuffer = new AnsiOutputBuffer();
+        PrintStream guiOut = outputBuffer.getPrintStream();
+        installLogCapture(guiOut, outputBuffer.getPrintStream());
+
+        ScriptProfileStore profileStore = new ScriptProfileStore();
+        ctx.setProfileStore(profileStore);
+        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore);
+        ctx.setAutoStartManager(autoStartManager);
+
+        registry = new CommandRegistry();
+        registerCommands(registry, profileStore, autoStartManager);
+
+        wireDisplayHooks();
+        guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
+
+        BwuClient bwu = resolveBwuClient();
+        ctx.initManagementRuntime(bwu);
+        autoStartManager.start();
+
+        buildPanels(bwu);
+        setupStatusBar(bwu);
+        captureGlfwHandle();
+    }
+
+    private static void redirectImGuiIniToConfigDir() {
+        // Window/dock layout settings ship as imgui.ini, which ImGui writes
+        // next to the CWD by default. In the jpackage app-image the CWD
+        // varies (and the install dir may be read-only), so park the file
+        // alongside every other persistent BotWithUs store under
+        // ~/.botwithus/. Must run before any UI frame so ImGui picks it up
+        // for both the initial load and subsequent saves.
+        Path configDir = Path.of(System.getProperty("user.home"), ".botwithus");
+        try {
+            Files.createDirectories(configDir);
+        } catch (IOException e) {
+            log.warn("Could not create {}; imgui.ini will fall back to CWD: {}",
+                    configDir, e.getMessage());
+            return;
+        }
+        ImGui.getIO().setIniFilename(configDir.resolve("imgui.ini").toString());
+    }
+
+    private static float detectDpiScale() {
         long monitor = GLFW.glfwGetPrimaryMonitor();
         float[] xScale = new float[1];
         float[] yScale = new float[1];
         if (monitor != 0) {
             GLFW.glfwGetMonitorContentScale(monitor, xScale, yScale);
         }
-        dpiScale = Math.max(xScale[0], 1.0f);
+        return Math.max(xScale[0], 1.0f);
+    }
 
-        float uiSize = (float) Math.round(17f * dpiScale);
+    private static void loadFonts(float uiSize) {
         ImFontAtlas atlas = ImGui.getIO().getFonts();
         atlas.clear();
 
@@ -149,61 +233,55 @@ public class ImGuiApp extends Application {
 
         cfg.destroy();
         atlas.build();
+    }
 
+    private void setupTheme() {
         ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable);
-
         ImGuiTheme.apply(dpiScale);
+    }
 
-        textureManager = new TextureManager();
-        outputBuffer = new AnsiOutputBuffer();
-
-        PrintStream guiOut = outputBuffer.getPrintStream();
-        PrintStream guiErr = outputBuffer.getPrintStream();
-
+    private void installLogCapture(PrintStream guiOut, PrintStream guiErr) {
         LogBuffer logBuffer = new LogBuffer();
-        LogBufferAppender.setLogBuffer(logBuffer);
+        wireLogBufferAppender(logBuffer);
         LogCapture logCapture = new LogCapture(logBuffer, guiOut, guiErr);
         logCapture.install();
 
         ctx = new CliContext(logBuffer, logCapture);
         ctx.loadGroups();
         ctx.setStreamManager(new StreamManager(outputBuffer, textureManager, guiOut));
+    }
 
-        ScriptProfileStore profileStore = new ScriptProfileStore();
-        ctx.setProfileStore(profileStore);
-        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore);
-        ctx.setAutoStartManager(autoStartManager);
+    private void registerCommands(CommandRegistry r, ScriptProfileStore profileStore,
+                                  AutoStartManager autoStartManager) {
+        r.register(new HelpCommand(r));
+        r.register(new ConnectCommand());
+        r.register(new PingCommand());
+        r.register(new ScriptsCommand());
+        r.register(new LogsCommand());
+        r.register(new ReloadCommand());
+        r.register(new ScreenshotCommand());
+        r.register(new GroupCommand());
+        r.register(new MountCommand());
+        r.register(new UnmountCommand());
+        r.register(new StreamCommand());
+        r.register(new MetricsCommand());
+        r.register(new ProfileCommand());
+        r.register(new ConfigCommand(CliConfig.defaults()));
+        r.register(new ActionsCommand());
+        r.register(new EventsCommand());
+        r.register(new ClientCommand());
+        r.register(new AutoStartCommand(profileStore, autoStartManager));
+        r.register(new ManagementScriptsCommand());
+        r.register(new ClearCommand());
+        r.register(new ExitCommand());
+    }
 
-        registry = new CommandRegistry();
-        registry.register(new HelpCommand(registry));
-        registry.register(new ConnectCommand());
-        registry.register(new PingCommand());
-        registry.register(new ScriptsCommand());
-        registry.register(new LogsCommand());
-        registry.register(new ReloadCommand());
-        registry.register(new ScreenshotCommand());
-        registry.register(new GroupCommand());
-        registry.register(new MountCommand());
-        registry.register(new UnmountCommand());
-        registry.register(new StreamCommand());
-        registry.register(new MetricsCommand());
-        registry.register(new ProfileCommand());
-        registry.register(new ConfigCommand(com.botwithus.bot.cli.config.CliConfig.defaults()));
-        registry.register(new ActionsCommand());
-        registry.register(new EventsCommand());
-        registry.register(new ClientCommand());
-        registry.register(new AutoStartCommand(profileStore, autoStartManager));
-        registry.register(new ManagementScriptsCommand());
-        registry.register(new ClearCommand());
-        registry.register(new ExitCommand());
-
+    private void wireDisplayHooks() {
         // Image display hook
-        ctx.setImageDisplay(image -> {
-            textureManager.queueOperation(() -> {
-                int texId = textureManager.createTexture(image);
-                outputBuffer.appendImage(texId, image.getWidth(), image.getHeight());
-            });
-        });
+        ctx.setImageDisplay(image -> textureManager.queueOperation(() -> {
+            int texId = textureManager.createTexture(image);
+            outputBuffer.appendImage(texId, image.getWidth(), image.getHeight());
+        }));
 
         // Progress display hook
         ctx.setProgressDisplay(new CliContext.ProgressDisplay() {
@@ -228,11 +306,13 @@ public class ImGuiApp extends Application {
                         ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
             }
         });
+    }
 
-        // Print banner
-        guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
-
-        // Load bwu.dll once — shared between LoaderScreen and management runtime
+    /**
+     * Load bwu.dll once (or return null when unavailable) so the same client
+     * instance is shared between LoaderScreen and the management runtime.
+     */
+    private BwuClient resolveBwuClient() {
         BwuClient bwu = null;
         var dllPath = BwuClient.resolve(getClass());
         if (dllPath != null) {
@@ -241,17 +321,12 @@ public class ImGuiApp extends Application {
         if (bwu != null) {
             bwu.init();
         }
+        return bwu;
+    }
 
-        // Initialize management script runtime with the shared BwuClient
-        ctx.initManagementRuntime(bwu);
-
-        // Start auto-connect scanning if enabled
-        autoStartManager.start();
-
-        // Initialize loader screen with the same BwuClient instance
+    private void buildPanels(BwuClient bwu) {
         loaderScreen = new LoaderScreen(bwu);
 
-        // Initialize top bar and mode renderers
         topBar = new TopBar();
         userModeRenderer = new UserModeRenderer();
         userModeRenderer.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
@@ -261,17 +336,20 @@ public class ImGuiApp extends Application {
         launcherRenderer.setBwuClient(bwu);
         launcherRenderer.setExecutor(executor);
 
-        // Initialize blueprint editor
-        blueprintEditor = new BlueprintEditor();
-
-        // Initialize script UI window and wire opener
+        // Floating windows
         scriptUIWindow = new ScriptUIWindow();
         ctx.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
-
-        // Initialize management config panel
         managementConfigPanel = new ManagementConfigPanel();
 
-        // Initialize panels
+        // Notification overlay (event-driven). Subscribed to each connection's
+        // event bus the moment connect() succeeds.
+        notificationOverlay = new NotificationOverlay();
+        ctx.setOnConnect(conn -> {
+            if (conn.getEventBus() != null) {
+                notificationOverlay.subscribeTo(conn.getEventBus());
+            }
+        });
+
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
         panels.add(new ConnectionsPanel(executor, registry));
         panels.add(new AccountsPanel(bwu, executor));
@@ -282,14 +360,20 @@ public class ImGuiApp extends Application {
         panels.add(new ScriptUIPanel());
         panels.add(new LogsPanel());
         panels.add(new GroupsPanel());
+        panels.add(new DiagnosticsPanel());
         panels.add(new SettingsPanel());
+    }
 
+    private void setupStatusBar(BwuClient bwu) {
         statusBar = new StatusBar(bwu);
+    }
 
+    private void captureGlfwHandle() {
         glfwWindow = GLFW.glfwGetCurrentContext();
-
         var oldSizeCb = GLFW.glfwSetWindowSizeCallback(glfwWindow, null);
-        if (oldSizeCb != null) oldSizeCb.free();
+        if (oldSizeCb != null) {
+            oldSizeCb.free();
+        }
     }
 
     @Override
@@ -311,14 +395,6 @@ public class ImGuiApp extends Application {
             return;
         }
 
-        // Toggle editor mode with F2 (only in advanced mode)
-        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F2) && currentMode == AppMode.ADVANCED) {
-            editorMode = !editorMode;
-            if (!editorMode && blueprintEditor != null) {
-                blueprintEditor.dispose();
-            }
-        }
-
         // Cycle app mode with F12: Launcher → Normal → Advanced → Launcher
         if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F12)) {
             currentMode = switch (currentMode) {
@@ -326,7 +402,6 @@ public class ImGuiApp extends Application {
                 case NORMAL -> AppMode.ADVANCED;
                 case ADVANCED -> AppMode.LAUNCHER;
             };
-            editorMode = false; // exit editor when switching modes
         }
 
         // Full-window imgui window — use main viewport pos for correct placement with viewports enabled
@@ -337,36 +412,17 @@ public class ImGuiApp extends Application {
         int windowFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove
                 | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoBringToFrontOnFocus;
 
-        if (editorMode && currentMode == AppMode.ADVANCED) {
-            windowFlags |= ImGuiWindowFlags.MenuBar;
-        }
-
         ImGui.begin("##main", windowFlags);
 
-        // Top bar with mode tabs (always visible, unless in blueprint editor)
-        if (!editorMode) {
-            AppMode toggled = topBar.render(currentMode, dpiScale, ctx);
-            if (toggled != null && toggled != currentMode) {
-                currentMode = toggled;
-            }
+        AppMode toggled = topBar.render(currentMode, dpiScale, ctx);
+        if (toggled != null && toggled != currentMode) {
+            currentMode = toggled;
         }
 
-        // Route to the appropriate mode renderer
-        if (editorMode && currentMode == AppMode.ADVANCED) {
-            try {
-                blueprintEditor.render();
-            } catch (Exception e) {
-                editorMode = false;
-                outputBuffer.getPrintStream().println("Blueprint editor error: " + e.getMessage());
-                e.printStackTrace();
-                blueprintEditor.dispose();
-            }
-        } else {
-            switch (currentMode) {
-                case LAUNCHER -> renderLauncherMode();
-                case NORMAL -> renderUserMode();
-                case ADVANCED -> renderDeveloperMode();
-            }
+        switch (currentMode) {
+            case LAUNCHER -> renderLauncherMode();
+            case NORMAL -> renderUserMode();
+            case ADVANCED -> renderDeveloperMode();
         }
 
         ImGui.end();
@@ -379,6 +435,12 @@ public class ImGuiApp extends Application {
         // Render management script config panel as a floating window
         if (managementConfigPanel != null && managementConfigPanel.isOpen()) {
             managementConfigPanel.render();
+        }
+
+        // Notification overlay sits above every other window so banners
+        // float over the active panel without intercepting input.
+        if (notificationOverlay != null) {
+            notificationOverlay.render();
         }
 
         // Update window title based on connection state
@@ -442,36 +504,40 @@ public class ImGuiApp extends Application {
     private static final String[] NAV_SECTION_LABELS = {"CORE", "EXTENSIONS", "SYSTEM"};
     private static final int[][] NAV_SECTION_PANELS = {
         {0, 1, 2, 3},   // Console, Connections, Accounts, Scripts
-        {4, 5, 6},      // Management, Script UI, Groups
-        {7, 8}           // Logs, Settings
+        {4, 5, 7},      // Management, Script UI, Groups
+        {6, 8, 9}       // Logs, Diagnostics, Settings
     };
     // Font Awesome icons for each panel (matching panel order in the panels list)
     private static final String[] NAV_ICONS = {
-        Icons.TERMINAL,     // Console
-        Icons.PLUG,         // Connections
-        Icons.USERS,        // Accounts
-        Icons.CODE,         // Scripts
-        Icons.ROBOT,        // Management
-        Icons.WINDOW,       // Script UI
-        Icons.LAYER_GROUP,  // Groups
-        Icons.LIST,         // Logs
-        Icons.GEAR,         // Settings
+        Icons.TERMINAL,     // 0 Console
+        Icons.PLUG,         // 1 Connections
+        Icons.USERS,        // 2 Accounts
+        Icons.CODE,         // 3 Scripts
+        Icons.ROBOT,        // 4 Management
+        Icons.WINDOW,       // 5 Script UI
+        Icons.LIST,         // 6 Logs
+        Icons.LAYER_GROUP,  // 7 Groups
+        Icons.CHART,        // 8 Diagnostics
+        Icons.GEAR,         // 9 Settings
     };
 
     private void renderSidebar() {
         float fontH = ImGui.getFontSize();
-        float padX = ImGui.getStyle().getWindowPaddingX();
-        float indent = padX * 0.5f;
+        float indent = ImGui.getStyle().getWindowPaddingX() * 0.5f;
 
         ImGui.dummy(0f, fontH * 0.4f);
+        renderBrandHeader(fontH, indent);
+        renderNavigation(fontH, indent);
+        renderSidebarFooter(fontH, indent);
+    }
 
+    private static void renderBrandHeader(float fontH, float indent) {
         var draw = ImGui.getWindowDrawList();
         int accentCol = ImGuiTheme.imCol32(
                 ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
         int accentDim = ImGuiTheme.imCol32(
                 ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.35f);
 
-        // ── Brand header ──────────────────────────────────────────────
         float logoX = ImGui.getCursorScreenPosX() + indent;
         float logoY = ImGui.getCursorScreenPosY();
         float barW = Math.max(3f, fontH * 0.25f);
@@ -494,8 +560,9 @@ public class ImGuiApp extends Application {
 
         ImGui.dummy(0f, fontH * 0.4f);
         GuiHelpers.subtleSeparator();
+    }
 
-        // ── Navigation ────────────────────────────────────────────────
+    private void renderNavigation(float fontH, float indent) {
         for (int s = 0; s < NAV_SECTION_LABELS.length; s++) {
             ImGui.dummy(0f, fontH * 0.6f);
             ImGui.setCursorPosX(ImGui.getCursorPosX() + indent);
@@ -505,65 +572,76 @@ public class ImGuiApp extends Application {
             ImGui.dummy(0f, fontH * 0.15f);
 
             for (int p : NAV_SECTION_PANELS[s]) {
-                if (p >= panels.size()) continue;
-                boolean isActive = (p == selectedPanel);
-
-                // Per-item animated hover weight, plus eased "active" animation
-                // for the left accent bar to slide into place.
-                String hoverKey = "nav:h:" + p;
-                String activeKey = "nav:a:" + p;
-
-                // Transparent selectable (we'll draw our own background + accent)
-                ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
-                ImGui.pushStyleColor(ImGuiCol.HeaderHovered, 0f, 0f, 0f, 0f);
-                ImGui.pushStyleColor(ImGuiCol.HeaderActive, 0f, 0f, 0f, 0f);
-
-                String icon = p < NAV_ICONS.length ? NAV_ICONS[p] : "";
-                // leading space reserved for the accent bar + icon gutter
-                String label = "    " + icon + "   " + panels.get(p).title() + "##nav" + p;
-
-                if (ImGui.selectable(label, isActive)) {
-                    selectedPanel = p;
+                if (p >= panels.size()) {
+                    continue;
                 }
-                boolean hovered = ImGui.isItemHovered();
-                float hoverT = Motion.hover(hoverKey, hovered);
-                float activeT = Motion.step(activeKey, isActive ? 1f : 0f, 14f);
-
-                ImGui.popStyleColor(3);
-
-                // Custom-drawn row background
-                float x0 = ImGui.getItemRectMinX();
-                float y0 = ImGui.getItemRectMinY();
-                float x1 = ImGui.getItemRectMaxX();
-                float y1 = ImGui.getItemRectMaxY();
-                float rowH = y1 - y0;
-                float rounding = fontH * 0.3f;
-
-                // Hover wash (fades in), active tint (stronger)
-                float bgAlpha = 0.05f * hoverT + 0.12f * activeT;
-                if (bgAlpha > 0.001f) {
-                    int bg = ImGuiTheme.imCol32(
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, bgAlpha);
-                    draw.addRectFilled(x0 + indent * 0.25f, y0, x1 - indent * 0.25f, y1,
-                            bg, rounding);
-                }
-
-                // Left accent bar — height animates with activeT (Motion eases it in)
-                if (activeT > 0.02f) {
-                    float barPadY = rowH * 0.18f;
-                    float fullH = rowH - barPadY * 2f;
-                    float h = fullH * Motion.easeOutCubic(activeT);
-                    float by0 = y0 + (rowH - h) * 0.5f;
-                    float bw = Math.max(2.5f, fontH * 0.2f);
-                    int col = ImGuiTheme.imCol32(
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, activeT);
-                    draw.addRectFilled(x0 + indent * 0.25f, by0,
-                            x0 + indent * 0.25f + bw, by0 + h, col, bw * 0.5f);
-                }
+                renderNavItem(p, fontH, indent);
             }
         }
+    }
 
-        // ── Bottom hint: keyboard shortcut ────────────────────────────
+    private void renderNavItem(int p, float fontH, float indent) {
+        boolean isActive = (p == selectedPanel);
+
+        // Per-item animated hover weight, plus eased "active" animation
+        // for the left accent bar to slide into place.
+        String hoverKey = "nav:h:" + p;
+        String activeKey = "nav:a:" + p;
+
+        // Transparent selectable (we'll draw our own background + accent)
+        ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
+        ImGui.pushStyleColor(ImGuiCol.HeaderHovered, 0f, 0f, 0f, 0f);
+        ImGui.pushStyleColor(ImGuiCol.HeaderActive, 0f, 0f, 0f, 0f);
+
+        String icon = p < NAV_ICONS.length ? NAV_ICONS[p] : "";
+        // leading space reserved for the accent bar + icon gutter
+        String label = "    " + icon + "   " + panels.get(p).title() + "##nav" + p;
+
+        if (ImGui.selectable(label, isActive)) {
+            selectedPanel = p;
+        }
+        boolean hovered = ImGui.isItemHovered();
+        float hoverT = Motion.hover(hoverKey, hovered);
+        float activeT = Motion.step(activeKey, isActive ? 1f : 0f, 14f);
+
+        ImGui.popStyleColor(3);
+        drawNavItemAccent(fontH, indent, hoverT, activeT);
+    }
+
+    private static void drawNavItemAccent(float fontH, float indent, float hoverT, float activeT) {
+        var draw = ImGui.getWindowDrawList();
+        // Custom-drawn row background
+        float x0 = ImGui.getItemRectMinX();
+        float y0 = ImGui.getItemRectMinY();
+        float x1 = ImGui.getItemRectMaxX();
+        float y1 = ImGui.getItemRectMaxY();
+        float rowH = y1 - y0;
+        float rounding = fontH * 0.3f;
+
+        // Hover wash (fades in), active tint (stronger)
+        float bgAlpha = 0.05f * hoverT + 0.12f * activeT;
+        if (bgAlpha > 0.001f) {
+            int bg = ImGuiTheme.imCol32(
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, bgAlpha);
+            draw.addRectFilled(x0 + indent * 0.25f, y0, x1 - indent * 0.25f, y1,
+                    bg, rounding);
+        }
+
+        // Left accent bar — height animates with activeT (Motion eases it in)
+        if (activeT > 0.02f) {
+            float barPadY = rowH * 0.18f;
+            float fullH = rowH - barPadY * 2f;
+            float h = fullH * Motion.easeOutCubic(activeT);
+            float by0 = y0 + (rowH - h) * 0.5f;
+            float bw = Math.max(2.5f, fontH * 0.2f);
+            int col = ImGuiTheme.imCol32(
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, activeT);
+            draw.addRectFilled(x0 + indent * 0.25f, by0,
+                    x0 + indent * 0.25f + bw, by0 + h, col, bw * 0.5f);
+        }
+    }
+
+    private static void renderSidebarFooter(float fontH, float indent) {
         float footerH = ImGui.getFrameHeightWithSpacing() * 2.6f;
         float bottomY = ImGui.getWindowHeight() - footerH;
         if (bottomY > ImGui.getCursorPosY()) {
@@ -579,28 +657,67 @@ public class ImGuiApp extends Application {
         }
     }
 
+    private static final String LOG_BUFFER_APPENDER_NAME = "LOG_BUFFER";
+
+    /**
+     * Looks up the {@link LogBufferAppender} instance Logback created from
+     * {@code logback.xml} and wires it to the given buffer. The cast from
+     * SLF4J's {@code ILoggerFactory} to Logback's {@link LoggerContext}
+     * and the type test on the looked-up {@code Appender} are forced by
+     * the SLF4J/Logback binding boundary — both APIs are owned externally
+     * and expose loose return types we cannot narrow. They are isolated
+     * here, the one place this seam is crossed.
+     * <p>
+     * The Logback {@code Logger} type below is fully qualified to avoid a
+     * name collision with the imported {@link org.slf4j.Logger}.
+     */
+    private static void wireLogBufferAppender(LogBuffer logBuffer) {
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        // ch.qos.logback.classic.Logger fully qualified: name collision with org.slf4j.Logger
+        ch.qos.logback.classic.Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
+        Appender<ILoggingEvent> appender = root.getAppender(LOG_BUFFER_APPENDER_NAME);
+        if (appender instanceof LogBufferAppender lba) {
+            lba.setLogBuffer(logBuffer);
+        } else {
+            log.warn("Appender '{}' not found or not a LogBufferAppender; GUI log capture disabled.",
+                    LOG_BUFFER_APPENDER_NAME);
+        }
+    }
+
     private static byte[] loadResourceFont(String resourcePath) {
         try (var in = ImGuiApp.class.getResourceAsStream(resourcePath)) {
-            if (in != null) return in.readAllBytes();
-        } catch (Exception ignored) {}
+            if (in != null) {
+                return in.readAllBytes();
+            }
+        } catch (IOException e) {
+            log.debug("Could not read resource font {}", resourcePath, e);
+        }
         return null;
     }
 
     private static byte[] loadSystemFont(String... candidates) {
         String windir = System.getenv("WINDIR");
-        if (windir == null) windir = "C:\\Windows";
-        java.nio.file.Path fontsDir = java.nio.file.Paths.get(windir, "Fonts");
+        if (windir == null) {
+            windir = "C:\\Windows";
+        }
+        Path fontsDir = Paths.get(windir, "Fonts");
         for (String name : candidates) {
-            java.nio.file.Path p = fontsDir.resolve(name);
-            if (java.nio.file.Files.exists(p)) {
-                try { return java.nio.file.Files.readAllBytes(p); } catch (Exception ignored) {}
+            Path p = fontsDir.resolve(name);
+            if (Files.exists(p)) {
+                try {
+                    return Files.readAllBytes(p);
+                } catch (IOException e) {
+                    log.debug("Could not read system font {}", p, e);
+                }
             }
         }
         return null;
     }
 
     private void updateTitle() {
-        if (glfwWindow == 0) return;
+        if (glfwWindow == 0) {
+            return;
+        }
         boolean connected = ctx.hasActiveConnection();
         String connName = ctx.getActiveConnectionName();
         int count = ctx.getConnections().size();

@@ -13,6 +13,7 @@ import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -65,7 +66,9 @@ public class ScriptManagerImpl implements ScriptManager {
     @Override
     public boolean start(String name) {
         ScriptRunner runner = runtime.findRunner(name);
-        if (runner == null) return false;
+        if (runner == null) {
+            return false;
+        }
         if (runner.isRunning()) {
             throw new IllegalStateException("Script already running: " + name);
         }
@@ -77,7 +80,9 @@ public class ScriptManagerImpl implements ScriptManager {
     @Override
     public boolean start(String name, Map<String, Object> config) {
         ScriptRunner runner = runtime.findRunner(name);
-        if (runner == null) return false;
+        if (runner == null) {
+            return false;
+        }
         if (runner.isRunning()) {
             throw new IllegalStateException("Script already running: " + name);
         }
@@ -87,7 +92,7 @@ public class ScriptManagerImpl implements ScriptManager {
             var fields = runner.getConfigFields();
             if (fields != null && !fields.isEmpty()) {
                 // Convert Object values to Strings for ScriptConfig
-                Map<String, String> stringConfig = new java.util.LinkedHashMap<>();
+                Map<String, String> stringConfig = new LinkedHashMap<>();
                 config.forEach((k, v) -> stringConfig.put(k, String.valueOf(v)));
                 runner.applyConfig(new ScriptConfig(stringConfig));
             }
@@ -111,7 +116,9 @@ public class ScriptManagerImpl implements ScriptManager {
     @Override
     public boolean restart(String name) {
         ScriptRunner runner = runtime.findRunner(name);
-        if (runner == null) return false;
+        if (runner == null) {
+            return false;
+        }
 
         if (runner.isRunning()) {
             runner.stop();

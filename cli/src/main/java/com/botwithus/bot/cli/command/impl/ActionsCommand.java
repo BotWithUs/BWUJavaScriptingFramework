@@ -6,10 +6,15 @@ import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.core.rpc.RpcClient;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 import java.util.Map;
 
 public class ActionsCommand implements Command {
+
+    private static final Logger log = LoggerFactory.getLogger(ActionsCommand.class);
 
     @Override public String name() { return "actions"; }
     @Override public List<String> aliases() { return List.of(); }
@@ -33,7 +38,11 @@ public class ActionsCommand implements Command {
             int n = 10;
             String nStr = parsed.arg(1);
             if (nStr != null) {
-                try { n = Integer.parseInt(nStr); } catch (NumberFormatException ignored) {}
+                try {
+                    n = Integer.parseInt(nStr);
+                } catch (NumberFormatException e) {
+                    log.debug("could not parse '{}' as int, using fallback {}", nStr, n);
+                }
             }
             showHistory(rpc, n, ctx);
         } else if ("blocked".equals(sub)) {
@@ -45,7 +54,7 @@ public class ActionsCommand implements Command {
 
     private void showQueue(RpcClient rpc, CliContext ctx) {
         try {
-            Map<String, Object> result = rpc.callSync("rpc.getActionQueueSize", Map.of());
+            Map<String, Object> result = rpc.callSync("get_action_queue_size", Map.of());
             ctx.out().println("Action queue size: " + result.getOrDefault("size", "unknown"));
         } catch (Exception e) {
             ctx.out().println("Error: " + e.getMessage());
@@ -55,7 +64,7 @@ public class ActionsCommand implements Command {
     @SuppressWarnings("unchecked")
     private void showHistory(RpcClient rpc, int max, CliContext ctx) {
         try {
-            List<Map<String, Object>> history = rpc.callSyncList("rpc.getActionHistory",
+            List<Map<String, Object>> history = rpc.callSyncList("get_action_history",
                     Map.of("max_results", max));
             if (history.isEmpty()) {
                 ctx.out().println("No action history.");
@@ -78,7 +87,7 @@ public class ActionsCommand implements Command {
 
     private void showBlocked(RpcClient rpc, CliContext ctx) {
         try {
-            Map<String, Object> result = rpc.callSync("rpc.areActionsBlocked", Map.of());
+            Map<String, Object> result = rpc.callSync("are_actions_blocked", Map.of());
             boolean blocked = result.get("blocked") instanceof Boolean b && b;
             ctx.out().println("Actions blocked: " + blocked);
         } catch (Exception e) {

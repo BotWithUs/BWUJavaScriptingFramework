@@ -70,7 +70,9 @@ final class AccountCard {
         ImGui.spacing();
 
         // ── Launch button ──
-        if (busy) ImGui.beginDisabled();
+        if (busy) {
+            ImGui.beginDisabled();
+        }
 
         ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
         ImGui.pushStyleColor(ImGuiCol.Button,
@@ -86,21 +88,29 @@ final class AccountCard {
         }
         ImGui.popStyleColor(4);
 
-        if (busy) ImGui.endDisabled();
+        if (busy) {
+            ImGui.endDisabled();
+        }
 
         // ── Context actions (small, below launch) ──
-        if (busy) ImGui.beginDisabled();
+        if (busy) {
+            ImGui.beginDisabled();
+        }
 
         if (ImGui.smallButton(Icons.ROTATE + "##refresh" + index)) {
             result = new Action(Action.Type.REFRESH_CHARACTERS, account.uuid(), -1);
         }
-        if (ImGui.isItemHovered()) ImGui.setTooltip("Refresh characters");
+        if (ImGui.isItemHovered()) {
+            ImGui.setTooltip("Refresh characters");
+        }
 
         ImGui.sameLine(0, 6);
         if (ImGui.smallButton(Icons.SHIELD + "##session" + index)) {
             result = new Action(Action.Type.ENSURE_SESSION, account.uuid(), -1);
         }
-        if (ImGui.isItemHovered()) ImGui.setTooltip("Refresh session");
+        if (ImGui.isItemHovered()) {
+            ImGui.setTooltip("Refresh session");
+        }
 
         ImGui.sameLine(0, 6);
         ImGui.pushStyleColor(ImGuiCol.Text,
@@ -113,10 +123,14 @@ final class AccountCard {
         if (ImGui.smallButton(Icons.TRASH + "##remove" + index)) {
             result = new Action(Action.Type.REMOVE_JAGEX, account.uuid(), -1);
         }
-        if (ImGui.isItemHovered()) ImGui.setTooltip("Remove account");
+        if (ImGui.isItemHovered()) {
+            ImGui.setTooltip("Remove account");
+        }
         ImGui.popStyleColor(4);
 
-        if (busy) ImGui.endDisabled();
+        if (busy) {
+            ImGui.endDisabled();
+        }
 
         ImGui.endChild();
         return result;
@@ -275,7 +289,9 @@ final class AccountCard {
 
         float headerH = lineH * 2; // name + subject
         int charLines = Math.min(account.characters().size(), MAX_VISIBLE_CHARS);
-        if (account.characters().size() > MAX_VISIBLE_CHARS) charLines++;
+        if (account.characters().size() > MAX_VISIBLE_CHARS) {
+            charLines++;
+        }
         float charsH = Math.max(lineH, charLines * lineH); // at least "No characters" line
         float sessionH = lineH;
         float launchH = ImGui.getFrameHeightWithSpacing();

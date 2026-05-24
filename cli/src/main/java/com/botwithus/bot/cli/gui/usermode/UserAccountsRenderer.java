@@ -82,14 +82,18 @@ public class UserAccountsRenderer {
      * so the caller can lay out content below.
      */
     public void render() {
-        if (bwu == null) return; // silently skip if no DLL
+        if (bwu == null) {
+            return; // silently skip if no DLL
+        }
 
         float dt = ImGui.getIO().getDeltaTime();
 
         // Decay toast
         if (toastTimer > 0) {
             toastTimer -= dt;
-            if (toastTimer <= 0) toastMessage = null;
+            if (toastTimer <= 0) {
+                toastMessage = null;
+            }
         }
 
         // Clear finished ops
@@ -162,12 +166,18 @@ public class UserAccountsRenderer {
         float restoreBtnW = ImGui.calcTextSize(Icons.ROTATE + "  Restore").x
                 + ImGui.getStyle().getFramePaddingX() * 2;
         ImGui.sameLine(ImGui.getContentRegionAvailX() - restoreBtnW);
-        if (busy) ImGui.beginDisabled();
+        if (busy) {
+            ImGui.beginDisabled();
+        }
         if (ImGui.smallButton(Icons.ROTATE + "  Restore")) {
             startRestore();
         }
-        if (ImGui.isItemHovered()) ImGui.setTooltip("Restore Jagex accounts from previous session");
-        if (busy) ImGui.endDisabled();
+        if (ImGui.isItemHovered()) {
+            ImGui.setTooltip("Restore Jagex accounts from previous session");
+        }
+        if (busy) {
+            ImGui.endDisabled();
+        }
 
         ImGui.spacing();
     }
@@ -223,10 +233,14 @@ public class UserAccountsRenderer {
 
         int col = 0;
         for (int i = 0; i < jagexAccounts.size(); i++) {
-            if (col > 0) ImGui.sameLine(0, CARD_SPACING);
+            if (col > 0) {
+                ImGui.sameLine(0, CARD_SPACING);
+            }
 
             AccountCard.Action action = accountCard.render(jagexAccounts.get(i), cardWidth, i, busy);
-            if (action != null) handleAction(action);
+            if (action != null) {
+                handleAction(action);
+            }
 
             col++;
             if (col >= columns) {
@@ -236,14 +250,20 @@ public class UserAccountsRenderer {
         }
 
         // "Add Jagex Account" card
-        if (col > 0) ImGui.sameLine(0, CARD_SPACING);
-        if (busy) ImGui.beginDisabled();
+        if (col > 0) {
+            ImGui.sameLine(0, CARD_SPACING);
+        }
+        if (busy) {
+            ImGui.beginDisabled();
+        }
 
         if (accountCard.renderAddCard("Add Jagex\nAccount", Icons.PLUS, cardWidth, addCardH, "jagex")) {
             startJagexLogin();
         }
 
-        if (busy) ImGui.endDisabled();
+        if (busy) {
+            ImGui.endDisabled();
+        }
     }
 
     // ══════════════════════════��═════════════════════════════��══════════════
@@ -253,7 +273,9 @@ public class UserAccountsRenderer {
     private void renderClassicBar(boolean busy) {
         if (classicAccounts.isEmpty() && !showClassicPopup) {
             // Just a small "add classic account" link
-            if (busy) ImGui.beginDisabled();
+            if (busy) {
+            ImGui.beginDisabled();
+        }
             ImGui.pushStyleColor(ImGuiCol.Button, 0, 0, 0, 0);
             ImGui.pushStyleColor(ImGuiCol.ButtonHovered,
                     ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.05f);
@@ -264,7 +286,9 @@ public class UserAccountsRenderer {
                 resetAddForm();
             }
             ImGui.popStyleColor(3);
-            if (busy) ImGui.endDisabled();
+            if (busy) {
+            ImGui.endDisabled();
+        }
             return;
         }
 
@@ -280,7 +304,9 @@ public class UserAccountsRenderer {
         }
 
         ImGui.sameLine(0, 8);
-        if (busy) ImGui.beginDisabled();
+        if (busy) {
+            ImGui.beginDisabled();
+        }
         ImGui.pushStyleColor(ImGuiCol.Button, 0, 0, 0, 0);
         ImGui.pushStyleColor(ImGuiCol.ButtonHovered,
                 ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.1f);
@@ -290,9 +316,13 @@ public class UserAccountsRenderer {
             showClassicPopup = true;
             resetAddForm();
         }
-        if (ImGui.isItemHovered()) ImGui.setTooltip("Add classic account");
+        if (ImGui.isItemHovered()) {
+            ImGui.setTooltip("Add classic account");
+        }
         ImGui.popStyleColor(3);
-        if (busy) ImGui.endDisabled();
+        if (busy) {
+            ImGui.endDisabled();
+        }
 
         // Add classic account popup
         if (showClassicPopup) {
@@ -303,7 +333,9 @@ public class UserAccountsRenderer {
     private void renderClassicChip(BwuAccount acct, int index, boolean busy) {
         ImDrawList draw = ImGui.getWindowDrawList();
         String label = acct.name();
-        if (label.length() > 18) label = label.substring(0, 15) + "\u2026";
+        if (label.length() > 18) {
+            label = label.substring(0, 15) + "\u2026";
+        }
 
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
@@ -403,7 +435,9 @@ public class UserAccountsRenderer {
         ImGui.spacing();
         ImGui.spacing();
 
-        if (busy) ImGui.beginDisabled();
+        if (busy) {
+            ImGui.beginDisabled();
+        }
 
         // Add button
         ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
@@ -423,7 +457,9 @@ public class UserAccountsRenderer {
             showClassicPopup = false;
         }
 
-        if (busy) ImGui.endDisabled();
+        if (busy) {
+            ImGui.endDisabled();
+        }
 
         ImGui.endChild();
     }

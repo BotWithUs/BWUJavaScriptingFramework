@@ -1,44 +1,42 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
-import com.botwithus.bot.api.model.LocalPlayer;
+import com.botwithus.bot.api.model.ResourceItem;
 import com.botwithus.bot.api.model.ResourceSection;
+import com.botwithus.bot.api.model.SkillRequirement;
 import com.botwithus.bot.api.model.WorldMapElement;
-import com.botwithus.bot.api.model.WorldMapIconResult;
-import com.botwithus.bot.api.query.WorldMapElementFilter;
-import com.botwithus.bot.api.query.WorldMapIconFilter;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
 
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
- * Query facade for world map elements. Provides convenient methods for finding
- * static map features (banks, altars, dungeons, etc.) from the game cache.
+ * World-map element query facade. Singleton per {@link GameAPI}; obtain via
+ * {@code api.mapElements()}.
  *
- * <h3>Quick usage:</h3>
+ * <p>RPC-backed: each terminal operation issues {@code query_world_map_elements}
+ * with the accumulated filter map and post-filters / sorts in Java. The
+ * producer-side handler is currently a stub returning empty results — once
+ * the cache iteration lands, this facade picks up real data without code
+ * changes.</p>
+ *
  * <pre>{@code
- * WorldMapElements mapElements = new WorldMapElements(api);
- *
- * // Find all banks
- * List<WorldMapElement> banks = mapElements.all("Bank");
- *
- * // Find nearest bank to a position
- * WorldMapElement nearest = mapElements.query()
- *     .named("Bank")
- *     .near(3200, 3200, 100)
- *     .sortByDistance(true)
+ * WorldMapElement spot = api.mapElements().query()
+ *     .withCategory(3032)                  // divination
+ *     .withSkill(26, 1, level)             // divination skill range
+ *     .withResources()
+ *     .nearPlayer()
+ *     .sortByDistance()
  *     .nearest();
- *
- * // Find by category
- * List<WorldMapElement> category40 = mapElements.query()
- *     .withCategory(40)
- *     .all();
  * }</pre>
- *
- * @see WorldMapElement
  */
-public class WorldMapElements {
+public final class WorldMapElements {
 
     private final GameAPI api;
 
@@ -46,346 +44,174 @@ public class WorldMapElements {
         this.api = api;
     }
 
-    /**
-     * Start a fluent world map element query.
-     */
     public Query query() {
         return new Query(api);
     }
 
-    /**
-     * Start a fluent world map icon query. Unlike {@link #query()}, each
-     * result is one placement, so an element with many map locations yields
-     * many entries. Useful for "every bank icon near me" style lookups.
-     */
-    public IconQuery icons() {
-        return new IconQuery(api);
+    /** Convenience: nearest element with the given name (case-insensitive contains). */
+    public WorldMapElement nearest(String name) {
+        return query().named(name).nearest();
     }
 
-    /**
-     * Returns a single world map element by ID, or null if not found.
-     */
-    public WorldMapElement get(int id) {
-        return api.getWorldMapElement(id);
-    }
-
-    /**
-     * Returns all world map elements matching the given name substring.
-     */
+    /** Convenience: all elements with a given name (case-insensitive contains). */
     public List<WorldMapElement> all(String name) {
         return query().named(name).all();
     }
 
-    /**
-     * Returns the nearest world map element matching the given name to the player.
-     */
-    public WorldMapElement nearest(String name) {
-        return query().named(name).nearPlayer().sortByDistance().nearest();
-    }
-
-    /**
-     * Returns all world map elements with the given category.
-     */
+    /** Convenience: all elements in a category. */
     public List<WorldMapElement> allByCategory(int category) {
         return query().withCategory(category).all();
     }
 
     /**
-     * Returns the total number of loaded world map elements.
+     * Fluent filter builder for world-map element queries. Producer-side
+     * filters (category / skill / name / "with-X" presence flags) ride on
+     * the RPC params map; client-side filters (custom predicates, distance
+     * sort) apply in Java after the RPC returns.
      */
-    public int count() {
-        return api.getWorldMapElementCount();
-    }
-
-    // ========================== Query ==========================
-
-    /**
-     * Fluent query builder for world map elements.
-     */
-    public static class Query {
+    public static final class Query {
 
         private final GameAPI api;
-        private final WorldMapElementFilter.Builder filterBuilder = WorldMapElementFilter.builder();
-        private Predicate<WorldMapElement> postFilter;
+        private final Map<String, Object> rpcFilter = new LinkedHashMap<>();
+        private Predicate<WorldMapElement> postFilter = e -> true;
+        private boolean sortByDistance = false;
+        private int limit = Integer.MAX_VALUE;
+        private int sortCenterX = Integer.MIN_VALUE;
+        private int sortCenterY = Integer.MIN_VALUE;
 
-        Query(GameAPI api) {
-            this.api = api;
-        }
+        Query(GameAPI api) { this.api = api; }
 
-        /** Filter by name substring (case-insensitive). */
+        // ---------------- Producer-side filters (ride on RPC) ----------------
+
         public Query named(String name) {
-            filterBuilder.name(name);
+            rpcFilter.put("name", name);
             return this;
         }
 
-        /** Filter by category ID. */
         public Query withCategory(int category) {
-            filterBuilder.category(category);
+            rpcFilter.put("category", category);
             return this;
         }
 
-        /** Filter to elements near a specific tile within a radius. */
         public Query near(int tileX, int tileY, int radius) {
-            filterBuilder.centerX(tileX).centerY(tileY).radius(radius);
+            rpcFilter.put("tile_x", tileX);
+            rpcFilter.put("tile_y", tileY);
+            rpcFilter.put("radius", radius);
+            sortCenterX = tileX;
+            sortCenterY = tileY;
             return this;
         }
 
-        /** Filter to elements near the local player within a radius. */
         public Query nearPlayer(int radius) {
             LocalPlayer lp = api.getLocalPlayer();
-            filterBuilder.centerX(lp.tileX()).centerY(lp.tileY()).radius(radius);
+            if (lp == null) {
+                // No local player — narrow the result set to nothing producer-side
+                // by demanding an unsatisfiable radius around (0,0). The Query
+                // result still goes through a real RPC, just with no matches.
+                rpcFilter.put("tile_x", 0);
+                rpcFilter.put("tile_y", 0);
+                rpcFilter.put("radius", 0);
+            } else {
+                rpcFilter.put("tile_x", lp.tileX());
+                rpcFilter.put("tile_y", lp.tileY());
+                rpcFilter.put("radius", radius);
+                sortCenterX = lp.tileX();
+                sortCenterY = lp.tileY();
+            }
             return this;
         }
 
-        /** Filter to elements near the local player with a large default radius (500 tiles). */
-        public Query nearPlayer() {
-            return nearPlayer(500);
-        }
+        /** Default radius of 64 around the local player (covers a typical map view). */
+        public Query nearPlayer() { return nearPlayer(64); }
 
-        /** Filter by plane (height level). */
         public Query onPlane(int plane) {
-            filterBuilder.plane(plane);
+            rpcFilter.put("plane", plane);
             return this;
         }
 
-        /** Filter by skill requirement (e.g., 13 for Mining, 15 for Fishing). */
         public Query withSkill(int skillId) {
-            filterBuilder.skillId(skillId);
+            rpcFilter.put("skill_id", skillId);
             return this;
         }
 
-        /** Filter by skill requirement with a level range. */
         public Query withSkill(int skillId, int minLevel, int maxLevel) {
-            filterBuilder.skillId(skillId);
-            if (minLevel >= 0) filterBuilder.minLevel(minLevel);
-            if (maxLevel >= 0) filterBuilder.maxLevel(maxLevel);
+            rpcFilter.put("skill_id", skillId);
+            rpcFilter.put("min_level", minLevel);
+            rpcFilter.put("max_level", maxLevel);
             return this;
         }
 
-        /** Only return elements that have a description. */
         public Query withDescription() {
-            filterBuilder.hasDescription(true);
+            rpcFilter.put("with_description", true);
             return this;
         }
 
-        /** Only return elements that have resource data (ores, fish, logs, etc.). */
         public Query withResources() {
-            filterBuilder.hasResources(true);
+            rpcFilter.put("with_resources", true);
             return this;
         }
 
-        /**
-         * Filter to elements containing a resource with the given item ID (e.g., 383 for raw shark).
-         * Automatically enables the {@code has_resources} server-side filter.
-         */
         public Query withItemId(int itemId) {
-            return filterResources(s -> s.items().stream().anyMatch(i -> i.itemId() == itemId));
+            rpcFilter.put("item_id", itemId);
+            return this;
         }
 
-        /**
-         * Filter to elements containing a resource whose title matches the given name
-         * (case-insensitive substring, e.g., "Shark", "Coal", "Yew").
-         * Automatically enables the {@code has_resources} server-side filter.
-         */
         public Query withResourceNamed(String name) {
-            String lower = name.toLowerCase();
-            return filterResources(s -> s.title().toLowerCase().contains(lower));
-        }
-
-        private Query filterResources(Predicate<ResourceSection> sectionPredicate) {
-            filterBuilder.hasResources(true);
-            return filter(e -> e.resources().stream().anyMatch(sectionPredicate));
-        }
-
-        /** Sort results by distance from center tile. Requires a spatial filter (e.g., {@link #near} or {@link #nearPlayer}). */
-        public Query sortByDistance() {
-            filterBuilder.sortByDistance(true);
+            rpcFilter.put("resource_name", name);
             return this;
         }
 
-        /** Limit the maximum number of results. */
-        public Query limit(int max) {
-            filterBuilder.maxResults(max);
-            return this;
-        }
+        // ---------------- Client-side filters / shaping ----------------
 
-        /**
-         * Adds a post-query filter predicate applied after elements are returned.
-         * Use this for conditions the server-side filter can't express.
-         */
+        public Query sortByDistance() { this.sortByDistance = true; return this; }
+        public Query limit(int max)   { this.limit = Math.max(0, max); return this; }
+
         public Query filter(Predicate<WorldMapElement> predicate) {
-            this.postFilter = this.postFilter == null ? predicate : this.postFilter.and(predicate);
+            this.postFilter = this.postFilter.and(predicate);
             return this;
         }
 
-        /** Returns all matching world map elements. */
+        // ---------------- Terminals ----------------
+
         public List<WorldMapElement> all() {
-            List<WorldMapElement> results = api.queryWorldMapElements(filterBuilder.build());
-            if (postFilter != null) {
-                results = results.stream().filter(postFilter).toList();
+            List<WorldMapElement> raw = api.queryWorldMapElements(rpcFilter);
+            Stream<WorldMapElement> stream = raw.stream().filter(postFilter);
+            if (sortByDistance) {
+                int cx = sortCenterX, cy = sortCenterY;
+                if (cx == Integer.MIN_VALUE) {
+                    LocalPlayer lp = api.getLocalPlayer();
+                    if (lp != null) { cx = lp.tileX(); cy = lp.tileY(); }
+                }
+                if (cx != Integer.MIN_VALUE) {
+                    int finalCx = cx, finalCy = cy;
+                    stream = stream.sorted(Comparator.comparingInt(
+                            e -> chebyshev(e.tileX(), e.tileY(), finalCx, finalCy)));
+                }
             }
-            return results;
+            if (limit < Integer.MAX_VALUE) stream = stream.limit(limit);
+            return stream.collect(Collectors.toList());
         }
 
-        /** Returns the nearest matching element to the center, or null. */
         public WorldMapElement nearest() {
-            List<WorldMapElement> results = all();
-            return results.isEmpty() ? null : results.getFirst();
+            sortByDistance();
+            List<WorldMapElement> list = all();
+            return list.isEmpty() ? null : list.getFirst();
         }
 
-        /** Returns the nearest matching element as an {@link Optional}. */
-        public Optional<WorldMapElement> findNearest() {
-            return Optional.ofNullable(nearest());
-        }
+        public Optional<WorldMapElement> findNearest() { return Optional.ofNullable(nearest()); }
 
-        /** Returns the first matching element, or null. */
         public WorldMapElement first() {
-            List<WorldMapElement> results = all();
-            return results.isEmpty() ? null : results.getFirst();
+            List<WorldMapElement> list = all();
+            return list.isEmpty() ? null : list.getFirst();
         }
 
-        /** Returns the first matching element as an {@link Optional}. */
-        public Optional<WorldMapElement> findFirst() {
-            return Optional.ofNullable(first());
-        }
+        public Optional<WorldMapElement> findFirst() { return Optional.ofNullable(first()); }
 
-        /** Returns true if at least one matching element exists. */
-        public boolean exists() {
-            if (postFilter == null) {
-                filterBuilder.maxResults(1);
-            }
-            return !all().isEmpty();
-        }
+        public boolean exists() { return !all().isEmpty(); }
+        public int count()      { return all().size(); }
 
-        /** Returns the count of matching elements. */
-        public int count() {
-            return all().size();
-        }
-    }
-
-    // ========================== IconQuery ==========================
-
-    /**
-     * Fluent query builder for world map icon placements.
-     */
-    public static class IconQuery {
-
-        private final GameAPI api;
-        private final WorldMapIconFilter.Builder filterBuilder = WorldMapIconFilter.builder();
-        private Predicate<WorldMapIconResult> postFilter;
-
-        IconQuery(GameAPI api) {
-            this.api = api;
-        }
-
-        /** Filter by element category id. */
-        public IconQuery withCategory(int category) {
-            filterBuilder.category(category);
-            return this;
-        }
-
-        /** Restrict results to placements of a single world map element. */
-        public IconQuery forElement(int worldMapElementId) {
-            filterBuilder.worldMapElementId(worldMapElementId);
-            return this;
-        }
-
-        /** Filter to placements near a specific tile within a radius. */
-        public IconQuery near(int tileX, int tileY, int radius) {
-            filterBuilder.near(tileX, tileY, radius);
-            return this;
-        }
-
-        /** Filter to placements near the local player within a radius. */
-        public IconQuery nearPlayer(int radius) {
-            LocalPlayer lp = api.getLocalPlayer();
-            filterBuilder.near(lp.tileX(), lp.tileY(), radius);
-            return this;
-        }
-
-        /** Filter to placements near the local player with a 500-tile radius. */
-        public IconQuery nearPlayer() {
-            return nearPlayer(500);
-        }
-
-        /** Filter by plane. */
-        public IconQuery onPlane(int plane) {
-            filterBuilder.plane(plane);
-            return this;
-        }
-
-        /** Exclude members-only placements. */
-        public IconQuery freeToPlay() {
-            filterBuilder.includeMembers(false);
-            return this;
-        }
-
-        /** Disable sprite/category/name/tooltip enrichment for a lighter payload. */
-        public IconQuery withoutEnrichment() {
-            filterBuilder.enrich(false);
-            return this;
-        }
-
-        /** Sort results by distance from the center tile. Requires a spatial filter. */
-        public IconQuery sortByDistance() {
-            filterBuilder.sortByDistance(true);
-            return this;
-        }
-
-        /** Limit the maximum number of results. */
-        public IconQuery limit(int max) {
-            filterBuilder.maxResults(max);
-            return this;
-        }
-
-        /** Add a post-query filter predicate applied after results are returned. */
-        public IconQuery filter(Predicate<WorldMapIconResult> predicate) {
-            this.postFilter = this.postFilter == null ? predicate : this.postFilter.and(predicate);
-            return this;
-        }
-
-        /** Returns all matching icon placements. */
-        public List<WorldMapIconResult> all() {
-            List<WorldMapIconResult> results = api.queryWorldMapIcons(filterBuilder.build());
-            if (postFilter != null) {
-                results = results.stream().filter(postFilter).toList();
-            }
-            return results;
-        }
-
-        /** Returns the nearest matching placement to the center, or null. */
-        public WorldMapIconResult nearest() {
-            List<WorldMapIconResult> results = all();
-            return results.isEmpty() ? null : results.getFirst();
-        }
-
-        /** Returns the nearest matching placement as an {@link Optional}. */
-        public Optional<WorldMapIconResult> findNearest() {
-            return Optional.ofNullable(nearest());
-        }
-
-        /** Returns the first matching placement, or null. */
-        public WorldMapIconResult first() {
-            List<WorldMapIconResult> results = all();
-            return results.isEmpty() ? null : results.getFirst();
-        }
-
-        /** Returns the first matching placement as an {@link Optional}. */
-        public Optional<WorldMapIconResult> findFirst() {
-            return Optional.ofNullable(first());
-        }
-
-        /** Returns true if at least one matching placement exists. */
-        public boolean exists() {
-            if (postFilter == null) {
-                filterBuilder.maxResults(1);
-            }
-            return !all().isEmpty();
-        }
-
-        /** Returns the count of matching placements. */
-        public int count() {
-            return all().size();
+        private static int chebyshev(int x1, int y1, int x2, int y2) {
+            return Math.max(Math.abs(x1 - x2), Math.abs(y1 - y2));
         }
     }
 }

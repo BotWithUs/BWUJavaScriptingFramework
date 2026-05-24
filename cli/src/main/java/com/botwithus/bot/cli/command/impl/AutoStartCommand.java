@@ -110,7 +110,9 @@ public class AutoStartCommand implements Command {
             return;
         }
         String accountName = getActiveAccountName(ctx);
-        if (accountName == null) return;
+        if (accountName == null) {
+            return;
+        }
 
         List<String> scripts = new ArrayList<>(profileStore.getAccountScripts(accountName));
         if (scripts.stream().anyMatch(s -> s.equalsIgnoreCase(scriptName))) {
@@ -128,7 +130,9 @@ public class AutoStartCommand implements Command {
             return;
         }
         String accountName = getActiveAccountName(ctx);
-        if (accountName == null) return;
+        if (accountName == null) {
+            return;
+        }
 
         List<String> scripts = new ArrayList<>(profileStore.getAccountScripts(accountName));
         boolean removed = scripts.removeIf(s -> s.equalsIgnoreCase(scriptName));
@@ -142,7 +146,9 @@ public class AutoStartCommand implements Command {
 
     private void setEnabled(boolean enabled, CliContext ctx) {
         String accountName = getActiveAccountName(ctx);
-        if (accountName == null) return;
+        if (accountName == null) {
+            return;
+        }
         profileStore.setAutoStart(accountName, enabled);
         ctx.out().println("Auto-start " + (enabled ? "enabled" : "disabled") + " for " + accountName + ".");
     }
@@ -186,7 +192,9 @@ public class AutoStartCommand implements Command {
     private void clearProfile(String accountName, CliContext ctx) {
         if (accountName == null) {
             accountName = getActiveAccountName(ctx);
-            if (accountName == null) return;
+            if (accountName == null) {
+                return;
+            }
         }
         if (profileStore.clearAccountProfile(accountName)) {
             ctx.out().println("Cleared profile for " + accountName + ".");

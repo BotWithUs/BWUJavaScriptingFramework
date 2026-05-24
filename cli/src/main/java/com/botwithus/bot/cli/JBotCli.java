@@ -4,10 +4,28 @@ import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.ParsedCommand;
-import com.botwithus.bot.cli.command.impl.*;
+import com.botwithus.bot.cli.command.impl.ActionsCommand;
+import com.botwithus.bot.cli.command.impl.ClearCommand;
+import com.botwithus.bot.cli.command.impl.ConfigCommand;
+import com.botwithus.bot.cli.command.impl.ConnectCommand;
+import com.botwithus.bot.cli.command.impl.EventsCommand;
+import com.botwithus.bot.cli.command.impl.ExitCommand;
+import com.botwithus.bot.cli.command.impl.HelpCommand;
+import com.botwithus.bot.cli.command.impl.LogsCommand;
+import com.botwithus.bot.cli.command.impl.MetricsCommand;
+import com.botwithus.bot.cli.command.impl.MountCommand;
+import com.botwithus.bot.cli.command.impl.PingCommand;
+import com.botwithus.bot.cli.command.impl.ProfileCommand;
+import com.botwithus.bot.cli.command.impl.ReloadCommand;
+import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
+import com.botwithus.bot.cli.command.impl.ScriptsCommand;
+import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.config.CliConfig;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
+import com.botwithus.bot.core.pipe.PipeException;
+import com.botwithus.bot.core.rpc.RpcException;
 
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -55,7 +73,7 @@ public class JBotCli {
         registry.register(new UnmountCommand());
         registry.register(new MetricsCommand());
         registry.register(new ProfileCommand());
-        registry.register(new ConfigCommand(com.botwithus.bot.cli.config.CliConfig.defaults()));
+        registry.register(new ConfigCommand(CliConfig.defaults()));
         registry.register(new ActionsCommand());
         registry.register(new EventsCommand());
         registry.register(new ClearCommand());
@@ -95,7 +113,7 @@ public class JBotCli {
 
             try {
                 cmd.execute(parsed, ctx);
-            } catch (com.botwithus.bot.core.pipe.PipeException | com.botwithus.bot.core.rpc.RpcException e) {
+            } catch (PipeException | RpcException e) {
                 out.println("Connection error: " + e.getMessage());
                 String connName = ctx.getActiveConnectionName();
                 if (connName != null) {

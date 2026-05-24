@@ -74,7 +74,9 @@ public class ManagementScriptRunner implements Runnable {
 
     public boolean awaitStop(long timeoutMs) {
         CountDownLatch latch = this.stopLatch;
-        if (latch == null) return true;
+        if (latch == null) {
+            return true;
+        }
         try {
             return latch.await(timeoutMs, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
@@ -147,7 +149,9 @@ public class ManagementScriptRunner implements Runnable {
         try {
             while (running.get() && !Thread.currentThread().isInterrupted()) {
                 int delay = script.onLoop();
-                if (delay < 0) break;
+                if (delay < 0) {
+                    break;
+                }
                 if (delay > 0) {
                     Thread.sleep(delay);
                 }
@@ -167,7 +171,9 @@ public class ManagementScriptRunner implements Runnable {
             }
             MDC.clear();
             CountDownLatch latch = this.stopLatch;
-            if (latch != null) latch.countDown();
+            if (latch != null) {
+                latch.countDown();
+            }
         }
     }
 

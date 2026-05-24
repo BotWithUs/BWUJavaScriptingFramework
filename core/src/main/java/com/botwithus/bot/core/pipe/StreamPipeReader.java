@@ -3,9 +3,7 @@ package com.botwithus.bot.core.pipe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -45,7 +43,9 @@ public class StreamPipeReader implements AutoCloseable {
      * Opens the pipe and starts reading frames on a virtual thread.
      */
     public void start() {
-        if (running) return;
+        if (running) {
+            return;
+        }
         running = true;
         Thread.ofVirtual().name("stream-reader").start(this::readLoop);
     }
@@ -88,7 +88,9 @@ public class StreamPipeReader implements AutoCloseable {
         int off = 0;
         while (off < buf.length) {
             int n = pipeFile.read(buf, off, buf.length - off);
-            if (n < 0) throw new IOException("Stream pipe closed");
+            if (n < 0) {
+                throw new IOException("Stream pipe closed");
+            }
             off += n;
         }
     }

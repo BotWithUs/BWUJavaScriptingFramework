@@ -7,22 +7,18 @@ import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
-import com.botwithus.bot.api.entities.*;
 import com.botwithus.bot.api.event.ActionExecutedEvent;
 import com.botwithus.bot.api.event.EventBus;
-import com.botwithus.bot.api.model.Headbar;
-import com.botwithus.bot.api.model.LocalPlayer;
-import com.botwithus.bot.api.script.ScriptInfo;
-import com.botwithus.bot.api.script.ScriptManager;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.ui.ScriptUI;
 
-import com.botwithus.bot.api.util.LocalPlayerHelper;
 import imgui.ImGui;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import imgui.flag.ImGuiTableFlags;
 import imgui.flag.ImGuiTreeNodeFlags;
 import imgui.type.ImBoolean;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -30,34 +26,28 @@ import java.util.List;
         name = "Example Script",
         version = "1.0",
         author = "BotWithUs",
-        description = "A demo script showing the entity query API",
+        description = "A demo script showing the entity query API and Live Config",
         category = ScriptCategory.UTILITY
 )
 public class ExampleScript implements BotScript {
 
     private static final Logger log = LoggerFactory.getLogger(ExampleScript.class);
 
+    private static final int DEFAULT_LOOP_DELAY_MS = 5000;
+    private static final int PROGRESS_TARGET_LOOPS = 100;
+
     private ScriptContext ctx;
     private int loopCount;
-    private int loopDelay = 5000;
+    private int loopDelay = DEFAULT_LOOP_DELAY_MS;
     private boolean verbose = true;
 
-    // Scripter-friendly query facades — initialize once in onStart
-    private Npcs npcs;
-    private SceneObjects objects;
-    private Players players;
-    private GroundItems groundItems;
+    private GameAPI api;
 
     @Override
     public void onStart(ScriptContext ctx) {
         this.ctx = ctx;
         this.loopCount = 0;
-
-        GameAPI api = ctx.getGameAPI();
-        this.npcs = new Npcs(api);
-        this.objects = new SceneObjects(api);
-        this.players = new Players(api);
-        this.groundItems = new GroundItems(api);
+        this.api = ctx.getGameAPI();
 
         log.info("Started!");
 
@@ -66,13 +56,13 @@ public class ExampleScript implements BotScript {
     }
 
     private void handleActionEvent(ActionExecutedEvent event) {
-        log.debug("Action {} {} {} {}", event.getActionId(), event.getParam1(), event.getParam2(), event.getParam3());
+        log.debug("Action {} {} {} {}", event.actionId(), event.param1(), event.param2(), event.param3());
     }
 
     @Override
     public List<ConfigField> getConfigFields() {
         return List.of(
-                ConfigField.intField("loopDelay", "Loop Delay (ms)", 5000),
+                ConfigField.intField("loopDelay", "Loop Delay (ms)", DEFAULT_LOOP_DELAY_MS),
                 ConfigField.boolField("verbose", "Verbose Logging", true),
                 ConfigField.choiceField("mode", "Operating Mode",
                         List.of("Passive", "Active", "Aggressive"), "Passive")
@@ -81,7 +71,7 @@ public class ExampleScript implements BotScript {
 
     @Override
     public void onConfigUpdate(ScriptConfig config) {
-        this.loopDelay = config.getInt("loopDelay", 5000);
+        this.loopDelay = config.getInt("loopDelay", DEFAULT_LOOP_DELAY_MS);
         this.verbose = config.getBoolean("verbose", true);
         String mode = config.getString("mode", "Passive");
         if (verbose) {
@@ -92,17 +82,11 @@ public class ExampleScript implements BotScript {
     @Override
     public int onLoop() {
         loopCount++;
-        LocalPlayer lp = ctx.getGameAPI().getLocalPlayer();
-
-        List<Headbar> hbs = lp.headbars();
-        if (hbs.isEmpty()) {
-            log.debug("No headbars!");
+        LocalPlayer lp = api.getLocalPlayer();
+        if (lp != null && verbose) {
+            log.debug("LocalPlayer at ({}, {}, plane {}) anim={}",
+                    lp.tileX(), lp.tileY(), lp.plane(), lp.animationId());
         }
-
-        for (Headbar headbar : hbs) {
-            log.debug("ID: {} Width: {}", headbar.id(), headbar.width());
-        }
-
         return loopDelay;
     }
 
@@ -111,8 +95,6 @@ public class ExampleScript implements BotScript {
         log.info("Stopped after {} loops.", loopCount);
     }
 
-    // ── Custom Script UI ──────────────────────────────────────────────────────
-
     private final ImBoolean showEntities = new ImBoolean(false);
 
     private final ScriptUI ui = () -> {
@@ -120,8 +102,10 @@ public class ExampleScript implements BotScript {
             ImGui.text("Loop Count: " + loopCount);
             ImGui.text("Loop Delay: " + loopDelay + "ms");
             ImGui.text("Verbose: " + verbose);
-            ImGui.progressBar(Math.min(loopCount / 100f, 1f), -1, 0,
-                    loopCount + " / 100 loops");
+            ImGui.progressBar(
+                    Math.min(loopCount / (float) PROGRESS_TARGET_LOOPS, 1f),
+                    -1, 0,
+                    loopCount + " / " + PROGRESS_TARGET_LOOPS + " loops");
         }
 
         ImGui.spacing();
@@ -139,33 +123,28 @@ public class ExampleScript implements BotScript {
         ImGui.spacing();
 
         ImGui.checkbox("Show Entity Summary", showEntities);
-        if (showEntities.get() && ctx != null) {
+        if (showEntities.get() && api != null) {
             ImGui.separator();
             int flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg;
             if (ImGui.beginTable("entitySummary", 2, flags)) {
                 ImGui.tableSetupColumn("Type");
                 ImGui.tableSetupColumn("Count");
                 ImGui.tableHeadersRow();
-
-                ImGui.tableNextRow();
-                ImGui.tableNextColumn(); ImGui.text("NPCs");
-                ImGui.tableNextColumn(); ImGui.text(String.valueOf(
-                        npcs != null ? npcs.query().all().size() : 0));
-
-                ImGui.tableNextRow();
-                ImGui.tableNextColumn(); ImGui.text("Players");
-                ImGui.tableNextColumn(); ImGui.text(String.valueOf(
-                        players != null ? players.query().all().size() : 0));
-
-                ImGui.tableNextRow();
-                ImGui.tableNextColumn(); ImGui.text("Scene Objects");
-                ImGui.tableNextColumn(); ImGui.text(String.valueOf(
-                        objects != null ? objects.query().all().size() : 0));
-
+                addEntityRow("NPCs", api.npcs().query().all().size());
+                addEntityRow("Players", api.players().all().size());
+                addEntityRow("Scene Objects", api.objects().query().all().size());
                 ImGui.endTable();
             }
         }
     };
+
+    private static void addEntityRow(String label, int count) {
+        ImGui.tableNextRow();
+        ImGui.tableNextColumn();
+        ImGui.text(label);
+        ImGui.tableNextColumn();
+        ImGui.text(String.valueOf(count));
+    }
 
     @Override
     public ScriptUI getUI() {
