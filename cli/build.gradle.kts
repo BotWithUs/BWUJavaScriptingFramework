@@ -261,6 +261,51 @@ val renameMsi by tasks.registering {
 
 tasks.named("jpackage").configure { finalizedBy(renameMsi) }
 
+// ── bundle a freshly-built release bwu.dll (optional overlay) ──────────────
+// The app resolves bwu.dll at runtime via BwuClient.resolve():
+//   1) BWU_DLL_PATH env var  (the dev / debug override),
+//   2) ./bwu.dll next to the executable,
+//   3) the bundled /native/bwu.dll resource.
+// This module is the one whose /native/bwu.dll the app actually reads
+// (BwuClient.resolve(getClass()) anchors on a cli class, and modular
+// resource lookup is module-local).
+//
+// A committed baseline lives at src/main/resources/native/bwu.dll, so an
+// open-source checkout always ships *some* loader and `./gradlew build`
+// never fails. When a freshly-built release DLL is available — bwu.loaderDll
+// in local.properties, or the default sibling-repo path — this task overlays
+// it on top of that baseline (the overlay wins; see processResources below).
+// When it is absent the overlay is emptied and the committed baseline ships:
+// a missing DLL never breaks the build. The dev inner loop normally just sets
+// BWU_DLL_PATH and skips bundling entirely.
+val loaderDllPath = localProperty("bwu.loaderDll")
+    ?: "${rootDir}/../BotWithUs-Loader/cmake-build-release/bwu.dll"
+val loaderDllSource = file(loaderDllPath)
+val loaderOverlayDir = layout.buildDirectory.dir("generated/loader-resource")
+
+val bundleLoaderDll by tasks.registering(Sync::class) {
+    description = "Overlay a freshly-built release bwu.dll onto the bundled /native/bwu.dll"
+    group = "build"
+    // Sync empties the destination first, so a DLL bundled by an earlier
+    // build is dropped once the source path stops resolving — no stale overlay.
+    into(loaderOverlayDir.map { it.dir("native") })
+    if (loaderDllSource.isFile) {
+        from(loaderDllSource)
+    }
+    doFirst {
+        if (!loaderDllSource.isFile) {
+            logger.lifecycle(
+                "Release bwu.dll not found at {} — cli JAR ships the committed " +
+                    "baseline /native/bwu.dll. Set bwu.loaderDll in local.properties " +
+                    "to bundle your build, or use BWU_DLL_PATH at runtime.",
+                loaderDllSource,
+            )
+        }
+    }
+}
+
+sourceSets["main"].resources.srcDir(loaderOverlayDir)
+
 // ── bwu.dll release-hygiene gate ───────────────────────────────────────────
 // bwu.dll is the auth bootstrap shipped inside the CLI jar. Because this repo
 // is open source and the DLL is a committed binary blob, this gate fails the
@@ -333,5 +378,15 @@ val verifyBwuDll by tasks.registering {
 // Gate the DLL before it is bundled into the jar/image, and on `check` (so
 // `build`, which depends on both, always runs it). processResources is the
 // task that copies src/main/resources — including bwu.dll — into the output.
-tasks.named("processResources").configure { dependsOn(verifyBwuDll) }
+// The gate scans the *committed* baseline only; the optional overlay is a
+// developer's local, uncommitted build.
+tasks.named<Copy>("processResources").configure {
+    dependsOn(verifyBwuDll, bundleLoaderDll)
+    // Both the committed baseline (src/main/resources/native/bwu.dll) and the
+    // overlay (generated/loader-resource, populated by bundleLoaderDll only
+    // when a freshly-built release DLL is found) contribute native/bwu.dll.
+    // The overlay srcDir is registered last, so INCLUDE lets the freshly-built
+    // release DLL win; when the overlay is empty the committed baseline ships.
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
 tasks.named("check").configure { dependsOn(verifyBwuDll) }
