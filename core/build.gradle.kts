@@ -31,13 +31,15 @@ extraJavaModuleInfo {
 // data.zip).
 //
 // Build order: BotWithUs-Loader must be built first (Release) so
-// `../BotWithUs-Loader/build/Release/bwu.dll` exists. When the file is
-// missing the bundle task skips with a Gradle warning; runtime then
+// `../BotWithUs-Loader/cmake-build-release/bwu.dll` exists. When the file
+// is missing the bundle task skips with a Gradle warning; runtime then
 // falls back to BWU_DLL_PATH or a filesystem ./bwu.dll.
-// Override the source path with -Pbwu.loaderDll=/abs/path/to/bwu.dll.
+// The default assumes the documented sibling-repo layout; override the
+// source path per-machine via `bwu.loaderDll` in local.properties (see
+// local.properties.example) or `-Pbwu.loaderDll=/abs/path/to/bwu.dll`.
 // ────────────────────────────────────────────────────────────────────
-val loaderDllPath: String = (project.findProperty("bwu.loaderDll") as String?)
-    ?: "${rootDir}/../BotWithUs-Loader/build/Release/bwu.dll"
+val loaderDllPath: String = localProperty("bwu.loaderDll")
+    ?: "${rootDir}/../BotWithUs-Loader/cmake-build-release/bwu.dll"
 val loaderDllSource = file(loaderDllPath)
 
 val bundleLoaderDll by tasks.registering(Copy::class) {

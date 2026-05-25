@@ -76,19 +76,14 @@ tasks.named<JavaExec>("run") {
         "--enable-native-access=com.botwithus.bot.core",
     )
     // Optional: point at the NXTCache DLL + cache directory to enable
-    // cache-backed config-type lookups (item/npc/loc/quest/etc.). Either
-    // export these as environment variables or pass them on the command
-    // line: ./gradlew :cli:run -Pnxtcache.dll=... -Pnxtcache.path=...
-    val nxtcacheDll = providers.gradleProperty("nxtcache.dll")
-        .orElse(providers.environmentVariable("NXTCACHE_DLL"))
-    val nxtcachePath = providers.gradleProperty("nxtcache.path")
-        .orElse(providers.environmentVariable("NXTCACHE_PATH"))
-    if (nxtcacheDll.isPresent) {
-        jvmArgs("-Dnxtcache.dll=${nxtcacheDll.get()}")
-    }
-    if (nxtcachePath.isPresent) {
-        jvmArgs("-Dnxtcache.path=${nxtcachePath.get()}")
-    }
+    // cache-backed config-type lookups (item/npc/loc/quest/etc.). Set these
+    // in local.properties, pass them on the command line
+    // (-Pnxtcache.dll=... -Pnxtcache.path=...), or export NXTCACHE_DLL /
+    // NXTCACHE_PATH.
+    project.localProperty("nxtcache.dll", "NXTCACHE_DLL")
+        ?.let { jvmArgs("-Dnxtcache.dll=$it") }
+    project.localProperty("nxtcache.path", "NXTCACHE_PATH")
+        ?.let { jvmArgs("-Dnxtcache.path=$it") }
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink
@@ -100,10 +95,9 @@ val toolchainJdkPath = javaToolchains
     .map { it.metadata.installationPath.asFile }
 
 jlink {
-    val jlinkHomeOverride = providers.gradleProperty("jlink.javaHome")
-        .orElse(providers.environmentVariable("JLINK_JAVA_HOME"))
-    if (jlinkHomeOverride.isPresent) {
-        javaHome.set(file(jlinkHomeOverride.get()))
+    val jlinkHomeOverride = project.localProperty("jlink.javaHome", "JLINK_JAVA_HOME")
+    if (jlinkHomeOverride != null) {
+        javaHome.set(file(jlinkHomeOverride))
     } else {
         javaHome.set(toolchainJdkPath.get())
     }
@@ -207,10 +201,9 @@ val packageJre by tasks.registering(Zip::class) {
     archiveFileName.set("jre.zip")
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
     from(layout.buildDirectory.dir("image"))
-    val navDataDir = providers.gradleProperty("navDataDir")
-        .orElse(providers.environmentVariable("NAV_DATA_DIR"))
-    if (navDataDir.isPresent) {
-        from(navDataDir.get()) {
+    val navDataDir = project.localProperty("navDataDir", "NAV_DATA_DIR")
+    if (navDataDir != null) {
+        from(navDataDir) {
             into("nav_data")
         }
     }

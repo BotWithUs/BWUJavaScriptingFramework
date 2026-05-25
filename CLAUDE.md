@@ -31,6 +31,10 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 ./gradlew test --tests "com.botwithus.SomeTest.methodName"  # Run a single test
 ```
 
+### Machine-specific paths (`local.properties`)
+
+Absolute paths that differ per developer must **not** be committed. They live in `local.properties` at the project root (git-ignored); copy `local.properties.example` to start. The `Project.localProperty(key, envVar?)` helper in `buildSrc` resolves each key in order: Gradle project property (`-Pkey=` / `gradle.properties`) → `local.properties` → environment variable. Supported keys: `bwu.loaderDll` (source for the bundled `/native/bwu.dll`), `nxtcache.dll`, `nxtcache.path`, `jlink.javaHome`, `navDataDir`. Use forward slashes in `.properties` files — a backslash is an escape char.
+
 ## Module Architecture
 
 Five Gradle subprojects with strict dependency layering:

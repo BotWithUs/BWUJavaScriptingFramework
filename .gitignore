@@ -41,6 +41,9 @@ bin/
 ### Mac OS ###
 .DS_Store
 
+### User-local config (machine-specific paths) ###
+local.properties
+
 ### Runtime/Generated ###
 imgui.ini
 scripts/**/*.jar
