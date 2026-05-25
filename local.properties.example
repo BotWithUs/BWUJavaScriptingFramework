@@ -1,0 +1,30 @@
+# ──────────────────────────────────────────────────────────────────────
+# local.properties.example — template for user-local build configuration.
+#
+# Copy this file to `local.properties` (git-ignored) and set the paths for
+# YOUR machine. Every key below is exposed as a Gradle project property, so
+# each also works as `-Pkey=value` on the command line — and the command
+# line wins over this file.
+#
+# IMPORTANT: use forward slashes. In a .properties file a backslash starts
+# an escape sequence, so `C:\foo` is silently read as `C:foo`.
+# ──────────────────────────────────────────────────────────────────────
+
+# Absolute path to the freshly-built loader DLL that gets bundled into the
+# core JAR at /native/bwu.dll. When unset, the build falls back to the
+# documented sibling-repo layout: ../BotWithUs-Loader/cmake-build-release/bwu.dll
+# bwu.loaderDll=C:/path/to/BotWithUs-Loader/cmake-build-release/bwu.dll
+
+# NXTCache native DLL + cache directory for cache-backed config-type lookups
+# at runtime (item/npc/loc/quest/...). Also settable via the NXTCACHE_DLL /
+# NXTCACHE_PATH environment variables.
+# nxtcache.dll=C:/path/to/NXTCache.dll
+# nxtcache.path=C:/path/to/rs3/cache
+
+# JDK home for jlink/jpackage, when the auto-provisioned Java toolchain can
+# not be discovered. Also settable via the JLINK_JAVA_HOME environment var.
+# jlink.javaHome=C:/path/to/jdk-25
+
+# Directory of nav-graph data to bundle into the packaged JRE zip. Also
+# settable via the NAV_DATA_DIR environment variable.
+# navDataDir=C:/path/to/nav_data
