@@ -21,51 +21,10 @@ extraJavaModuleInfo {
     // org.bouncycastle.provider (bcprov). No overrides required as of 1.78.
 }
 
-// ────────────────────────────────────────────────────────────────────
-// Bundle bwu.dll into the JAR at /native/bwu.dll so the framework can
-// bootstrap without ever holding a bearer token: end users ship the JAR
-// only, and BwuClient.resolve() extracts the bundled copy on first run.
-// bwu.dll is the loader that downloads the rest of the native artifacts,
-// so it cannot be delivered by that download — it travels with the JAR
-// and updates whenever the application updates (it is deliberately NOT in
-// data.zip).
-//
-// Build order: BotWithUs-Loader must be built first (Release) so
-// `../BotWithUs-Loader/cmake-build-release/bwu.dll` exists. When the file
-// is missing the bundle task skips with a Gradle warning; runtime then
-// falls back to BWU_DLL_PATH or a filesystem ./bwu.dll.
-// The default assumes the documented sibling-repo layout; override the
-// source path per-machine via `bwu.loaderDll` in local.properties (see
-// local.properties.example) or `-Pbwu.loaderDll=/abs/path/to/bwu.dll`.
-// ────────────────────────────────────────────────────────────────────
-val loaderDllPath: String = localProperty("bwu.loaderDll")
-    ?: "${rootDir}/../BotWithUs-Loader/cmake-build-release/bwu.dll"
-val loaderDllSource = file(loaderDllPath)
-
-val bundleLoaderDll by tasks.registering(Copy::class) {
-    description = "Copy bwu.dll into the JAR resources at /native/bwu.dll"
-    group = "build"
-    from(loaderDllSource)
-    into(layout.buildDirectory.dir("generated/loader-resource/native"))
-    onlyIf {
-        val present = loaderDllSource.isFile
-        if (!present) {
-            logger.warn(
-                "bwu.dll not found at {} — JAR will ship without a bundled " +
-                "loader; runtime must then use BWU_DLL_PATH or a ./bwu.dll " +
-                "next to the executable.",
-                loaderDllSource
-            )
-        }
-        present
-    }
-}
-
-sourceSets["main"].resources.srcDir(layout.buildDirectory.dir("generated/loader-resource"))
-
-tasks.named("processResources") {
-    dependsOn(bundleLoaderDll)
-}
+// Note: bwu.dll is bundled by the :cli module (the module whose
+// /native/bwu.dll the app actually reads — BwuClient.resolve(getClass())
+// is anchored on a cli class and modular resource lookup is module-local).
+// See cli/build.gradle.kts.
 
 tasks.register<JavaExec>("benchmark") {
     description = "Run RPC latency benchmark against a live game server"
