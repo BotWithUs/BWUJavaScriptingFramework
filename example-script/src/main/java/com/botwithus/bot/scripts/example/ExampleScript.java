@@ -97,10 +97,13 @@ public class ExampleScript implements BotScript {
 
     private final ImBoolean showEntities = new ImBoolean(false);
 
+
+
     private final ScriptUI ui = () -> {
         if (ImGui.collapsingHeader("Status", ImGuiTreeNodeFlags.DefaultOpen)) {
             ImGui.text("Loop Count: " + loopCount);
             ImGui.text("Loop Delay: " + loopDelay + "ms");
+
             ImGui.text("Verbose: " + verbose);
             ImGui.progressBar(
                     Math.min(loopCount / (float) PROGRESS_TARGET_LOOPS, 1f),
