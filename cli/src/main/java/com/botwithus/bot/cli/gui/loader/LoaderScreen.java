@@ -974,11 +974,13 @@ public class LoaderScreen {
             } else if (status.moduleReady()) {
                 // Module is loaded in memory. The native-artifacts thread
                 // (NXTCache.dll etc.) runs in parallel with module download
-                // and has no dedicated status flag — verify its product is on
-                // disk before handing off to startLoading(), which will link
-                // NXTCache eagerly via its static initializer.
-                Path nxtCache = new NativeCache().resolve("NXTCache.dll");
-                if (!Files.isRegularFile(nxtCache)) {
+                // and has no dedicated status flag — verify NXTCache can be
+                // located before handing off to startLoading(), which links
+                // NXTCache eagerly via its static initializer. Mirror
+                // NXTCache's own resolution so a -Dnxtcache.dll override (dev
+                // runs supply the DLL this way) counts as ready; otherwise we
+                // wait forever for a cache file that a dev build never writes.
+                if (NativeCache.locateNxtCacheDll().isEmpty()) {
                     updateStatus = "Downloading native libraries...";
                     updateProgress = -1f;
                     return;

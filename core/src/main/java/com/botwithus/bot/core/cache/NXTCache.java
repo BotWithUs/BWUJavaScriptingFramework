@@ -23,7 +23,6 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
@@ -76,29 +75,19 @@ public final class NXTCache implements AutoCloseable {
     private static final Linker LINKER = Linker.nativeLinker();
     private static final SymbolLookup LIB = locateLibrary();
 
-    private static final String NXTCACHE_DLL_NAME = "NXTCache.dll";
-
     private static SymbolLookup locateLibrary() {
         Path resolved = resolveDllPath();
+        log.debug("Loading {} from {}", NativeCache.NXTCACHE_DLL_NAME, resolved);
         Arena scope = Arena.ofShared();
         return SymbolLookup.libraryLookup(resolved, scope);
     }
 
     private static Path resolveDllPath() {
-        String override = System.getProperty("nxtcache.dll");
-        if (override != null && !override.isBlank()) {
-            return Path.of(override);
-        }
-        Path cached = new NativeCache().resolve(NXTCACHE_DLL_NAME);
-        if (Files.isRegularFile(cached)) {
-            log.debug("Using {} from native cache: {}", NXTCACHE_DLL_NAME, cached);
-            return cached;
-        }
-        throw new IllegalStateException(
+        return NativeCache.locateNxtCacheDll().orElseThrow(() -> new IllegalStateException(
                 "NXTCache binary not located. Set -Dnxtcache.dll=<path>, "
                         + "or let the native bootstrap download it into "
-                        + "~/.botwithus/native/" + NXTCACHE_DLL_NAME
-                        + " (no System.loadLibrary fallback — see java-rules §Banned 2).");
+                        + "~/.botwithus/native/" + NativeCache.NXTCACHE_DLL_NAME
+                        + " (no System.loadLibrary fallback — see java-rules §Banned 2)."));
     }
 
     private static MethodHandle dl(String name, FunctionDescriptor fd) {
