@@ -38,7 +38,7 @@ class GameAPIImplInventoryTest {
         rpc = mock(RpcClient.class);
         snap = new StubSnapshot();
         itemTypes = new HashMap<>();
-        api = new GameAPIImpl(rpc, null, null, () -> snap) {
+        api = new GameAPIImpl(rpc, null, () -> snap) {
             @Override public ItemType getItemType(int id) { return itemTypes.get(id); }
         };
         return api;

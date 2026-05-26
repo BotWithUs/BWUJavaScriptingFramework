@@ -34,24 +34,6 @@ public final class SnapshotView {
     public int  ownIndex()    { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_OWNINDEX_OFFSET); }
     public int  rootIfaceId() { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_ROOTIFACEID_OFFSET); }
 
-    /**
-     * Per-interface invalidation token. The producer increments this slot when
-     * a hook observes a component within ifaceId changing; consumers cache
-     * Component results keyed on (ifaceId, compId, ifaceVersion) and treat a
-     * version bump as cache eviction.
-     *
-     * @return the current u32 counter for ifaceId, or 0 if ifaceId is out of
-     *         the cacheable range {@code [0, IFACE_VERSION_CAP)}. Out-of-range
-     *         ifaceIds are not cacheable; callers must always RPC for them.
-     */
-    public int ifaceVersion(int ifaceId) {
-        if (ifaceId < 0 || ifaceId >= Layout.IFACE_VERSION_CAP) {
-            return 0;
-        }
-        long offset = Layout.SNAP_IFACEVERSIONS_OFFSET + (long) ifaceId * 4;
-        return seg.get(ValueLayout.JAVA_INT, offset);
-    }
-
     public LocalPlayerView self() {
         return new LocalPlayerView(seg.asSlice(Layout.SNAP_SELF_OFFSET, Layout.LOCAL_PLAYER_SIZE));
     }

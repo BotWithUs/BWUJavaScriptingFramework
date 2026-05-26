@@ -252,12 +252,10 @@ public class CliContext {
             MessageBusImpl messageBus = new MessageBusImpl();
 
             // Pump owns the SHM mapping; we open it before constructing
-            // GameAPIImpl so both the component cache (per-iface invalidation
-            // tokens) and the entity facades (snapshot reads) can read from
+            // GameAPIImpl so the entity facades (snapshot reads) can read from
             // the same region. ClientImpl borrows the same region.
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
-                    iface -> pump.region().snapshot().ifaceVersion(iface),
                     () -> new GameSnapshotImpl(pump.region().snapshot()),
                     new StubGuard());
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);

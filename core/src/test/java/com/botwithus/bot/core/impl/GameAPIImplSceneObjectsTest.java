@@ -44,7 +44,7 @@ class GameAPIImplSceneObjectsTest {
         snap = new StubSnapshot();
         locTypes = new HashMap<>();
         itemTypes = new HashMap<>();
-        api = new GameAPIImpl(rpc, null, null, () -> snap) {
+        api = new GameAPIImpl(rpc, null, () -> snap) {
             @Override public LocationType getLocationType(int id) { return locTypes.get(id); }
             @Override public com.botwithus.bot.api.model.ItemType getItemType(int id) { return itemTypes.get(id); }
         };
