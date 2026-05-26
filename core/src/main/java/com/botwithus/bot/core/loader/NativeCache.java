@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Resolves the on-disk location of cached native artifacts. The
@@ -24,6 +25,9 @@ public final class NativeCache {
 
     private static final String CONFIG_DIR_NAME = ".botwithus";
     private static final String NATIVE_SUBDIR = "native";
+
+    /** File name of the NXT cache decoder library within the native cache. */
+    public static final String NXTCACHE_DLL_NAME = "NXTCache.dll";
 
     private final Path cacheDir;
 
@@ -52,5 +56,29 @@ public final class NativeCache {
     public Path ensureExists() throws IOException {
         Files.createDirectories(cacheDir);
         return cacheDir;
+    }
+
+    /**
+     * Locate {@code NXTCache.dll} on disk without loading it, using the same
+     * precedence as {@code core.cache.NXTCache} at link time: the
+     * {@code -Dnxtcache.dll} override first (when it points at an existing
+     * file), then the downloaded native-cache entry under the default cache
+     * root. Returns empty when neither is present yet — e.g. while the
+     * loader's native-artifacts download is still in flight.
+     *
+     * <p>Unlike {@code NXTCache}'s own resolver this neither links the DLL nor
+     * throws when it is absent, so UI code can poll it as a readiness gate
+     * before triggering the eager link.</p>
+     */
+    public static Optional<Path> locateNxtCacheDll() {
+        String override = System.getProperty("nxtcache.dll");
+        if (override != null && !override.isBlank()) {
+            Path overridePath = Path.of(override);
+            if (Files.isRegularFile(overridePath)) {
+                return Optional.of(overridePath);
+            }
+        }
+        Path cached = new NativeCache().resolve(NXTCACHE_DLL_NAME);
+        return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();
     }
 }
