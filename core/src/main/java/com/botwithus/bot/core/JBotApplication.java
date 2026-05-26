@@ -46,12 +46,10 @@ public class JBotApplication {
             NXTCache nxtCache = openNxtCacheOrNull();
 
             // Pump owns the SHM mapping; we open it before constructing
-            // GameAPIImpl so both the component cache (per-iface invalidation
-            // tokens) and the entity facades (snapshot reads) can read from
+            // GameAPIImpl so the entity facades (snapshot reads) can read from
             // the same region. ClientImpl borrows the same region.
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, nxtCache,
-                    iface -> pump.region().snapshot().ifaceVersion(iface),
                     () -> new GameSnapshotImpl(pump.region().snapshot()));
             ClientProviderImpl clientProvider = new ClientProviderImpl();
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);

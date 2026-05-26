@@ -38,14 +38,11 @@ import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.rpc.RpcClient;
-import com.botwithus.bot.core.shm.Layout;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
@@ -62,26 +59,6 @@ public class GameAPIImpl implements GameAPI {
 
     private final RpcClient rpc;
     private final NXTCache cache;
-
-    /**
-     * Source of per-iface invalidation tokens for the {@code getComponent}
-     * cache. Production wiring is {@code iface -> region.snapshot().ifaceVersion(iface)};
-     * tests pass a stub. {@code null} disables caching entirely — the legacy
-     * 1-/2-arg constructors take this path so existing callers and tests
-     * keep their RPC-every-call semantics.
-     */
-    private final IntUnaryOperator ifaceVersionSource;
-
-    /**
-     * Cache of {@code getComponent} results keyed on {@code (ifaceId, compId)}
-     * packed into a long. Each entry remembers the {@code ifaceVersion} the
-     * cached {@link Component} was fetched at; on lookup we re-read the
-     * current version and treat any mismatch as eviction. {@code null} when
-     * caching is disabled (no version source). Sized via the natural growth
-     * pattern — scripts touch only a handful of unique components, so we
-     * don't bound this and let the JVM's hash map auto-resize.
-     */
-    private final ConcurrentHashMap<Long, ComponentCacheEntry> componentCache;
 
     /**
      * Snapshot supplier used by the entity facades and the local-player
@@ -109,38 +86,25 @@ public class GameAPIImpl implements GameAPI {
 
     /** Legacy constructor used by tests; config-type lookups will throw. */
     public GameAPIImpl(RpcClient rpc) {
-        this(rpc, null, null, null);
+        this(rpc, null, null);
     }
 
     public GameAPIImpl(RpcClient rpc, NXTCache cache) {
-        this(rpc, cache, null, null);
+        this(rpc, cache, null);
     }
 
     /**
-     * Slice-17 ctor: cache enabled, no snapshot source. Kept for the existing
-     * cache test which doesn't need entity queries; new production callers
-     * should use the 4-arg form.
-     */
-    public GameAPIImpl(RpcClient rpc, NXTCache cache, IntUnaryOperator ifaceVersionSource) {
-        this(rpc, cache, ifaceVersionSource, null);
-    }
-
-    /**
-     * Full ctor — wires the component cache and the entity-facade snapshot
-     * source. {@code ifaceVersionSource} can be {@code null} to disable the
-     * cache only; {@code snapshotSource} can be {@code null} to disable
-     * snapshot-derived helpers (entity queries and {@code getLocalPlayer}).
-     * Production callers pass both:
+     * Wires the entity-facade snapshot source. {@code snapshotSource} can be
+     * {@code null} to disable snapshot-derived helpers (entity queries and
+     * {@code getLocalPlayer}). Production callers pass:
      * <pre>{@code
      *   new GameAPIImpl(rpc, nxtCache,
-     *       iface -> region.snapshot().ifaceVersion(iface),
      *       () -> new GameSnapshotImpl(region.snapshot()));
      * }</pre>
      */
     public GameAPIImpl(RpcClient rpc, NXTCache cache,
-                       IntUnaryOperator ifaceVersionSource,
                        Supplier<GameSnapshot> snapshotSource) {
-        this(rpc, cache, ifaceVersionSource, snapshotSource, new StubGuard());
+        this(rpc, cache, snapshotSource, new StubGuard());
     }
 
     /**
@@ -148,11 +112,10 @@ public class GameAPIImpl implements GameAPI {
      * reporting of producer stubs ({@link #queryLocations}, {@link #queryGroundItems},
      * {@link #queryWorldMapElements}). Production wiring constructs one
      * {@code StubGuard} per session in {@code CliContext} and passes it
-     * through here; the 4-arg ctor chains to a default {@code StubGuard}
+     * through here; the 3-arg ctor chains to a default {@code StubGuard}
      * for tests and legacy callers that don't care about the warn channel.
      */
     public GameAPIImpl(RpcClient rpc, NXTCache cache,
-                       IntUnaryOperator ifaceVersionSource,
                        Supplier<GameSnapshot> snapshotSource,
                        StubGuard stubGuard) {
         if (stubGuard == null) {
@@ -160,13 +123,9 @@ public class GameAPIImpl implements GameAPI {
         }
         this.rpc = rpc;
         this.cache = cache;
-        this.ifaceVersionSource = ifaceVersionSource;
-        this.componentCache = ifaceVersionSource != null ? new ConcurrentHashMap<>() : null;
         this.snapshotSource = snapshotSource;
         this.stubGuard = stubGuard;
     }
-
-    private record ComponentCacheEntry(int version, Component component) {}
 
     // ---------------------------------------------------------------- Snapshot + entities
 
@@ -446,37 +405,12 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public Component getComponent(int interfaceId, int componentId) {
-        // Bypass the cache when (a) it's disabled, (b) the iface id is outside
-        // the version-token array, or (c) compId is negative — none of these
-        // fit our (iface, comp, version) keying scheme. Out-of-range ids fall
-        // through to the RPC, which is responsible for "not found" responses.
-        if (componentCache == null
-                || interfaceId < 0
-                || interfaceId >= Layout.IFACE_VERSION_CAP
-                || componentId < 0) {
-            return rpcGetComponent(interfaceId, componentId);
-        }
-        long key = ((long) interfaceId << 32) | (componentId & 0xFFFFFFFFL);
-        // Read the version BEFORE the RPC. If the producer bumps mid-RPC the
-        // cached entry is stored under the older version, which the next
-        // lookup will detect as a mismatch and refresh. Caching under the
-        // older version is cheaper-but-correct vs reading post-RPC and
-        // potentially hiding a bump that happened during the call.
-        int version = ifaceVersionSource.applyAsInt(interfaceId);
-        ComponentCacheEntry cached = componentCache.get(key);
-        if (cached != null && cached.version == version) {
-            return cached.component;
-        }
-        Component fetched = rpcGetComponent(interfaceId, componentId);
-        if (fetched != null) {
-            componentCache.put(key, new ComponentCacheEntry(version, fetched));
-        } else {
-            // RPC said "not found" — drop any stale entry rather than caching
-            // a null sentinel. Future calls will RPC again, which is cheap
-            // for the not-found path and avoids carrying negative state.
-            componentCache.remove(key);
-        }
-        return fetched;
+        // Every call reads live state: the RPC handler marshals the component
+        // read onto the game thread (where the structures are quiescent) and
+        // returns a fresh snapshot. There is no consumer-side cache — the
+        // producer no longer publishes per-iface invalidation tokens (v13), so
+        // a cache could only ever serve stale geometry/text/visibility.
+        return rpcGetComponent(interfaceId, componentId);
     }
 
     private Component rpcGetComponent(int interfaceId, int componentId) {
@@ -511,16 +445,6 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "sprite_id"),
                 getInt(r, "item_id"),
                 getInt(r, "item_amount"));
-    }
-
-    /** Diagnostics: number of cached (iface, comp) entries; 0 when caching is disabled. */
-    public int componentCacheSize() {
-        return componentCache == null ? 0 : componentCache.size();
-    }
-
-    /** Diagnostics/test hook: drop all cached components. */
-    public void clearComponentCache() {
-        if (componentCache != null) componentCache.clear();
     }
 
     @Override

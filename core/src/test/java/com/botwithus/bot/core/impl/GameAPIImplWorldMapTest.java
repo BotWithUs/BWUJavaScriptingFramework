@@ -37,7 +37,7 @@ class GameAPIImplWorldMapTest {
     private GameAPIImpl build() {
         rpc = mock(RpcClient.class);
         snap = new StubSnapshot();
-        api = new GameAPIImpl(rpc, null, null, () -> snap);
+        api = new GameAPIImpl(rpc, null, () -> snap);
         return api;
     }
 

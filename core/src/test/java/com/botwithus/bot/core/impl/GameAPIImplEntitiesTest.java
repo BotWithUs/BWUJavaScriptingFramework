@@ -44,7 +44,7 @@ class GameAPIImplEntitiesTest {
         npcTypeCalls = 0;
         // Override getNpcType so tests don't need a real NXTCache binding —
         // the facade's caching is what we want to verify, not NXTCache.
-        api = new GameAPIImpl(rpc, null, null, () -> snap) {
+        api = new GameAPIImpl(rpc, null, () -> snap) {
             @Override public NpcType getNpcType(int id) {
                 npcTypeCalls++;
                 return npcTypes.get(id);
