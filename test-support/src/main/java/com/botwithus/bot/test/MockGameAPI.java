@@ -1,6 +1,7 @@
 package com.botwithus.bot.test;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
@@ -11,6 +12,7 @@ import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.GroundItemInfo;
@@ -362,6 +364,16 @@ final class MockGameAPI implements GameAPI {
     @Override
     public List<Integer> getDynamicChildren(int interfaceId, int componentId) {
         throw notStubbed("getDynamicChildren");
+    }
+
+    @Override
+    public Components components() {
+        throw notStubbed("components");
+    }
+
+    @Override
+    public List<ComponentTreeNode> getInterfaceTree(int interfaceId, int componentId) {
+        throw notStubbed("getInterfaceTree");
     }
 
     // ---- Config-type lookups -----------------------------------------------

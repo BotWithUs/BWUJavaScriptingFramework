@@ -18,7 +18,7 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 - **Event-type discriminators**: `Layout.EVT_*` mirrors `kEvent*` enum in `NXTLibrary/src/ipc/Events.h`. Decoder switch arms in `EventRingReader` must cover every type the producer emits.
 - **Wire body shapes**: each `api/.../event/*Event.java` constructor mirrors a POD struct in `NXTLibrary/src/ipc/Events.h`. Field order is load-bearing for the byte-offset decoders.
 - **Snapshot field offsets**: `Layout.SNAP_*` / `LP_*` / `NPC_*` / `PLAYER_*` / `LOC_*` mirror `NXTLibrary/src/ipc/SharedLayout.h`. Static_asserts on the C++ side will catch divergent strides at compile time, but the Java side is untyped — keep the offset constants in lockstep.
-- **RPC method names + param shapes**: each `rpc.callSync(<name>, ...)` in `GameAPIImpl` (and its `domain/*API` mixin partials) matches a handler in `NXTLibrary/src/rpc/Handlers.cpp`. New RPCs land in both files together.
+- **RPC method names + param shapes**: each `rpc.callSync(<name>, ...)` in `GameAPIImpl` (and its `domain/*API` mixin partials) matches a handler in `NXTLibrary/src/rpc/Handlers.cpp`. New RPCs land in both files together. Note the component query surface: `get_component` + `get_interface_tree` decode through the shared `GameAPIImpl.decodeComponent`, both surfaced via the `api.components()` facade (`api/.../component/`). The component map carries a stable `category` code (producer's `WireCategory` → `ComponentType`); it is **additive over the RPC pipe**, so it does **not** bump `PROTOCOL_VERSION` (that gates only the SHM snapshot layout). A producer predating `category` decodes to `0` → `ComponentType.UNKNOWN`.
 
 ## Build Commands
 

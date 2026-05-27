@@ -23,6 +23,13 @@ package com.botwithus.bot.api.model;
  *                      hidden bit) at different offsets, so this is the
  *                      dispatch key any per-type read needs. Some known
  *                      values: type 8 is ButtonComponent.
+ * @param category      stable, build-independent semantic category code
+ *                      (mirrors the producer's {@code WireCategory}); the
+ *                      durable form to query on. Map it with
+ *                      {@link com.botwithus.bot.api.component.ComponentType#fromCode(int)}.
+ *                      Prefer this over {@code type} — the raw {@code type}
+ *                      byte drifts between game builds. {@code 0} (Unknown)
+ *                      when read from a producer that predates this field.
  * @param x             post-layout screen-space x (pixels)
  * @param y             post-layout screen-space y
  * @param width         post-layout computed width
@@ -81,6 +88,7 @@ public record Component(
         int compId,
         int subId,
         int type,
+        int category,
         int x,
         int y,
         int width,
