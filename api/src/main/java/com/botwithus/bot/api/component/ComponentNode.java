@@ -114,8 +114,8 @@ public final class ComponentNode {
         api.queueAction(new GameAction(
                 ActionTypes.COMPONENT,
                 optionIndex,
-                Interfaces.componentHash(interfaceId(), componentId()),
-                NO_SUB_SLOT));
+                NO_SUB_SLOT,
+                Interfaces.componentHash(interfaceId(), componentId())));
     }
 
     @Override
