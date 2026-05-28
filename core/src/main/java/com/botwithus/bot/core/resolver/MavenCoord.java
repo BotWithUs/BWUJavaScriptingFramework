@@ -2,6 +2,7 @@ package com.botwithus.bot.core.resolver;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * Maven artifact coordinate (groupId:artifactId[:version]).
@@ -11,16 +12,39 @@ import java.util.Optional;
  */
 public record MavenCoord(String groupId, String artifactId, Optional<String> version) {
 
+    // Each part is interpolated into filesystem paths (jarFileName /
+    // versionPath → scriptsDir.resolve). Restricting to this charset and
+    // rejecting ".." keeps a malicious repository's metadata version (or a
+    // crafted spec) from escaping the scripts directory via path traversal.
+    private static final Pattern SAFE_TOKEN = Pattern.compile("[A-Za-z0-9._+-]+");
+
     public MavenCoord {
         Objects.requireNonNull(groupId, "groupId");
         Objects.requireNonNull(artifactId, "artifactId");
         Objects.requireNonNull(version, "version");
-        if (groupId.isBlank()) {
-            throw new IllegalArgumentException("groupId must not be blank");
+        if (!isValidToken(groupId)) {
+            throw new IllegalArgumentException("invalid groupId: " + groupId);
         }
-        if (artifactId.isBlank()) {
-            throw new IllegalArgumentException("artifactId must not be blank");
+        if (!isValidToken(artifactId)) {
+            throw new IllegalArgumentException("invalid artifactId: " + artifactId);
         }
+        if (version.isPresent() && !isValidToken(version.get())) {
+            throw new IllegalArgumentException("invalid version: " + version.get());
+        }
+    }
+
+    /**
+     * Whether {@code token} is a safe groupId / artifactId / version
+     * component: non-blank, drawn only from {@code [A-Za-z0-9._+-]}, and
+     * free of {@code ".."}. Path separators are already excluded by the
+     * charset; the {@code ".."} guard is belt-and-suspenders against
+     * traversal.
+     */
+    public static boolean isValidToken(String token) {
+        return token != null
+                && !token.isBlank()
+                && SAFE_TOKEN.matcher(token).matches()
+                && !token.contains("..");
     }
 
     public static MavenCoord of(String groupId, String artifactId, String version) {
@@ -39,17 +63,15 @@ public record MavenCoord(String groupId, String artifactId, Optional<String> ver
             return Optional.empty();
         }
         String[] parts = spec.split(":");
-        if (parts.length == 2) {
-            if (parts[0].isBlank() || parts[1].isBlank()) {
-                return Optional.empty();
+        try {
+            if (parts.length == 2) {
+                return Optional.of(of(parts[0], parts[1]));
             }
-            return Optional.of(of(parts[0], parts[1]));
-        }
-        if (parts.length == 3) {
-            if (parts[0].isBlank() || parts[1].isBlank() || parts[2].isBlank()) {
-                return Optional.empty();
+            if (parts.length == 3) {
+                return Optional.of(of(parts[0], parts[1], parts[2]));
             }
-            return Optional.of(of(parts[0], parts[1], parts[2]));
+        } catch (IllegalArgumentException malformed) {
+            return Optional.empty();
         }
         return Optional.empty();
     }

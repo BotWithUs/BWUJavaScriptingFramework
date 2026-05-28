@@ -207,12 +207,16 @@ public final class Resolver {
             return coord.version();
         }
         ListVersionsResult listing = driver.listVersions(repository, coord, transport, credentials).join();
-        return switch (listing) {
+        Optional<String> best = switch (listing) {
             case ListVersionsResult.Ok ok -> ok.listing().bestRelease();
             case ListVersionsResult.NotIndexed nf -> Optional.empty();
             case ListVersionsResult.Malformed bad -> Optional.empty();
             case ListVersionsResult.TransportFailed tf -> Optional.empty();
         };
+        // A repository's metadata is untrusted input: drop a version that
+        // can't be safely interpolated into a path so it surfaces as a clean
+        // NotFound rather than throwing deeper in downloadAndVerify.
+        return best.filter(MavenCoord::isValidToken);
     }
 
     /**
