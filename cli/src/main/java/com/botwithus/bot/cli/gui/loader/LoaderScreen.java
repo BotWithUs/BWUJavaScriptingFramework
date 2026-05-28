@@ -36,6 +36,14 @@ public class LoaderScreen {
     private static final String APP_VERSION = "2.0.0";
     // Token path: null tells the DLL to use its default location
 
+    // Upper bound on how long we wait for the native-artifacts download
+    // (NXTCache.dll etc.) to land on disk after the agent module is ready.
+    // That download runs on a background thread in the loader with no
+    // dedicated status flag, so without a deadline a stalled or failed
+    // download would spin the loader screen forever instead of surfacing an
+    // error. Generous enough for a multi-megabyte fetch on a slow link.
+    private static final long NATIVE_WAIT_TIMEOUT_MS = 120_000L;
+
     // State machine
     private LoaderState state = LoaderState.LOGIN;
     private LoaderState previousState;
@@ -78,6 +86,10 @@ public class LoaderScreen {
     // Update state
     private String updateStatus = "Checking for updates...";
     private float updateProgress = -1f; // -1 = indeterminate
+    // Wall-clock start of the native-libraries wait (0 = not yet waiting).
+    // Set when we first observe "module ready, NXTCache.dll still missing";
+    // reset whenever we leave that phase so a retry gets a fresh deadline.
+    private long nativeWaitStartedMs = 0L;
 
     // Loading state
     private String loadingStatus = "Initializing...";
@@ -968,6 +980,9 @@ public class LoaderScreen {
             }
 
             if (status.downloading()) {
+                // Agent module still downloading — the native-artifacts wait
+                // hasn't begun; keep its deadline reset.
+                nativeWaitStartedMs = 0L;
                 updateStatus = "Downloading module... " + status.downloadProgress() + "%";
                 updateProgress = status.downloadProgress() / 100f;
             } else if (status.moduleReady()) {
@@ -978,16 +993,35 @@ public class LoaderScreen {
                 // NXTCache eagerly via its static initializer.
                 Path nxtCache = new NativeCache().resolve("NXTCache.dll");
                 if (!Files.isRegularFile(nxtCache)) {
+                    // Start (or continue) the bounded wait. The native download
+                    // sets last_error on failure, but the parallel module
+                    // thread can clear that shared field first, so a deadline
+                    // is the reliable backstop against an infinite spinner.
+                    if (nativeWaitStartedMs == 0L) {
+                        nativeWaitStartedMs = System.currentTimeMillis();
+                    }
+                    if (System.currentTimeMillis() - nativeWaitStartedMs > NATIVE_WAIT_TIMEOUT_MS) {
+                        log.error("Timed out waiting for native libraries (NXTCache.dll) after {}s",
+                                NATIVE_WAIT_TIMEOUT_MS / 1000);
+                        errorTitle = "Download Failed";
+                        errorMessage = "Timed out waiting for native libraries to download. "
+                                + "Check your connection and try again.";
+                        errorReturnState = LoaderState.LOGIN;
+                        transitionTo(LoaderState.ERROR);
+                        return;
+                    }
                     updateStatus = "Downloading native libraries...";
                     updateProgress = -1f;
                     return;
                 }
 
+                nativeWaitStartedMs = 0L;
                 updateStatus = "Up to date.";
                 updateProgress = 1.0f;
                 transitionTo(LoaderState.LOADING);
                 startLoading();
-            } else if (status.downloadProgress() == 0 && !status.downloading()) {
+            } else if (status.downloadProgress() == 0) {
+                nativeWaitStartedMs = 0L;
                 // Not downloading, not ready yet — may still be checking
                 // If we just triggered refreshModule(), give it a moment
                 updateStatus = "Checking for updates...";
