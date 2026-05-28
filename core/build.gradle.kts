@@ -19,6 +19,13 @@ extraJavaModuleInfo {
     // BouncyCastle 1.78+ ships proper module-info entries, but the auto-
     // derived module names are stable: org.bouncycastle.pg (bcpg) and
     // org.bouncycastle.provider (bcprov). No overrides required as of 1.78.
+    //
+    // NOTE: do not bump BC to 1.80 without re-deriving these module
+    // descriptors. bcpg 1.80's PGPUtil static init references
+    // org.bouncycastle.asn1.cryptlib in bcprov, which BC's own module-info
+    // doesn't export across the module boundary -> NoClassDefFoundError on
+    // the module path (and jlink image). The upgrade needs a working
+    // module-info override here AND in :cli, plus jlink re-validation.
 }
 
 // Note: bwu.dll is bundled by the :cli module (the module whose
