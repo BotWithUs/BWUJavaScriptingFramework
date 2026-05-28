@@ -13,9 +13,12 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandle;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
@@ -96,7 +99,8 @@ public final class BwuClient implements AutoCloseable {
      * Resolve bwu.dll using a three-stage strategy:
      * <ol>
      *   <li>{@code BWU_DLL_PATH} env var (dev override)</li>
-     *   <li>Filesystem — DLL next to the executable or in the working directory</li>
+     *   <li>Filesystem — DLL next to the application's own install directory
+     *       (the code source), <em>not</em> the ambient working directory</li>
      *   <li>Bundled resource — extract {@code /native/bwu.dll} to a temp file</li>
      * </ol>
      *
@@ -120,9 +124,10 @@ public final class BwuClient implements AutoCloseable {
             log.warn("BWU_DLL_PATH set but file not found: {}", devPath);
         }
 
-        Path fsPath = Path.of("bwu.dll");
-        if (Files.isRegularFile(fsPath)) {
-            return fsPath;
+        Path nextToApp = dllNextToCodeSource(resourceAnchor);
+        if (nextToApp != null) {
+            log.info("Using bwu.dll next to application install dir: {}", nextToApp);
+            return nextToApp;
         }
 
         try (InputStream in = resourceAnchor.getResourceAsStream("/native/bwu.dll")) {
@@ -134,6 +139,38 @@ public final class BwuClient implements AutoCloseable {
             return tmp;
         } catch (IOException e) {
             log.warn("Failed to extract bwu.dll from resources: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Resolves {@code bwu.dll} sitting next to the application's own code
+     * source (the directory the running JAR/classes were loaded from).
+     * Deliberately does <em>not</em> consult the ambient working directory:
+     * the loader runs native code in-process and performs auth + game
+     * injection, so a {@code bwu.dll} planted in whatever folder the app was
+     * launched from must never be picked up. Returns {@code null} when the
+     * code source is unavailable or has no sibling DLL.
+     */
+    private static Path dllNextToCodeSource(Class<?> resourceAnchor) {
+        try {
+            var codeSource = resourceAnchor.getProtectionDomain().getCodeSource();
+            if (codeSource == null) {
+                return null;
+            }
+            URL location = codeSource.getLocation();
+            if (location == null) {
+                return null;
+            }
+            Path codePath = Paths.get(location.toURI());
+            Path baseDir = Files.isDirectory(codePath) ? codePath : codePath.getParent();
+            if (baseDir == null) {
+                return null;
+            }
+            Path candidate = baseDir.resolve("bwu.dll");
+            return Files.isRegularFile(candidate) ? candidate : null;
+        } catch (URISyntaxException | RuntimeException e) {
+            log.debug("could not resolve bwu.dll next to code source: {}", e.getMessage());
             return null;
         }
     }
