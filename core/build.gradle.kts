@@ -113,6 +113,14 @@ tasks.register<Test>("liveSmokeTest") {
     group = "verification"
     useJUnitPlatform()
     systemProperty("botwithus.smoke.live", "true")
+    // LiveVariableApiSmokeTest's varbit checks load NXTCache.dll via Panama, which
+    // needs native access enabled; forward the cache locators from the invoking
+    // command line (e.g. -Dnxtcache.dll=<...> -Dnxtcache.live=true). Harmless for
+    // the other live tests, which don't touch the cache.
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
     testLogging {
         events("passed", "failed", "skipped", "standard_out", "standard_error")
         showStandardStreams = true
@@ -123,5 +131,6 @@ tasks.register<Test>("liveSmokeTest") {
         includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveLocationsSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.rpc.LiveStaleRpcSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.impl.LiveComponentApiSmokeTest")
+        includeTestsMatching("com.botwithus.bot.core.impl.LiveVariableApiSmokeTest")
     }
 }
