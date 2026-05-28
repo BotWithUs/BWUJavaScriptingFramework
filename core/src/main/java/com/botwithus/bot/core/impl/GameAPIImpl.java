@@ -33,6 +33,8 @@ import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.model.VarbitType;
+import com.botwithus.bot.api.model.VarbitValue;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldPathConfig;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -804,6 +806,57 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public QuestType getQuestType(int id) {
         return requireCache().getQuest(id);
+    }
+
+    // ---------------------------------------------------------------- Game variables (varp / varc / varbit)
+    //
+    // varp / varc reads are raw producer round-trips (it walks the live variable
+    // hashmap on the game thread). Varbit decoding is composed here: read the
+    // varbit's base variable, then shift/mask with the bit range from the cache
+    // type config — the producer never needs to know about varbits.
+
+    @Override
+    public int getVarp(int varId) {
+        Map<String, Object> r = rpc.callSync("get_varp", Map.of("var_id", varId));
+        return getInt(r, "value");
+    }
+
+    @Override
+    public int getVarcInt(int varcId) {
+        Map<String, Object> r = rpc.callSync("get_varc_int", Map.of("var_id", varcId));
+        return getInt(r, "value");
+    }
+
+    @Override
+    public String getVarcString(int varcId) {
+        Map<String, Object> r = rpc.callSync("get_varc_string", Map.of("var_id", varcId));
+        return getString(r, "value");
+    }
+
+    @Override
+    public int getVarbit(int varbitId) {
+        VarbitType def = requireCache().getVarbit(varbitId);
+        if (def == null) {
+            return -1;
+        }
+        // domainType 0 = player varp; a client-domain varbit reads the base varc.
+        int base = def.domainType() == 0 ? getVarp(def.varId()) : getVarcInt(def.varId());
+        int width = def.msb() - def.lsb() + 1;
+        if (width <= 0 || width > 32) {
+            return -1;
+        }
+        // width == 32 would make (1 << 32) wrap to 1 in Java; treat it as all bits.
+        int mask = width == 32 ? -1 : (1 << width) - 1;
+        return (base >>> def.lsb()) & mask;
+    }
+
+    @Override
+    public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
+        List<VarbitValue> out = new ArrayList<>(varbitIds.size());
+        for (int id : varbitIds) {
+            out.add(new VarbitValue(id, getVarbit(id)));
+        }
+        return out;
     }
 
     // ---------------------------------------------------------------- Helpers

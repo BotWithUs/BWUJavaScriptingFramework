@@ -4,6 +4,7 @@ import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.domain.ActionAPI;
 import com.botwithus.bot.api.domain.NavigationAPI;
 import com.botwithus.bot.api.domain.SystemAPI;
+import com.botwithus.bot.api.domain.VariableAPI;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
@@ -46,16 +47,18 @@ import java.util.Map;
  *   <li>{@link SystemAPI} — pipe ping / introspection</li>
  *   <li>{@link ActionAPI} — action queue + behavior modifiers</li>
  *   <li>{@link NavigationAPI} — walker, pathfinder queries, region cache</li>
+ *   <li>{@link VariableAPI} — on-demand varp / varbit / varc reads</li>
  * </ul>
  *
- * <p>Reads of game state (local player, NPCs, players, inventories) and
- * of any per-tick observation (varps, components, chat history) are NOT
- * here — go through {@link Client#snapshot()} or subscribe to events on
- * the {@link com.botwithus.bot.api.event.EventBus}.</p>
+ * <p>Per-tick reads of game state (local player, NPCs, players, inventories)
+ * go through {@link Client#snapshot()}; transient changes (varp/varbit deltas,
+ * chat) arrive as events on the {@link com.botwithus.bot.api.event.EventBus}.
+ * On-demand variable reads (current value of an arbitrary varp/varbit/varc)
+ * live on {@link VariableAPI} below.</p>
  *
  * @see ScriptContext#getGameAPI()
  */
-public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
+public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAPI {
 
     // ---------------------------------------------------------------- Snapshot
 

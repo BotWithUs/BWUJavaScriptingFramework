@@ -27,6 +27,7 @@ import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.model.VarbitValue;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldPathConfig;
@@ -411,5 +412,32 @@ final class MockGameAPI implements GameAPI {
     @Override
     public QuestType getQuestType(int id) {
         throw notStubbed("getQuestType");
+    }
+
+    // ---- Game variables (varp / varc / varbit) -----------------------------
+
+    @Override
+    public int getVarp(int varId) {
+        throw notStubbed("getVarp");
+    }
+
+    @Override
+    public int getVarbit(int varbitId) {
+        throw notStubbed("getVarbit");
+    }
+
+    @Override
+    public int getVarcInt(int varcId) {
+        throw notStubbed("getVarcInt");
+    }
+
+    @Override
+    public String getVarcString(int varcId) {
+        throw notStubbed("getVarcString");
+    }
+
+    @Override
+    public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
+        throw notStubbed("queryVarbits");
     }
 }
