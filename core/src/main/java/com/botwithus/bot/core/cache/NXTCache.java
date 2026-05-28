@@ -7,6 +7,7 @@ import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.model.VarbitType;
 import com.botwithus.bot.core.loader.NativeCache;
 import com.botwithus.bot.core.util.Throwables;
 import com.google.gson.Gson;
@@ -272,6 +273,12 @@ public final class NXTCache implements AutoCloseable {
     public QuestType getQuest(int id) {
         String json = getQuestJson(id);
         return json == null ? null : NXTCacheMapper.toQuestType(parseObject(json));
+    }
+
+    /** @return decoded varbit definition (base var + bit range), or {@code null}. */
+    public VarbitType getVarbit(int id) {
+        String json = getVarbitJson(id);
+        return json == null ? null : NXTCacheMapper.toVarbitType(parseObject(json));
     }
 
     // ------------------------------------------------- Raw JSON getters

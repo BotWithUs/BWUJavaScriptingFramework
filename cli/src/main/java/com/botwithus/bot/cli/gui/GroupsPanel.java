@@ -29,7 +29,25 @@ public class GroupsPanel implements GuiPanel {
 
     @Override
     public void render(CliContext ctx) {
-        // Create group controls
+        renderCreateGroupControls(ctx);
+
+        // Groups list
+        Map<String, ConnectionGroup> groups = ctx.getGroups();
+        if (groups.isEmpty()) {
+            ImGui.spacing();
+            GuiHelpers.textMuted("No groups created. Use the form above to create one.");
+            return;
+        }
+
+        GuiHelpers.sectionHeader("Groups");
+        renderGroupsTable(ctx, groups);
+
+        // Member details per group
+        GuiHelpers.sectionHeader("Group Members");
+        renderGroupMembers(ctx, groups);
+    }
+
+    private void renderCreateGroupControls(CliContext ctx) {
         GuiHelpers.textSecondary("Create Group:");
         ImGui.sameLine();
         ImGui.pushItemWidth(200);
@@ -43,17 +61,9 @@ public class GroupsPanel implements GuiPanel {
                 newGroupName.set("");
             }
         }
+    }
 
-        // Groups list
-        Map<String, ConnectionGroup> groups = ctx.getGroups();
-        if (groups.isEmpty()) {
-            ImGui.spacing();
-            GuiHelpers.textMuted("No groups created. Use the form above to create one.");
-            return;
-        }
-
-        GuiHelpers.sectionHeader("Groups");
-
+    private void renderGroupsTable(CliContext ctx, Map<String, ConnectionGroup> groups) {
         int flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
         if (ImGui.beginTable("groupsTable", 4, flags)) {
             ImGui.tableSetupColumn("Group Name", 0, 1.0f);
@@ -64,81 +74,86 @@ public class GroupsPanel implements GuiPanel {
 
             int groupIdx = 0;
             for (var entry : groups.entrySet()) {
-                String groupName = entry.getKey();
-                ConnectionGroup group = entry.getValue();
-                Set<String> members = group.getConnectionNames();
-
-                ImGui.tableNextRow();
-
-                ImGui.tableSetColumnIndex(0);
-                ImGui.text(groupName);
-
-                ImGui.tableSetColumnIndex(1);
-                ImGui.text(String.valueOf(members.size()));
-
-                ImGui.tableSetColumnIndex(2);
-                renderAddConnectionDropdown(ctx, groupName, group, groupIdx);
-
-                ImGui.tableSetColumnIndex(3);
-                ImGui.pushID("grp_del_" + groupIdx);
-                if (GuiHelpers.smallButtonDanger(Icons.TRASH + " Delete")) {
-                    ctx.deleteGroup(groupName);
-                }
-                ImGui.popID();
-
+                renderGroupRow(ctx, entry.getKey(), entry.getValue(), groupIdx);
                 groupIdx++;
             }
 
             ImGui.endTable();
         }
+    }
 
-        // Member details per group
-        GuiHelpers.sectionHeader("Group Members");
+    private void renderGroupRow(CliContext ctx, String groupName, ConnectionGroup group, int groupIdx) {
+        Set<String> members = group.getConnectionNames();
 
+        ImGui.tableNextRow();
+
+        ImGui.tableSetColumnIndex(0);
+        ImGui.text(groupName);
+
+        ImGui.tableSetColumnIndex(1);
+        ImGui.text(String.valueOf(members.size()));
+
+        ImGui.tableSetColumnIndex(2);
+        renderAddConnectionDropdown(ctx, groupName, group, groupIdx);
+
+        ImGui.tableSetColumnIndex(3);
+        ImGui.pushID("grp_del_" + groupIdx);
+        if (GuiHelpers.smallButtonDanger(Icons.TRASH + " Delete")) {
+            ctx.deleteGroup(groupName);
+        }
+        ImGui.popID();
+    }
+
+    private void renderGroupMembers(CliContext ctx, Map<String, ConnectionGroup> groups) {
         int grpIdx = 0;
         for (var entry : groups.entrySet()) {
-            String groupName = entry.getKey();
-            ConnectionGroup group = entry.getValue();
-            Set<String> members = group.getConnectionNames();
-
-            int treeFlags = ImGuiTreeNodeFlags.DefaultOpen;
-            if (ImGui.treeNodeEx("grp_tree_" + grpIdx, treeFlags, groupName + " (" + members.size() + " members)")) {
-                if (members.isEmpty()) {
-                    ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                            "  No members");
-                } else {
-                    int memberIdx = 0;
-                    for (String memberName : members) {
-                        ImGui.text("  " + memberName);
-
-                        // Check if connection is alive
-                        boolean alive = false;
-                        for (Connection conn : ctx.getConnections()) {
-                            if (conn.getName().equals(memberName) && conn.isAlive()) {
-                                alive = true;
-                                break;
-                            }
-                        }
-                        ImGui.sameLine();
-                        if (alive) {
-                            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "(connected)");
-                        } else {
-                            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f, "(disconnected)");
-                        }
-
-                        ImGui.sameLine(0, 12);
-                        ImGui.pushID("member_rm_" + grpIdx + "_" + memberIdx);
-                        if (ImGui.smallButton("Remove")) {
-                            ctx.removeFromGroup(groupName, memberName);
-                        }
-                        ImGui.popID();
-                        memberIdx++;
-                    }
-                }
-                ImGui.treePop();
-            }
+            renderGroupMemberTree(ctx, entry.getKey(), entry.getValue(), grpIdx);
             grpIdx++;
         }
+    }
+
+    private void renderGroupMemberTree(CliContext ctx, String groupName, ConnectionGroup group, int grpIdx) {
+        Set<String> members = group.getConnectionNames();
+        int treeFlags = ImGuiTreeNodeFlags.DefaultOpen;
+        if (ImGui.treeNodeEx("grp_tree_" + grpIdx, treeFlags, groupName + " (" + members.size() + " members)")) {
+            if (members.isEmpty()) {
+                ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+                        "  No members");
+            } else {
+                int memberIdx = 0;
+                for (String memberName : members) {
+                    renderMemberRow(ctx, groupName, memberName, grpIdx, memberIdx);
+                    memberIdx++;
+                }
+            }
+            ImGui.treePop();
+        }
+    }
+
+    private void renderMemberRow(CliContext ctx, String groupName, String memberName, int grpIdx, int memberIdx) {
+        ImGui.text("  " + memberName);
+
+        // Check if connection is alive
+        boolean alive = false;
+        for (Connection conn : ctx.getConnections()) {
+            if (conn.getName().equals(memberName) && conn.isAlive()) {
+                alive = true;
+                break;
+            }
+        }
+        ImGui.sameLine();
+        if (alive) {
+            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "(connected)");
+        } else {
+            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f, "(disconnected)");
+        }
+
+        ImGui.sameLine(0, 12);
+        ImGui.pushID("member_rm_" + grpIdx + "_" + memberIdx);
+        if (ImGui.smallButton("Remove")) {
+            ctx.removeFromGroup(groupName, memberName);
+        }
+        ImGui.popID();
     }
 
     private void renderAddConnectionDropdown(CliContext ctx, String groupName, ConnectionGroup group, int groupIdx) {

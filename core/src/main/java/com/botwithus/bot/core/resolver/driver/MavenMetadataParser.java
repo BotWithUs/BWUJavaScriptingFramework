@@ -44,68 +44,11 @@ final class MavenMetadataParser {
         factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, Boolean.FALSE);
         factory.setProperty(XMLInputFactory.SUPPORT_DTD, Boolean.FALSE);
 
-        String groupId = null;
-        String artifactId = null;
-        String latest = null;
-        String release = null;
-        List<String> versions = new ArrayList<>();
-        boolean inVersioning = false;
-        boolean inVersionsBlock = false;
-
+        Accumulator acc = new Accumulator();
         try {
             XMLStreamReader reader = factory.createXMLStreamReader(stream);
             try {
-                while (reader.hasNext()) {
-                    int event = reader.next();
-                    if (event == XMLStreamConstants.START_ELEMENT) {
-                        String name = reader.getLocalName();
-                        switch (name) {
-                            case EL_VERSIONING -> inVersioning = true;
-                            case EL_VERSIONS -> {
-                                if (inVersioning) {
-                                    inVersionsBlock = true;
-                                }
-                            }
-                            case EL_GROUP_ID -> {
-                                if (!inVersioning && groupId == null) {
-                                    groupId = readText(reader);
-                                }
-                            }
-                            case EL_ARTIFACT_ID -> {
-                                if (!inVersioning && artifactId == null) {
-                                    artifactId = readText(reader);
-                                }
-                            }
-                            case EL_LATEST -> {
-                                if (inVersioning) {
-                                    latest = readText(reader);
-                                }
-                            }
-                            case EL_RELEASE -> {
-                                if (inVersioning) {
-                                    release = readText(reader);
-                                }
-                            }
-                            case EL_VERSION -> {
-                                if (inVersionsBlock) {
-                                    String v = readText(reader);
-                                    if (v != null && !v.isBlank()) {
-                                        versions.add(v.trim());
-                                    }
-                                }
-                            }
-                            default -> {
-                            }
-                        }
-                    } else if (event == XMLStreamConstants.END_ELEMENT) {
-                        String name = reader.getLocalName();
-                        if (EL_VERSIONS.equals(name)) {
-                            inVersionsBlock = false;
-                        } else if (EL_VERSIONING.equals(name)) {
-                            inVersioning = false;
-                        }
-                    }
-                }
+                readDocument(reader, acc);
             } finally {
                 reader.close();
             }
@@ -113,15 +56,91 @@ final class MavenMetadataParser {
             throw new MetadataParseException("Malformed maven-metadata.xml: " + e.getMessage(), e);
         }
 
-        if (groupId == null || artifactId == null) {
-            throw new MetadataParseException("maven-metadata.xml missing groupId or artifactId");
+        return acc.toMetadata();
+    }
+
+    private static void readDocument(XMLStreamReader reader, Accumulator acc) throws XMLStreamException {
+        while (reader.hasNext()) {
+            int event = reader.next();
+            if (event == XMLStreamConstants.START_ELEMENT) {
+                handleStartElement(reader, acc);
+            } else if (event == XMLStreamConstants.END_ELEMENT) {
+                handleEndElement(reader.getLocalName(), acc);
+            }
         }
-        return new MavenMetadata(
-                groupId,
-                artifactId,
-                Optional.ofNullable(emptyToNull(latest)),
-                Optional.ofNullable(emptyToNull(release)),
-                versions);
+    }
+
+    private static void handleStartElement(XMLStreamReader reader, Accumulator acc) throws XMLStreamException {
+        String name = reader.getLocalName();
+        switch (name) {
+            case EL_VERSIONING -> acc.inVersioning = true;
+            case EL_VERSIONS -> {
+                if (acc.inVersioning) {
+                    acc.inVersionsBlock = true;
+                }
+            }
+            case EL_GROUP_ID -> {
+                if (!acc.inVersioning && acc.groupId == null) {
+                    acc.groupId = readText(reader);
+                }
+            }
+            case EL_ARTIFACT_ID -> {
+                if (!acc.inVersioning && acc.artifactId == null) {
+                    acc.artifactId = readText(reader);
+                }
+            }
+            case EL_LATEST -> {
+                if (acc.inVersioning) {
+                    acc.latest = readText(reader);
+                }
+            }
+            case EL_RELEASE -> {
+                if (acc.inVersioning) {
+                    acc.release = readText(reader);
+                }
+            }
+            case EL_VERSION -> {
+                if (acc.inVersionsBlock) {
+                    String v = readText(reader);
+                    if (v != null && !v.isBlank()) {
+                        acc.versions.add(v.trim());
+                    }
+                }
+            }
+            default -> {
+            }
+        }
+    }
+
+    private static void handleEndElement(String name, Accumulator acc) {
+        if (EL_VERSIONS.equals(name)) {
+            acc.inVersionsBlock = false;
+        } else if (EL_VERSIONING.equals(name)) {
+            acc.inVersioning = false;
+        }
+    }
+
+    /** Mutable scratch state threaded through the StAX pull loop. */
+    private static final class Accumulator {
+        private String groupId = null;
+        private String artifactId = null;
+        private String latest = null;
+        private String release = null;
+        private final List<String> versions = new ArrayList<>();
+        private boolean inVersioning = false;
+        private boolean inVersionsBlock = false;
+
+        MavenMetadata toMetadata() throws MetadataParseException {
+            if (groupId == null || artifactId == null) {
+                throw new MetadataParseException("maven-metadata.xml missing groupId or artifactId");
+            }
+            return new MavenMetadata(
+                    groupId,
+                    artifactId,
+                    Optional.ofNullable(emptyToNull(latest)),
+                    Optional.ofNullable(emptyToNull(release)),
+                    versions);
+        }
     }
 
     private static String readText(XMLStreamReader reader) throws XMLStreamException {

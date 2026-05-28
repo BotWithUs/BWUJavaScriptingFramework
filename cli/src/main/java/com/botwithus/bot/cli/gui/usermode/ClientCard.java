@@ -44,44 +44,60 @@ public class ClientCard {
                 .filter(ScriptRunner::isRunning)
                 .findFirst().orElse(null);
 
-        // ── Dimensions (font-relative) ─────────────────────────────────
-        ImGuiStyle style = ImGui.getStyle();
         float fontH = ImGui.getFontSize();
-        float frameH = ImGui.getFrameHeight();
-        float lineH = ImGui.getTextLineHeightWithSpacing();
         float padX = fontH * PAD_X_EM;
         float padY = fontH * PAD_Y_EM;
         float stripeW = Math.max(2f, fontH * STRIPE_EM);
         float rounding = fontH * ROUNDING_EM;
+        float cardHeight = computeCardHeight(padY, alive, activeRunner != null);
+
+        float[] accent = accentColor(alive, activeRunner);
+
+        drawCardBackground(cardWidth, cardHeight, rounding, stripeW, alive, activeRunner, accent);
+
+        return renderInterior(connection, cardIndex, cardWidth, cardHeight,
+                padX, padY, stripeW, alive, activeRunner);
+    }
+
+    private static float computeCardHeight(float padY, boolean alive, boolean running) {
+        ImGuiStyle style = ImGui.getStyle();
+        float frameH = ImGui.getFrameHeight();
+        float lineH = ImGui.getTextLineHeightWithSpacing();
         float gapY = style.getItemSpacingY();
 
         // Layout (top to bottom):
         //   padY · header line · spacing · separator · spacing · content · gap · button row · padY
-        int contentLines = (alive && activeRunner != null) ? 2 : 1;
-        float cardHeight = padY * 2f
+        int contentLines = (alive && running) ? 2 : 1;
+        return padY * 2f
                 + lineH                  // header
                 + gapY * 3f              // spacing + separator gap + spacing
                 + lineH * contentLines   // content lines
                 + gapY                   // pre-button breathing room
                 + frameH;                // button row
+    }
 
-        // ── Accent palette per state ────────────────────────────────────
-        float aR, aG, aB;
+    /** Accent palette per state, as {r, g, b}. */
+    private static float[] accentColor(boolean alive, ScriptRunner activeRunner) {
         if (!alive) {
-            aR = ImGuiTheme.RED_R; aG = ImGuiTheme.RED_G; aB = ImGuiTheme.RED_B;
-        } else if (activeRunner != null) {
+            return new float[]{ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B};
+        }
+        if (activeRunner != null) {
             ScriptManifest manifest = activeRunner.getManifest();
             if (manifest != null) {
                 CategoryStyle.Style cs = CategoryStyle.of(manifest.category());
-                aR = cs.r(); aG = cs.g(); aB = cs.b();
-            } else {
-                aR = ImGuiTheme.ACCENT_R; aG = ImGuiTheme.ACCENT_G; aB = ImGuiTheme.ACCENT_B;
+                return new float[]{cs.r(), cs.g(), cs.b()};
             }
-        } else {
-            aR = ImGuiTheme.TEXT_SEC_R; aG = ImGuiTheme.TEXT_SEC_G; aB = ImGuiTheme.TEXT_SEC_B;
+            return new float[]{ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B};
         }
+        return new float[]{ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B};
+    }
 
-        // ── Custom-drawn card background (parent draw list) ─────────────
+    /** Custom-drawn card background on the parent draw list (surface, glow, stripe, border). */
+    private void drawCardBackground(float cardWidth, float cardHeight, float rounding, float stripeW,
+                                    boolean alive, ScriptRunner activeRunner, float[] accent) {
+        float fontH = ImGui.getFontSize();
+        float aR = accent[0], aG = accent[1], aB = accent[2];
+
         float x0 = ImGui.getCursorScreenPosX();
         float y0 = ImGui.getCursorScreenPosY();
         float x1 = x0 + cardWidth;
@@ -110,8 +126,12 @@ public class ClientCard {
         draw.addRectFilled(x0, y0, x0 + stripeW, y1, stripeCol, rounding, ImDrawFlags.RoundCornersLeft);
         // Outer border
         draw.addRect(x0, y0, x1, y1, borderCol, rounding);
+    }
 
-        // ── Interior layout via a borderless transparent child ──────────
+    /** Interior layout via a borderless transparent child; dispatches to the per-state body. */
+    private CardAction renderInterior(Connection connection, int cardIndex, float cardWidth, float cardHeight,
+                                      float padX, float padY, float stripeW,
+                                      boolean alive, ScriptRunner activeRunner) {
         ImGui.pushStyleColor(ImGuiCol.ChildBg, 0f, 0f, 0f, 0f);
         ImGui.pushStyleColor(ImGuiCol.Border, 0f, 0f, 0f, 0f);
         // Reserve space for the stripe on the left; standard padding everywhere else.

@@ -47,7 +47,23 @@ public class ManagementScriptsPanel implements GuiPanel {
             return;
         }
 
-        // Top controls
+        renderTopControls(ctx, runtime);
+
+        GuiHelpers.sectionHeader("Management Scripts");
+
+        List<ManagementScriptRunner> runners = new ArrayList<>(runtime.getRunners());
+        runners.sort(Comparator.comparing(ManagementScriptRunner::getScriptName, String.CASE_INSENSITIVE_ORDER));
+
+        if (runners.isEmpty()) {
+            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+                    "No management scripts loaded. Click 'Load Scripts' to discover scripts from scripts/management/.");
+            return;
+        }
+
+        renderScriptsTable(runners);
+    }
+
+    private void renderTopControls(CliContext ctx, ManagementScriptRuntime runtime) {
         if (GuiHelpers.buttonPrimary(Icons.DOWNLOAD + "  Load Scripts")) {
             executor.submit(() -> loadManagementScripts(ctx));
         }
@@ -63,19 +79,9 @@ public class ManagementScriptsPanel implements GuiPanel {
 
         ImGui.sameLine(0, 20);
         GuiHelpers.textMuted("scripts/management/");
+    }
 
-        GuiHelpers.sectionHeader("Management Scripts");
-
-        List<ManagementScriptRunner> runners = new ArrayList<>(runtime.getRunners());
-        runners.sort(Comparator.comparing(ManagementScriptRunner::getScriptName, String.CASE_INSENSITIVE_ORDER));
-
-        if (runners.isEmpty()) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                    "No management scripts loaded. Click 'Load Scripts' to discover scripts from scripts/management/.");
-            return;
-        }
-
-        // Scripts table
+    private void renderScriptsTable(List<ManagementScriptRunner> runners) {
         int flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
         if (ImGui.beginTable("mgmtScriptsTable", 6, flags)) {
             ImGui.tableSetupColumn("#", 0, 0.3f);
@@ -87,84 +93,91 @@ public class ManagementScriptsPanel implements GuiPanel {
             ImGui.tableHeadersRow();
 
             for (int i = 0; i < runners.size(); i++) {
-                ManagementScriptRunner runner = runners.get(i);
-                ScriptManifest manifest = runner.getManifest();
-
-                ImGui.tableNextRow();
-
-                ImGui.tableSetColumnIndex(0);
-                ImGui.text(String.valueOf(i + 1));
-
-                ImGui.tableSetColumnIndex(1);
-                ImGui.text(runner.getScriptName());
-
-                ImGui.tableSetColumnIndex(2);
-                ImGui.text(manifest != null && !manifest.author().isEmpty() ? manifest.author() : "-");
-
-                ImGui.tableSetColumnIndex(3);
-                ImGui.text(manifest != null ? manifest.version() : "?");
-
-                ImGui.tableSetColumnIndex(4);
-                if (runner.isRunning()) {
-                    ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "RUNNING");
-                } else {
-                    ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f, "STOPPED");
-                }
-
-                ImGui.tableSetColumnIndex(5);
-                ImGui.pushID("mgmt_actions_" + i);
-
-                if (runner.isRunning()) {
-                    if (GuiHelpers.smallButtonDanger(Icons.STOP + " Stop")) {
-                        runner.stop();
-                    }
-                    ImGui.sameLine();
-                    if (ImGui.smallButton(Icons.REDO + " Restart")) {
-                        executor.submit(() -> {
-                            runner.stop();
-                            runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
-                            runner.start();
-                        });
-                    }
-                } else {
-                    if (ImGui.smallButton(Icons.PLAY + " Start")) {
-                        runner.start();
-                    }
-                }
-
-                // Config button
-                var configFields = runner.getConfigFields();
-                boolean hasConfig = (configFields != null && !configFields.isEmpty())
-                        || runner.getScript().getUI() != null;
-                if (hasConfig) {
-                    ImGui.sameLine();
-                    if (ImGui.smallButton(Icons.SLIDERS + " Config")) {
-                        if (configOpener != null) {
-                            configOpener.accept(runner);
-                        }
-                    }
-                }
-
-                // Info tooltip on hover
-                ImGui.sameLine();
-                if (ImGui.smallButton("Info")) {
-                    // Toggle info display handled inline below
-                }
-                if (ImGui.isItemHovered() && manifest != null) {
-                    ImGui.beginTooltip();
-                    ImGui.text("Name: " + runner.getScriptName());
-                    ImGui.text("Version: " + manifest.version());
-                    if (!manifest.author().isEmpty()) ImGui.text("Author: " + manifest.author());
-                    if (!manifest.description().isEmpty()) ImGui.text("Description: " + manifest.description());
-                    ImGui.text("Class: " + runner.getScript().getClass().getName());
-                    ImGui.endTooltip();
-                }
-
-                ImGui.popID();
+                renderScriptRow(runners.get(i), i);
             }
 
             ImGui.endTable();
         }
+    }
+
+    private void renderScriptRow(ManagementScriptRunner runner, int i) {
+        ScriptManifest manifest = runner.getManifest();
+
+        ImGui.tableNextRow();
+
+        ImGui.tableSetColumnIndex(0);
+        ImGui.text(String.valueOf(i + 1));
+
+        ImGui.tableSetColumnIndex(1);
+        ImGui.text(runner.getScriptName());
+
+        ImGui.tableSetColumnIndex(2);
+        ImGui.text(manifest != null && !manifest.author().isEmpty() ? manifest.author() : "-");
+
+        ImGui.tableSetColumnIndex(3);
+        ImGui.text(manifest != null ? manifest.version() : "?");
+
+        ImGui.tableSetColumnIndex(4);
+        if (runner.isRunning()) {
+            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "RUNNING");
+        } else {
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f, "STOPPED");
+        }
+
+        ImGui.tableSetColumnIndex(5);
+        renderActionsCell(runner, manifest, i);
+    }
+
+    private void renderActionsCell(ManagementScriptRunner runner, ScriptManifest manifest, int i) {
+        ImGui.pushID("mgmt_actions_" + i);
+
+        if (runner.isRunning()) {
+            if (GuiHelpers.smallButtonDanger(Icons.STOP + " Stop")) {
+                runner.stop();
+            }
+            ImGui.sameLine();
+            if (ImGui.smallButton(Icons.REDO + " Restart")) {
+                executor.submit(() -> {
+                    runner.stop();
+                    runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
+                    runner.start();
+                });
+            }
+        } else {
+            if (ImGui.smallButton(Icons.PLAY + " Start")) {
+                runner.start();
+            }
+        }
+
+        // Config button
+        var configFields = runner.getConfigFields();
+        boolean hasConfig = (configFields != null && !configFields.isEmpty())
+                || runner.getScript().getUI() != null;
+        if (hasConfig) {
+            ImGui.sameLine();
+            if (ImGui.smallButton(Icons.SLIDERS + " Config")) {
+                if (configOpener != null) {
+                    configOpener.accept(runner);
+                }
+            }
+        }
+
+        // Info tooltip on hover
+        ImGui.sameLine();
+        if (ImGui.smallButton("Info")) {
+            // Toggle info display handled inline below
+        }
+        if (ImGui.isItemHovered() && manifest != null) {
+            ImGui.beginTooltip();
+            ImGui.text("Name: " + runner.getScriptName());
+            ImGui.text("Version: " + manifest.version());
+            if (!manifest.author().isEmpty()) ImGui.text("Author: " + manifest.author());
+            if (!manifest.description().isEmpty()) ImGui.text("Description: " + manifest.description());
+            ImGui.text("Class: " + runner.getScript().getClass().getName());
+            ImGui.endTooltip();
+        }
+
+        ImGui.popID();
     }
 
     private void loadManagementScripts(CliContext ctx) {

@@ -43,7 +43,7 @@ public final class ScriptConfigStore {
         Map<String, String> values = new LinkedHashMap<>();
 
         for (ConfigField field : fields) {
-            values.put(field.key(), String.valueOf(field.defaultValue()));
+            values.put(field.key(), field.defaultAsString());
         }
 
         Path file = configFile(scriptName);

@@ -7,6 +7,7 @@ import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.model.VarbitType;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -103,6 +104,16 @@ final class NXTCacheMapper {
         return new StructType(
                 getInt(j, "id"),
                 getObjectMap(j, "params")
+        );
+    }
+
+    static VarbitType toVarbitType(Map<String, Object> j) {
+        return new VarbitType(
+                getInt(j, "id"),
+                getInt(j, "varId"),
+                getInt(j, "domainType"),
+                getInt(j, "lsb"),
+                getInt(j, "msb")
         );
     }
 

@@ -284,8 +284,11 @@ public class RpcBenchmark {
                 printResults(results, System.out);
             }
         } finally {
-            if (rpc != null) rpc.close();
-            else pipe.close();
+            if (rpc != null) {
+                rpc.close();
+            } else {
+                pipe.close();
+            }
         }
     }
 }

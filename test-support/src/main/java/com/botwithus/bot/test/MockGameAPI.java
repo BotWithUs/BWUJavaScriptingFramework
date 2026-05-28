@@ -1,6 +1,7 @@
 package com.botwithus.bot.test;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
@@ -11,6 +12,7 @@ import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.GroundItemInfo;
@@ -25,6 +27,7 @@ import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.model.VarbitValue;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldPathConfig;
@@ -364,6 +367,16 @@ final class MockGameAPI implements GameAPI {
         throw notStubbed("getDynamicChildren");
     }
 
+    @Override
+    public Components components() {
+        throw notStubbed("components");
+    }
+
+    @Override
+    public List<ComponentTreeNode> getInterfaceTree(int interfaceId, int componentId) {
+        throw notStubbed("getInterfaceTree");
+    }
+
     // ---- Config-type lookups -----------------------------------------------
 
     @Override
@@ -399,5 +412,32 @@ final class MockGameAPI implements GameAPI {
     @Override
     public QuestType getQuestType(int id) {
         throw notStubbed("getQuestType");
+    }
+
+    // ---- Game variables (varp / varc / varbit) -----------------------------
+
+    @Override
+    public int getVarp(int varId) {
+        throw notStubbed("getVarp");
+    }
+
+    @Override
+    public int getVarbit(int varbitId) {
+        throw notStubbed("getVarbit");
+    }
+
+    @Override
+    public int getVarcInt(int varcId) {
+        throw notStubbed("getVarcInt");
+    }
+
+    @Override
+    public String getVarcString(int varcId) {
+        throw notStubbed("getVarcString");
+    }
+
+    @Override
+    public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
+        throw notStubbed("queryVarbits");
     }
 }

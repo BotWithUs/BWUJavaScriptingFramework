@@ -195,13 +195,8 @@ public class ScriptPickerPopup {
         String author = manifest != null ? manifest.author() : "";
         ScriptCategory category = manifest != null ? manifest.category() : ScriptCategory.UNCATEGORIZED;
 
-        if (!filter.isEmpty()) {
-            String n = name.toLowerCase(Locale.ROOT);
-            String d = desc.toLowerCase(Locale.ROOT);
-            String a = author.toLowerCase(Locale.ROOT);
-            if (!n.contains(filter) && !d.contains(filter) && !a.contains(filter)) {
-                return false;
-            }
+        if (!matchesFilter(filter, name, desc, author)) {
+            return false;
         }
 
         boolean isSelected = (i == selectedIndex);
@@ -239,7 +234,27 @@ public class ScriptPickerPopup {
         ImDrawList draw = ImGui.getWindowDrawList();
         float hoverT = Motion.hover("pick:" + i, hovered && !isSelected);
 
-        // Row background — selected gets a category-tinted wash; hover is more subtle
+        drawRowBackground(draw, cat, isSelected, hoverT, x0, y0, availW, rowH, rounding);
+        drawRowContent(draw, cat, name, desc, author, isSelected, hoverT, hasDesc,
+                x0, y0, availW, rowH, padX, padY, stripeW, iconCellW);
+
+        return true;
+    }
+
+    private static boolean matchesFilter(String filter, String name, String desc, String author) {
+        if (filter.isEmpty()) {
+            return true;
+        }
+        String n = name.toLowerCase(Locale.ROOT);
+        String d = desc.toLowerCase(Locale.ROOT);
+        String a = author.toLowerCase(Locale.ROOT);
+        return n.contains(filter) || d.contains(filter) || a.contains(filter);
+    }
+
+    /** Row background — selected gets a category-tinted wash; hover is more subtle. */
+    private static void drawRowBackground(ImDrawList draw, CategoryStyle.Style cat, boolean isSelected,
+                                          float hoverT, float x0, float y0, float availW, float rowH,
+                                          float rounding) {
         if (isSelected) {
             int bgSel = ImGuiTheme.imCol32(cat.r(), cat.g(), cat.b(), 0.14f);
             draw.addRectFilled(x0, y0, x0 + availW, y0 + rowH, bgSel, rounding);
@@ -251,6 +266,14 @@ public class ScriptPickerPopup {
                     0.7f * hoverT);
             draw.addRectFilled(x0, y0, x0 + availW, y0 + rowH, bgHover, rounding);
         }
+    }
+
+    /** Stripe + icon + name + author chip + description line. */
+    private static void drawRowContent(ImDrawList draw, CategoryStyle.Style cat, String name, String desc,
+                                       String author, boolean isSelected, float hoverT, boolean hasDesc,
+                                       float x0, float y0, float availW, float rowH,
+                                       float padX, float padY, float stripeW, float iconCellW) {
+        float fontH = ImGui.getFontSize();
 
         // Left category stripe (slightly inset vertically so it floats nicely)
         float stripeInsetY = padY * 0.7f;
@@ -299,8 +322,6 @@ public class ScriptPickerPopup {
             draw.addText(nameX, descY, descCol, desc);
             draw.popClipRect();
         }
-
-        return true;
     }
 
     private static void renderCenteredMutedMessage(String text) {
