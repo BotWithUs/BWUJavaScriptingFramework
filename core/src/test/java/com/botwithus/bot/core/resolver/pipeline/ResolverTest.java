@@ -106,6 +106,30 @@ class ResolverTest {
     }
 
     @Test
+    void maliciousMetadataVersionIsRejected() throws IOException {
+        Path artifactDir = repoRoot.resolve("com/example/evil");
+        Files.createDirectories(artifactDir);
+        String md = """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <metadata>
+                  <groupId>com.example</groupId>
+                  <artifactId>evil</artifactId>
+                  <versioning>
+                    <latest>../../../../pwned</latest>
+                    <release>../../../../pwned</release>
+                    <versions>
+                      <version>../../../../pwned</version>
+                    </versions>
+                  </versioning>
+                </metadata>
+                """;
+        Files.writeString(artifactDir.resolve("maven-metadata.xml"), md);
+
+        ResolveOutcome outcome = resolver.resolve(MavenCoord.of("com.example", "evil"));
+        assertInstanceOf(ResolveOutcome.NotFound.class, outcome);
+    }
+
+    @Test
     void unknownDriverYieldsNotFound() {
         Repository custom = new Repository(
                 "custom", repoRoot.toUri(), "no-such-driver", false, false,

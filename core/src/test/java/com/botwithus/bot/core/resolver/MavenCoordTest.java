@@ -67,4 +67,46 @@ class MavenCoordTest {
         assertThrows(IllegalArgumentException.class,
                 () -> MavenCoord.of("g", "", "1.0"));
     }
+
+    @Test
+    void traversalVersionRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> MavenCoord.of("com.example", "art", "../../../../evil"));
+        assertThrows(IllegalArgumentException.class,
+                () -> MavenCoord.of("com.example", "art", ".."));
+    }
+
+    @Test
+    void separatorsInGroupOrArtifactRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> MavenCoord.of("com/example", "art", "1.0"));
+        assertThrows(IllegalArgumentException.class,
+                () -> MavenCoord.of("com.example", "../evil", "1.0"));
+        assertThrows(IllegalArgumentException.class,
+                () -> MavenCoord.of("com.example", "evil\\path", "1.0"));
+    }
+
+    @Test
+    void parseTraversalSpecYieldsEmpty() {
+        assertTrue(MavenCoord.parse("com.example:art:../../../../evil").isEmpty());
+        assertTrue(MavenCoord.parse("com.example:../evil:1.0").isEmpty());
+    }
+
+    @Test
+    void isValidTokenTruthTable() {
+        assertTrue(MavenCoord.isValidToken("1.0.0"));
+        assertTrue(MavenCoord.isValidToken("com.example"));
+        assertTrue(MavenCoord.isValidToken("my-script"));
+        assertTrue(MavenCoord.isValidToken("1.0.0-SNAPSHOT"));
+        assertTrue(MavenCoord.isValidToken("2.0.0+build7"));
+
+        assertFalse(MavenCoord.isValidToken(null));
+        assertFalse(MavenCoord.isValidToken(""));
+        assertFalse(MavenCoord.isValidToken("   "));
+        assertFalse(MavenCoord.isValidToken(".."));
+        assertFalse(MavenCoord.isValidToken("a..b"));
+        assertFalse(MavenCoord.isValidToken("a/b"));
+        assertFalse(MavenCoord.isValidToken("a\\b"));
+        assertFalse(MavenCoord.isValidToken("a b"));
+    }
 }
