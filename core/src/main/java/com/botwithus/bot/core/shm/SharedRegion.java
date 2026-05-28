@@ -136,6 +136,7 @@ public final class SharedRegion implements AutoCloseable {
 
         try {
             validateMagicAndVersion(hdrSlice);
+            validateTargetPid(hdrSlice, pid);
         } catch (RuntimeException ex) {
             Kernel32.unmapViewOfFile(headerView);
             Kernel32.closeHandle(mapping);
@@ -195,6 +196,25 @@ public final class SharedRegion implements AutoCloseable {
             throw new SharedMemoryException(
                     "Header size mismatch: producer=" + headerSize
                             + " consumer=" + Layout.HEADER_SIZE);
+        }
+    }
+
+    /**
+     * Rejects a mapping whose embedded {@code targetPid} doesn't match the pid
+     * we asked for. The producer writes {@code GetCurrentProcessId()} (the
+     * injected game's pid) into the header, which must equal the pid in the
+     * {@code Local\nxt_snapshot_<pid>} name. A mismatch means the mapping is
+     * stale or doesn't belong to the requested process. This is a consistency
+     * guard, not a proof of producer identity — a local process can forge the
+     * field; verifying the section owner's SID would be required for that.
+     */
+    static void validateTargetPid(MemorySegment header, long pid) {
+        long targetPid = header.get(ValueLayout.JAVA_LONG, Layout.HEADER_TARGETPID_OFFSET);
+        if (targetPid != pid) {
+            throw new SharedMemoryException(
+                    "Target pid mismatch: header targetPid=" + targetPid
+                            + " requested pid=" + pid
+                            + " (stale or foreign mapping)");
         }
     }
 

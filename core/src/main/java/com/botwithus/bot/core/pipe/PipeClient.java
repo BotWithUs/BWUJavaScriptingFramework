@@ -86,15 +86,24 @@ public class PipeClient implements AutoCloseable {
     }
 
     public static List<String> scanPipes(String prefix) {
-        String lowerPrefix = prefix.toLowerCase(Locale.ROOT);
         try (Stream<Path> stream = Files.list(Path.of(PIPE_PREFIX))) {
             return stream
                     .map(p -> p.getFileName().toString())
-                    .filter(name -> name.toLowerCase(Locale.ROOT).contains(lowerPrefix))
+                    .filter(name -> nameMatchesPrefix(name, prefix))
                     .toList();
         } catch (IOException e) {
             return List.of();
         }
+    }
+
+    /**
+     * Case-insensitive prefix match used to pick producer pipes out of the
+     * pipe namespace. Anchored on the prefix: the producer names its pipe
+     * exactly {@code BotWithUs_<pid>}, so a substring match would also accept
+     * an unrelated (or attacker-named) pipe such as {@code x_BotWithUs_1}.
+     */
+    static boolean nameMatchesPrefix(String name, String prefix) {
+        return name.toLowerCase(Locale.ROOT).startsWith(prefix.toLowerCase(Locale.ROOT));
     }
 
     public String getPipePath() {
