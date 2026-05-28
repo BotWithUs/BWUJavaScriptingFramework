@@ -5,7 +5,6 @@ import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.ParsedCommand;
-import com.botwithus.bot.cli.command.impl.ExitCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.core.pipe.PipeException;
 import com.botwithus.bot.core.rpc.RpcException;
@@ -256,7 +255,7 @@ public class ConsolePanel implements GuiPanel {
                 return;
             }
 
-            if (cmd instanceof ExitCommand) {
+            if (cmd.requestsShutdown()) {
                 shutdownHook.run();
                 return;
             }

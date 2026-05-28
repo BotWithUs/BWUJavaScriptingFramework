@@ -1,6 +1,11 @@
 package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.api.config.ConfigField;
+import com.botwithus.bot.api.config.ConfigField.BoolField;
+import com.botwithus.bot.api.config.ConfigField.ChoiceField;
+import com.botwithus.bot.api.config.ConfigField.IntField;
+import com.botwithus.bot.api.config.ConfigField.ItemIdField;
+import com.botwithus.bot.api.config.ConfigField.StringField;
 import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.core.runtime.ManagementScriptRunner;
@@ -22,9 +27,11 @@ import java.util.Map;
  */
 public class ManagementConfigPanel {
 
+    private static final int STRING_BUFFER_SIZE = 256;
+
     private ManagementScriptRunner runner;
     private List<ConfigField> fields;
-    private final Map<String, Object> editValues = new LinkedHashMap<>();
+    private final EditState edit = new EditState();
     private final ImBoolean open = new ImBoolean(false);
 
     public void open(ManagementScriptRunner runner) {
@@ -43,35 +50,9 @@ public class ManagementConfigPanel {
         if (fields == null || fields.isEmpty()) return;
 
         ScriptConfig current = runner.getCurrentConfig();
-        editValues.clear();
+        edit.clear();
         for (ConfigField field : fields) {
-            switch (field.kind()) {
-                case INT, ITEM_ID -> {
-                    int val = current != null
-                            ? current.getInt(field.key(), ((Number) field.defaultValue()).intValue())
-                            : ((Number) field.defaultValue()).intValue();
-                    editValues.put(field.key(), new ImInt(val));
-                }
-                case STRING -> {
-                    String val = current != null
-                            ? current.getString(field.key(), (String) field.defaultValue())
-                            : (String) field.defaultValue();
-                    editValues.put(field.key(), new ImString(val != null ? val : "", 256));
-                }
-                case BOOLEAN -> {
-                    boolean val = current != null
-                            ? current.getBoolean(field.key(), (Boolean) field.defaultValue())
-                            : (Boolean) field.defaultValue();
-                    editValues.put(field.key(), new ImBoolean(val));
-                }
-                case CHOICE -> {
-                    String val = current != null
-                            ? current.getString(field.key(), (String) field.defaultValue())
-                            : (String) field.defaultValue();
-                    int idx = field.choices().indexOf(val);
-                    editValues.put(field.key(), new ImInt(Math.max(idx, 0)));
-                }
-            }
+            edit.seed(field, current);
         }
         open.set(true);
     }
@@ -116,21 +97,7 @@ public class ManagementConfigPanel {
                 ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse)) {
 
             for (ConfigField field : fields) {
-                Object editVal = editValues.get(field.key());
-                if (editVal == null) {
-                    continue;
-                }
-
-                switch (field.kind()) {
-                    case INT -> ImGui.inputInt(field.label(), (ImInt) editVal);
-                    case ITEM_ID -> ImGui.inputInt(field.label() + " (Item ID)", (ImInt) editVal);
-                    case STRING -> ImGui.inputText(field.label(), (ImString) editVal);
-                    case BOOLEAN -> ImGui.checkbox(field.label(), (ImBoolean) editVal);
-                    case CHOICE -> {
-                        String[] items = field.choices().toArray(new String[0]);
-                        ImGui.combo(field.label(), (ImInt) editVal, items);
-                    }
-                }
+                edit.renderWidget(field);
             }
 
             ImGui.separator();
@@ -153,42 +120,94 @@ public class ManagementConfigPanel {
     private void applyConfig() {
         Map<String, String> values = new LinkedHashMap<>();
         for (ConfigField field : fields) {
-            Object editVal = editValues.get(field.key());
-            if (editVal == null) {
-                continue;
-            }
-
-            switch (field.kind()) {
-                case INT, ITEM_ID -> values.put(field.key(), String.valueOf(((ImInt) editVal).get()));
-                case STRING -> values.put(field.key(), ((ImString) editVal).get());
-                case BOOLEAN -> values.put(field.key(), String.valueOf(((ImBoolean) editVal).get()));
-                case CHOICE -> {
-                    int idx = ((ImInt) editVal).get();
-                    if (idx >= 0 && idx < field.choices().size()) {
-                        values.put(field.key(), field.choices().get(idx));
-                    }
-                }
-            }
+            edit.collect(field, values);
         }
         runner.applyConfig(new ScriptConfig(values));
     }
 
     private void resetToDefaults() {
         for (ConfigField field : fields) {
-            Object editVal = editValues.get(field.key());
-            if (editVal == null) {
-                continue;
-            }
+            edit.reset(field);
+        }
+    }
 
-            switch (field.kind()) {
-                case INT, ITEM_ID -> ((ImInt) editVal).set(((Number) field.defaultValue()).intValue());
-                case STRING -> ((ImString) editVal).set((String) field.defaultValue());
-                case BOOLEAN -> ((ImBoolean) editVal).set((Boolean) field.defaultValue());
-                case CHOICE -> {
-                    int idx = field.choices().indexOf(field.defaultValue());
-                    ((ImInt) editVal).set(Math.max(idx, 0));
+    /**
+     * Typed editor state for the open form. Each field variant stores its mutable
+     * ImGui wrapper in the matching typed map, so dispatch never needs a cast.
+     */
+    private static final class EditState {
+
+        private final Map<String, ImInt> ints = new LinkedHashMap<>();
+        private final Map<String, ImString> strings = new LinkedHashMap<>();
+        private final Map<String, ImBoolean> bools = new LinkedHashMap<>();
+
+        void clear() {
+            ints.clear();
+            strings.clear();
+            bools.clear();
+        }
+
+        void seed(ConfigField field, ScriptConfig current) {
+            switch (field) {
+                case IntField f -> ints.put(f.key(), new ImInt(intOr(current, f.key(), f.value())));
+                case ItemIdField f -> ints.put(f.key(), new ImInt(intOr(current, f.key(), f.value())));
+                case BoolField f -> bools.put(f.key(), new ImBoolean(boolOr(current, f.key(), f.value())));
+                case StringField f -> {
+                    String val = stringOr(current, f.key(), f.value());
+                    strings.put(f.key(), new ImString(val != null ? val : "", STRING_BUFFER_SIZE));
+                }
+                case ChoiceField f -> {
+                    String val = stringOr(current, f.key(), f.value());
+                    ints.put(f.key(), new ImInt(Math.max(f.choices().indexOf(val), 0)));
                 }
             }
+        }
+
+        void renderWidget(ConfigField field) {
+            switch (field) {
+                case IntField f -> ImGui.inputInt(f.label(), ints.get(f.key()));
+                case ItemIdField f -> ImGui.inputInt(f.label() + " (Item ID)", ints.get(f.key()));
+                case StringField f -> ImGui.inputText(f.label(), strings.get(f.key()));
+                case BoolField f -> ImGui.checkbox(f.label(), bools.get(f.key()));
+                case ChoiceField f -> ImGui.combo(f.label(), ints.get(f.key()), f.choices().toArray(new String[0]));
+            }
+        }
+
+        void collect(ConfigField field, Map<String, String> values) {
+            switch (field) {
+                case IntField f -> values.put(f.key(), String.valueOf(ints.get(f.key()).get()));
+                case ItemIdField f -> values.put(f.key(), String.valueOf(ints.get(f.key()).get()));
+                case StringField f -> values.put(f.key(), strings.get(f.key()).get());
+                case BoolField f -> values.put(f.key(), String.valueOf(bools.get(f.key()).get()));
+                case ChoiceField f -> {
+                    int idx = ints.get(f.key()).get();
+                    if (idx >= 0 && idx < f.choices().size()) {
+                        values.put(f.key(), f.choices().get(idx));
+                    }
+                }
+            }
+        }
+
+        void reset(ConfigField field) {
+            switch (field) {
+                case IntField f -> ints.get(f.key()).set(f.value());
+                case ItemIdField f -> ints.get(f.key()).set(f.value());
+                case StringField f -> strings.get(f.key()).set(f.value());
+                case BoolField f -> bools.get(f.key()).set(f.value());
+                case ChoiceField f -> ints.get(f.key()).set(Math.max(f.choices().indexOf(f.value()), 0));
+            }
+        }
+
+        private static int intOr(ScriptConfig current, String key, int defaultValue) {
+            return current != null ? current.getInt(key, defaultValue) : defaultValue;
+        }
+
+        private static boolean boolOr(ScriptConfig current, String key, boolean defaultValue) {
+            return current != null ? current.getBoolean(key, defaultValue) : defaultValue;
+        }
+
+        private static String stringOr(ScriptConfig current, String key, String defaultValue) {
+            return current != null ? current.getString(key, defaultValue) : defaultValue;
         }
     }
 }

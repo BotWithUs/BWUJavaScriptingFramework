@@ -38,6 +38,24 @@ public class LogsPanel implements GuiPanel {
 
     @Override
     public void render(CliContext ctx) {
+        var connections = new ArrayList<>(ctx.getConnections());
+        boolean wantCopy = renderFilterControls(ctx, connections);
+
+        ImGui.spacing();
+
+        // Get log entries
+        List<LogEntry> entries = ctx.getLogBuffer().tail(lineCount.get());
+        List<LogEntry> filtered = filterEntries(entries, connections);
+
+        if (wantCopy) {
+            copyLogsToClipboard(filtered);
+        }
+
+        renderLogTable(filtered);
+    }
+
+    /** Renders the filter/control bar. Returns true if the user clicked "Copy Logs". */
+    private boolean renderFilterControls(CliContext ctx, List<Connection> connections) {
         // Filter controls row 1
         GuiHelpers.textSecondary("Level:");
         ImGui.sameLine();
@@ -56,7 +74,6 @@ public class LogsPanel implements GuiPanel {
         ImGui.sameLine(0, 16);
         GuiHelpers.textSecondary("Connection:");
         ImGui.sameLine();
-        var connections = new ArrayList<>(ctx.getConnections());
         String[] connOptions = new String[connections.size() + 1];
         connOptions[0] = "All";
         for (int i = 0; i < connections.size(); i++) {
@@ -91,18 +108,10 @@ public class LogsPanel implements GuiPanel {
         if (copyFeedbackTimer <= 0f && GuiHelpers.buttonSecondary(Icons.COPY + "  Copy Logs")) {
             wantCopy = true;
         }
+        return wantCopy;
+    }
 
-        ImGui.spacing();
-
-        // Get log entries
-        List<LogEntry> entries = ctx.getLogBuffer().tail(lineCount.get());
-        List<LogEntry> filtered = filterEntries(entries, connections);
-
-        if (wantCopy) {
-            copyLogsToClipboard(filtered);
-        }
-
-        // Log table
+    private void renderLogTable(List<LogEntry> filtered) {
         float tableHeight = ImGui.getContentRegionAvailY();
         int flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp
                 | ImGuiTableFlags.ScrollY;
@@ -115,43 +124,7 @@ public class LogsPanel implements GuiPanel {
             ImGui.tableHeadersRow();
 
             for (int i = 0; i < filtered.size(); i++) {
-                LogEntry entry = filtered.get(i);
-                ImGui.tableNextRow();
-
-                ImGui.tableSetColumnIndex(0);
-                ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                        TIME_FMT.format(entry.timestamp()));
-
-                ImGui.tableSetColumnIndex(1);
-                renderLevel(entry.level());
-
-                ImGui.tableSetColumnIndex(2);
-                ImGui.text(entry.source() != null ? entry.source() : "-");
-
-                ImGui.tableSetColumnIndex(3);
-                ImGui.text(entry.connection() != null ? entry.connection() : "-");
-
-                ImGui.tableSetColumnIndex(4);
-                if ("ERROR".equals(entry.level())) {
-                    ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f,
-                            entry.message() != null ? entry.message() : "");
-                } else {
-                    ImGui.text(entry.message() != null ? entry.message() : "");
-                }
-
-                // Right-click context menu for this row
-                if (ImGui.beginPopupContextItem("logRowCtx_" + i)) {
-                    if (ImGui.menuItem("Copy Message")) {
-                        ClipboardHelper.copyToClipboard(entry.message() != null ? entry.message() : "");
-                    }
-                    if (ImGui.menuItem("Copy Row")) {
-                        ClipboardHelper.copyToClipboard(formatLogEntry(entry));
-                    }
-                    if (ImGui.menuItem("Copy All Logs")) {
-                        copyLogsToClipboard(filtered);
-                    }
-                    ImGui.endPopup();
-                }
+                renderLogRow(filtered, i);
             }
 
             if (followMode.get()) {
@@ -159,6 +132,46 @@ public class LogsPanel implements GuiPanel {
             }
 
             ImGui.endTable();
+        }
+    }
+
+    private void renderLogRow(List<LogEntry> filtered, int i) {
+        LogEntry entry = filtered.get(i);
+        ImGui.tableNextRow();
+
+        ImGui.tableSetColumnIndex(0);
+        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+                TIME_FMT.format(entry.timestamp()));
+
+        ImGui.tableSetColumnIndex(1);
+        renderLevel(entry.level());
+
+        ImGui.tableSetColumnIndex(2);
+        ImGui.text(entry.source() != null ? entry.source() : "-");
+
+        ImGui.tableSetColumnIndex(3);
+        ImGui.text(entry.connection() != null ? entry.connection() : "-");
+
+        ImGui.tableSetColumnIndex(4);
+        if ("ERROR".equals(entry.level())) {
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f,
+                    entry.message() != null ? entry.message() : "");
+        } else {
+            ImGui.text(entry.message() != null ? entry.message() : "");
+        }
+
+        // Right-click context menu for this row
+        if (ImGui.beginPopupContextItem("logRowCtx_" + i)) {
+            if (ImGui.menuItem("Copy Message")) {
+                ClipboardHelper.copyToClipboard(entry.message() != null ? entry.message() : "");
+            }
+            if (ImGui.menuItem("Copy Row")) {
+                ClipboardHelper.copyToClipboard(formatLogEntry(entry));
+            }
+            if (ImGui.menuItem("Copy All Logs")) {
+                copyLogsToClipboard(filtered);
+            }
+            ImGui.endPopup();
         }
     }
 

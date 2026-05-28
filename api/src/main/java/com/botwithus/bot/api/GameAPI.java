@@ -1,8 +1,10 @@
 package com.botwithus.bot.api;
 
+import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.domain.ActionAPI;
 import com.botwithus.bot.api.domain.NavigationAPI;
 import com.botwithus.bot.api.domain.SystemAPI;
+import com.botwithus.bot.api.domain.VariableAPI;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
@@ -23,6 +25,7 @@ import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -44,16 +47,18 @@ import java.util.Map;
  *   <li>{@link SystemAPI} — pipe ping / introspection</li>
  *   <li>{@link ActionAPI} — action queue + behavior modifiers</li>
  *   <li>{@link NavigationAPI} — walker, pathfinder queries, region cache</li>
+ *   <li>{@link VariableAPI} — on-demand varp / varbit / varc reads</li>
  * </ul>
  *
- * <p>Reads of game state (local player, NPCs, players, inventories) and
- * of any per-tick observation (varps, components, chat history) are NOT
- * here — go through {@link Client#snapshot()} or subscribe to events on
- * the {@link com.botwithus.bot.api.event.EventBus}.</p>
+ * <p>Per-tick reads of game state (local player, NPCs, players, inventories)
+ * go through {@link Client#snapshot()}; transient changes (varp/varbit deltas,
+ * chat) arrive as events on the {@link com.botwithus.bot.api.event.EventBus}.
+ * On-demand variable reads (current value of an arbitrary varp/varbit/varc)
+ * live on {@link VariableAPI} below.</p>
  *
  * @see ScriptContext#getGameAPI()
  */
-public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
+public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAPI {
 
     // ---------------------------------------------------------------- Snapshot
 
@@ -237,7 +242,18 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
     /** Fires a key-input trigger on an interface component. */
     void fireKeyTrigger(int interfaceId, int componentId, String input);
 
-    // ---------------------------------------------------------------- Interface tree walk
+    // ---------------------------------------------------------------- Interface components
+
+    /**
+     * Interface-component query facade — the high-level, fluent entry point for
+     * inspecting interface components (parallel to {@link #npcs()} /
+     * {@link #mapElements()}). Singleton per {@link GameAPI}. Most scripts use
+     * this rather than the low-level {@link #getComponent} /
+     * {@link #getInterfaceTree} primitives below.
+     */
+    Components components();
+
+    // ---------------------------------------------------------------- Interface tree walk (low-level)
 
     /**
      * Returns the component at {@code (interfaceId, componentId)} or
@@ -270,6 +286,23 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI {
      * dropdowns and other transient sub-trees travel through.
      */
     List<Integer> getDynamicChildren(int interfaceId, int componentId);
+
+    /**
+     * Returns the component at {@code (interfaceId, componentId)} and its entire
+     * descendant subtree, flattened breadth-first, in a single pipe round-trip.
+     * Empty list when the root doesn't resolve.
+     *
+     * <p>Each {@link ComponentTreeNode} carries its component plus a
+     * {@code parentIndex} into the same list ({@code -1} for the root). The
+     * producer follows the live {@code Component*} children vectors, so the walk
+     * spans mounted sub-interface boundaries — a child's own interface id rides
+     * along in {@code component.ifaceId()}, which per-node
+     * {@link #getStaticChildren} cannot follow.</p>
+     *
+     * <p>Most scripts use {@link #components()} instead; this is the seam the
+     * {@link Components} facade drives.</p>
+     */
+    List<ComponentTreeNode> getInterfaceTree(int interfaceId, int componentId);
 
     // ---------------------------------------------------------------- Config-type lookups (slice 5: stubs)
 

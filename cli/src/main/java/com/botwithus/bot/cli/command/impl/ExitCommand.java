@@ -11,6 +11,7 @@ public class ExitCommand implements Command {
     @Override public String name() { return "exit"; }
     @Override public List<String> aliases() { return List.of("quit", "q"); }
     @Override public String description() { return "Exit BotWithUs"; }
+    @Override public boolean requestsShutdown() { return true; }
 
     @Override
     public void execute(ParsedCommand parsed, CliContext ctx) {

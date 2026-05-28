@@ -585,56 +585,47 @@ public final class BwuClient implements AutoCloseable {
 
     /** () -> int */
     private static int callInt(MethodHandle mh) {
-        try { return (int) mh.invokeExact(); }
-        catch (Throwable t) { throw rethrow(t); }
+        try { return (int) mh.invokeExact(); } catch (Throwable t) { throw rethrow(t); }
     }
 
     /** (MemorySegment) -> int */
     private static int callInt(MethodHandle mh, MemorySegment a0) {
-        try { return (int) mh.invokeExact(a0); }
-        catch (Throwable t) { throw rethrow(t); }
+        try { return (int) mh.invokeExact(a0); } catch (Throwable t) { throw rethrow(t); }
     }
 
     /** (MemorySegment, MemorySegment) -> int */
     private static int callInt2(MethodHandle mh, MemorySegment a0, MemorySegment a1) {
-        try { return (int) mh.invokeExact(a0, a1); }
-        catch (Throwable t) { throw rethrow(t); }
+        try { return (int) mh.invokeExact(a0, a1); } catch (Throwable t) { throw rethrow(t); }
     }
 
     /** (int, MemorySegment) -> int */
     private static int callIntIS(MethodHandle mh, int a0, MemorySegment a1) {
-        try { return (int) mh.invokeExact(a0, a1); }
-        catch (Throwable t) { throw rethrow(t); }
+        try { return (int) mh.invokeExact(a0, a1); } catch (Throwable t) { throw rethrow(t); }
     }
 
     /** (MemorySegment, int) -> int */
     private static int callIntSI(MethodHandle mh, MemorySegment a0, int a1) {
-        try { return (int) mh.invokeExact(a0, a1); }
-        catch (Throwable t) { throw rethrow(t); }
+        try { return (int) mh.invokeExact(a0, a1); } catch (Throwable t) { throw rethrow(t); }
     }
 
     /** (MemorySegment, int, MemorySegment) -> int */
     private static int callIntSIS(MethodHandle mh, MemorySegment a0, int a1, MemorySegment a2) {
-        try { return (int) mh.invokeExact(a0, a1, a2); }
-        catch (Throwable t) { throw rethrow(t); }
+        try { return (int) mh.invokeExact(a0, a1, a2); } catch (Throwable t) { throw rethrow(t); }
     }
 
     /** (MemorySegment, MemorySegment, int) -> int */
     private static int callIntSSI(MethodHandle mh, MemorySegment a0, MemorySegment a1, int a2) {
-        try { return (int) mh.invokeExact(a0, a1, a2); }
-        catch (Throwable t) { throw rethrow(t); }
+        try { return (int) mh.invokeExact(a0, a1, a2); } catch (Throwable t) { throw rethrow(t); }
     }
 
     /** () -> MemorySegment (for const char* / pointer returns) */
     private static MemorySegment callPtr(MethodHandle mh) {
-        try { return (MemorySegment) mh.invokeExact(); }
-        catch (Throwable t) { throw rethrow(t); }
+        try { return (MemorySegment) mh.invokeExact(); } catch (Throwable t) { throw rethrow(t); }
     }
 
     /** () -> void */
     private static void callVoid(MethodHandle mh) {
-        try { mh.invokeExact(); }
-        catch (Throwable t) { throw rethrow(t); }
+        try { mh.invokeExact(); } catch (Throwable t) { throw rethrow(t); }
     }
 
     private static RuntimeException rethrow(Throwable t) {

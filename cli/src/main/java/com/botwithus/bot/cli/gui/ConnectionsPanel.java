@@ -104,7 +104,7 @@ public class ConnectionsPanel implements GuiPanel {
                 CommandResult result = cmd.executeWithResult(
                         new ParsedCommand("connect", List.of("scan", filter), Map.of()), ctx);
 
-                List<ConnectCommand.PipeInfo> infos = result.get("scanResults");
+                List<ConnectCommand.PipeInfo> infos = result.get(ConnectCommand.SCAN_RESULTS);
                 if (infos != null) {
                     scanResults = infos;
                     scanStatus = result.message();
