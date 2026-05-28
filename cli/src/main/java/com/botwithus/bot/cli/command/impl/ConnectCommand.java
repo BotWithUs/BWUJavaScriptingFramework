@@ -42,6 +42,9 @@ public class ConnectCommand implements Command {
     /** Info gathered from probing a pipe. */
     public record PipeInfo(String pipeName, String displayName, int worldId, boolean loggedIn, boolean isMember) {}
 
+    /** Typed payload key: the pipes found by a {@code connect scan}. */
+    public static final CommandResult.Key<List<PipeInfo>> SCAN_RESULTS = new CommandResult.Key<>("scanResults");
+
     /** Cached results from the last scan/autoConnect for number-based selection. */
     private List<PipeInfo> lastScanResults;
 
@@ -192,7 +195,7 @@ public class ConnectCommand implements Command {
         }
         ctx.out().print(table.build());
         ctx.out().println("Use 'connect <number>' to connect, or 'connect --all' to connect to all.");
-        return CommandResult.ok("Found " + infos.size() + " pipe(s).", Map.of("scanResults", List.copyOf(infos)));
+        return CommandResult.ok("Found " + infos.size() + " pipe(s).", SCAN_RESULTS, List.copyOf(infos));
     }
 
     /**

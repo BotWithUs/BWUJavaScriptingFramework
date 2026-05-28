@@ -292,6 +292,8 @@ public class ImGuiApp extends Application {
 
             @Override
             public void completeWithImage(Object handle, BufferedImage image) {
+                // Safe: handle is the OutputLine this same ProgressDisplay returned from start();
+                // the interface keeps it opaque so each implementation owns its handle type.
                 OutputLine line = (OutputLine) handle;
                 textureManager.queueOperation(() -> {
                     int texId = textureManager.createTexture(image);
@@ -301,6 +303,8 @@ public class ImGuiApp extends Application {
 
             @Override
             public void completeWithError(Object handle, String message) {
+                // Safe: handle is the OutputLine this same ProgressDisplay returned from start();
+                // the interface keeps it opaque so each implementation owns its handle type.
                 OutputLine line = (OutputLine) handle;
                 outputBuffer.completeProgressWithText(line, message,
                         ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
@@ -672,6 +676,8 @@ public class ImGuiApp extends Application {
      * name collision with the imported {@link org.slf4j.Logger}.
      */
     private static void wireLogBufferAppender(LogBuffer logBuffer) {
+        // Required SLF4J/Logback binding cast: getILoggerFactory() is typed ILoggerFactory,
+        // and Logback's concrete impl is LoggerContext; there is no cast-free path.
         LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
         // ch.qos.logback.classic.Logger fully qualified: name collision with org.slf4j.Logger
         ch.qos.logback.classic.Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
