@@ -4,6 +4,12 @@ package com.botwithus.bot.core.worldwalker;
  * Terminal status of a single {@link WorldWalker#runExecutor} call. Mirrors
  * {@code ww::exec::WwStatus} and the {@code WW_STATUS_*} sentinels in
  * {@code worldwalker_c.h}.
+ *
+ * <p>Forward-compatibility: any wire value the Java side doesn't recognise
+ * decodes to {@link #UNKNOWN} rather than throwing, so a freshly-built native
+ * library introducing a new status code doesn't break the host. Treat
+ * {@code UNKNOWN} as a non-terminal "ignore" — pessimistic callers can map it
+ * to {@link #FAILED} themselves if needed.</p>
  */
 public enum WwStatus {
 
@@ -21,7 +27,13 @@ public enum WwStatus {
      * {@link WwCallbacks#shouldCancel()} signalled cancel and the executor
      * aborted at the next safe point.
      */
-    CANCELLED(WorldWalkerLayouts.WW_STATUS_CANCELLED);
+    CANCELLED(WorldWalkerLayouts.WW_STATUS_CANCELLED),
+
+    /**
+     * Forward-compat sentinel for any {@code rc} the native side may grow
+     * after this Java was built. The wire integer is host-internal only.
+     */
+    UNKNOWN(-1);
 
     private final int wireValue;
 
@@ -29,7 +41,7 @@ public enum WwStatus {
         this.wireValue = wireValue;
     }
 
-    /** Underlying C ABI {@code int32_t} (0 = Arrived, 1 = Failed, 2 = Cancelled). */
+    /** Underlying C ABI {@code int32_t}, or {@code -1} for {@link #UNKNOWN}. */
     public int wireValue() {
         return wireValue;
     }
@@ -39,8 +51,7 @@ public enum WwStatus {
             case WorldWalkerLayouts.WW_STATUS_ARRIVED   -> ARRIVED;
             case WorldWalkerLayouts.WW_STATUS_FAILED    -> FAILED;
             case WorldWalkerLayouts.WW_STATUS_CANCELLED -> CANCELLED;
-            default -> throw new WorldWalkerException(
-                    "Unknown WW_STATUS wire value: " + wire);
+            default                                     -> UNKNOWN;
         };
     }
 }
