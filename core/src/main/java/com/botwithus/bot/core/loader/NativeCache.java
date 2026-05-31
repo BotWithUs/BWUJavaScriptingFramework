@@ -29,6 +29,9 @@ public final class NativeCache {
     /** File name of the NXT cache decoder library within the native cache. */
     public static final String NXTCACHE_DLL_NAME = "NXTCache.dll";
 
+    /** File name of the WorldWalker pathfinding library within the native cache. */
+    public static final String WORLDWALKER_DLL_NAME = "worldwalker.dll";
+
     private final Path cacheDir;
 
     /** Cache rooted at the user's home directory ({@code ~/.botwithus/native/}). */
@@ -79,6 +82,24 @@ public final class NativeCache {
             }
         }
         Path cached = new NativeCache().resolve(NXTCACHE_DLL_NAME);
+        return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();
+    }
+
+    /**
+     * Locate {@code worldwalker.dll} on disk without loading it. Same precedence
+     * as {@link #locateNxtCacheDll()}: the {@code -Dworldwalker.dll} override
+     * first (when it points at an existing file), then the downloaded
+     * native-cache entry. Returns empty when neither is present.
+     */
+    public static Optional<Path> locateWorldWalkerDll() {
+        String override = System.getProperty("worldwalker.dll");
+        if (override != null && !override.isBlank()) {
+            Path overridePath = Path.of(override);
+            if (Files.isRegularFile(overridePath)) {
+                return Optional.of(overridePath);
+            }
+        }
+        Path cached = new NativeCache().resolve(WORLDWALKER_DLL_NAME);
         return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();
     }
 }

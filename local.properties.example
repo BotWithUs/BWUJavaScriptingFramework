@@ -21,6 +21,11 @@
 # nxtcache.dll=C:/path/to/NXTCache.dll
 # nxtcache.path=C:/path/to/rs3/cache
 
+# WorldWalker native DLL for pathfinding queries. Loaded by
+# core.worldwalker.WorldWalker via Panama. Falls back to
+# ~/.botwithus/native/worldwalker.dll when unset.
+# worldwalker.dll=C:/path/to/worldwalker.dll
+
 # JDK home for jlink/jpackage, when the auto-provisioned Java toolchain can
 # not be discovered. Also settable via the JLINK_JAVA_HOME environment var.
 # jlink.javaHome=C:/path/to/jdk-25
