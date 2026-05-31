@@ -11,11 +11,10 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 /**
- * Raw Panama downcall handles for the query surface of the WorldWalker C ABI.
+ * Raw Panama downcall handles for the WorldWalker C ABI plus the
+ * {@link FunctionDescriptor}s used to install the executor's upcall vtable.
  *
- * <p>Package-private — callers use {@link WorldWalker} instead. The executor
- * entry ({@code ww_executor_run}) and its callback vtable land in a follow-up
- * commit; only the query / lifecycle surface is bound here.</p>
+ * <p>Package-private — callers use {@link WorldWalker} instead.</p>
  *
  * <p>Field names use Java {@code camelCase} ({@code wwArtifactOpen}); native
  * symbol names ({@code ww_artifact_open}) are passed verbatim to
@@ -43,6 +42,52 @@ final class WorldWalkerNative {
 
     final MethodHandle wwQuery;              // (ptr, ptr, WwTile, WwGoal, ptr, ptr) -> int
     final MethodHandle wwPathFree;           // (ptr) -> void
+
+    // ── Executor ───────────────────────────────────────────────────────────
+
+    final MethodHandle wwExecutorRun;        // (ptr, ptr, WwGoal, ptr) -> int
+
+    // ── Upcall descriptors (used by UpcallStubs.install) ───────────────────
+
+    /** {@code void(*)(void *user, WwTile *outTile)}. */
+    static final FunctionDescriptor FD_READ_POSITION =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS);
+
+    /** {@code void(*)(void *user, WwCapabilitySnapshot *outSnapshot)}. */
+    static final FunctionDescriptor FD_READ_CAPABILITY =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS);
+
+    /** {@code int32_t(*)(void *user, int32_t id)}. */
+    static final FunctionDescriptor FD_READ_VARBIT =
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
+
+    /** {@code int32_t(*)(void *user, int32_t interfaceId)}. */
+    static final FunctionDescriptor FD_IS_INTERFACE_OPEN =
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
+
+    /** {@code void(*)(void *user, WwTile target)} — target passed by value. */
+    static final FunctionDescriptor FD_WALK_TO =
+            FunctionDescriptor.ofVoid(ADDRESS, WorldWalkerLayouts.WW_TILE);
+
+    /** {@code void(*)(void *user, int32_t objectId, WwTile tile, int32_t optionIndex)}. */
+    static final FunctionDescriptor FD_INTERACT = FunctionDescriptor.ofVoid(
+            ADDRESS, JAVA_INT, WorldWalkerLayouts.WW_TILE, JAVA_INT);
+
+    /** {@code void(*)(void *user, int32_t chainIndex, int32_t stepIndex)}. */
+    static final FunctionDescriptor FD_RUN_CHAIN_STEP =
+            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT);
+
+    /** {@code void(*)(void *user, int32_t ticks)}. */
+    static final FunctionDescriptor FD_SLEEP_TICKS =
+            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT);
+
+    /** {@code int32_t(*)(void *user)}. */
+    static final FunctionDescriptor FD_SHOULD_CANCEL =
+            FunctionDescriptor.of(JAVA_INT, ADDRESS);
+
+    /** {@code void(*)(void *user, const WwEvent *event)}. */
+    static final FunctionDescriptor FD_ON_EVENT =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS);
 
     WorldWalkerNative(SymbolLookup lookup) {
         Linker linker = Linker.nativeLinker();
@@ -75,6 +120,13 @@ final class WorldWalkerNative {
                         ADDRESS));                              // WwPath* (out)
         wwPathFree = downcall(linker, lookup, "ww_path_free",
                 FunctionDescriptor.ofVoid(ADDRESS));
+
+        wwExecutorRun = downcall(linker, lookup, "ww_executor_run",
+                FunctionDescriptor.of(JAVA_INT,
+                        ADDRESS,                                // ww_artifact*
+                        ADDRESS,                                // ww_context_pool*
+                        WorldWalkerLayouts.WW_GOAL,             // WwGoal (by value)
+                        ADDRESS));                              // const WwCallbacks*
     }
 
     private static MethodHandle downcall(Linker linker, SymbolLookup lookup,

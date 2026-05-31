@@ -34,6 +34,18 @@ final class WorldWalkerLayouts {
     static final int WW_STEP_KIND_WALK       = 0;
     static final int WW_STEP_KIND_TRANSITION = 1;
 
+    static final int WW_STATUS_ARRIVED   = 0;
+    static final int WW_STATUS_FAILED    = 1;
+    static final int WW_STATUS_CANCELLED = 2;
+
+    static final int WW_EVENT_STEP_ADVANCED       = 0;
+    static final int WW_EVENT_WALKING_TO_INTERACT = 1;
+    static final int WW_EVENT_TELEPORT_INITIATED  = 2;
+    static final int WW_EVENT_STUCK               = 3;
+    static final int WW_EVENT_REPLAN_STARTED      = 4;
+    static final int WW_EVENT_ARRIVED             = 5;
+    static final int WW_EVENT_FAILED              = 6;
+
     // ── Struct layouts ─────────────────────────────────────────────────────
 
     /** {@code WwTile { i32 x, y, plane; }} — 12 bytes. */
@@ -87,6 +99,47 @@ final class WorldWalkerLayouts {
             ValueLayout.JAVA_LONG.withName("varpCount")
     );
 
+    /** {@code WwEvent { i32 kind; i32 pad; i32 stepIndex; i32 transitionIndex; }} — 16 bytes. */
+    static final StructLayout WW_EVENT = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("kind"),
+            ValueLayout.JAVA_INT.withName("pad"),
+            ValueLayout.JAVA_INT.withName("stepIndex"),
+            ValueLayout.JAVA_INT.withName("transitionIndex")
+    );
+
+    /**
+     * {@code WwCallbacks} — opaque {@code user} cookie + ten function pointers
+     * (eleven 8-byte slots), 88 bytes on 64-bit. Field order is fixed by the C
+     * struct in {@code worldwalker_c.h}: any reorder there must reorder both
+     * this layout and the offset constants below.
+     */
+    static final StructLayout WW_CALLBACKS = MemoryLayout.structLayout(
+            ValueLayout.ADDRESS.withName("user"),
+            ValueLayout.ADDRESS.withName("readPosition"),
+            ValueLayout.ADDRESS.withName("readCapability"),
+            ValueLayout.ADDRESS.withName("readVarbit"),
+            ValueLayout.ADDRESS.withName("isInterfaceOpen"),
+            ValueLayout.ADDRESS.withName("walkTo"),
+            ValueLayout.ADDRESS.withName("interact"),
+            ValueLayout.ADDRESS.withName("runChainStep"),
+            ValueLayout.ADDRESS.withName("sleepTicks"),
+            ValueLayout.ADDRESS.withName("shouldCancel"),
+            ValueLayout.ADDRESS.withName("onEvent")
+    );
+
+    // WwCallbacks slot offsets — one pointer wide each, packed at 8B stride.
+    static final long CB_USER_OFFSET              =  0;
+    static final long CB_READ_POSITION_OFFSET     =  8;
+    static final long CB_READ_CAPABILITY_OFFSET   = 16;
+    static final long CB_READ_VARBIT_OFFSET       = 24;
+    static final long CB_IS_INTERFACE_OPEN_OFFSET = 32;
+    static final long CB_WALK_TO_OFFSET           = 40;
+    static final long CB_INTERACT_OFFSET          = 48;
+    static final long CB_RUN_CHAIN_STEP_OFFSET    = 56;
+    static final long CB_SLEEP_TICKS_OFFSET       = 64;
+    static final long CB_SHOULD_CANCEL_OFFSET     = 72;
+    static final long CB_ON_EVENT_OFFSET          = 80;
+
     // Pin layout sizes so a future structLayout typo trips the class loader
     // rather than misreading bytes at runtime.
     static {
@@ -96,6 +149,8 @@ final class WorldWalkerLayouts {
         assertSize(WW_PATH,                24, "WwPath");
         assertSize(WW_CAPABILITY_ENTRY,     8, "WwCapabilityEntry");
         assertSize(WW_CAPABILITY_SNAPSHOT, 64, "WwCapabilitySnapshot");
+        assertSize(WW_EVENT,               16, "WwEvent");
+        assertSize(WW_CALLBACKS,           88, "WwCallbacks");
     }
 
     private static void assertSize(MemoryLayout layout, long expected, String name) {
