@@ -32,6 +32,7 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.runtime;
     exports com.botwithus.bot.core.loader;
     exports com.botwithus.bot.core.shm;
+    exports com.botwithus.bot.core.worldwalker;
     exports com.botwithus.bot.core.resolver;
     exports com.botwithus.bot.core.resolver.config;
     exports com.botwithus.bot.core.resolver.driver;
