@@ -68,6 +68,28 @@ tasks.register<Test>("smokeTest") {
     }
 }
 
+tasks.register<Test>("worldwalkerE2ETest") {
+    description = "End-to-end Panama upcall test against a real worldwalker.dll + artifact"
+    group = "verification"
+    useJUnitPlatform()
+    // Forward the WW locators to the test JVM. The two @EnabledIfSystemProperty
+    // gates on WorldWalkerExecutorE2ETest cause the case to skip cleanly when
+    // either prop is missing, so this task is safe to run unconditionally.
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    listOf("worldwalker.dll", "worldwalker.testArtifact").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.worldwalker.WorldWalkerExecutorE2ETest")
+    }
+}
+
 tasks.register<Test>("liveSmokeTest") {
     description = "Live-producer smoke tests (requires NXTLibrary DLL injected into a running game)"
     group = "verification"
