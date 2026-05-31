@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
+import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.nio.file.Path;
@@ -24,11 +25,10 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * Java wrapper around the WorldWalker query surface ({@code worldwalker.dll}).
  *
- * <p>Thin Panama/FFM binding over the query half of {@code worldwalker_c.h}.
- * Loads the native library on first use and owns one {@code ww_artifact} +
- * one {@code ww_context_pool}. The executor surface
- * ({@code ww_executor_run} and its callback vtable) is bound in a follow-up
- * commit; this class today exposes only {@link #query}.</p>
+ * <p>Thin Panama/FFM binding over {@code worldwalker_c.h}. Loads the native
+ * library on first use and owns one {@code ww_artifact} + one
+ * {@code ww_context_pool} shared by both the planner ({@link #query}) and the
+ * executor ({@link #runExecutor}).</p>
  *
  * <h2>Loading the DLL</h2>
  * The library is located via {@link NativeCache#locateWorldWalkerDll()}:
@@ -43,12 +43,14 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * Without it, the first downcall throws an {@link IllegalCallerException}.
  *
  * <h2>Threading</h2>
- * A single instance is safe for concurrent {@link #query} calls — each call
- * borrows its own search context from the bounded pool. Sizing the pool below
- * the number of concurrent caller threads serialises queries until a context
- * is free; oversizing above hardware concurrency wastes memory without
- * speeding anything up. Sizes around {@code Runtime.availableProcessors()}
- * are the intended sweet spot.
+ * A single instance is safe for concurrent {@link #query} and
+ * {@link #runExecutor} calls — each call borrows its own search context from
+ * the bounded pool. Sizing the pool below the number of concurrent caller
+ * threads serialises borrows until a context is free; oversizing above
+ * hardware concurrency wastes memory without speeding anything up. Sizes
+ * around {@code Runtime.availableProcessors()} are the intended sweet spot.
+ * {@code runExecutor} additionally blocks its caller for the duration of the
+ * walk — see that method's javadoc for the virtual-thread caveat.
  */
 public final class WorldWalker implements AutoCloseable {
 
@@ -199,6 +201,62 @@ public final class WorldWalker implements AutoCloseable {
             } finally {
                 invokeVoid(N.wwPathFree, outPath);
             }
+        }
+    }
+
+    // ── Executor ───────────────────────────────────────────────────────────
+
+    /**
+     * Plan a route from the player's live position to {@code goal} and walk
+     * it, blocking the calling thread until arrival, failure, or
+     * cancellation. The executor re-invokes the planner in-process on drift
+     * or stuck deadlines using the same artifact + context pool this handle
+     * owns; the call returns only when a terminal state is reached.
+     *
+     * <p>All ten {@link WwCallbacks} methods are invoked on the calling
+     * thread. If any callback throws, the executor is cancelled at the next
+     * safe point and the original {@link Throwable} is rethrown from this
+     * method (preserving {@link Error} and {@link RuntimeException} as-is;
+     * checked exceptions are wrapped in {@link WorldWalkerException}).</p>
+     *
+     * <p><b>Threading caveat.</b> This call blocks for the entire walk and
+     * pins a virtual thread's carrier for that duration. If many clients walk
+     * concurrently, schedule {@code runExecutor} on a platform thread (via
+     * {@code Thread.ofPlatform()}) or raise
+     * {@code -Djdk.virtualThreadScheduler.parallelism} above the default.</p>
+     *
+     * @return the terminal status of the run
+     * @throws WorldWalkerException on an unexpected internal failure or when
+     *                              a callback throws a checked exception
+     * @throws IllegalStateException when this handle has been closed
+     */
+    public WwStatus runExecutor(WwGoal goal, WwCallbacks callbacks) {
+        Objects.requireNonNull(goal, "goal");
+        Objects.requireNonNull(callbacks, "callbacks");
+        ensureOpen();
+        Linker linker = Linker.nativeLinker();
+        try (Arena tmp = Arena.ofConfined()) {
+            MemorySegment goalSeg = writeGoal(tmp, goal);
+            UpcallStubs.Run run = UpcallStubs.install(linker, tmp, callbacks);
+
+            int rc;
+            try {
+                rc = (int) N.wwExecutorRun.invokeExact(
+                        artifact, pool, goalSeg, run.callbacksStruct);
+            } catch (Throwable t) {
+                // If a callback also threw, surface that first — it's the
+                // closer cause. invokeExact failures are far rarer and likely
+                // structural.
+                if (run.error() != null) {
+                    throw rethrow(run.error());
+                }
+                throw rethrow(t);
+            }
+
+            if (run.error() != null) {
+                throw rethrow(run.error());
+            }
+            return WwStatus.fromWire(rc);
         }
     }
 
