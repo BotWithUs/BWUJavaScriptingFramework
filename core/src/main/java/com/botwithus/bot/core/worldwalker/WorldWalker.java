@@ -15,6 +15,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
@@ -73,6 +75,17 @@ public final class WorldWalker implements AutoCloseable {
     private final MemorySegment artifact;
     private final MemorySegment pool;
     private volatile boolean closed;
+    // CAS gate so two concurrent close() calls don't double-destroy the native
+    // pool / artifact. The winner runs the destructors; losers see closed=true
+    // and return cleanly.
+    private final AtomicBoolean destroyed = new AtomicBoolean(false);
+    // In-flight gate: query / runExecutor take the read lock, close() takes
+    // the write lock. The reader/writer asymmetry both (a) lets many queries
+    // run concurrently and (b) makes close() wait for every in-flight call to
+    // return before the native pool/artifact are freed (eliminating the
+    // use-after-free where close() destroyed the pool while a query was
+    // borrowing a context from it).
+    private final ReentrantReadWriteLock lifecycle = new ReentrantReadWriteLock();
 
     private WorldWalker(MemorySegment artifact, MemorySegment pool) {
         this.artifact = artifact;
@@ -138,16 +151,60 @@ public final class WorldWalker implements AutoCloseable {
         return ptr;
     }
 
+    /**
+     * Release the native pool and artifact. Safe to call concurrently — the
+     * first caller wins and destroys, subsequent callers return cleanly. Blocks
+     * until every in-flight {@link #query} / {@link #runExecutor} on this
+     * handle has returned, then runs the destructors under an exclusive lock so
+     * no late call can race the free.
+     *
+     * <p>Calls into {@link #query} / {@link #runExecutor} that arrive after
+     * (or during) {@code close()} throw {@link IllegalStateException}.</p>
+     */
     @Override
     public void close() {
-        if (closed) {
+        if (!destroyed.compareAndSet(false, true)) {
             return;
         }
+        // Block any new entrants ASAP; existing readers continue to run.
         closed = true;
-        // Order matters: the pool borrows the artifact's reader, so the pool
-        // must be destroyed before the artifact is closed.
-        invokeVoid(N.wwContextPoolDestroy, pool);
-        invokeVoid(N.wwArtifactClose, artifact);
+        // Wait for in-flight readers to drain, then destroy under the write
+        // lock so a late reader (one that observed closed=false before our
+        // store became visible) is still serialised through the lock and
+        // re-checks closed before it can touch the native pointers.
+        lifecycle.writeLock().lock();
+        try {
+            // Order matters: the pool borrows the artifact's reader, so the
+            // pool must be destroyed before the artifact is closed.
+            invokeVoid(N.wwContextPoolDestroy, pool);
+            invokeVoid(N.wwArtifactClose, artifact);
+        } finally {
+            lifecycle.writeLock().unlock();
+        }
+    }
+
+    /**
+     * Acquire the shared lifecycle read lock and verify the handle is still
+     * open. Pairs with {@link #leaveCall()} in a try/finally. Throws
+     * {@link IllegalStateException} when closed; the caller does NOT need to
+     * call {@code leaveCall} on that path.
+     */
+    private void enterCall() {
+        // Fast path: skip the lock entirely when we can already see the
+        // handle is closed. Avoids a wakeup of close()'s write-waiter for an
+        // entrant that would only have re-checked and thrown anyway.
+        if (closed) {
+            throw new IllegalStateException("WorldWalker handle is closed");
+        }
+        lifecycle.readLock().lock();
+        if (closed) {
+            lifecycle.readLock().unlock();
+            throw new IllegalStateException("WorldWalker handle is closed");
+        }
+    }
+
+    private void leaveCall() {
+        lifecycle.readLock().unlock();
     }
 
     // ── Query ──────────────────────────────────────────────────────────────
@@ -169,7 +226,7 @@ public final class WorldWalker implements AutoCloseable {
     public WwPathResult query(WwTile start, WwGoal goal, CapabilitySnapshot capabilities) {
         Objects.requireNonNull(start, "start");
         Objects.requireNonNull(goal, "goal");
-        ensureOpen();
+        enterCall();
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment startSeg = writeTile(tmp, start);
             MemorySegment goalSeg  = writeGoal(tmp, goal);
@@ -201,6 +258,8 @@ public final class WorldWalker implements AutoCloseable {
             } finally {
                 invokeVoid(N.wwPathFree, outPath);
             }
+        } finally {
+            leaveCall();
         }
     }
 
@@ -233,7 +292,7 @@ public final class WorldWalker implements AutoCloseable {
     public WwStatus runExecutor(WwGoal goal, WwCallbacks callbacks) {
         Objects.requireNonNull(goal, "goal");
         Objects.requireNonNull(callbacks, "callbacks");
-        ensureOpen();
+        enterCall();
         Linker linker = Linker.nativeLinker();
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment goalSeg = writeGoal(tmp, goal);
@@ -257,6 +316,8 @@ public final class WorldWalker implements AutoCloseable {
                 throw rethrow(run.error());
             }
             return WwStatus.fromWire(rc);
+        } finally {
+            leaveCall();
         }
     }
 
@@ -330,6 +391,14 @@ public final class WorldWalker implements AutoCloseable {
         if (n == 0) {
             return new WwPathResult(List.of(), cost);
         }
+        // Defensive: a misbehaving native side that returns stepCount > 0 with
+        // a null steps pointer would SIGSEGV inside the reinterpret-and-read
+        // loop below and take the JVM down. Surface as a typed exception so
+        // the caller catches it.
+        if (stepsPtr.address() == 0L) {
+            throw new WorldWalkerException(
+                    "ww_query returned stepCount=" + n + " with null steps pointer");
+        }
 
         long stepBytes = (long) n * WorldWalkerLayouts.WW_STEP.byteSize();
         MemorySegment stepsView = stepsPtr.reinterpret(stepBytes);
@@ -347,12 +416,6 @@ public final class WorldWalker implements AutoCloseable {
     }
 
     // ── Internals — error / invocation ────────────────────────────────────
-
-    private void ensureOpen() {
-        if (closed) {
-            throw new IllegalStateException("WorldWalker handle is closed");
-        }
-    }
 
     private static void invokeVoid(java.lang.invoke.MethodHandle mh, MemorySegment arg) {
         try {
