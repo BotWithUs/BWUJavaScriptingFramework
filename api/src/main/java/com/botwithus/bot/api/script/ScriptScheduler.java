@@ -8,10 +8,17 @@ import java.util.Map;
 /**
  * Schedules scripts to run at a future time or on a recurring interval.
  *
- * <p>Example usage from a manager script:
- * <pre>{@code
- * ScriptScheduler scheduler = ctx.getScriptManager().getScheduler();
+ * <p>Obtained from {@link ScriptManager#getScheduler()}. Like
+ * {@link ScriptManager}, this type is framework-internal: each instance is
+ * bound to one Client's runtime and is not exposed directly through the
+ * {@link com.botwithus.bot.api.BotScript BotScript} or {@link ManagementScript}
+ * SPIs. ManagementScripts schedule scripts through {@link ClientOrchestrator}
+ * (e.g. {@code scheduleScript(client, name, delay)} /
+ * {@code scheduleScriptOnAllEvery(name, interval)}), which routes each call to
+ * the appropriate per-Connection scheduler.
  *
+ * <h3>Surface (for framework callers that hold a {@code ScriptScheduler} instance)</h3>
+ * <pre>{@code
  * // Run "Woodcutter" once after 10 minutes
  * String id = scheduler.runAfter("Woodcutter", Duration.ofMinutes(10));
  *

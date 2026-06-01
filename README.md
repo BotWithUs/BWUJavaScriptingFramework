@@ -326,16 +326,32 @@ provides com.botwithus.bot.api.script.ManagementScript with my.script.GroupRotat
 
 ### Script Scheduling
 
-The `ScriptScheduler` enables deferred and recurring script execution:
+ManagementScripts schedule scripts through `ClientOrchestrator`. The orchestrator owns per-client targeting, so each call states *which* client(s) the schedule applies to. Single-client, group, and all-client variants exist for one-shot (`scheduleScript` / `scheduleScriptAt`) and recurring (`scheduleScriptEvery`) operations, each with optional `Map<String, Object>` config for the started script:
 
 ```java
-ScriptScheduler scheduler = ctx.getScriptManager().getScheduler();
+// One-shot in 10 minutes on a specific client
+orchestrator.scheduleScript("Account1", "Woodcutter", Duration.ofMinutes(10));
 
-scheduler.runAfter("Woodcutter", Duration.ofMinutes(10));       // one-shot after delay
-scheduler.runAt("Fisher", Instant.parse("2026-03-09T14:00:00Z")); // at specific time
-scheduler.runEvery("Miner", Duration.ofHours(2));               // recurring
-scheduler.runEvery("Crafter", Duration.ofMinutes(30), Duration.ofMinutes(5)); // recurring with auto-stop
+// Scheduled start at a specific instant on every client in a group
+orchestrator.scheduleScriptOnGroupAt("Skillers", "Fisher", Instant.parse("2026-03-09T14:00:00Z"));
+
+// Recurring every 2h across the whole fleet
+orchestrator.scheduleScriptOnAllEvery("Miner", Duration.ofHours(2));
+
+// Recurring with auto-stop after 5 min per cycle, group-wide
+orchestrator.scheduleScriptOnGroupEvery("Skillers", "Crafter",
+        Duration.ofMinutes(30), Duration.ofMinutes(5));
+
+// Cancel by id, or wipe everything
+orchestrator.cancelSchedule("Account1", scheduleId);
+orchestrator.cancelAllSchedules();
+
+// Observe scheduled state
+orchestrator.listScheduled().forEach(e ->
+        log.info("{}: {} next at {}", e.clientName(), e.scriptName(), e.nextRun()));
 ```
+
+`ScriptScheduler` itself remains a framework-internal type — each instance is bound to one Connection's runtime, and the orchestrator routes calls to the right one.
 
 ## Script UI
 

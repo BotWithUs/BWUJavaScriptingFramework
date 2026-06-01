@@ -1,7 +1,9 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.runtime.ReconnectState;
+import com.botwithus.bot.api.script.ScriptScheduler;
 import com.botwithus.bot.core.impl.EventBusImpl;
+import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -22,6 +24,7 @@ public class Connection {
     private final PipeClient pipe;
     private final RpcClient rpc;
     private final ScriptRuntime runtime;
+    private final ScriptManagerImpl scriptManager;
     private EventBusImpl eventBus;
     private SharedRegionEventPump eventPump;
     private ReconnectController reconnectController;
@@ -29,17 +32,19 @@ public class Connection {
     private Map<String, Object> accountInfo;
     private boolean lobbyLoginAttempted;
 
-    public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime) {
+    public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime, ScriptManagerImpl scriptManager) {
         this.name = name;
         this.pipe = pipe;
         this.rpc = rpc;
         this.runtime = runtime;
+        this.scriptManager = scriptManager;
     }
 
     public String getName() { return name; }
     public PipeClient getPipe() { return pipe; }
     public RpcClient getRpc() { return rpc; }
     public ScriptRuntime getRuntime() { return runtime; }
+    public ScriptScheduler getScheduler() { return scriptManager.getScheduler(); }
 
     public void setEventBus(EventBusImpl eventBus) { this.eventBus = eventBus; }
     public EventBusImpl getEventBus() { return eventBus; }
@@ -88,6 +93,11 @@ public class Connection {
             } catch (RuntimeException e) {
                 log.error("Error closing reconnect controller for {}", name, e);
             }
+        }
+        try {
+            scriptManager.shutdown();
+        } catch (RuntimeException e) {
+            log.error("Error shutting down scheduler for {}", name, e);
         }
         try {
             runtime.stopAll();

@@ -4,14 +4,20 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Manages the lifecycle of other scripts from within a script.
+ * Per-Connection script lifecycle manager: lists, starts, stops, reloads, and
+ * schedules scripts running against one {@link com.botwithus.bot.api.Client
+ * Client}.
  *
- * <p>Obtain via {@link com.botwithus.bot.api.ScriptContext#getScriptManager()}.
+ * <p>This type is framework-internal — it is not exposed through the
+ * {@link com.botwithus.bot.api.BotScript BotScript} SPI. A BotScript is bound
+ * to one Client and should not start or stop peers. The public surface for
+ * cross-Client script control (including scheduling) is
+ * {@link ClientOrchestrator} on {@link ManagementContext}; the orchestrator
+ * routes each call to the appropriate per-Connection {@code ScriptManager} /
+ * {@link ScriptScheduler}.
  *
- * <h3>Quick start</h3>
+ * <h3>Surface (for framework callers that hold a {@code ScriptManager} instance)</h3>
  * <pre>{@code
- * ScriptManager mgr = ctx.getScriptManager();
- *
  * // See what's available
  * mgr.listAll().forEach(s ->
  *     log.info("{} [{}]", s.name(), s.running() ? "RUNNING" : "STOPPED"));

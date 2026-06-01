@@ -56,7 +56,7 @@ example-script      (api only)                 — Reference BotScripts; auto-in
 Pure interface module (sole runtime dependency: `slf4j-api`, exposed transitively).
 
 - **`BotScript`** — SPI scripts implement: `onStart` / `onLoop` / `onStop`, plus default `getConfigFields` / `onConfigUpdate` / `getUI` hooks.
-- **`Client` / `ClientProvider`** — One `Client` per connected game process; gives the script a `GameAPI`, an `EventBus`, and a per-tick `GameSnapshot`. Scripts can see all connected clients via `ScriptContext.getClientProvider()`.
+- **`Client` / `ClientProvider`** — One `Client` per connected game process; gives the script a `GameAPI`, an `EventBus`, and a per-tick `GameSnapshot`. A `BotScript` sees only its own bound `Client` (through `ScriptContext.getGameAPI()` / `getEventBus()`); cross-client visibility is reserved for `ManagementScript` via `ManagementContext.getClientProvider()` and `ClientOrchestrator`.
 - **`GameAPI`** — Slim RPC surface (post-rewrite, mid-2026). Composed of three domain mixins in `api/domain/`:
   - `SystemAPI` — pipe ping / introspection
   - `ActionAPI` — action queue, behavior modifiers

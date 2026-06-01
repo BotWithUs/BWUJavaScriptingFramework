@@ -258,7 +258,7 @@ public class CliContext {
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
                     () -> new GameSnapshotImpl(pump.region().snapshot()),
                     new StubGuard());
-            ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
+            ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 
             rpc.start();
 
@@ -269,9 +269,7 @@ public class CliContext {
                     ConnectionContext::set, ConnectionContext::clear, eventBus::publish);
             runtime.setConnectionName(resolvedName);
 
-            // Wire up ScriptManager so scripts can manage other scripts
-            var scriptManager = new ScriptManagerImpl(runtime);
-            context.setScriptManager(scriptManager);
+            ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
 
             ReconnectController reconnect = new ReconnectController(rpc, pipe, resolvedName,
                     resolvedName, ReconnectPolicy.DEFAULT,
@@ -279,7 +277,7 @@ public class CliContext {
                     eventBus::publish);
             reconnect.arm();
 
-            Connection conn = new Connection(resolvedName, pipe, rpc, runtime);
+            Connection conn = new Connection(resolvedName, pipe, rpc, runtime, scriptManager);
             conn.setEventBus(eventBus);
             conn.setEventPump(pump);
             conn.setReconnectController(reconnect);
