@@ -2,13 +2,18 @@ package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.script.ClientOrchestrator;
+import com.botwithus.bot.api.script.ScriptScheduler;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BiFunction;
+import java.util.function.Function;
 
 /**
  * Manages clients (connections) and groups, providing cross-client script
@@ -303,6 +308,173 @@ public class ClientManager implements ClientOrchestrator {
         return result;
     }
 
+    // ── Single-client schedule operations ───────────────────────────────────
+
+    @Override
+    public ScheduleOpResult scheduleScript(String clientName, String scriptName, Duration delay) {
+        return withValidatedClient(clientName, scriptName, conn -> {
+            String id = conn.getScheduler().runAfter(scriptName, delay);
+            return new ScheduleOpResult(true, clientName, scriptName, id, "scheduled");
+        });
+    }
+
+    @Override
+    public ScheduleOpResult scheduleScript(String clientName, String scriptName, Duration delay, Map<String, Object> config) {
+        return withValidatedClient(clientName, scriptName, conn -> {
+            String id = conn.getScheduler().runAfter(scriptName, delay, config);
+            return new ScheduleOpResult(true, clientName, scriptName, id, "scheduled");
+        });
+    }
+
+    @Override
+    public ScheduleOpResult scheduleScriptAt(String clientName, String scriptName, Instant at) {
+        return withValidatedClient(clientName, scriptName, conn -> {
+            String id = conn.getScheduler().runAt(scriptName, at);
+            return new ScheduleOpResult(true, clientName, scriptName, id, "scheduled");
+        });
+    }
+
+    @Override
+    public ScheduleOpResult scheduleScriptEvery(String clientName, String scriptName, Duration interval) {
+        return withValidatedClient(clientName, scriptName, conn -> {
+            String id = conn.getScheduler().runEvery(scriptName, interval);
+            return new ScheduleOpResult(true, clientName, scriptName, id, "scheduled");
+        });
+    }
+
+    @Override
+    public ScheduleOpResult scheduleScriptEvery(String clientName, String scriptName, Duration interval, Duration maxDuration) {
+        return withValidatedClient(clientName, scriptName, conn -> {
+            String id = conn.getScheduler().runEvery(scriptName, interval, maxDuration);
+            return new ScheduleOpResult(true, clientName, scriptName, id, "scheduled");
+        });
+    }
+
+    // ── Group schedule operations ───────────────────────────────────────────
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnGroup(String groupName, String scriptName, Duration delay) {
+        return scheduleOnGroup(groupName, scriptName, (c, s) -> scheduleScript(c, s, delay));
+    }
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnGroup(String groupName, String scriptName, Duration delay, Map<String, Object> config) {
+        return scheduleOnGroup(groupName, scriptName, (c, s) -> scheduleScript(c, s, delay, config));
+    }
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnGroupAt(String groupName, String scriptName, Instant at) {
+        return scheduleOnGroup(groupName, scriptName, (c, s) -> scheduleScriptAt(c, s, at));
+    }
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnGroupEvery(String groupName, String scriptName, Duration interval) {
+        return scheduleOnGroup(groupName, scriptName, (c, s) -> scheduleScriptEvery(c, s, interval));
+    }
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnGroupEvery(String groupName, String scriptName, Duration interval, Duration maxDuration) {
+        return scheduleOnGroup(groupName, scriptName, (c, s) -> scheduleScriptEvery(c, s, interval, maxDuration));
+    }
+
+    // ── All-client schedule operations ──────────────────────────────────────
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnAll(String scriptName, Duration delay) {
+        return scheduleOnAll(scriptName, (c, s) -> scheduleScript(c, s, delay));
+    }
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnAll(String scriptName, Duration delay, Map<String, Object> config) {
+        return scheduleOnAll(scriptName, (c, s) -> scheduleScript(c, s, delay, config));
+    }
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnAllAt(String scriptName, Instant at) {
+        return scheduleOnAll(scriptName, (c, s) -> scheduleScriptAt(c, s, at));
+    }
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnAllEvery(String scriptName, Duration interval) {
+        return scheduleOnAll(scriptName, (c, s) -> scheduleScriptEvery(c, s, interval));
+    }
+
+    @Override
+    public List<ScheduleOpResult> scheduleScriptOnAllEvery(String scriptName, Duration interval, Duration maxDuration) {
+        return scheduleOnAll(scriptName, (c, s) -> scheduleScriptEvery(c, s, interval, maxDuration));
+    }
+
+    // ── Schedule cancellation ───────────────────────────────────────────────
+
+    @Override
+    public boolean cancelSchedule(String clientName, String scheduleId) {
+        Connection conn = getClient(clientName);
+        if (conn == null || !conn.isAlive()) {
+            return false;
+        }
+        return conn.getScheduler().cancel(scheduleId);
+    }
+
+    @Override
+    public List<ScheduleOpResult> cancelAllSchedulesOnGroup(String groupName) {
+        ConnectionGroup group = ctx.getGroup(groupName);
+        if (group == null) {
+            return List.of(new ScheduleOpResult(false, groupName, null, null, "group not found"));
+        }
+        List<ScheduleOpResult> results = new ArrayList<>();
+        for (Connection conn : getGroupClients(groupName)) {
+            for (ScriptScheduler.ScheduledEntry entry : conn.getScheduler().listScheduled()) {
+                boolean ok = conn.getScheduler().cancel(entry.id());
+                results.add(new ScheduleOpResult(ok, conn.getName(), entry.scriptName(), entry.id(),
+                        ok ? "cancelled" : "cancel failed"));
+            }
+        }
+        addScheduleDisconnectedWarnings(group, results);
+        return results;
+    }
+
+    @Override
+    public void cancelAllSchedules() {
+        for (Connection conn : getClients()) {
+            if (conn.isAlive()) {
+                conn.getScheduler().cancelAll();
+            }
+        }
+    }
+
+    // ── Schedule queries ────────────────────────────────────────────────────
+
+    @Override
+    public List<ScheduledScriptEntry> listScheduled() {
+        List<ScheduledScriptEntry> result = new ArrayList<>();
+        for (Connection conn : getClients()) {
+            if (conn.isAlive()) {
+                collectSchedules(conn, result);
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public List<ScheduledScriptEntry> listScheduledForClient(String clientName) {
+        Connection conn = getClient(clientName);
+        if (conn == null || !conn.isAlive()) {
+            return List.of();
+        }
+        List<ScheduledScriptEntry> result = new ArrayList<>();
+        collectSchedules(conn, result);
+        return result;
+    }
+
+    @Override
+    public List<ScheduledScriptEntry> listScheduledForGroup(String groupName) {
+        List<ScheduledScriptEntry> result = new ArrayList<>();
+        for (Connection conn : getGroupClients(groupName)) {
+            collectSchedules(conn, result);
+        }
+        return result;
+    }
+
     // ── Internal helpers ────────────────────────────────────────────────────
 
     private List<OpResult> executeOnGroup(String groupName, String scriptName, String action) {
@@ -361,5 +533,70 @@ public class ClientManager implements ClientOrchestrator {
                 runner.isRunning(),
                 conn.isAlive()
         );
+    }
+
+    private ScheduleOpResult withValidatedClient(String clientName, String scriptName,
+                                                 Function<Connection, ScheduleOpResult> op) {
+        Connection conn = getClient(clientName);
+        if (conn == null) {
+            return new ScheduleOpResult(false, clientName, scriptName, null, "client not found");
+        }
+        if (!conn.isAlive()) {
+            return new ScheduleOpResult(false, clientName, scriptName, null, "client disconnected");
+        }
+        if (conn.getRuntime().findRunner(scriptName) == null) {
+            return new ScheduleOpResult(false, clientName, scriptName, null, "script not found");
+        }
+        return op.apply(conn);
+    }
+
+    private List<ScheduleOpResult> scheduleOnGroup(String groupName, String scriptName,
+                                                   BiFunction<String, String, ScheduleOpResult> perClient) {
+        ConnectionGroup group = ctx.getGroup(groupName);
+        if (group == null) {
+            return List.of(new ScheduleOpResult(false, groupName, scriptName, null, "group not found"));
+        }
+        List<Connection> clients = getGroupClients(groupName);
+        if (clients.isEmpty()) {
+            return List.of(new ScheduleOpResult(false, groupName, scriptName, null, "no active clients in group"));
+        }
+        List<ScheduleOpResult> results = new ArrayList<>();
+        for (Connection conn : clients) {
+            results.add(perClient.apply(conn.getName(), scriptName));
+        }
+        addScheduleDisconnectedWarnings(group, results);
+        return results;
+    }
+
+    private List<ScheduleOpResult> scheduleOnAll(String scriptName,
+                                                 BiFunction<String, String, ScheduleOpResult> perClient) {
+        List<ScheduleOpResult> results = new ArrayList<>();
+        for (Connection conn : getClients()) {
+            if (conn.isAlive()) {
+                results.add(perClient.apply(conn.getName(), scriptName));
+            }
+        }
+        return results;
+    }
+
+    private void addScheduleDisconnectedWarnings(ConnectionGroup group, List<ScheduleOpResult> results) {
+        List<Connection> activeClients = getGroupClients(group.getName());
+        for (String memberName : group.getConnectionNames()) {
+            if (activeClients.stream().noneMatch(c -> c.getName().equals(memberName))) {
+                results.add(new ScheduleOpResult(false, memberName, null, null, "client disconnected"));
+            }
+        }
+    }
+
+    private void collectSchedules(Connection conn, List<ScheduledScriptEntry> out) {
+        for (ScriptScheduler.ScheduledEntry entry : conn.getScheduler().listScheduled()) {
+            out.add(new ScheduledScriptEntry(
+                    conn.getName(),
+                    entry.id(),
+                    entry.scriptName(),
+                    entry.nextRun(),
+                    entry.interval(),
+                    entry.maxDuration()));
+        }
     }
 }

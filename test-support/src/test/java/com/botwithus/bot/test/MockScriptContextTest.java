@@ -38,9 +38,7 @@ class MockScriptContextTest {
                 () -> assertNotNull(ctx.getGameAPI()),
                 () -> assertNotNull(ctx.getEventBus()),
                 () -> assertNull(ctx.getMessageBus()),
-                () -> assertNull(ctx.getClientProvider()),
                 () -> assertNull(ctx.getSharedState()),
-                () -> assertNull(ctx.getScriptManager()),
                 () -> assertNull(ctx.getNavigation()),
                 () -> assertNull(ctx.getGameAPI().getLocalPlayer()));
     }

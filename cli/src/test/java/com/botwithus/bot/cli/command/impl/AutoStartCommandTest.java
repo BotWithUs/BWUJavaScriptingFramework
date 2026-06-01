@@ -8,6 +8,7 @@ import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
@@ -74,7 +75,8 @@ class AutoStartCommandTest {
         RpcClient rpc = mock(RpcClient.class);
         com.botwithus.bot.api.ScriptContext scriptCtx = mock(com.botwithus.bot.api.ScriptContext.class);
         ScriptRuntime runtime = new ScriptRuntime(scriptCtx);
-        Connection conn = new Connection("BotWithUs", pipe, rpc, runtime);
+        ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
+        Connection conn = new Connection("BotWithUs", pipe, rpc, runtime, scriptManager);
         conn.setAccountName(accountName);
 
         doReturn(conn).when(spyCtx).getActiveConnection();

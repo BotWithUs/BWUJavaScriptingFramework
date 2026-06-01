@@ -1,6 +1,5 @@
 package com.botwithus.bot.test;
 
-import com.botwithus.bot.api.ClientProvider;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.Navigation;
 import com.botwithus.bot.api.ScriptContext;
@@ -8,7 +7,6 @@ import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
 import com.botwithus.bot.api.model.GameAction;
-import com.botwithus.bot.api.script.ScriptManager;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 
 import java.util.List;
@@ -29,11 +27,11 @@ import java.util.function.Supplier;
  * </ul>
  *
  * <p>Everything else on the {@link ScriptContext} returns {@code null} (the
- * {@code ClientProvider} / {@code MessageBus} / {@code Navigation} / etc.)
- * — tests should fail loudly if a script under test reaches a seam that
- * wasn't deliberately stubbed. The embedded {@link InMemoryEventBus} is
- * the one default-on seam since scripts subscribe in {@code onStart} and
- * the bus has no side effects without a publish.</p>
+ * {@code MessageBus} / {@code SharedState} / {@code Navigation}) — tests
+ * should fail loudly if a script under test reaches a seam that wasn't
+ * deliberately stubbed. The embedded {@link InMemoryEventBus} is the one
+ * default-on seam since scripts subscribe in {@code onStart} and the bus
+ * has no side effects without a publish.</p>
  */
 public final class MockScriptContext implements ScriptContext {
 
@@ -65,17 +63,7 @@ public final class MockScriptContext implements ScriptContext {
     }
 
     @Override
-    public ClientProvider getClientProvider() {
-        return null;
-    }
-
-    @Override
     public SharedState getSharedState() {
-        return null;
-    }
-
-    @Override
-    public ScriptManager getScriptManager() {
         return null;
     }
 

@@ -52,7 +52,7 @@ public class JBotApplication {
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, nxtCache,
                     () -> new GameSnapshotImpl(pump.region().snapshot()));
             ClientProviderImpl clientProvider = new ClientProviderImpl();
-            ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
+            ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 
             rpc.start();
 
@@ -68,9 +68,7 @@ public class JBotApplication {
             ScriptRuntime runtime = new ScriptRuntime(context,
                     ConnectionContext::set, ConnectionContext::clear);
 
-            // Wire up ScriptManager so scripts can manage other scripts
             ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
-            context.setScriptManager(scriptManager);
 
             runtime.startAll(scripts);
 

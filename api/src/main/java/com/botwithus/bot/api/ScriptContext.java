@@ -3,7 +3,6 @@ package com.botwithus.bot.api;
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
-import com.botwithus.bot.api.script.ScriptManager;
 
 /**
  * Context object passed to {@link BotScript#onStart} providing access to
@@ -38,25 +37,11 @@ public interface ScriptContext {
     MessageBus getMessageBus();
 
     /**
-     * Returns the client provider for accessing all connected game clients.
-     *
-     * @return the {@link ClientProvider} instance
-     */
-    ClientProvider getClientProvider();
-
-    /**
      * Returns the shared state store for inter-script data sharing.
      *
      * @return the {@link SharedState} instance
      */
     SharedState getSharedState();
-
-    /**
-     * Returns the script manager for starting, stopping, and scheduling other scripts.
-     *
-     * @return the {@link ScriptManager} instance
-     */
-    ScriptManager getScriptManager();
 
     /**
      * Returns the navigation interface for blocking walk operations.
