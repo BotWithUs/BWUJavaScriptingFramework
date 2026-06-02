@@ -18,6 +18,7 @@ import com.botwithus.bot.cli.command.impl.ManagementScriptsCommand;
 import com.botwithus.bot.cli.command.impl.MetricsCommand;
 import com.botwithus.bot.cli.command.impl.MountCommand;
 import com.botwithus.bot.cli.command.impl.PingCommand;
+import com.botwithus.bot.cli.command.impl.PlayerCommand;
 import com.botwithus.bot.cli.command.impl.ProfileCommand;
 import com.botwithus.bot.cli.command.impl.ReloadCommand;
 import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
@@ -274,6 +275,7 @@ public class ImGuiApp extends Application {
         r.register(new ConfigCommand(CliConfig.defaults()));
         r.register(new ActionsCommand());
         r.register(new EventsCommand());
+        r.register(new PlayerCommand());
         r.register(new ClientCommand());
         r.register(new AutoStartCommand(profileStore, autoStartManager));
         r.register(new ManagementScriptsCommand());

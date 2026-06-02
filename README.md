@@ -89,6 +89,7 @@ Commands:
 | `config` | | Persistent CLI configuration (`~/.botwithus/config.properties`) |
 | `actions` | | Inspect the game action queue, history, and blocked state |
 | `events` | | Monitor event bus subscriptions and publish counts |
+| `player` | `self`, `pos` | Print local player position and state from the snapshot (`player skills` for the skills table) |
 | `autostart` | | Manage per-account script auto-start profiles |
 | `reload` | | Reload scripts (supports `--watch` for auto-reload on JAR change) |
 | `mount` / `unmount` | | Mount/unmount script directories |
