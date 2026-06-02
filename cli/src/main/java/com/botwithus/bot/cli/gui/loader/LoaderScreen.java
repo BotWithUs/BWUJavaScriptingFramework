@@ -1077,19 +1077,13 @@ public class LoaderScreen {
                 }
             }
 
-            // Restore Jagex accounts from Windows Credential Manager
+            // Restore Jagex accounts off the critical path. The native call
+            // refreshes credentials and makes several network round-trips, so
+            // gating the loader on it left the user staring at "Restoring
+            // accounts..." for the whole time. Fire-and-forget instead; the
+            // accounts panel reads them once they arrive.
             if (dllAvailable) {
-                loadingStatus = "Restoring accounts...";
-                loadingProgress = 0.75f;
-                try {
-                    bwuClient.jagexRestoreAccounts();
-                    int count = bwuClient.jagexAccountCount();
-                    if (count > 0) {
-                        log.info("Restored {} Jagex account(s)", count);
-                    }
-                } catch (BwuException e) {
-                    log.debug("No accounts to restore: {}", e.getMessage());
-                }
+                startAccountRestore();
             }
 
             loadingStatus = "Ready!";
@@ -1101,6 +1095,29 @@ public class LoaderScreen {
             errorMessage = "Could not initialize the application: " + ex.getMessage();
             errorReturnState = LoaderState.LOADING;
             transitionTo(LoaderState.ERROR);
+            return null;
+        });
+    }
+
+    /**
+     * Restore Jagex accounts on a background thread. Fire-and-forget: the
+     * loader screen does not wait for this, so a slow credential refresh or
+     * network stall never delays reaching the main UI. Restored accounts are
+     * picked up by the accounts panel when it next reads the loader.
+     */
+    private void startAccountRestore() {
+        CompletableFuture.runAsync(() -> {
+            try {
+                bwuClient.jagexRestoreAccounts();
+                int count = bwuClient.jagexAccountCount();
+                if (count > 0) {
+                    log.info("Restored {} Jagex account(s)", count);
+                }
+            } catch (BwuException e) {
+                log.debug("No accounts to restore: {}", e.getMessage());
+            }
+        }).exceptionally(ex -> {
+            log.warn("Account restore failed: {}", ex.getMessage());
             return null;
         });
     }
