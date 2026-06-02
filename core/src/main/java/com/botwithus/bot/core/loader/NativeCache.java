@@ -32,6 +32,9 @@ public final class NativeCache {
     /** File name of the WorldWalker pathfinding library within the native cache. */
     public static final String WORLDWALKER_DLL_NAME = "worldwalker.dll";
 
+    /** File name of the WorldWalker baked artifact within the native cache. */
+    public static final String WORLDWALKER_ARTIFACT_NAME = "worldwalker.wwa";
+
     private final Path cacheDir;
 
     /** Cache rooted at the user's home directory ({@code ~/.botwithus/native/}). */
@@ -100,6 +103,25 @@ public final class NativeCache {
             }
         }
         Path cached = new NativeCache().resolve(WORLDWALKER_DLL_NAME);
+        return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();
+    }
+
+    /**
+     * Locate the WorldWalker baked artifact on disk without loading it. Same
+     * precedence as {@link #locateWorldWalkerDll()}: the
+     * {@code -Dworldwalker.artifact} override first (when it points at an
+     * existing file), then the downloaded native-cache entry. Returns empty
+     * when neither is present.
+     */
+    public static Optional<Path> locateWorldWalkerArtifact() {
+        String override = System.getProperty("worldwalker.artifact");
+        if (override != null && !override.isBlank()) {
+            Path overridePath = Path.of(override);
+            if (Files.isRegularFile(overridePath)) {
+                return Optional.of(overridePath);
+            }
+        }
+        Path cached = new NativeCache().resolve(WORLDWALKER_ARTIFACT_NAME);
         return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();
     }
 }

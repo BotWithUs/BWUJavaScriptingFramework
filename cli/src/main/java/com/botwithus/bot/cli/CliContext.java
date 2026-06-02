@@ -257,7 +257,8 @@ public class CliContext {
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
                     () -> new GameSnapshotImpl(pump.region().snapshot()),
-                    new StubGuard());
+                    new StubGuard(),
+                    eventBus::publish);
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 
             rpc.start();
@@ -281,6 +282,7 @@ public class CliContext {
             conn.setEventBus(eventBus);
             conn.setEventPump(pump);
             conn.setReconnectController(reconnect);
+            conn.setGameAPI(gameAPI);
             connections.put(resolvedName, conn);
             activeConnectionName = resolvedName;
             if (onConnect != null) {

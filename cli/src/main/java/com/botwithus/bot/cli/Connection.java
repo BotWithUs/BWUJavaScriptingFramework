@@ -3,6 +3,7 @@ package com.botwithus.bot.cli;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.api.script.ScriptScheduler;
 import com.botwithus.bot.core.impl.EventBusImpl;
+import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
@@ -28,6 +29,7 @@ public class Connection {
     private EventBusImpl eventBus;
     private SharedRegionEventPump eventPump;
     private ReconnectController reconnectController;
+    private GameAPIImpl gameAPI;
     private String accountName;
     private Map<String, Object> accountInfo;
     private boolean lobbyLoginAttempted;
@@ -54,6 +56,9 @@ public class Connection {
 
     public void setReconnectController(ReconnectController controller) { this.reconnectController = controller; }
     public ReconnectController getReconnectController() { return reconnectController; }
+
+    public void setGameAPI(GameAPIImpl gameAPI) { this.gameAPI = gameAPI; }
+    public GameAPIImpl getGameAPI() { return gameAPI; }
 
     /** Current reconnect state; {@code null} if no controller is attached. */
     public ReconnectState currentReconnectState() {
@@ -115,6 +120,13 @@ public class Connection {
             rpc.close();
         } catch (RuntimeException e) {
             log.error("Error closing RPC for {}", name, e);
+        }
+        if (gameAPI != null) {
+            try {
+                gameAPI.closeWorldWalker();
+            } catch (RuntimeException e) {
+                log.error("Error closing WorldWalker for {}", name, e);
+            }
         }
     }
 }
