@@ -3,6 +3,10 @@ package com.botwithus.bot.core.impl;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.diag.StubGuard;
+import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.WalkArrivedEvent;
+import com.botwithus.bot.api.event.WalkCancelledEvent;
+import com.botwithus.bot.api.event.WalkFailedEvent;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
@@ -41,18 +45,31 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.cache.NXTCache;
+import com.botwithus.bot.core.loader.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.worldwalker.WorldWalker;
+import com.botwithus.bot.core.worldwalker.WorldWalkerException;
+import com.botwithus.bot.core.worldwalker.WwGoal;
+import com.botwithus.bot.core.worldwalker.WwPathResult;
+import com.botwithus.bot.core.worldwalker.WwStatus;
+import com.botwithus.bot.core.worldwalker.WwStep;
+import com.botwithus.bot.core.worldwalker.WwTile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
 import static com.botwithus.bot.core.impl.MapHelper.getInt;
 import static com.botwithus.bot.core.impl.MapHelper.getIntList;
-import static com.botwithus.bot.core.impl.MapHelper.getList;
 import static com.botwithus.bot.core.impl.MapHelper.getLong;
 import static com.botwithus.bot.core.impl.MapHelper.getMapList;
 import static com.botwithus.bot.core.impl.MapHelper.getObjectMap;
@@ -60,6 +77,8 @@ import static com.botwithus.bot.core.impl.MapHelper.getString;
 import static com.botwithus.bot.core.impl.MapHelper.getStringList;
 
 public class GameAPIImpl implements GameAPI {
+
+    private static final Logger log = LoggerFactory.getLogger(GameAPIImpl.class);
 
     private final RpcClient rpc;
     private final NXTCache cache;
@@ -89,6 +108,27 @@ public class GameAPIImpl implements GameAPI {
     private final WorldMapElements mapElementsFacade = new WorldMapElements(this);
     private final Components componentsFacade = new Components(this);
 
+    /**
+     * Where terminal walk events ({@link WalkArrivedEvent},
+     * {@link WalkCancelledEvent}, {@link WalkFailedEvent}) are published from
+     * the WorldWalker executor worker. Production wiring threads
+     * {@code eventBus::publish}; tests default to a no-op so existing fixtures
+     * keep compiling.
+     */
+    private final Consumer<? super GameEvent> eventPublisher;
+
+    private volatile WorldWalker worldWalker;
+    private final Object worldWalkerLock = new Object();
+
+    /** Worker thread running the current {@code ww_executor_run} call, or {@code null} when idle. */
+    private volatile Thread walkThread;
+    /** Cancel flag for the current walk. The worker's bridge polls it; null when idle. */
+    private volatile AtomicBoolean currentWalkCancel;
+    /** Live walk-state machine used by {@link #getWalkStatus}; one of idle / walking / arrived / failed / cancelled. */
+    private volatile String currentWalkState = "idle";
+    private volatile int currentWalkTargetX;
+    private volatile int currentWalkTargetY;
+
     /** Legacy constructor used by tests; config-type lookups will throw. */
     public GameAPIImpl(RpcClient rpc) {
         this(rpc, null, null);
@@ -109,27 +149,40 @@ public class GameAPIImpl implements GameAPI {
      */
     public GameAPIImpl(RpcClient rpc, NXTCache cache,
                        Supplier<GameSnapshot> snapshotSource) {
-        this(rpc, cache, snapshotSource, new StubGuard());
+        this(rpc, cache, snapshotSource, new StubGuard(), o -> {});
+    }
+
+    public GameAPIImpl(RpcClient rpc, NXTCache cache,
+                       Supplier<GameSnapshot> snapshotSource,
+                       StubGuard stubGuard) {
+        this(rpc, cache, snapshotSource, stubGuard, o -> {});
     }
 
     /**
      * Full ctor accepting a {@link StubGuard} for instrumented WARN-once
      * reporting of producer stubs ({@link #queryLocations}, {@link #queryGroundItems},
-     * {@link #queryWorldMapElements}). Production wiring constructs one
-     * {@code StubGuard} per session in {@code CliContext} and passes it
-     * through here; the 3-arg ctor chains to a default {@code StubGuard}
-     * for tests and legacy callers that don't care about the warn channel.
+     * {@link #queryWorldMapElements}) and an {@code eventPublisher} for
+     * surfacing terminal walk events from the WorldWalker executor. Production
+     * wiring constructs one {@code StubGuard} per session in {@code CliContext}
+     * and passes {@code eventBus::publish} as the publisher; shorter ctors
+     * chain to a default {@code StubGuard} and a no-op publisher for tests
+     * and legacy callers.
      */
     public GameAPIImpl(RpcClient rpc, NXTCache cache,
                        Supplier<GameSnapshot> snapshotSource,
-                       StubGuard stubGuard) {
+                       StubGuard stubGuard,
+                       Consumer<? super GameEvent> eventPublisher) {
         if (stubGuard == null) {
             throw new IllegalArgumentException("stubGuard");
+        }
+        if (eventPublisher == null) {
+            throw new IllegalArgumentException("eventPublisher");
         }
         this.rpc = rpc;
         this.cache = cache;
         this.snapshotSource = snapshotSource;
         this.stubGuard = stubGuard;
+        this.eventPublisher = eventPublisher;
     }
 
     // ---------------------------------------------------------------- Snapshot + entities
@@ -549,10 +602,18 @@ public class GameAPIImpl implements GameAPI {
     }
 
     // ---------------------------------------------------------------- Walker / pathfinder
+    //
+    // Every walker/pathfinder method routes through the in-process WorldWalker
+    // (worldwalker.dll + baked artifact). The producer-side handlers
+    // (walk_to, walk_world_path, walk_cancel, is_reachable, find_path,
+    // find_world_path, region_cache_*) are no-op stubs — see
+    // NXTLibrary/src/rpc/Handlers.cpp:299-305 — so the public Navigation /
+    // NavigationAPI surface only does useful work when an artifact is loaded.
 
     @Override
     public void walkToAsync(int x, int y) {
-        rpc.callSync("walk_to", Map.of("x", x, "y", y));
+        int plane = currentPlane();
+        walkWorldPathAsync(x, y, plane, false, null);
     }
 
     @Override
@@ -562,132 +623,237 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void walkWorldPathAsync(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("x", x);
-        params.put("y", y);
-        if (plane != 0) params.put("plane", plane);
-        if (exactDestTile) params.put("exact_dest_tile", true);
         if (config != null && config != WorldPathConfig.DEFAULT) {
-            Map<String, Object> cfg = new LinkedHashMap<>();
-            WorldPathConfig defaults = WorldPathConfig.DEFAULT;
-            if (config.agilityLevel() > 1) {
-                cfg.put("agility_level", config.agilityLevel());
+            log.debug("walkWorldPathAsync: WorldPathConfig overrides are ignored — artifact is pre-baked");
+        }
+        cancelInFlightWalk();
+        WorldWalker w = lazyWorldWalker();
+        WwGoal goal = new WwGoal(x, y, plane, exactDestTile ? 0 : 1);
+        AtomicBoolean cancel = new AtomicBoolean(false);
+        currentWalkCancel = cancel;
+        currentWalkTargetX = x;
+        currentWalkTargetY = y;
+        currentWalkState = "walking";
+        Consumer<? super GameEvent> publisher = eventPublisher;
+        Supplier<GameSnapshot> snapSrc = snapshotSource != null ? snapshotSource : () -> null;
+        WorldWalkerCallbackBridge bridge = new WorldWalkerCallbackBridge(
+                this, snapSrc, cancel, e -> log.debug("ww-event: {}", e));
+        Thread worker = Thread.ofPlatform()
+                .name("ww-executor-" + System.nanoTime())
+                .daemon(true)
+                .unstarted(() -> runWalk(w, goal, bridge, cancel, publisher, x, y));
+        walkThread = worker;
+        worker.start();
+    }
+
+    private void runWalk(WorldWalker w, WwGoal goal, WorldWalkerCallbackBridge bridge,
+                         AtomicBoolean cancel, Consumer<? super GameEvent> publisher, int x, int y) {
+        WwStatus status = WwStatus.FAILED;
+        try {
+            status = w.runExecutor(goal, bridge);
+        } catch (Throwable t) {
+            log.warn("WorldWalker executor threw", t);
+        } finally {
+            // Only update shared state if a fresh walkWorldPathAsync hasn't
+            // already replaced us — a worker that outlives its cancel-join
+            // window must not clobber the successor walk's "walking" state or
+            // its cancel signal.
+            if (currentWalkCancel == cancel) {
+                switch (status) {
+                    case ARRIVED   -> currentWalkState = "arrived";
+                    case CANCELLED -> currentWalkState = "cancelled";
+                    default        -> currentWalkState = "failed";
+                }
+                currentWalkCancel = null;
             }
-            if (config.maxIterations() != defaults.maxIterations()) {
-                cfg.put("max_iterations", config.maxIterations());
+            if (walkThread == Thread.currentThread()) {
+                walkThread = null;
             }
-            if (!config.allowDoors()) {
-                cfg.put("allow_doors", false);
-            }
-            if (!config.allowShortcuts()) {
-                cfg.put("allow_shortcuts", false);
-            }
-            if (!config.allowPlaneTransitions()) {
-                cfg.put("allow_plane_transitions", false);
-            }
-            if (!config.allowClimbovers()) {
-                cfg.put("allow_climbovers", false);
-            }
-            if (!config.allowTransports()) {
-                cfg.put("allow_transports", false);
-            }
-            if (!config.allowTeleports()) {
-                cfg.put("allow_teleports", false);
-            }
-            if (config.doorCost() != defaults.doorCost()) {
-                cfg.put("door_cost", config.doorCost());
-            }
-            if (config.transitionCost() != defaults.transitionCost()) {
-                cfg.put("transition_cost", config.transitionCost());
-            }
-            if (config.shortcutCost() != defaults.shortcutCost()) {
-                cfg.put("shortcut_cost", config.shortcutCost());
-            }
-            if (config.climboverCost() != defaults.climboverCost()) {
-                cfg.put("climbover_cost", config.climboverCost());
-            }
-            if (config.transportCost() != defaults.transportCost()) {
-                cfg.put("transport_cost", config.transportCost());
-            }
-            if (config.globalTeleportMinHeuristic() != defaults.globalTeleportMinHeuristic()) {
-                cfg.put("global_teleport_min_heuristic", config.globalTeleportMinHeuristic());
-            }
-            if (config.heuristicWeight() != defaults.heuristicWeight()) {
-                cfg.put("heuristic_weight", config.heuristicWeight());
-            }
-            if (!cfg.isEmpty()) {
-                params.put("config", cfg);
+            switch (status) {
+                case ARRIVED   -> publisher.accept(new WalkArrivedEvent(x, y));
+                case CANCELLED -> publisher.accept(new WalkCancelledEvent(x, y));
+                default        -> publisher.accept(new WalkFailedEvent(x, y));
             }
         }
-        rpc.callSync("walk_world_path", params);
     }
 
     @Override
     public void walkCancel() {
-        rpc.callSync("walk_cancel", Map.of());
+        AtomicBoolean c = currentWalkCancel;
+        if (c != null) {
+            c.set(true);
+        }
     }
 
     @Override
     public WalkStatus getWalkStatus() {
-        Map<String, Object> r = rpc.callSync("walk_status", Map.of());
+        String state = currentWalkState;
+        boolean walking = "walking".equals(state);
+        boolean done = "arrived".equals(state) || "failed".equals(state) || "cancelled".equals(state);
+        boolean ready = worldWalker != null;
         return new WalkStatus(
-                getString(r, "state"),
-                getInt(r, "target_x"), getInt(r, "target_y"),
-                getInt(r, "current_step"), getInt(r, "total_steps"),
-                getInt(r, "nav_step"), getInt(r, "total_nav_steps"),
-                getBool(r, "is_walking"), getBool(r, "is_done"),
-                getBool(r, "hpa_ready")
-        );
+                state,
+                currentWalkTargetX, currentWalkTargetY,
+                0, 0, 0, 0,
+                walking, done, ready);
     }
 
     @Override
     public boolean isReachable(int x, int y) {
-        Map<String, Object> r = rpc.callSync("is_reachable", Map.of("x", x, "y", y));
-        return getBool(r, "reachable");
+        return isReachable(x, y, 0);
     }
 
     @Override
     public boolean isReachable(int x, int y, int maxIterations) {
-        Map<String, Object> r = rpc.callSync("is_reachable",
-                Map.of("x", x, "y", y, "max_iterations", maxIterations));
-        return getBool(r, "reachable");
+        if (maxIterations > 0) {
+            log.debug("isReachable: maxIterations ignored — WorldWalker HPA* doesn't expose an iteration cap");
+        }
+        LocalPlayer lp = currentLocalPlayer();
+        if (lp == null) {
+            return false;
+        }
+        WwTile start = new WwTile(lp.tileX(), lp.tileY(), lp.plane());
+        WwGoal goal = new WwGoal(x, y, lp.plane(), 0);
+        try {
+            return lazyWorldWalker().query(start, goal, null) != null;
+        } catch (RuntimeException e) {
+            log.debug("isReachable query failed: {}", e.toString());
+            return false;
+        }
     }
 
     @Override
     public PathResult findPath(int toX, int toY) {
-        Map<String, Object> r = rpc.callSync("find_path", Map.of("to_x", toX, "to_y", toY));
-        return mapPathResult(r);
+        LocalPlayer lp = currentLocalPlayer();
+        if (lp == null) {
+            return notFoundPath();
+        }
+        return runQuery(lp.tileX(), lp.tileY(), toX, toY, lp.plane());
     }
 
     @Override
     public PathResult findPath(int fromX, int fromY, int toX, int toY) {
-        Map<String, Object> r = rpc.callSync("find_path",
-                Map.of("from_x", fromX, "from_y", fromY, "to_x", toX, "to_y", toY));
-        return mapPathResult(r);
+        return runQuery(fromX, fromY, toX, toY, currentPlane());
     }
 
     @Override
     public PathResult findWorldPath(int toX, int toY) {
-        Map<String, Object> r = rpc.callSync("find_world_path", Map.of("to_x", toX, "to_y", toY));
-        return mapPathResult(r);
+        return findPath(toX, toY);
     }
 
     @Override
     public PathResult findWorldPath(int fromX, int fromY, int toX, int toY) {
-        Map<String, Object> r = rpc.callSync("find_world_path",
-                Map.of("from_x", fromX, "from_y", fromY, "to_x", toX, "to_y", toY));
-        return mapPathResult(r);
+        return findPath(fromX, fromY, toX, toY);
+    }
+
+    private PathResult runQuery(int fromX, int fromY, int toX, int toY, int plane) {
+        WwTile start = new WwTile(fromX, fromY, plane);
+        WwGoal goal = new WwGoal(toX, toY, plane, 0);
+        try {
+            WwPathResult result = lazyWorldWalker().query(start, goal, null);
+            if (result == null) {
+                return notFoundPath();
+            }
+            List<int[]> tiles = new ArrayList<>(result.steps().size());
+            for (WwStep step : result.steps()) {
+                tiles.add(new int[]{step.targetX(), step.targetY()});
+            }
+            return new PathResult(true, tiles.size(), tiles);
+        } catch (RuntimeException e) {
+            log.debug("findPath query failed: {}", e.toString());
+            return notFoundPath();
+        }
+    }
+
+    private static PathResult notFoundPath() {
+        return new PathResult(false, 0, List.of());
     }
 
     @Override
     public int getRegionCacheSize() {
-        Map<String, Object> r = rpc.callSync("region_cache_info", Map.of());
-        return getInt(r, "cache_size");
+        return 0;
     }
 
     @Override
     public void clearRegionCache() {
-        rpc.callSync("region_cache_clear", Map.of());
+        // WorldWalker's artifact is a single memory-mapped file with no
+        // per-region eviction; nothing to clear.
+    }
+
+    // ---------------------------------------------------------------- WorldWalker lifecycle
+
+    private WorldWalker lazyWorldWalker() {
+        WorldWalker w = worldWalker;
+        if (w != null) {
+            return w;
+        }
+        synchronized (worldWalkerLock) {
+            if (worldWalker != null) {
+                return worldWalker;
+            }
+            Path artifact = NativeCache.locateWorldWalkerArtifact()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "WorldWalker artifact not found — set "
+                                    + "-Dworldwalker.artifact=<path> or place "
+                                    + NativeCache.WORLDWALKER_ARTIFACT_NAME
+                                    + " under ~/.botwithus/native/"));
+            try {
+                worldWalker = WorldWalker.open(artifact, Runtime.getRuntime().availableProcessors());
+            } catch (IOException e) {
+                throw new IllegalStateException("WorldWalker artifact open failed: " + artifact, e);
+            } catch (WorldWalkerException e) {
+                throw new IllegalStateException("WorldWalker context pool failed", e);
+            }
+            return worldWalker;
+        }
+    }
+
+    /**
+     * Cancel any walk in flight and wait briefly for the worker to drain. Called
+     * by {@link #walkWorldPathAsync} before kicking off a fresh walk, and by
+     * {@link #closeWorldWalker} during shutdown.
+     */
+    private void cancelInFlightWalk() {
+        AtomicBoolean prev = currentWalkCancel;
+        if (prev != null) {
+            prev.set(true);
+        }
+        Thread t = walkThread;
+        if (t != null && t != Thread.currentThread()) {
+            try {
+                t.join(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    /**
+     * Release the WorldWalker handle. Idempotent; called from the CLI / app
+     * shutdown hook. Cancels any in-flight walk first.
+     */
+    public void closeWorldWalker() {
+        cancelInFlightWalk();
+        synchronized (worldWalkerLock) {
+            WorldWalker w = worldWalker;
+            worldWalker = null;
+            if (w != null) {
+                w.close();
+            }
+        }
+    }
+
+    private int currentPlane() {
+        LocalPlayer lp = currentLocalPlayer();
+        return lp != null ? lp.plane() : 0;
+    }
+
+    private LocalPlayer currentLocalPlayer() {
+        if (snapshotSource == null) {
+            return null;
+        }
+        GameSnapshot snap = snapshotSource.get();
+        return snap == null ? null : snap.self();
     }
 
     // ---------------------------------------------------------------- Config-type lookups (NXTCache-backed)
@@ -783,16 +949,4 @@ public class GameAPIImpl implements GameAPI {
         return out;
     }
 
-    // ---------------------------------------------------------------- Helpers
-
-    @SuppressWarnings("unchecked")
-    private PathResult mapPathResult(Map<String, Object> r) {
-        boolean found = getBool(r, "found");
-        int pathLength = getInt(r, "path_length");
-        List<Map<String, Object>> rawPath = getList(r, "path");
-        List<int[]> path = rawPath.stream()
-                .map(p -> new int[]{getInt(p, "x"), getInt(p, "y")})
-                .toList();
-        return new PathResult(found, pathLength, path);
-    }
 }

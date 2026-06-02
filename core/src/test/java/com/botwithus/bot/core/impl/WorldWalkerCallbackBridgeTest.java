@@ -1,0 +1,236 @@
+package com.botwithus.bot.core.impl;
+
+import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.inventory.ActionTypes;
+import com.botwithus.bot.api.model.ComponentTreeNode;
+import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.Skill;
+import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
+import com.botwithus.bot.core.worldwalker.WwEvent;
+import com.botwithus.bot.core.worldwalker.WwEventKind;
+import com.botwithus.bot.core.worldwalker.WwTile;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+class WorldWalkerCallbackBridgeTest {
+
+    private GameAPI api;
+    private GameSnapshot snapshot;
+    private GameSnapshot.Locations locationsTable;
+    private AtomicBoolean cancel;
+    private List<WwEvent> events;
+    private WorldWalkerCallbackBridge bridge;
+
+    @BeforeEach
+    void setUp() {
+        api = mock(GameAPI.class);
+        snapshot = mock(GameSnapshot.class);
+        locationsTable = mock(GameSnapshot.Locations.class);
+        when(snapshot.locations()).thenReturn(locationsTable);
+        when(locationsTable.stream()).thenReturn(Stream.empty());
+        cancel = new AtomicBoolean(false);
+        events = new ArrayList<>();
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add);
+    }
+
+    private LocalPlayer player(int x, int y, int plane) {
+        return new LocalPlayer(0, 0, x, y, plane, 0, -1, -1, 0, -1, 0, false, List.<Skill>of());
+    }
+
+    // ============================== Reads ==============================
+
+    @Test
+    void readPositionReturnsSnapshotTile() {
+        when(snapshot.self()).thenReturn(player(3221, 3219, 0));
+
+        WwTile pos = bridge.readPosition();
+
+        assertEquals(3221, pos.x());
+        assertEquals(3219, pos.y());
+        assertEquals(0, pos.plane());
+    }
+
+    @Test
+    void readPositionFallsBackWhenSnapshotNull() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> null, cancel, events::add);
+
+        WwTile pos = bridge.readPosition();
+
+        assertEquals(0, pos.x());
+        assertEquals(0, pos.y());
+        assertEquals(0, pos.plane());
+    }
+
+    @Test
+    void readPositionFallsBackWhenPlayerNull() {
+        when(snapshot.self()).thenReturn(null);
+
+        WwTile pos = bridge.readPosition();
+
+        assertEquals(0, pos.x());
+        assertEquals(0, pos.y());
+        assertEquals(0, pos.plane());
+    }
+
+    @Test
+    void readCapabilityIsEmpty() {
+        CapabilitySnapshot caps = bridge.readCapability();
+        assertTrue(caps.isEmpty());
+    }
+
+    @Test
+    void readVarbitDelegatesToApi() {
+        when(api.getVarbit(42)).thenReturn(7);
+        assertEquals(7, bridge.readVarbit(42));
+    }
+
+    @Test
+    void readVarbitReturnsZeroOnApiException() {
+        when(api.getVarbit(99)).thenThrow(new RuntimeException("rpc down"));
+        assertEquals(0, bridge.readVarbit(99));
+    }
+
+    @Test
+    void isInterfaceOpenReturnsTrueWhenTreeNonEmpty() {
+        when(api.getInterfaceTree(1234, 0))
+                .thenReturn(List.of(mock(ComponentTreeNode.class)));
+        assertTrue(bridge.isInterfaceOpen(1234));
+    }
+
+    @Test
+    void isInterfaceOpenReturnsFalseWhenTreeEmpty() {
+        when(api.getInterfaceTree(1234, 0)).thenReturn(List.of());
+        assertFalse(bridge.isInterfaceOpen(1234));
+    }
+
+    @Test
+    void isInterfaceOpenReturnsFalseOnApiException() {
+        when(api.getInterfaceTree(1234, 0)).thenThrow(new RuntimeException("rpc down"));
+        assertFalse(bridge.isInterfaceOpen(1234));
+    }
+
+    // ============================== Actions ==============================
+
+    @Test
+    void walkToQueuesMinimapAction() {
+        bridge.walkTo(new WwTile(3221, 3219, 0));
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.WALK, action.actionId());
+        assertEquals(1, action.param1());
+        assertEquals(3221, action.param2());
+        assertEquals(3219, action.param3());
+    }
+
+    @Test
+    void interactResolvesLocHandleAndQueuesAction() {
+        Location matching = new Location(
+                /* typeId= */ 1234, /* interactId= */ 0x1A2B3C, /* animationId= */ -1,
+                /* tileX= */ 3221, /* tileY= */ 3219, /* plane= */ 0,
+                /* shape= */ 10, /* rotation= */ 0, /* flags= */ 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(matching));
+
+        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.OBJECT1, action.actionId());
+        assertEquals(0x1A2B3C, action.param1());
+        assertEquals(0, action.param2());
+        assertEquals(0, action.param3());
+    }
+
+    @Test
+    void interactOptionTwoUsesSecondActionId() {
+        Location matching = new Location(
+                1234, 99, -1, 100, 200, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(matching));
+
+        bridge.interact(1234, new WwTile(100, 200, 0), 1);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(ActionTypes.OBJECT2, captor.getValue().actionId());
+    }
+
+    @Test
+    void interactSkipsWhenNoMatchingLoc() {
+        when(locationsTable.stream()).thenReturn(Stream.empty());
+
+        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        verifyNoInteractions(api);
+    }
+
+    @Test
+    void interactSkipsWhenLocOnDifferentTile() {
+        Location other = new Location(1234, 99, -1, 999, 999, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(other));
+
+        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        verifyNoInteractions(api);
+    }
+
+    @Test
+    void interactSkipsOutOfRangeOptionIndex() {
+        bridge.interact(1234, new WwTile(0, 0, 0), 99);
+        verifyNoInteractions(api);
+    }
+
+    @Test
+    void runChainStepIsNoOp() {
+        assertDoesNotThrow(() -> bridge.runChainStep(7, 3));
+        verifyNoInteractions(api);
+    }
+
+    @Test
+    void sleepTicksSleepsApproxSixHundredMsPerTick() throws Exception {
+        long start = System.nanoTime();
+        bridge.sleepTicks(2);
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+        assertTrue(elapsedMs >= 1100, "expected >= 1100ms, got " + elapsedMs);
+        assertTrue(elapsedMs < 2000, "expected < 2000ms, got " + elapsedMs);
+    }
+
+    @Test
+    void sleepTicksZeroReturnsImmediately() {
+        long start = System.nanoTime();
+        bridge.sleepTicks(0);
+        long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
+        assertTrue(elapsedMs < 50, "expected immediate return, got " + elapsedMs + "ms");
+    }
+
+    // ============================== Control + progress ==============================
+
+    @Test
+    void shouldCancelMirrorsAtomic() {
+        assertFalse(bridge.shouldCancel());
+        cancel.set(true);
+        assertTrue(bridge.shouldCancel());
+    }
+
+    @Test
+    void onEventForwardsToSink() {
+        WwEvent event = new WwEvent(WwEventKind.STEP_ADVANCED, 0, 3, -1);
+        bridge.onEvent(event);
+        assertEquals(1, events.size());
+        assertSame(event, events.get(0));
+    }
+}

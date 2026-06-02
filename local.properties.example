@@ -26,6 +26,11 @@
 # ~/.botwithus/native/worldwalker.dll when unset.
 # worldwalker.dll=C:/path/to/worldwalker.dll
 
+# WorldWalker baked artifact for world-scale pathfinding. Required only for
+# walkWorldPathAsync; the executor refuses without it. Falls back to
+# ~/.botwithus/native/worldwalker.wwa when unset.
+# worldwalker.artifact=C:/path/to/worldwalker.wwa
+
 # JDK home for jlink/jpackage, when the auto-provisioned Java toolchain can
 # not be discovered. Also settable via the JLINK_JAVA_HOME environment var.
 # jlink.javaHome=C:/path/to/jdk-25

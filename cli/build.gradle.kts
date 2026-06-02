@@ -84,6 +84,14 @@ tasks.named<JavaExec>("run") {
         ?.let { jvmArgs("-Dnxtcache.dll=$it") }
     project.localProperty("nxtcache.path", "NXTCACHE_PATH")
         ?.let { jvmArgs("-Dnxtcache.path=$it") }
+    // Optional: dev override for the WorldWalker DLL + baked artifact, read by
+    // core.worldwalker.WorldWalker via NativeCache.locateWorldWalkerDll() /
+    // locateWorldWalkerArtifact(). When unset, both fall back to
+    // ~/.botwithus/native/.
+    project.localProperty("worldwalker.dll", "WORLDWALKER_DLL")
+        ?.let { jvmArgs("-Dworldwalker.dll=$it") }
+    project.localProperty("worldwalker.artifact", "WORLDWALKER_ARTIFACT")
+        ?.let { jvmArgs("-Dworldwalker.artifact=$it") }
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink

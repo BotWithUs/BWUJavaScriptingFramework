@@ -50,7 +50,9 @@ public class JBotApplication {
             // the same region. ClientImpl borrows the same region.
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, nxtCache,
-                    () -> new GameSnapshotImpl(pump.region().snapshot()));
+                    () -> new GameSnapshotImpl(pump.region().snapshot()),
+                    new com.botwithus.bot.api.diag.StubGuard(),
+                    eventBus::publish);
             ClientProviderImpl clientProvider = new ClientProviderImpl();
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 
@@ -79,6 +81,7 @@ public class JBotApplication {
                 runtime.stopAll();
                 pump.close();
                 rpc.close();
+                gameAPI.closeWorldWalker();
             }));
 
             Thread.currentThread().join();
