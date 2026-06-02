@@ -63,39 +63,42 @@ public class PlayerCommand implements Command {
         }
     }
 
+    // The GUI console renders with a proportional font (Inter / Segoe UI), so
+    // space-padded column alignment renders ragged ("warped"). Keep every line
+    // self-contained as "label: value" with no padding — reads cleanly in both
+    // the proportional GUI and a monospace terminal.
     private void printPlayer(PrintStream out, GameSnapshot snap, LocalPlayer self) {
         out.println("Local Player");
-        out.println("-".repeat(46));
-        out.printf("  %-14s: %d (%s)%n", "Game state", snap.gameState(), gameStateLabel(snap.gameState()));
-        out.printf("  %-14s: %d%n", "Tick id", snap.tickId());
-        out.printf("  %-14s: %d%n", "Server index", self.serverIndex());
-        out.printf("  %-14s: (%d, %d, plane %d)%n", "Position", self.tileX(), self.tileY(), self.plane());
-        out.printf("  %-14s: %d%n", "Combat level", self.combatLevel());
-        out.printf("  %-14s: %b%n", "Moving", self.isMoving());
-        out.printf("  %-14s: 0x%X%n", "Flags", self.flags());
-        out.printf("  %-14s: %d%n", "Animation", self.animationId());
-        out.printf("  %-14s: %d%n", "Stance", self.stanceId());
-        out.printf("  %-14s: %d%n", "Following", self.followingIndex());
-        out.printf("  %-14s: %d (type %d)%n", "Target", self.targetIndex(), self.targetType());
-        out.printf("  %-14s: %b%n", "Member", self.isMember());
-        out.printf("  %-14s: %d tracked, total level %d%n", "Skills",
+        out.printf("  Game state: %d (%s)%n", snap.gameState(), gameStateLabel(snap.gameState()));
+        out.printf("  Tick: %d%n", snap.tickId());
+        out.printf("  Server index: %d%n", self.serverIndex());
+        out.printf("  Position: %d, %d (plane %d)%n", self.tileX(), self.tileY(), self.plane());
+        out.printf("  Combat level: %d%n", self.combatLevel());
+        out.printf("  Moving: %b%n", self.isMoving());
+        out.printf("  Flags: 0x%X%n", self.flags());
+        out.printf("  Animation: %d%n", self.animationId());
+        out.printf("  Stance: %d%n", self.stanceId());
+        out.printf("  Following: %d%n", self.followingIndex());
+        out.printf("  Target: %d (type %d)%n", self.targetIndex(), self.targetType());
+        out.printf("  Member: %b%n", self.isMember());
+        out.printf("  Skills: %d tracked, total level %d%n",
                 self.skills().size(), totalLevel(self.skills()));
-        out.printf("  %-14s: %d%n", "Scene version", snap.sceneVersion());
+        out.printf("  Scene version: %d%n", snap.sceneVersion());
         out.println("Use 'player skills' for the full skills table.");
     }
 
+    // One self-contained line per skill (no aligned columns) — see printPlayer.
     private void printSkills(PrintStream out, List<Skill> skills) {
         if (skills.isEmpty()) {
             out.println("No skills in snapshot.");
             return;
         }
-        out.printf("%-8s %8s %8s %14s%n", "TypeId", "Actual", "Boosted", "Experience");
-        out.println("-".repeat(42));
+        out.printf("Skills (%d):%n", skills.size());
         for (Skill skill : skills) {
-            out.printf("%-8d %8d %8d %14d%n",
+            out.printf("  type %d: level %d/%d, xp %d%n",
                     skill.typeId(), skill.actualLevel(), skill.boostedLevel(), skill.experience());
         }
-        out.printf("%nTotal level: %d%n", totalLevel(skills));
+        out.printf("Total level: %d%n", totalLevel(skills));
     }
 
     private static int totalLevel(List<Skill> skills) {
