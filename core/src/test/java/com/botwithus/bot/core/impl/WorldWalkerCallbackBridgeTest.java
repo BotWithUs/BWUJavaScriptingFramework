@@ -170,6 +170,34 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
+    void interactResolvesLocOnAdjacentTile() {
+        // A door loc sits one tile off the transition origin (we approach from
+        // the far side); it must still resolve within Chebyshev radius 1.
+        Location adjacent = new Location(
+                1234, 0xBEEF, -1, 3222, 3219, 0, 0, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(adjacent));
+
+        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(0xBEEF, captor.getValue().param1());
+    }
+
+    @Test
+    void interactPrefersExactTileOverAdjacent() {
+        Location adjacent = new Location(1234, 0xAAAA, -1, 3222, 3219, 0, 0, 0, 0);
+        Location exact = new Location(1234, 0xBBBB, -1, 3221, 3219, 0, 0, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(adjacent, exact));
+
+        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(0xBBBB, captor.getValue().param1());
+    }
+
+    @Test
     void interactSkipsWhenNoMatchingLoc() {
         when(locationsTable.stream()).thenReturn(Stream.empty());
 
@@ -179,8 +207,10 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void interactSkipsWhenLocOnDifferentTile() {
-        Location other = new Location(1234, 99, -1, 999, 999, 0, 10, 0, 0);
+    void interactSkipsWhenLocBeyondRadius() {
+        // Two tiles away (Chebyshev 2) is beyond the radius-1 door approach
+        // tolerance, so it must not resolve.
+        Location other = new Location(1234, 99, -1, 3223, 3219, 0, 10, 0, 0);
         when(locationsTable.stream()).thenReturn(Stream.of(other));
 
         bridge.interact(1234, new WwTile(3221, 3219, 0), 0);

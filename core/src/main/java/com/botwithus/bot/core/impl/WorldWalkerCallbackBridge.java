@@ -14,6 +14,7 @@ import com.botwithus.bot.core.worldwalker.WwTile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Comparator;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -130,21 +131,28 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         return snap == null ? null : snap.self();
     }
 
+    private static int chebyshev(Location loc, WwTile tile) {
+        return Math.max(Math.abs(loc.tileX() - tile.x()), Math.abs(loc.tileY() - tile.y()));
+    }
+
     private int resolveLocHandle(int objectId, WwTile tile) {
         GameSnapshot snap = snapshotSource.get();
         if (snap == null) {
             return 0;
         }
+        // The transition's origin is the tile the walker stands on; a door loc
+        // sits on one tile but is approached from the adjacent side, so the loc
+        // can be one tile off the origin. Accept any matching loc within Chebyshev
+        // radius 1, preferring the exact origin tile then the nearest.
         return snap.locations().stream()
                 .filter(loc -> loc.typeId() == objectId
-                        && loc.tileX() == tile.x()
-                        && loc.tileY() == tile.y()
                         && loc.plane() == tile.plane()
+                        && chebyshev(loc, tile) <= 1
                         && !loc.isCombinedSection()
                         && !loc.isDeleted()
                         && loc.interactId() > 0)
-                .mapToInt(Location::interactId)
-                .findFirst()
+                .min(Comparator.comparingInt(loc -> chebyshev(loc, tile)))
+                .map(Location::interactId)
                 .orElse(0);
     }
 }
