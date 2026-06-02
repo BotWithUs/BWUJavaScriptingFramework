@@ -81,10 +81,10 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     }
 
     @Override
-    public void interact(int objectId, WwTile tile, int optionIndex) {
+    public int interact(int objectId, WwTile tile, int optionIndex) {
         if (optionIndex < 0 || optionIndex + 1 >= ActionTypes.OBJECT_OPTIONS.length) {
             log.warn("interact: option index {} out of range for loc {}", optionIndex, objectId);
-            return;
+            return 0;
         }
         // The NXT engine's object DoAction takes (locTypeId, worldX, worldY) —
         // the same shape a manual click emits. We deliberately do NOT use the
@@ -96,12 +96,23 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         // nearest matching loc within Chebyshev radius 1.
         WwTile locTile = resolveLocTile(objectId, tile);
         if (locTile == null) {
-            log.warn("interact: no scene loc {} at ({},{},{})",
+            // The baked transition names the CLOSED loc (the world-map door, or
+            // the stairs/ladder object). When that loc is absent from the live
+            // scene at the interact tile the obstacle is no longer there to act
+            // on: an open door is a different loc id, so a door we've already
+            // opened (or that spawned open) simply isn't found. Treat it as
+            // already-traversable and skip the interact — the executor advances
+            // to the next step, whose walk routes straight through the open
+            // doorway. (A plane-change loc can't be "open"; if a stairs loc were
+            // ever missing the following different-plane walk would stall and
+            // trigger a re-plan, which is the correct failure mode, not a clip.)
+            log.info("interact: loc {} absent at ({},{},{}); assuming already open/removed, skipping",
                     objectId, tile.x(), tile.y(), tile.plane());
-            return;
+            return 0;
         }
         int actionId = ActionTypes.OBJECT_OPTIONS[optionIndex + 1];
         api.queueAction(new GameAction(actionId, objectId, locTile.x(), locTile.y()));
+        return 1;
     }
 
     @Override

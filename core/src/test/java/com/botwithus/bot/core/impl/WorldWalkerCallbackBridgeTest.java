@@ -147,8 +147,9 @@ class WorldWalkerCallbackBridgeTest {
                 /* shape= */ 10, /* rotation= */ 0, /* flags= */ 0);
         when(locationsTable.stream()).thenReturn(Stream.of(matching));
 
-        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
 
+        assertEquals(1, issued, "queuing an action must report issued=1");
         ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
         verify(api).queueAction(captor.capture());
         GameAction action = captor.getValue();
@@ -229,10 +230,16 @@ class WorldWalkerCallbackBridgeTest {
 
     @Test
     void interactSkipsWhenNoMatchingLoc() {
+        // The baked (closed) door / stairs loc is absent from the live scene:
+        // an already-open door is a different loc id, so it isn't found. The
+        // bridge must NOT queue an action — it treats the obstacle as gone and
+        // lets the executor advance to the next step (which walks through the
+        // open doorway).
         when(locationsTable.stream()).thenReturn(Stream.empty());
 
-        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
 
+        assertEquals(0, issued, "a skipped no-op (already-open door) must report issued=0");
         verifyNoInteractions(api);
     }
 
@@ -250,7 +257,8 @@ class WorldWalkerCallbackBridgeTest {
 
     @Test
     void interactSkipsOutOfRangeOptionIndex() {
-        bridge.interact(1234, new WwTile(0, 0, 0), 99);
+        int issued = bridge.interact(1234, new WwTile(0, 0, 0), 99);
+        assertEquals(0, issued, "out-of-range option must report issued=0");
         verifyNoInteractions(api);
     }
 
