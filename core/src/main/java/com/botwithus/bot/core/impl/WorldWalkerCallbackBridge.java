@@ -86,14 +86,22 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
             log.warn("interact: option index {} out of range for loc {}", optionIndex, objectId);
             return;
         }
-        int handle = resolveLocHandle(objectId, tile);
-        if (handle == 0) {
+        // The NXT engine's object DoAction takes (locTypeId, worldX, worldY) —
+        // the same shape a manual click emits. We deliberately do NOT use the
+        // scene interact handle: doors and stairs are published as
+        // COMBINED_LOCATION_SECTIONs, which always carry interactId == -1, so a
+        // handle lookup can never resolve them. We only need the loc's true
+        // tile, which sections do carry. The transition's origin can sit one
+        // tile off the loc (reverse-direction door hops), so we snap to the
+        // nearest matching loc within Chebyshev radius 1.
+        WwTile locTile = resolveLocTile(objectId, tile);
+        if (locTile == null) {
             log.warn("interact: no scene loc {} at ({},{},{})",
                     objectId, tile.x(), tile.y(), tile.plane());
             return;
         }
         int actionId = ActionTypes.OBJECT_OPTIONS[optionIndex + 1];
-        api.queueAction(new GameAction(actionId, handle, 0, 0));
+        api.queueAction(new GameAction(actionId, objectId, locTile.x(), locTile.y()));
     }
 
     @Override
@@ -135,24 +143,25 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         return Math.max(Math.abs(loc.tileX() - tile.x()), Math.abs(loc.tileY() - tile.y()));
     }
 
-    private int resolveLocHandle(int objectId, WwTile tile) {
+    private WwTile resolveLocTile(int objectId, WwTile tile) {
         GameSnapshot snap = snapshotSource.get();
         if (snap == null) {
-            return 0;
+            return null;
         }
-        // The transition's origin is the tile the walker stands on; a door loc
-        // sits on one tile but is approached from the adjacent side, so the loc
-        // can be one tile off the origin. Accept any matching loc within Chebyshev
-        // radius 1, preferring the exact origin tile then the nearest.
+        // Match by type + plane within one tile of the interaction origin. Doors
+        // and stairs arrive as combined-location sections (interactId == -1), so
+        // we deliberately do NOT filter on interactId or the section flag — only
+        // the deleted flag, which marks a despawned loc. Prefer the exact origin
+        // tile, then the nearest. We return the loc's own tile so the
+        // (typeId, worldX, worldY) action targets where the loc actually sits,
+        // even when approached from the far side.
         return snap.locations().stream()
                 .filter(loc -> loc.typeId() == objectId
                         && loc.plane() == tile.plane()
                         && chebyshev(loc, tile) <= 1
-                        && !loc.isCombinedSection()
-                        && !loc.isDeleted()
-                        && loc.interactId() > 0)
+                        && !loc.isDeleted())
                 .min(Comparator.comparingInt(loc -> chebyshev(loc, tile)))
-                .map(Location::interactId)
-                .orElse(0);
+                .map(loc -> new WwTile(loc.tileX(), loc.tileY(), loc.plane()))
+                .orElse(null);
     }
 }
