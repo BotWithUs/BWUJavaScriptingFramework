@@ -50,8 +50,8 @@ public class PlayerCommand implements Command {
 
         LocalPlayer self = snap.self();
         if (self == null) {
-            ctx.out().printf("Not in-game — game state %d (%s), own index %d.%n",
-                    snap.gameState(), gameStateLabel(snap.gameState()), snap.ownIndex());
+            ctx.out().println(String.format("Not in-game — game state %d (%s), own index %d.",
+                    snap.gameState(), gameStateLabel(snap.gameState()), snap.ownIndex()));
             return;
         }
 
@@ -63,42 +63,42 @@ public class PlayerCommand implements Command {
         }
     }
 
-    // The GUI console renders with a proportional font (Inter / Segoe UI), so
-    // space-padded column alignment renders ragged ("warped"). Keep every line
-    // self-contained as "label: value" with no padding — reads cleanly in both
-    // the proportional GUI and a monospace terminal.
+    // The GUI console's PrintStream commits a rendered line on each write from
+    // java.util.Formatter, so a single printf() to ctx.out() fragments into one
+    // line per format chunk ("  Target: " / "0" / " (type " / ...). Build each
+    // line fully with String.format first, then emit it with one println().
     private void printPlayer(PrintStream out, GameSnapshot snap, LocalPlayer self) {
         out.println("Local Player");
-        out.printf("  Game state: %d (%s)%n", snap.gameState(), gameStateLabel(snap.gameState()));
-        out.printf("  Tick: %d%n", snap.tickId());
-        out.printf("  Server index: %d%n", self.serverIndex());
-        out.printf("  Position: %d, %d (plane %d)%n", self.tileX(), self.tileY(), self.plane());
-        out.printf("  Combat level: %d%n", self.combatLevel());
-        out.printf("  Moving: %b%n", self.isMoving());
-        out.printf("  Flags: 0x%X%n", self.flags());
-        out.printf("  Animation: %d%n", self.animationId());
-        out.printf("  Stance: %d%n", self.stanceId());
-        out.printf("  Following: %d%n", self.followingIndex());
-        out.printf("  Target: %d (type %d)%n", self.targetIndex(), self.targetType());
-        out.printf("  Member: %b%n", self.isMember());
-        out.printf("  Skills: %d tracked, total level %d%n",
-                self.skills().size(), totalLevel(self.skills()));
-        out.printf("  Scene version: %d%n", snap.sceneVersion());
+        out.println(String.format("  Game state: %d (%s)", snap.gameState(), gameStateLabel(snap.gameState())));
+        out.println(String.format("  Tick: %d", snap.tickId()));
+        out.println(String.format("  Server index: %d", self.serverIndex()));
+        out.println(String.format("  Position: %d, %d (plane %d)", self.tileX(), self.tileY(), self.plane()));
+        out.println(String.format("  Combat level: %d", self.combatLevel()));
+        out.println(String.format("  Moving: %b", self.isMoving()));
+        out.println(String.format("  Flags: 0x%X", self.flags()));
+        out.println(String.format("  Animation: %d", self.animationId()));
+        out.println(String.format("  Stance: %d", self.stanceId()));
+        out.println(String.format("  Following: %d", self.followingIndex()));
+        out.println(String.format("  Target: %d (type %d)", self.targetIndex(), self.targetType()));
+        out.println(String.format("  Member: %b", self.isMember()));
+        out.println(String.format("  Skills: %d tracked, total level %d",
+                self.skills().size(), totalLevel(self.skills())));
+        out.println(String.format("  Scene version: %d", snap.sceneVersion()));
         out.println("Use 'player skills' for the full skills table.");
     }
 
-    // One self-contained line per skill (no aligned columns) — see printPlayer.
+    // One self-contained line per skill — build with String.format, see printPlayer.
     private void printSkills(PrintStream out, List<Skill> skills) {
         if (skills.isEmpty()) {
             out.println("No skills in snapshot.");
             return;
         }
-        out.printf("Skills (%d):%n", skills.size());
+        out.println(String.format("Skills (%d):", skills.size()));
         for (Skill skill : skills) {
-            out.printf("  type %d: level %d/%d, xp %d%n",
-                    skill.typeId(), skill.actualLevel(), skill.boostedLevel(), skill.experience());
+            out.println(String.format("  type %d: level %d/%d, xp %d",
+                    skill.typeId(), skill.actualLevel(), skill.boostedLevel(), skill.experience()));
         }
-        out.printf("Total level: %d%n", totalLevel(skills));
+        out.println(String.format("Total level: %d", totalLevel(skills)));
     }
 
     private static int totalLevel(List<Skill> skills) {
