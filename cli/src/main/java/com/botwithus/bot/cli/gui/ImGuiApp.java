@@ -36,6 +36,7 @@ import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.loader.BwuClient;
+import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
@@ -109,6 +110,10 @@ public class ImGuiApp extends Application {
 
     // Script custom UI window (floating window)
     private ScriptUIWindow scriptUIWindow;
+
+    // Script config-field editor (floating window) — used for scripts that
+    // expose ConfigFields but no custom ScriptUI.
+    private ScriptConfigPanel scriptConfigPanel;
 
     // Management script config panel (floating window)
     private ManagementConfigPanel managementConfigPanel;
@@ -332,17 +337,20 @@ public class ImGuiApp extends Application {
         loaderScreen = new LoaderScreen(bwu);
 
         topBar = new TopBar();
+
+        // Floating windows (created before opener wiring so the lambdas can capture them).
+        scriptUIWindow = new ScriptUIWindow();
+        scriptConfigPanel = new ScriptConfigPanel();
+
         userModeRenderer = new UserModeRenderer();
-        userModeRenderer.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
+        userModeRenderer.setConfigPanelOpener(this::openScriptConfig);
 
         // Launcher mode (account management)
         launcherRenderer = new UserAccountsRenderer();
         launcherRenderer.setBwuClient(bwu);
         launcherRenderer.setExecutor(executor);
 
-        // Floating windows
-        scriptUIWindow = new ScriptUIWindow();
-        ctx.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
+        ctx.setConfigPanelOpener(this::openScriptConfig);
         managementConfigPanel = new ManagementConfigPanel();
 
         // Notification overlay (event-driven). Subscribed to each connection's
@@ -370,6 +378,22 @@ public class ImGuiApp extends Application {
 
     private void setupStatusBar(BwuClient bwu) {
         statusBar = new StatusBar(bwu);
+    }
+
+    /**
+     * Routes the "Configure" action on a running script to whichever floating window
+     * fits the script's surface: the custom {@link com.botwithus.bot.api.ui.ScriptUI}
+     * if the script provides one, otherwise the generic config-field editor.
+     * The card surfaces the button when either is present, so without this routing
+     * config-only scripts open a window that immediately closes itself.
+     */
+    private void openScriptConfig(ScriptRunner runner) {
+        if (runner == null) return;
+        if (runner.getScript().getUI() != null) {
+            scriptUIWindow.open(runner);
+        } else {
+            scriptConfigPanel.open(runner);
+        }
     }
 
     private void captureGlfwHandle() {
@@ -434,6 +458,11 @@ public class ImGuiApp extends Application {
         // Render script custom UI as a floating window (outside the main window)
         if (scriptUIWindow != null && scriptUIWindow.isOpen()) {
             scriptUIWindow.render();
+        }
+
+        // Render script config-field editor as a floating window
+        if (scriptConfigPanel != null && scriptConfigPanel.isOpen()) {
+            scriptConfigPanel.render();
         }
 
         // Render management script config panel as a floating window
