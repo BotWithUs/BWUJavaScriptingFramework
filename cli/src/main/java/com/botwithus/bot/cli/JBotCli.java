@@ -15,6 +15,7 @@ import com.botwithus.bot.cli.command.impl.LogsCommand;
 import com.botwithus.bot.cli.command.impl.MetricsCommand;
 import com.botwithus.bot.cli.command.impl.MountCommand;
 import com.botwithus.bot.cli.command.impl.PingCommand;
+import com.botwithus.bot.cli.command.impl.PlayerCommand;
 import com.botwithus.bot.cli.command.impl.ProfileCommand;
 import com.botwithus.bot.cli.command.impl.ReloadCommand;
 import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
@@ -76,6 +77,7 @@ public class JBotCli {
         registry.register(new ConfigCommand(CliConfig.defaults()));
         registry.register(new ActionsCommand());
         registry.register(new EventsCommand());
+        registry.register(new PlayerCommand());
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
 
