@@ -138,7 +138,9 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void interactResolvesLocHandleAndQueuesAction() {
+    void interactResolvesLocAndQueuesObjectAction() {
+        // The engine's object DoAction is (locTypeId, worldX, worldY) — the same
+        // shape a manual click emits — not a scene handle in param1.
         Location matching = new Location(
                 /* typeId= */ 1234, /* interactId= */ 0x1A2B3C, /* animationId= */ -1,
                 /* tileX= */ 3221, /* tileY= */ 3219, /* plane= */ 0,
@@ -151,9 +153,30 @@ class WorldWalkerCallbackBridgeTest {
         verify(api).queueAction(captor.capture());
         GameAction action = captor.getValue();
         assertEquals(ActionTypes.OBJECT1, action.actionId());
-        assertEquals(0x1A2B3C, action.param1());
-        assertEquals(0, action.param2());
-        assertEquals(0, action.param3());
+        assertEquals(1234, action.param1());
+        assertEquals(3221, action.param2());
+        assertEquals(3219, action.param3());
+    }
+
+    @Test
+    void interactResolvesCombinedSectionDoorByTile() {
+        // Doors and stairs are published as COMBINED_LOCATION_SECTIONs:
+        // interactId == -1 and the section flag set. Resolution must still
+        // succeed by type + tile and fire the (typeId, worldX, worldY) action.
+        int sectionFlag = 1 << 1; // Layout.LOC_FLAG_COMBINED_SECTION
+        Location door = new Location(
+                45476, -1, -1, 3228, 3240, 0, /* shape= */ 0, /* rotation= */ 2, sectionFlag);
+        when(locationsTable.stream()).thenReturn(Stream.of(door));
+
+        bridge.interact(45476, new WwTile(3228, 3240, 0), 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.OBJECT1, action.actionId());
+        assertEquals(45476, action.param1());
+        assertEquals(3228, action.param2());
+        assertEquals(3240, action.param3());
     }
 
     @Test
@@ -171,8 +194,9 @@ class WorldWalkerCallbackBridgeTest {
 
     @Test
     void interactResolvesLocOnAdjacentTile() {
-        // A door loc sits one tile off the transition origin (we approach from
-        // the far side); it must still resolve within Chebyshev radius 1.
+        // A door loc sits one tile off the transition origin (reverse-direction
+        // hop: we stand on the far side). It must resolve within Chebyshev
+        // radius 1 and the action must target the loc's OWN tile, not the origin.
         Location adjacent = new Location(
                 1234, 0xBEEF, -1, 3222, 3219, 0, 0, 0, 0);
         when(locationsTable.stream()).thenReturn(Stream.of(adjacent));
@@ -181,7 +205,10 @@ class WorldWalkerCallbackBridgeTest {
 
         ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
         verify(api).queueAction(captor.capture());
-        assertEquals(0xBEEF, captor.getValue().param1());
+        GameAction action = captor.getValue();
+        assertEquals(1234, action.param1());
+        assertEquals(3222, action.param2());
+        assertEquals(3219, action.param3());
     }
 
     @Test
@@ -194,7 +221,10 @@ class WorldWalkerCallbackBridgeTest {
 
         ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
         verify(api).queueAction(captor.capture());
-        assertEquals(0xBBBB, captor.getValue().param1());
+        GameAction action = captor.getValue();
+        // The exact-tile loc wins, so the action targets (3221,3219).
+        assertEquals(3221, action.param2());
+        assertEquals(3219, action.param3());
     }
 
     @Test

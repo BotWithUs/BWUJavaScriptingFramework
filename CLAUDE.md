@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-JBotWithUsV2 is a modular Java game scripting framework. It binds to an injected C++ DLL through **two parallel transports**: a Windows named pipe (msgpack JSON-RPC, mutations + queries) and a shared-memory mapping (per-tick snapshot + event ring). Scripts are dynamically discovered via Java's `ServiceLoader` and execute on virtual threads.
+JBotWithUsV2 is a modular Java game scripting framework. It binds to a library-loaded C++ DLL through **two parallel transports**: a Windows named pipe (msgpack JSON-RPC, mutations + queries) and a shared-memory mapping (per-tick snapshot + event ring). Scripts are dynamically discovered via Java's `ServiceLoader` and execute on virtual threads.
 
 Group: `com.botwithus` | Gradle 9.5 (Kotlin DSL) | Java 25 toolchain (auto-provisioned by Gradle) | JUnit 5
 
 ## Producer-side coupling
 
-This repo is the **consumer** half of a tightly-coupled pair. The producer-side DLL lives at `E:\BotWithUsv2.5\NXTLibrary` (C++, freestanding, injected into the game). When changing anything that crosses the process boundary, grep both repos and update matching call sites in the same logical change:
+This repo is the **consumer** half of a tightly-coupled pair. The producer-side DLL lives at `E:\BotWithUsv2.5\NXTLibrary` (C++, freestanding, loaded into the game via our LoadLibrary). When changing anything that crosses the process boundary, grep both repos and update matching call sites in the same logical change:
 
 - **Pipe name**: producer publishes `\\.\pipe\BotWithUs_<pid>`. Java side: `core/.../pipe/PipeClient.java` (`NAME_PREFIX`, `firstAvailableOrThrow`), all `new PipeClient(...)` callers.
 - **SHM mapping**: producer publishes `Local\nxt_snapshot_<pid>`. Java side: `core/.../shm/Layout.java` (`MAPPING_NAME_PREFIX`), `SharedRegion`.
@@ -69,7 +69,7 @@ Pure interface module (sole runtime dependency: `slf4j-api`, exposed transitivel
 - **`event/`** — `EventBus` (game-event push from the producer) and event types.
 - **`isc/`** — Inter-Script Communication: `MessageBus` (request/response) + `SharedState` (thread-safe KV).
 - **`script/`** — `ManagementScript` SPI (cross-client orchestration), `ScriptManager`, `ScriptScheduler`, `TaskScript`, `ClientOrchestrator`.
-- **`launcher/GameLauncher`** — Abstraction for the loader DLL (login, accounts, launch+inject); concrete impl in `core/loader/`.
+- **`launcher/GameLauncher`** — Abstraction for the loader DLL (login, accounts, launch+library-load); concrete impl in `core/loader/`.
 - **`ui/ScriptUI`** — Hook for scripts to render their own ImGui tab.
 - **`config/`** — `ConfigField` + `ScriptConfig` for runtime-editable, persisted script parameters.
 
@@ -83,7 +83,7 @@ Runtime, transports, RPC, script discovery, native bridges:
 - **`msgpack/MessagePackCodec`** — Serialization via `org.msgpack:msgpack-core:0.9.8`.
 - **`impl/`** — Concrete implementations: `GameAPIImpl`, `EventBusImpl`, `ClientImpl`, `ClientProviderImpl`, `ScriptContextImpl`, `ScriptManagerImpl`, `ScriptSchedulerImpl`, `MessageBusImpl`, `SharedStateImpl`, `Walker`, plus `impl/snapshot/` for the snapshot view backed by `SharedRegion`.
 - **`runtime/`** — Script lifecycle: `LocalScriptLoader` (filesystem JAR discovery), `SDNScriptLoader` (signed-network distribution), `ManagementScriptLoader`, `ScriptRunner` (per-script virtual thread; sets MDC `script.name` and `connection.name`), `ScriptRuntime`, `ScriptProfiler`, `ConnectionContext`.
-- **`loader/`** — Panama FFI bridge to `bwu.dll` (the BotWithUs-Loader: auth, account management, agent download, DLL injection). `BwuClient` (high-level wrapper), `BwuNative` (downcall handles), `BwuLayouts` (struct layouts), `NativeCache` (resolves the `~/.botwithus/native/` path; cache is populated externally by the loader DLL).
+- **`loader/`** — Panama FFI bridge to `bwu.dll` (the BotWithUs-Loader: auth, account management, agent download, DLL library load). `BwuClient` (high-level wrapper), `BwuNative` (downcall handles), `BwuLayouts` (struct layouts), `NativeCache` (resolves the `~/.botwithus/native/` path; cache is populated externally by the loader DLL).
 - **`resolver/`** — Maven-coordinate script installer: discovers versions via `maven-metadata.xml`, fetches JAR + `.sha1`/`.sha256`/`.asc` sidecars, optional PGP verification, writes to `scripts/`, tracks installs in `~/.botwithus/installed-scripts.json`. Repository drivers are plugged in via `RepositoryDriver` ServiceLoader SPI.
 - **`crypto/`** — `SdnLoader` reflects into a JVM-injected `jdk.internal.sdn.SdnClassLoader` for signed scripts (see *Java rules exceptions* below).
 - **`cache/`** — Lazy NXT cache reader for cache-resident asset queries.

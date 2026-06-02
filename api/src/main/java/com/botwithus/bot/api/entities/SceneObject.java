@@ -88,7 +88,7 @@ public final class SceneObject implements EntityContext {
         }
         api.queueAction(new GameAction(
                 ActionTypes.OBJECT_OPTIONS[optionIndex],
-                handle(), 0, 0));
+                this.typeId(), this.tileX(), this.tileY()));
     }
 
     /**
