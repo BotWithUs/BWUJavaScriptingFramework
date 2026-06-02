@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui;
 
+import com.botwithus.bot.api.ScriptCategory;
+import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ConfigField.BoolField;
 import com.botwithus.bot.api.config.ConfigField.ChoiceField;
@@ -9,7 +11,12 @@ import com.botwithus.bot.api.config.ConfigField.StringField;
 import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
+import imgui.ImDrawList;
 import imgui.ImGui;
+import imgui.ImVec2;
+import imgui.flag.ImGuiCol;
+import imgui.flag.ImGuiCond;
+import imgui.flag.ImGuiStyleVar;
 import imgui.flag.ImGuiWindowFlags;
 import imgui.type.ImBoolean;
 import imgui.type.ImInt;
@@ -20,11 +27,26 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * ImGui floating window for editing a script's configuration fields.
+ * Floating editor for a script's {@link ConfigField} declarations.
+ *
+ * <p>Three regions, top to bottom:
+ * <ol>
+ *   <li>A custom-drawn banner with the script's category icon, name, and subtitle.</li>
+ *   <li>A scrollable body with one field per row (label caption + control).</li>
+ *   <li>A pinned action bar with a dirty indicator and Apply / Reset / Close.</li>
+ * </ol>
+ *
+ * <p>The window default-sizes once via {@link ImGuiCond#FirstUseEver} and is freely
+ * resizable; an explicit min size constraint keeps the layout from collapsing.
  */
 public class ScriptConfigPanel {
 
     private static final int STRING_BUFFER_SIZE = 256;
+
+    private static final float DEFAULT_WIDTH_EM = 26f;
+    private static final float DEFAULT_HEIGHT_EM = 32f;
+    private static final float MIN_WIDTH_EM = 20f;
+    private static final float MIN_HEIGHT_EM = 18f;
 
     private ScriptRunner runner;
     private List<ConfigField> fields;
@@ -34,7 +56,9 @@ public class ScriptConfigPanel {
     public void open(ScriptRunner runner) {
         this.runner = runner;
         this.fields = runner.getConfigFields();
-        if (fields == null || fields.isEmpty()) return;
+        if (fields == null || fields.isEmpty()) {
+            this.fields = List.of();
+        }
 
         ScriptConfig current = runner.getCurrentConfig();
         edit.clear();
@@ -52,38 +76,451 @@ public class ScriptConfigPanel {
         open.set(false);
     }
 
-    /** Call from the main ImGui render loop. */
     public void render() {
-        if (!open.get() || runner == null || fields == null || fields.isEmpty()) return;
+        if (!open.get() || runner == null) return;
         if (runner.isDisposed()) {
             open.set(false);
             runner = null;
             return;
         }
 
-        ImGui.setNextWindowSize(350, 0);
-        if (ImGui.begin("Config: " + runner.getScriptName(), open,
-                ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse)) {
+        float fontH = ImGui.getFontSize();
+        ImGui.setNextWindowSize(fontH * DEFAULT_WIDTH_EM, fontH * DEFAULT_HEIGHT_EM,
+                ImGuiCond.FirstUseEver);
+        ImGui.setNextWindowSizeConstraints(
+                fontH * MIN_WIDTH_EM, fontH * MIN_HEIGHT_EM,
+                Float.MAX_VALUE, Float.MAX_VALUE);
 
-            for (ConfigField field : fields) {
-                edit.renderWidget(field);
-            }
+        ScriptManifest manifest = runner.getManifest();
+        CategoryStyle.Style cs = CategoryStyle.of(
+                manifest != null ? manifest.category() : ScriptCategory.UNCATEGORIZED);
 
-            ImGui.separator();
+        ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, 0f, 0f);
+        boolean visible = ImGui.begin(
+                runner.getScriptName() + "###scriptConfigPanel-" + runner.getScriptName(),
+                open, ImGuiWindowFlags.NoCollapse);
+        ImGui.popStyleVar();
 
-            if (ImGui.button("Apply")) {
-                applyConfig();
-            }
-            ImGui.sameLine();
-            if (ImGui.button("Reset")) {
-                resetToDefaults();
-            }
-            ImGui.sameLine();
-            if (ImGui.button("Close")) {
-                open.set(false);
-            }
+        if (visible) {
+            renderBanner(manifest, cs);
+            renderBodyAndActionBar(cs);
         }
         ImGui.end();
+    }
+
+    // ── Banner ────────────────────────────────────────────────────────────
+
+    private void renderBanner(ScriptManifest manifest, CategoryStyle.Style cs) {
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float fontH = ImGui.getFontSize();
+
+        float bannerH = fontH * 4.2f;
+        float padX = fontH * 1.1f;
+        float padY = fontH * 0.85f;
+
+        float x0 = ImGui.getCursorScreenPosX();
+        float y0 = ImGui.getCursorScreenPosY();
+        float availW = ImGui.getContentRegionAvailX();
+        float x1 = x0 + availW;
+        float y1 = y0 + bannerH;
+
+        // Gradient backdrop: surface → input bg, plus a soft accent wash on the right.
+        int bgLeft = ImGuiTheme.imCol32(
+                ImGuiTheme.SURFACE_R, ImGuiTheme.SURFACE_G, ImGuiTheme.SURFACE_B, 1f);
+        int bgRight = ImGuiTheme.imCol32(
+                ImGuiTheme.INPUT_BG_R, ImGuiTheme.INPUT_BG_G, ImGuiTheme.INPUT_BG_B, 1f);
+        draw.addRectFilledMultiColor(x0, y0, x1, y1, bgLeft, bgRight, bgRight, bgLeft);
+
+        int accentSoft = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0f);
+        int accentWash = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.14f);
+        draw.addRectFilledMultiColor(x0, y0, x1, y1,
+                accentSoft, accentWash, accentWash, accentSoft);
+
+        // Accent stripe at the bottom edge of the banner — defines the section break.
+        float stripeH = Math.max(2f, fontH * 0.12f);
+        int stripeCol = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.85f);
+        draw.addRectFilled(x0, y1 - stripeH, x1, y1, stripeCol);
+
+        // Soft horizontal hairline above the stripe.
+        int hairline = ImGuiTheme.imCol32(
+                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.35f);
+        draw.addLine(x0, y1 - stripeH - 1f, x1, y1 - stripeH - 1f, hairline, 1f);
+
+        // Category icon in a colored chip on the left.
+        float iconSize = fontH * 2.4f;
+        float iconX = x0 + padX;
+        float iconY = y0 + (bannerH - iconSize) * 0.5f;
+        float iconRounding = fontH * 0.45f;
+
+        int chipBg = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.16f);
+        int chipBorder = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.45f);
+        draw.addRectFilled(iconX, iconY, iconX + iconSize, iconY + iconSize, chipBg, iconRounding);
+        draw.addRect(iconX, iconY, iconX + iconSize, iconY + iconSize, chipBorder, iconRounding);
+
+        ImVec2 iconTextSize = new ImVec2();
+        ImGui.calcTextSize(iconTextSize, cs.icon());
+        int iconCol = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.95f);
+        draw.addText(
+                iconX + (iconSize - iconTextSize.x) * 0.5f,
+                iconY + (iconSize - iconTextSize.y) * 0.5f,
+                iconCol, cs.icon());
+
+        // Title block to the right of the chip.
+        float textX = iconX + iconSize + fontH * 0.85f;
+        float titleY = y0 + padY;
+
+        int titleCol = ImGuiTheme.imCol32(
+                ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 1f);
+        draw.addText(textX, titleY, titleCol, runner.getScriptName());
+
+        // Subtitle: "Script Settings · v1.0 · by Author" — falls back if metadata missing.
+        StringBuilder subtitle = new StringBuilder(Icons.SLIDERS + "  Script Settings");
+        if (manifest != null && !manifest.version().isEmpty()) {
+            subtitle.append("  ·  v").append(manifest.version());
+        }
+        if (manifest != null && !manifest.author().isEmpty()) {
+            subtitle.append("  ·  by ").append(manifest.author());
+        }
+        int subtitleCol = ImGuiTheme.imCol32(
+                ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.92f);
+        draw.addText(textX, titleY + fontH * 1.45f, subtitleCol, subtitle.toString());
+
+        // Tertiary line: description, dim and truncated to the banner width.
+        if (manifest != null && !manifest.description().isEmpty()) {
+            int descCol = ImGuiTheme.imCol32(
+                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.9f);
+            String desc = truncateToWidth(manifest.description(), x1 - textX - padX);
+            draw.addText(textX, titleY + fontH * 2.75f, descCol, desc);
+        }
+
+        ImGui.dummy(availW, bannerH);
+    }
+
+    private static String truncateToWidth(String text, float maxWidth) {
+        ImVec2 s = new ImVec2();
+        ImGui.calcTextSize(s, text);
+        if (s.x <= maxWidth) return text;
+        String ellipsis = "…";
+        int lo = 0, hi = text.length();
+        while (lo < hi) {
+            int mid = (lo + hi + 1) >>> 1;
+            ImGui.calcTextSize(s, text.substring(0, mid) + ellipsis);
+            if (s.x <= maxWidth) lo = mid;
+            else hi = mid - 1;
+        }
+        return text.substring(0, lo) + ellipsis;
+    }
+
+    // ── Body + action bar ─────────────────────────────────────────────────
+
+    private void renderBodyAndActionBar(CategoryStyle.Style cs) {
+        float fontH = ImGui.getFontSize();
+        float actionBarH = ImGui.getFrameHeight() + fontH * 1.4f;
+        float bodyPadX = fontH * 1.1f;
+        float bodyPadY = fontH * 0.9f;
+
+        // Body child fills the remaining space above the pinned action bar.
+        float bodyH = ImGui.getContentRegionAvailY() - actionBarH;
+        if (bodyH < fontH * 4f) bodyH = fontH * 4f;
+
+        ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, bodyPadX, bodyPadY);
+        ImGui.pushStyleVar(ImGuiStyleVar.ItemSpacing,
+                ImGui.getStyle().getItemSpacingX(), fontH * 0.55f);
+        ImGui.pushStyleColor(ImGuiCol.ChildBg,
+                ImGuiTheme.BG_R, ImGuiTheme.BG_G, ImGuiTheme.BG_B, 1f);
+
+        ImGui.beginChild("##configBody", 0, bodyH, false);
+
+        if (fields == null || fields.isEmpty()) {
+            renderEmptyState();
+        } else {
+            renderFields(cs);
+        }
+
+        ImGui.endChild();
+        ImGui.popStyleColor();
+        ImGui.popStyleVar(2);
+
+        renderActionBar();
+    }
+
+    private void renderEmptyState() {
+        float fontH = ImGui.getFontSize();
+        float availW = ImGui.getContentRegionAvailX();
+        float availH = ImGui.getContentRegionAvailY();
+
+        ImGui.dummy(0f, Math.max(0f, (availH - fontH * 5f) * 0.4f));
+
+        String icon = Icons.SLIDERS;
+        ImVec2 iconSize = new ImVec2();
+        ImGui.calcTextSize(iconSize, icon);
+        ImGui.setCursorPosX(ImGui.getCursorPosX() + (availW - iconSize.x) * 0.5f);
+        ImGui.textColored(
+                ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.7f, icon);
+
+        ImGui.dummy(0f, fontH * 0.4f);
+
+        String title = "No configurable settings";
+        ImVec2 titleSize = new ImVec2();
+        ImGui.calcTextSize(titleSize, title);
+        ImGui.setCursorPosX(ImGui.getCursorPosX() + (availW - titleSize.x) * 0.5f);
+        ImGui.text(title);
+
+        String subtitle = "This script doesn't expose any ConfigField entries.";
+        ImVec2 subtitleSize = new ImVec2();
+        ImGui.calcTextSize(subtitleSize, subtitle);
+        ImGui.setCursorPosX(ImGui.getCursorPosX() + (availW - subtitleSize.x) * 0.5f);
+        GuiHelpers.textMuted(subtitle);
+    }
+
+    private void renderFields(CategoryStyle.Style cs) {
+        GuiHelpers.sectionHeader("Settings");
+        ImGui.dummy(0f, ImGui.getFontSize() * 0.2f);
+
+        for (int i = 0; i < fields.size(); i++) {
+            ConfigField field = fields.get(i);
+            ImGui.pushID(field.key());
+            renderFieldRow(field, cs);
+            ImGui.popID();
+
+            if (i < fields.size() - 1) {
+                ImGui.dummy(0f, ImGui.getFontSize() * 0.25f);
+            }
+        }
+    }
+
+    private void renderFieldRow(ConfigField field, CategoryStyle.Style cs) {
+        float fontH = ImGui.getFontSize();
+
+        // Caption row: label on the left, optional type hint chip on the right.
+        ImGui.textColored(
+                ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.92f,
+                field.label());
+
+        String hint = typeHint(field);
+        if (hint != null) {
+            float availW = ImGui.getContentRegionAvailX();
+            ImVec2 hintSize = new ImVec2();
+            ImGui.calcTextSize(hintSize, hint);
+            float chipW = hintSize.x + fontH * 0.6f;
+            if (availW > chipW + fontH * 0.4f) {
+                ImGui.sameLine();
+                ImGui.setCursorPosX(ImGui.getCursorPosX() + availW - chipW);
+                drawTypeChip(hint);
+            }
+        }
+
+        // Control row: the input occupies the full body width.
+        ImGui.pushItemWidth(-1f);
+        switch (field) {
+            case IntField f -> ImGui.inputInt("##" + f.key(), edit.ints.get(f.key()));
+            case ItemIdField f -> ImGui.inputInt("##" + f.key(), edit.ints.get(f.key()));
+            case StringField f -> ImGui.inputText("##" + f.key(), edit.strings.get(f.key()));
+            case BoolField f -> renderBoolRow(f, cs);
+            case ChoiceField f -> ImGui.combo("##" + f.key(), edit.ints.get(f.key()),
+                    f.choices().toArray(new String[0]));
+        }
+        ImGui.popItemWidth();
+    }
+
+    private void renderBoolRow(BoolField f, CategoryStyle.Style cs) {
+        ImBoolean state = edit.bools.get(f.key());
+
+        // Custom tactile toggle aligned to the right of an elevated row.
+        float fontH = ImGui.getFontSize();
+        float padX = fontH * 0.6f;
+        float padY = fontH * 0.25f;
+        float rowH = ImGui.getFrameHeight();
+
+        float x0 = ImGui.getCursorScreenPosX();
+        float y0 = ImGui.getCursorScreenPosY();
+        float availW = ImGui.getContentRegionAvailX();
+
+        ImDrawList draw = ImGui.getWindowDrawList();
+        int rowBg = ImGuiTheme.imCol32(
+                ImGuiTheme.INPUT_BG_R, ImGuiTheme.INPUT_BG_G, ImGuiTheme.INPUT_BG_B, 1f);
+        int rowBorder = ImGuiTheme.imCol32(
+                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.5f);
+        float rounding = ImGui.getStyle().getFrameRounding();
+        draw.addRectFilled(x0, y0, x0 + availW, y0 + rowH, rowBg, rounding);
+        draw.addRect(x0, y0, x0 + availW, y0 + rowH, rowBorder, rounding);
+
+        // State caption (left)
+        int captionCol = ImGuiTheme.imCol32(
+                state.get() ? cs.r() : ImGuiTheme.TEXT_SEC_R,
+                state.get() ? cs.g() : ImGuiTheme.TEXT_SEC_G,
+                state.get() ? cs.b() : ImGuiTheme.TEXT_SEC_B,
+                state.get() ? 1f : 0.85f);
+        String caption = state.get() ? "Enabled" : "Disabled";
+        draw.addText(x0 + padX, y0 + (rowH - fontH) * 0.5f, captionCol, caption);
+
+        // Toggle (right)
+        ImVec2 sw = new ImVec2();
+        ImGui.calcTextSize(sw, " ");
+        float toggleW = fontH * 1.05f * 1.9f;
+        ImGui.setCursorScreenPos(x0 + availW - toggleW - padX, y0 + (rowH - fontH * 1.05f) * 0.5f);
+        if (GuiHelpers.toggleSwitch("##tg-" + f.key(), state.get())) {
+            state.set(!state.get());
+        }
+
+        // Reserve the row's vertical space — the toggle and rect are absolute-positioned,
+        // so without this the layout cursor wouldn't advance.
+        ImGui.setCursorScreenPos(x0, y0);
+        ImGui.dummy(availW, rowH);
+    }
+
+    private void drawTypeChip(String hint) {
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float fontH = ImGui.getFontSize();
+        float padX = fontH * 0.35f;
+        float padY = fontH * 0.05f;
+        float rounding = fontH * 0.2f;
+
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY() + fontH * 0.05f;
+        ImVec2 s = new ImVec2();
+        ImGui.calcTextSize(s, hint);
+
+        int bg = ImGuiTheme.imCol32(
+                ImGuiTheme.ELEVATED_R, ImGuiTheme.ELEVATED_G, ImGuiTheme.ELEVATED_B, 0.55f);
+        int border = ImGuiTheme.imCol32(
+                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.4f);
+        int text = ImGuiTheme.imCol32(
+                ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.95f);
+
+        draw.addRectFilled(x, y, x + s.x + padX * 2, y + s.y + padY * 2, bg, rounding);
+        draw.addRect(x, y, x + s.x + padX * 2, y + s.y + padY * 2, border, rounding);
+        draw.addText(x + padX, y + padY, text, hint);
+
+        ImGui.dummy(s.x + padX * 2, s.y + padY * 2);
+    }
+
+    private static String typeHint(ConfigField field) {
+        return switch (field) {
+            case IntField ignored -> "int";
+            case ItemIdField ignored -> "item id";
+            case StringField ignored -> "text";
+            case BoolField ignored -> null;
+            case ChoiceField f -> f.choices().size() + " choices";
+        };
+    }
+
+    // ── Action bar ────────────────────────────────────────────────────────
+
+    private void renderActionBar() {
+        float fontH = ImGui.getFontSize();
+        float padX = fontH * 1.1f;
+        float padY = fontH * 0.55f;
+        float barH = ImGui.getFrameHeight() + padY * 2;
+
+        float x0 = ImGui.getCursorScreenPosX();
+        float y0 = ImGui.getCursorScreenPosY();
+        float availW = ImGui.getContentRegionAvailX();
+
+        ImDrawList draw = ImGui.getWindowDrawList();
+        int bg = ImGuiTheme.imCol32(
+                ImGuiTheme.SURFACE_R, ImGuiTheme.SURFACE_G, ImGuiTheme.SURFACE_B, 1f);
+        int topBorder = ImGuiTheme.imCol32(
+                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.5f);
+        draw.addRectFilled(x0, y0, x0 + availW, y0 + barH, bg);
+        draw.addLine(x0, y0, x0 + availW, y0, topBorder, 1f);
+
+        ImGui.setCursorScreenPos(x0 + padX, y0 + padY);
+
+        boolean dirty = isDirty();
+        renderDirtyIndicator(dirty);
+
+        // Right-aligned action buttons: Reset (secondary) · Close (secondary) · Apply (primary).
+        float closeW = textButtonWidth("Close");
+        float resetW = textButtonWidth(Icons.ROTATE + "  Reset");
+        float applyW = textButtonWidth(Icons.CHECK + "  Apply");
+        float gap = ImGui.getStyle().getItemSpacingX();
+        float buttonsW = closeW + resetW + applyW + gap * 2;
+
+        ImGui.sameLine();
+        float rightEdge = availW - padX;
+        ImGui.setCursorPosX(rightEdge - buttonsW);
+
+        if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reset##cfgReset", resetW, ImGui.getFrameHeight())) {
+            resetToDefaults();
+        }
+        ImGui.sameLine(0, gap);
+        if (GuiHelpers.buttonSecondary("Close##cfgClose", closeW, ImGui.getFrameHeight())) {
+            open.set(false);
+        }
+        ImGui.sameLine(0, gap);
+
+        if (dirty) {
+            if (GuiHelpers.buttonPrimary(Icons.CHECK + "  Apply##cfgApply", applyW, ImGui.getFrameHeight())) {
+                applyConfig();
+            }
+        } else {
+            // Disabled-feel Apply when nothing to save — still clickable to no-op cheaply.
+            ImGui.pushStyleVar(ImGuiStyleVar.Alpha, 0.45f);
+            if (GuiHelpers.buttonSecondary(Icons.CHECK + "  Apply##cfgApply", applyW, ImGui.getFrameHeight())) {
+                applyConfig();
+            }
+            ImGui.popStyleVar();
+        }
+
+        // Advance past the bar.
+        ImGui.setCursorScreenPos(x0, y0 + barH);
+        ImGui.dummy(availW, 0);
+    }
+
+    private void renderDirtyIndicator(boolean dirty) {
+        float fontH = ImGui.getFontSize();
+        ImDrawList draw = ImGui.getWindowDrawList();
+
+        if (dirty) {
+            float r = fontH * 0.22f;
+            float dotX = ImGui.getCursorScreenPosX() + r;
+            float dotY = ImGui.getCursorScreenPosY() + ImGui.getFrameHeight() * 0.5f;
+            int glow = ImGuiTheme.imCol32(
+                    ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 0.35f);
+            int core = ImGuiTheme.imCol32(
+                    ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 1f);
+            draw.addCircleFilled(dotX, dotY, r * 1.7f, glow);
+            draw.addCircleFilled(dotX, dotY, r, core);
+
+            ImGui.dummy(r * 2.4f, ImGui.getFrameHeight());
+            ImGui.sameLine(0, fontH * 0.4f);
+            ImGui.textColored(
+                    ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 1f,
+                    "Unsaved changes");
+        } else {
+            // Match the dirty-line height so the action buttons sit on the same baseline.
+            float r = fontH * 0.22f;
+            float dotX = ImGui.getCursorScreenPosX() + r;
+            float dotY = ImGui.getCursorScreenPosY() + ImGui.getFrameHeight() * 0.5f;
+            int idle = ImGuiTheme.imCol32(
+                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.45f);
+            draw.addCircleFilled(dotX, dotY, r * 0.6f, idle);
+
+            ImGui.dummy(r * 2.4f, ImGui.getFrameHeight());
+            ImGui.sameLine(0, fontH * 0.4f);
+            GuiHelpers.textMuted("Up to date");
+        }
+    }
+
+    private static float textButtonWidth(String label) {
+        ImVec2 s = new ImVec2();
+        ImGui.calcTextSize(s, label);
+        return s.x + ImGui.getStyle().getFramePaddingX() * 2 + ImGui.getFontSize() * 0.4f;
+    }
+
+    // ── State + actions ───────────────────────────────────────────────────
+
+    private boolean isDirty() {
+        if (fields == null || fields.isEmpty()) return false;
+        ScriptConfig current = runner.getCurrentConfig();
+        Map<String, String> applied = current != null ? current.asMap() : Map.of();
+        for (ConfigField field : fields) {
+            String pending = edit.stringify(field);
+            String existing = applied.getOrDefault(field.key(), field.defaultAsString());
+            if (!java.util.Objects.equals(pending, existing)) return true;
+        }
+        return false;
     }
 
     private void applyConfig() {
@@ -132,16 +569,6 @@ public class ScriptConfigPanel {
             }
         }
 
-        void renderWidget(ConfigField field) {
-            switch (field) {
-                case IntField f -> ImGui.inputInt(f.label(), ints.get(f.key()));
-                case ItemIdField f -> ImGui.inputInt(f.label() + " (Item ID)", ints.get(f.key()));
-                case StringField f -> ImGui.inputText(f.label(), strings.get(f.key()));
-                case BoolField f -> ImGui.checkbox(f.label(), bools.get(f.key()));
-                case ChoiceField f -> ImGui.combo(f.label(), ints.get(f.key()), f.choices().toArray(new String[0]));
-            }
-        }
-
         void collect(ConfigField field, Map<String, String> values) {
             switch (field) {
                 case IntField f -> values.put(f.key(), String.valueOf(ints.get(f.key()).get()));
@@ -155,6 +582,19 @@ public class ScriptConfigPanel {
                     }
                 }
             }
+        }
+
+        String stringify(ConfigField field) {
+            return switch (field) {
+                case IntField f -> String.valueOf(ints.get(f.key()).get());
+                case ItemIdField f -> String.valueOf(ints.get(f.key()).get());
+                case StringField f -> strings.get(f.key()).get();
+                case BoolField f -> String.valueOf(bools.get(f.key()).get());
+                case ChoiceField f -> {
+                    int idx = ints.get(f.key()).get();
+                    yield (idx >= 0 && idx < f.choices().size()) ? f.choices().get(idx) : f.value();
+                }
+            };
         }
 
         void reset(ConfigField field) {
