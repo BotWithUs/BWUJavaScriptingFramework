@@ -61,8 +61,14 @@ public interface WwCallbacks {
     /**
      * Interact with the loc {@code objectId} at {@code tile}, choosing the
      * given option index.
+     *
+     * @return {@code 1} if a game action was actually queued, {@code 0} if the
+     *         call was a no-op — the baked loc is absent from the live scene,
+     *         which for a door means it is already open. The executor uses this
+     *         to skip its post-action settle wait when nothing was issued, so an
+     *         already-open door flows through instead of pausing.
      */
-    void interact(int objectId, WwTile tile, int optionIndex);
+    int interact(int objectId, WwTile tile, int optionIndex);
 
     /**
      * Run one step of a baked execution chain — used by transitions whose

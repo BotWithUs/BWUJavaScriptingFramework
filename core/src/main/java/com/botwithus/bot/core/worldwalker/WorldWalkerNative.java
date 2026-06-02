@@ -69,9 +69,10 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_WALK_TO =
             FunctionDescriptor.ofVoid(ADDRESS, WorldWalkerLayouts.WW_TILE);
 
-    /** {@code void(*)(void *user, int32_t objectId, WwTile tile, int32_t optionIndex)}. */
-    static final FunctionDescriptor FD_INTERACT = FunctionDescriptor.ofVoid(
-            ADDRESS, JAVA_INT, WorldWalkerLayouts.WW_TILE, JAVA_INT);
+    /** {@code int32_t(*)(void *user, int32_t objectId, WwTile tile, int32_t optionIndex)} —
+        returns 1 if an action was issued, 0 if a no-op (loc absent / door already open). */
+    static final FunctionDescriptor FD_INTERACT = FunctionDescriptor.of(
+            JAVA_INT, ADDRESS, JAVA_INT, WorldWalkerLayouts.WW_TILE, JAVA_INT);
 
     /** {@code void(*)(void *user, int32_t chainIndex, int32_t stepIndex)}. */
     static final FunctionDescriptor FD_RUN_CHAIN_STEP =

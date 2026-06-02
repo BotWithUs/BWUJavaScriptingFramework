@@ -185,8 +185,12 @@ class WorldWalkerExecutorE2ETest {
         }
 
         @Override
-        public void interact(int objectId, WwTile tile, int optionIndex) {
+        public int interact(int objectId, WwTile tile, int optionIndex) {
             interactCalls.incrementAndGet();
+            // Report an action as issued so the executor settles as before —
+            // this double exercises the normal (closed-door / climb) path, not
+            // the already-open skip.
+            return 1;
         }
 
         @Override
