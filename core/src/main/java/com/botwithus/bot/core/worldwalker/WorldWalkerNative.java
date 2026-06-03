@@ -32,6 +32,7 @@ final class WorldWalkerNative {
 
     final MethodHandle wwArtifactOpen;       // (ptr) -> ptr
     final MethodHandle wwArtifactClose;      // (ptr) -> void
+    final MethodHandle wwArtifactLoadTeleports; // (ptr, ptr) -> int
 
     // ── Context pool lifecycle ─────────────────────────────────────────────
 
@@ -74,9 +75,9 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_INTERACT = FunctionDescriptor.of(
             JAVA_INT, ADDRESS, JAVA_INT, WorldWalkerLayouts.WW_TILE, JAVA_INT);
 
-    /** {@code void(*)(void *user, int32_t chainIndex, int32_t stepIndex)}. */
+    /** {@code void(*)(void *user, int32_t interfaceId, int32_t componentId, int32_t optionId)}. */
     static final FunctionDescriptor FD_RUN_CHAIN_STEP =
-            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT);
+            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT);
 
     /** {@code void(*)(void *user, int32_t ticks)}. */
     static final FunctionDescriptor FD_SLEEP_TICKS =
@@ -102,6 +103,8 @@ final class WorldWalkerNative {
                 FunctionDescriptor.of(ADDRESS, ADDRESS));
         wwArtifactClose = downcall(linker, lookup, "ww_artifact_close",
                 FunctionDescriptor.ofVoid(ADDRESS));
+        wwArtifactLoadTeleports = downcall(linker, lookup, "ww_artifact_load_teleports",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
 
         wwContextPoolCreate = downcall(linker, lookup, "ww_context_pool_create",
                 FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG));

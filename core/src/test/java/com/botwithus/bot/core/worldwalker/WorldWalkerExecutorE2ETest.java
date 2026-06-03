@@ -194,7 +194,7 @@ class WorldWalkerExecutorE2ETest {
         }
 
         @Override
-        public void runChainStep(int chainIndex, int stepIndex) {
+        public void runChainStep(int interfaceId, int componentId, int optionId) {
             runChainStepCalls.incrementAndGet();
         }
 
