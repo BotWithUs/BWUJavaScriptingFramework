@@ -263,19 +263,20 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void runChainStepQueuesComponentClick() {
-        // (interface, component, option) -> COMPONENT action with the option in
-        // param1, the packed (iface<<16)|comp hash in param2, and -1 (no sub) in
-        // param3 — the same shape ComponentNode.interact uses.
-        bridge.runChainStep(1465, 33, 1);
+    void runChainStepQueuesActionVerbatim() {
+        // The chain step is already a ready-to-queue action (actionId, p1, p2,
+        // p3); the bridge forwards it verbatim with no packing. Here: a Lumbridge
+        // lodestone select click — COMPONENT, option=1, sub=-1, hash=(1092<<16)|17.
+        int hash = (1092 << 16) | 17;
+        bridge.runChainStep(ActionTypes.COMPONENT, 1, -1, hash);
 
         ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
         verify(api).queueAction(captor.capture());
         GameAction action = captor.getValue();
         assertEquals(ActionTypes.COMPONENT, action.actionId());
         assertEquals(1, action.param1(), "option index in param1");
-        assertEquals((1465 << 16) | 33, action.param2(), "packed component hash in param2");
-        assertEquals(-1, action.param3(), "no sub-slot in param3");
+        assertEquals(-1, action.param2(), "sub-component in param2");
+        assertEquals(hash, action.param3(), "packed component hash in param3");
     }
 
     @Test

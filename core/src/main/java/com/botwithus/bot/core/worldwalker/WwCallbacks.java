@@ -72,15 +72,20 @@ public interface WwCallbacks {
 
     /**
      * Fire one {@code Click} step of a transition's execution chain — e.g. a
-     * lodestone-network or spell teleport. The executor has already waited for
-     * {@code interfaceId} to be open before calling, so the implementation only
-     * needs to issue the component interaction.
+     * lodestone-network or spell teleport — as a generic queued game action.
+     * The four params are a ready-to-queue action; the implementation forwards
+     * them verbatim to {@code queueAction} with no component/hash knowledge. For
+     * a component click these are {@code (COMPONENT, option, sub_component,
+     * (iface<<16)|comp)}. The executor has already waited for the target
+     * interface (derived from {@code param3>>16} for COMPONENT actions) to be
+     * open before calling.
      *
-     * @param interfaceId the interface (window) id holding the component
-     * @param componentId the component within the interface to click
-     * @param optionId    the menu option index on that component
+     * @param actionId the {@code ActionTypes} id (e.g. COMPONENT)
+     * @param param1   action param 1 (component click: option index)
+     * @param param2   action param 2 (component click: sub-component, -1 = none)
+     * @param param3   action param 3 (component click: packed (iface<<16)|comp)
      */
-    void runChainStep(int interfaceId, int componentId, int optionId);
+    void runChainStep(int actionId, int param1, int param2, int param3);
 
     /** Sleep for the given number of game ticks (~600ms each). */
     void sleepTicks(int ticks);

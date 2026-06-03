@@ -75,9 +75,9 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_INTERACT = FunctionDescriptor.of(
             JAVA_INT, ADDRESS, JAVA_INT, WorldWalkerLayouts.WW_TILE, JAVA_INT);
 
-    /** {@code void(*)(void *user, int32_t interfaceId, int32_t componentId, int32_t optionId)}. */
+    /** {@code void(*)(void *user, int32_t actionId, int32_t param1, int32_t param2, int32_t param3)}. */
     static final FunctionDescriptor FD_RUN_CHAIN_STEP =
-            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT);
+            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT);
 
     /** {@code void(*)(void *user, int32_t ticks)}. */
     static final FunctionDescriptor FD_SLEEP_TICKS =
