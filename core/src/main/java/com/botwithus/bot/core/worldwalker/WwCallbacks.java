@@ -71,11 +71,16 @@ public interface WwCallbacks {
     int interact(int objectId, WwTile tile, int optionIndex);
 
     /**
-     * Run one step of a baked execution chain — used by transitions whose
-     * chain has more steps than a single interaction (e.g. dialog walk-through,
-     * spell-then-confirm teleports).
+     * Fire one {@code Click} step of a transition's execution chain — e.g. a
+     * lodestone-network or spell teleport. The executor has already waited for
+     * {@code interfaceId} to be open before calling, so the implementation only
+     * needs to issue the component interaction.
+     *
+     * @param interfaceId the interface (window) id holding the component
+     * @param componentId the component within the interface to click
+     * @param optionId    the menu option index on that component
      */
-    void runChainStep(int chainIndex, int stepIndex);
+    void runChainStep(int interfaceId, int componentId, int optionId);
 
     /** Sleep for the given number of game ticks (~600ms each). */
     void sleepTicks(int ticks);

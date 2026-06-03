@@ -65,7 +65,8 @@ final class UpcallStubs {
             MH_INTERACT = LOOKUP.findStatic(UpcallStubs.class, "interactImpl",
                     MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class, MemorySegment.class, int.class));
             MH_RUN_CHAIN_STEP = LOOKUP.findStatic(UpcallStubs.class, "runChainStepImpl",
-                    MethodType.methodType(void.class, Run.class, MemorySegment.class, int.class, int.class));
+                    MethodType.methodType(void.class, Run.class, MemorySegment.class,
+                            int.class, int.class, int.class));
             MH_SLEEP_TICKS = LOOKUP.findStatic(UpcallStubs.class, "sleepTicksImpl",
                     MethodType.methodType(void.class, Run.class, MemorySegment.class, int.class));
             MH_SHOULD_CANCEL = LOOKUP.findStatic(UpcallStubs.class, "shouldCancelImpl",
@@ -235,9 +236,10 @@ final class UpcallStubs {
         }
     }
 
-    static void runChainStepImpl(Run run, MemorySegment user, int chainIndex, int stepIndex) {
+    static void runChainStepImpl(Run run, MemorySegment user,
+                                 int interfaceId, int componentId, int optionId) {
         try {
-            run.callbacks.runChainStep(chainIndex, stepIndex);
+            run.callbacks.runChainStep(interfaceId, componentId, optionId);
         } catch (Throwable thrown) {
             run.recordError(thrown);
         }

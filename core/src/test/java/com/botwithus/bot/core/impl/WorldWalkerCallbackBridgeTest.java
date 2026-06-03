@@ -263,9 +263,19 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void runChainStepIsNoOp() {
-        assertDoesNotThrow(() -> bridge.runChainStep(7, 3));
-        verifyNoInteractions(api);
+    void runChainStepQueuesComponentClick() {
+        // (interface, component, option) -> COMPONENT action with the option in
+        // param1, the packed (iface<<16)|comp hash in param2, and -1 (no sub) in
+        // param3 — the same shape ComponentNode.interact uses.
+        bridge.runChainStep(1465, 33, 1);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.COMPONENT, action.actionId());
+        assertEquals(1, action.param1(), "option index in param1");
+        assertEquals((1465 << 16) | 33, action.param2(), "packed component hash in param2");
+        assertEquals(-1, action.param3(), "no sub-slot in param3");
     }
 
     @Test

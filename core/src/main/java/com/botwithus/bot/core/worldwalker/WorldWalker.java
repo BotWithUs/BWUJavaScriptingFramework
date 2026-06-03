@@ -111,6 +111,10 @@ public final class WorldWalker implements AutoCloseable {
             throw new IllegalArgumentException("contextPoolSize must be > 0");
         }
         MemorySegment art = openArtifact(artifactPath);
+        // Append the scripter-editable global teleports (spell + lodestone) so
+        // the planner considers them and the executor can fire them. Never fatal
+        // to open — the artifact is fully usable without them.
+        loadTeleports(art, NativeCache.locateTeleportsDir());
         MemorySegment poolSeg;
         try {
             poolSeg = createPool(art, contextPoolSize);
@@ -120,6 +124,48 @@ public final class WorldWalker implements AutoCloseable {
             throw e;
         }
         return new WorldWalker(art, poolSeg);
+    }
+
+    /**
+     * Reload the editable teleport datasets from the configured directory
+     * ({@link NativeCache#locateTeleportsDir()}), replacing the previously loaded
+     * set. Lets scripters edit {@code spell_teleports.json} /
+     * {@code item_teleports.json} and apply the change live without restarting.
+     *
+     * <p>Takes the lifecycle write lock so it cannot run concurrently with any
+     * in-flight {@link #query} / {@link #runExecutor} — the native call mutates
+     * the shared artifact. Throws {@link IllegalStateException} if the handle is
+     * closed.</p>
+     */
+    public void reloadTeleports() {
+        lifecycle.writeLock().lock();
+        try {
+            if (closed) {
+                throw new IllegalStateException("WorldWalker handle is closed");
+            }
+            loadTeleports(artifact, NativeCache.locateTeleportsDir());
+        } finally {
+            lifecycle.writeLock().unlock();
+        }
+    }
+
+    private static void loadTeleports(MemorySegment art, Path dir) {
+        try (Arena tmp = Arena.ofConfined()) {
+            MemorySegment cstr = tmp.allocateFrom(dir.toString());
+            int rc;
+            try {
+                rc = (int) N.wwArtifactLoadTeleports.invokeExact(art, cstr);
+            } catch (Throwable t) {
+                throw rethrow(t);
+            }
+            if (rc != 0) {
+                // Malformed JSON in a present file — log and carry on with
+                // whatever was already loaded (the artifact still routes).
+                log.warn("ww_artifact_load_teleports({}) rc={}: {}", dir, rc, lastError());
+            } else {
+                log.info("Loaded WorldWalker teleports from {}", dir);
+            }
+        }
     }
 
     private static MemorySegment openArtifact(Path artifactPath) throws IOException {

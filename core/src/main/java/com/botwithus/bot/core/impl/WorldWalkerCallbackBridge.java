@@ -6,6 +6,7 @@ import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.util.Interfaces;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
 import com.botwithus.bot.core.worldwalker.WwCallbacks;
@@ -116,9 +117,16 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     }
 
     @Override
-    public void runChainStep(int chainIndex, int stepIndex) {
-        log.warn("runChainStep({}, {}) — executor refactor not yet shipped; skipping",
-                chainIndex, stepIndex);
+    public void runChainStep(int interfaceId, int componentId, int optionId) {
+        // One Click step of a transition's chain (e.g. a lodestone-network or
+        // spell teleport). The executor has already waited for the interface to
+        // be open, so we just issue the component interaction. Same GameAction
+        // shape as ComponentNode.interact: option in param1, packed
+        // (iface<<16)|comp hash in param2, -1 (no sub-slot) in param3.
+        int hash = Interfaces.componentHash(interfaceId, componentId);
+        log.debug("runChainStep: click iface={} comp={} option={} (hash={})",
+                interfaceId, componentId, optionId, hash);
+        api.queueAction(new GameAction(ActionTypes.COMPONENT, optionId, hash, -1));
     }
 
     @Override
