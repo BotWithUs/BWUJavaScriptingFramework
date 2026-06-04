@@ -9,6 +9,8 @@ package com.botwithus.bot.core.shm;
  */
 public class Kernel32Exception extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public Kernel32Exception(String message, Throwable cause) {
         super(message, cause);
     }

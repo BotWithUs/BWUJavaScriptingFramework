@@ -24,8 +24,9 @@ class LocalScriptLoaderTest {
     @Test
     void brokenJarSurfacedAsFailure(@TempDir Path tmp) throws Exception {
         Path jar = tmp.resolve("not-a-module.jar");
-        try (JarOutputStream jos = new JarOutputStream(Files.newOutputStream(jar), simpleManifest())) {
+        try (var jos = new JarOutputStream(Files.newOutputStream(jar), simpleManifest())) {
             // No module-info — just a plain manifest. ModuleFinder will refuse it.
+            jos.flush();
         }
         assertTrue(Files.size(jar) > 0);
 

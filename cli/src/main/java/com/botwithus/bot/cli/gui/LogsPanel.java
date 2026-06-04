@@ -20,6 +20,8 @@ import java.util.List;
  */
 public class LogsPanel implements GuiPanel {
 
+    public LogsPanel() {}
+
     private static final String[] LEVELS = {"ALL", "INFO", "WARN", "ERROR"};
     private static final DateTimeFormatter TIME_FMT =
             DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault());

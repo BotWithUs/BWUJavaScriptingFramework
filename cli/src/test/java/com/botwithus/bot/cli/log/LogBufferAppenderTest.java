@@ -38,7 +38,7 @@ class LogBufferAppenderTest {
 
         testLogger = context.getLogger("com.botwithus.test.TestClass");
         testLogger.addAppender(appender);
-        testLogger.setLevel(Level.ALL);
+        testLogger.setLevel(Level.TRACE);
         testLogger.setAdditive(false); // don't propagate to root
     }
 

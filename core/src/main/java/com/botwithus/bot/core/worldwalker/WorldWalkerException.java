@@ -10,6 +10,8 @@ package com.botwithus.bot.core.worldwalker;
  */
 public final class WorldWalkerException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public WorldWalkerException(String message) {
         super(message);
     }

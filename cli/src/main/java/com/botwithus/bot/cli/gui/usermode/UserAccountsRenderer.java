@@ -35,6 +35,8 @@ import java.util.concurrent.ExecutorService;
  */
 public class UserAccountsRenderer {
 
+    public UserAccountsRenderer() {}
+
     private static final Logger log = LoggerFactory.getLogger(UserAccountsRenderer.class);
 
     private static final float CARD_SPACING = 10f;

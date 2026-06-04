@@ -31,6 +31,8 @@ import java.util.OptionalLong;
  */
 public final class SharedRegion implements AutoCloseable {
 
+    private SharedRegion() {}
+
     private static final Logger log = LoggerFactory.getLogger(SharedRegion.class);
 
     private MemorySegment mappingHandle;

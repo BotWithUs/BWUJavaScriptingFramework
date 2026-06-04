@@ -26,7 +26,9 @@ import java.util.List;
 /**
  * Entry point: connects the pipe, loads scripts, and starts the runtime.
  */
-public class JBotApplication {
+public final class JBotApplication {
+
+    private JBotApplication() {}
 
     private static final Logger log = LoggerFactory.getLogger(JBotApplication.class);
 
