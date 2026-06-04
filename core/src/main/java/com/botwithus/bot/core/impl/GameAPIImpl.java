@@ -989,11 +989,58 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
-        List<VarbitValue> out = new ArrayList<>(varbitIds.size());
-        for (int id : varbitIds) {
-            out.add(new VarbitValue(id, getVarbit(id)));
+        if (varbitIds.isEmpty()) {
+            return List.of();
+        }
+        // Resolve every def up front; partition into the two base-variable
+        // domains so each domain takes exactly one batched round-trip
+        // regardless of how many varbits share a base.
+        NXTCache cache = requireCache();
+        int n = varbitIds.size();
+        VarbitType[] defs = new VarbitType[n];
+        Map<Integer, Integer> varpBaseToIndex = new LinkedHashMap<>();
+        Map<Integer, Integer> varcBaseToIndex = new LinkedHashMap<>();
+        for (int i = 0; i < n; i++) {
+            VarbitType def = cache.getVarbit(varbitIds.get(i));
+            defs[i] = def;
+            if (def == null) {
+                continue;
+            }
+            Map<Integer, Integer> bucket = def.domainType() == 0 ? varpBaseToIndex : varcBaseToIndex;
+            bucket.putIfAbsent(def.varId(), bucket.size());
+        }
+
+        List<Integer> varpBases = List.copyOf(varpBaseToIndex.keySet());
+        List<Integer> varcBases = List.copyOf(varcBaseToIndex.keySet());
+        List<Integer> varpValues = getVarps(varpBases);
+        List<Integer> varcValues = getVarcInts(varcBases);
+
+        List<VarbitValue> out = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            out.add(new VarbitValue(varbitIds.get(i), decodeVarbit(defs[i], varpBaseToIndex,
+                    varcBaseToIndex, varpValues, varcValues)));
         }
         return out;
+    }
+
+    private static int decodeVarbit(VarbitType def,
+                                    Map<Integer, Integer> varpBaseToIndex,
+                                    Map<Integer, Integer> varcBaseToIndex,
+                                    List<Integer> varpValues,
+                                    List<Integer> varcValues) {
+        if (def == null) {
+            return -1;
+        }
+        int width = def.msb() - def.lsb() + 1;
+        if (width <= 0 || width > 32) {
+            return -1;
+        }
+        Map<Integer, Integer> bucket = def.domainType() == 0 ? varpBaseToIndex : varcBaseToIndex;
+        List<Integer> values = def.domainType() == 0 ? varpValues : varcValues;
+        int base = values.get(bucket.get(def.varId()));
+        // width == 32 would make (1 << 32) wrap to 1 in Java; treat as all bits.
+        int mask = width == 32 ? -1 : (1 << width) - 1;
+        return (base >>> def.lsb()) & mask;
     }
 
 }
