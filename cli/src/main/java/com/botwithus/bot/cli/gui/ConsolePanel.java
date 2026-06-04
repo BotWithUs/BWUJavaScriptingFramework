@@ -74,7 +74,9 @@ public class ConsolePanel implements GuiPanel {
         List<OutputLine> snapshot = outputBuffer.snapshot();
         for (int i = 0; i < snapshot.size(); i++) {
             OutputLine line = snapshot.get(i);
-            if (line.isRemoved()) continue;
+            if (line.isRemoved()) {
+                continue;
+            }
 
             switch (line.getType()) {
                 case TEXT -> {
@@ -319,7 +321,9 @@ public class ConsolePanel implements GuiPanel {
 
     private static String extractLineText(OutputLine line) {
         List<OutputLine.Segment> segments = line.getSegments();
-        if (segments == null || segments.isEmpty()) return "";
+        if (segments == null || segments.isEmpty()) {
+            return "";
+        }
         StringBuilder sb = new StringBuilder();
         for (OutputLine.Segment seg : segments) {
             sb.append(seg.text());
@@ -331,7 +335,9 @@ public class ConsolePanel implements GuiPanel {
         List<OutputLine> lines = existing != null ? existing : outputBuffer.snapshot();
         StringBuilder sb = new StringBuilder();
         for (OutputLine line : lines) {
-            if (line.isRemoved()) continue;
+            if (line.isRemoved()) {
+                continue;
+            }
             if (line.getType() == OutputLine.Type.TEXT) {
                 sb.append(extractLineText(line)).append('\n');
             } else if (line.getType() == OutputLine.Type.PROGRESS) {

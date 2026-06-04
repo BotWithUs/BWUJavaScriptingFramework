@@ -390,7 +390,9 @@ public class ImGuiApp extends Application {
      * config-only scripts open a window that immediately closes itself.
      */
     private void openScriptConfig(ScriptRunner runner) {
-        if (runner == null) return;
+        if (runner == null) {
+            return;
+        }
         if (runner.getScript().getUI() != null) {
             scriptUIWindow.open(runner);
         } else {
@@ -778,7 +780,9 @@ public class ImGuiApp extends Application {
         if (ctx.getStreamManager() != null) {
             ctx.getStreamManager().stopAll(name -> {
                 for (var c : ctx.getConnections()) {
-                    if (c.getName().equals(name)) return c;
+                    if (c.getName().equals(name)) {
+                        return c;
+                    }
                 }
                 return null;
             });

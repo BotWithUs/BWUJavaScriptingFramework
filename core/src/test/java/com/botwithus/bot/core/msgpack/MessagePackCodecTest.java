@@ -128,9 +128,13 @@ class MessagePackCodecTest {
         };
 
         StringBuilder javaSb = new StringBuilder();
-        for (byte b : bytes) javaSb.append(String.format("%02x ", b & 0xff));
+        for (byte b : bytes) {
+            javaSb.append(String.format("%02x ", b & 0xff));
+        }
         StringBuilder pySb = new StringBuilder();
-        for (byte b : expected) pySb.append(String.format("%02x ", b & 0xff));
+        for (byte b : expected) {
+            pySb.append(String.format("%02x ", b & 0xff));
+        }
 
         assertEquals(pySb.toString().trim(), javaSb.toString().trim(),
             "Java msgpack encoding must match Python msgpack encoding");

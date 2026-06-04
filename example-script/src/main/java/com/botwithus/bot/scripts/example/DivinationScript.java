@@ -69,7 +69,9 @@ public class DivinationScript implements BotScript {
             updateSpot(api);
         }
 
-        if (spot == null) return -1;
+        if (spot == null) {
+            return -1;
+        }
 
         // Walk to spot if too far
         if (distanceToSpot(api) > 30) {

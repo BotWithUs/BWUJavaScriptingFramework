@@ -41,7 +41,9 @@ public final class SceneObject implements EntityContext {
      * producer didn't fill it in.
      */
     public String name() {
-        if (raw.name() != null && !raw.name().isEmpty()) return raw.name();
+        if (raw.name() != null && !raw.name().isEmpty()) {
+            return raw.name();
+        }
         LocationType t = getType();
         return t == null ? null : t.name();
     }
@@ -64,7 +66,9 @@ public final class SceneObject implements EntityContext {
      * to {@link LocationType#options()} when raw came back empty.
      */
     public List<String> getOptions() {
-        if (!raw.options().isEmpty()) return raw.options();
+        if (!raw.options().isEmpty()) {
+            return raw.options();
+        }
         LocationType t = getType();
         return t == null ? List.of() : t.options();
     }
@@ -72,7 +76,9 @@ public final class SceneObject implements EntityContext {
     /** True if any option matches {@code option} case-insensitively. */
     public boolean hasOption(String option) {
         for (String o : getOptions()) {
-            if (o != null && o.equalsIgnoreCase(option)) return true;
+            if (o != null && o.equalsIgnoreCase(option)) {
+                return true;
+            }
         }
         return false;
     }

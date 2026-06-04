@@ -363,7 +363,9 @@ public class CliContext {
     }
 
     public boolean setActive(String name) {
-        if (!connections.containsKey(name)) return false;
+        if (!connections.containsKey(name)) {
+            return false;
+        }
         activeConnectionName = name;
         return true;
     }

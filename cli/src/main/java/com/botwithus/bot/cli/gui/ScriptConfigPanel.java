@@ -25,6 +25,7 @@ import imgui.type.ImString;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Floating editor for a script's {@link ConfigField} declarations.
@@ -77,7 +78,9 @@ public class ScriptConfigPanel {
     }
 
     public void render() {
-        if (!open.get() || runner == null) return;
+        if (!open.get() || runner == null) {
+            return;
+        }
         if (runner.isDisposed()) {
             open.set(false);
             runner = null;
@@ -199,14 +202,19 @@ public class ScriptConfigPanel {
     private static String truncateToWidth(String text, float maxWidth) {
         ImVec2 s = new ImVec2();
         ImGui.calcTextSize(s, text);
-        if (s.x <= maxWidth) return text;
+        if (s.x <= maxWidth) {
+            return text;
+        }
         String ellipsis = "…";
         int lo = 0, hi = text.length();
         while (lo < hi) {
             int mid = (lo + hi + 1) >>> 1;
             ImGui.calcTextSize(s, text.substring(0, mid) + ellipsis);
-            if (s.x <= maxWidth) lo = mid;
-            else hi = mid - 1;
+            if (s.x <= maxWidth) {
+                lo = mid;
+            } else {
+                hi = mid - 1;
+            }
         }
         return text.substring(0, lo) + ellipsis;
     }
@@ -221,7 +229,9 @@ public class ScriptConfigPanel {
 
         // Body child fills the remaining space above the pinned action bar.
         float bodyH = ImGui.getContentRegionAvailY() - actionBarH;
-        if (bodyH < fontH * 4f) bodyH = fontH * 4f;
+        if (bodyH < fontH * 4f) {
+            bodyH = fontH * 4f;
+        }
 
         ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, bodyPadX, bodyPadY);
         ImGui.pushStyleVar(ImGuiStyleVar.ItemSpacing,
@@ -512,13 +522,17 @@ public class ScriptConfigPanel {
     // ── State + actions ───────────────────────────────────────────────────
 
     private boolean isDirty() {
-        if (fields == null || fields.isEmpty()) return false;
+        if (fields == null || fields.isEmpty()) {
+            return false;
+        }
         ScriptConfig current = runner.getCurrentConfig();
         Map<String, String> applied = current != null ? current.asMap() : Map.of();
         for (ConfigField field : fields) {
             String pending = edit.stringify(field);
             String existing = applied.getOrDefault(field.key(), field.defaultAsString());
-            if (!java.util.Objects.equals(pending, existing)) return true;
+            if (!Objects.equals(pending, existing)) {
+                return true;
+            }
         }
         return false;
     }

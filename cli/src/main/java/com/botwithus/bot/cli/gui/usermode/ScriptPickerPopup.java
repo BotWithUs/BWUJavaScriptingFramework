@@ -141,7 +141,9 @@ public class ScriptPickerPopup {
     }
 
     private static String displayName(Connection c) {
-        if (c == null) return "";
+        if (c == null) {
+            return "";
+        }
         String accountName = c.getAccountName();
         if (accountName != null && !accountName.isEmpty()) {
             return accountName;

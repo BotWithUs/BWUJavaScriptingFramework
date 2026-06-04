@@ -82,7 +82,9 @@ class ScriptRunnerTest {
         BotScript script = new BotScript() {
             @Override public void onStart(ScriptContext ctx) {}
             @Override public int onLoop() {
-                if (firstLoop.compareAndSet(true, false)) return 10;
+                if (firstLoop.compareAndSet(true, false)) {
+                    return 10;
+                }
                 return -1; // stop after 2nd loop
             }
             @Override public void onStop() {}
