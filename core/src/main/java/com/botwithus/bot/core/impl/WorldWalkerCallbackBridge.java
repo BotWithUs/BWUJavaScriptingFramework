@@ -8,7 +8,9 @@ import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.VarbitValue;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
@@ -24,9 +26,13 @@ import com.botwithus.bot.core.worldwalker.WwTile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -111,6 +117,80 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
             log.info("ww readItemCount({}) = {}", itemId, n);
         }
         return n;
+    }
+
+    @Override
+    public void readVarbits(int[] ids, int[] outValues) {
+        // Single batched call replaces N sequential get_varp pipe round-trips.
+        // api.queryVarbits resolves each varbit's def locally from the cache,
+        // groups by varp/varc base, and issues at most two RPC calls regardless
+        // of how many varbits are passed in.
+        if (ids.length == 0) {
+            return;
+        }
+        try {
+            List<Integer> idList = new ArrayList<>(ids.length);
+            for (int id : ids) {
+                idList.add(id);
+            }
+            List<VarbitValue> results = api.queryVarbits(idList);
+            // queryVarbits preserves input order (one entry per input id), so a
+            // size mismatch is a host-side bug; defend with a zero-fill rather
+            // than a partial write that mis-pairs ids and values.
+            if (results.size() != ids.length) {
+                log.warn("ww readVarbits: queryVarbits returned {} entries for {} ids",
+                        results.size(), ids.length);
+                return;
+            }
+            for (int i = 0; i < ids.length; i++) {
+                outValues[i] = results.get(i).value();
+            }
+        } catch (RuntimeException e) {
+            log.debug("readVarbits({} ids) failed: {}", ids.length, e.toString());
+            // outValues already zero-initialised by the executor on the C side;
+            // leaving it alone yields the same "all-zero / not present" view
+            // the scalar fallback would on per-id exception.
+        }
+    }
+
+    @Override
+    public void readItemCounts(int[] ids, int[] outValues) {
+        // Pull both inventories once and walk them into a Map<itemId, total>
+        // instead of doing two byInvId+ArrayList rebuilds per id. For the
+        // typical ~60 requirement items this collapses ~120 inventory scans
+        // into 2 (and the per-id work to a HashMap.get).
+        if (ids.length == 0) {
+            return;
+        }
+        try {
+            Map<Integer, Integer> totals = new HashMap<>();
+            sumIntoMap(Equipment.INVENTORY_ID, totals);
+            sumIntoMap(Backpack.INVENTORY_ID, totals);
+            for (int i = 0; i < ids.length; i++) {
+                Integer total = totals.get(ids[i]);
+                outValues[i] = total == null ? 0 : total;
+            }
+        } catch (RuntimeException e) {
+            log.debug("readItemCounts({} ids) failed: {}", ids.length, e.toString());
+        }
+    }
+
+    private void sumIntoMap(int invId, Map<Integer, Integer> out) {
+        GameSnapshot snap = snapshotSource.get();
+        if (snap == null) {
+            return;
+        }
+        Optional<Inventory> inv = snap.inventories().byInvId(invId);
+        if (inv.isEmpty()) {
+            return;
+        }
+        for (InventoryItem it : inv.get().items()) {
+            int id = it.itemId();
+            if (id <= 0) {
+                continue;  // empty slot
+            }
+            out.merge(id, it.quantity(), Integer::sum);
+        }
     }
 
     private int readItemCountImpl(int itemId) {
