@@ -80,7 +80,17 @@ public final class ImGuiTheme {
      */
     public static void apply(float scale) {
         ImGuiStyle style = ImGui.getStyle();
+        applyGeometry(style);
+        style.scaleAllSizes(scale);
+        applyWindowAndBorderColors(style);
+        applyInputAndTitleColors(style);
+        applyTextAndButtonColors(style);
+        applyHeaderTabAndTableColors(style);
+        applyScrollbarAndWidgetColors(style);
+    }
 
+    /** Window-frame rounding, padding, item spacing, border sizes. */
+    private static void applyGeometry(ImGuiStyle style) {
         // Refined geometry — softer rounding, generous spacing
         style.setWindowRounding(0f);
         style.setChildRounding(6f);
@@ -97,75 +107,66 @@ public final class ImGuiTheme {
         style.setScrollbarSize(10f);
         style.setIndentSpacing(16f);
 
-        // Window border
         style.setWindowBorderSize(0f);
         style.setChildBorderSize(1f);
         style.setFrameBorderSize(0f);
         style.setPopupBorderSize(1f);
         style.setTabBorderSize(0f);
+    }
 
-        // Let ImGui scale all sizes uniformly for DPI
-        style.scaleAllSizes(scale);
-
-        // -- Window & child backgrounds --
+    private static void applyWindowAndBorderColors(ImGuiStyle style) {
         style.setColor(ImGuiCol.WindowBg, BG_R, BG_G, BG_B, 1f);
         style.setColor(ImGuiCol.ChildBg, BG_R, BG_G, BG_B, 0f);
         style.setColor(ImGuiCol.PopupBg, SURFACE_R, SURFACE_G, SURFACE_B, 0.97f);
-
-        // -- Borders --
         style.setColor(ImGuiCol.Border, BORDER_R, BORDER_G, BORDER_B, 0.6f);
         style.setColor(ImGuiCol.BorderShadow, 0f, 0f, 0f, 0f);
+    }
 
-        // -- Input frames --
+    private static void applyInputAndTitleColors(ImGuiStyle style) {
         style.setColor(ImGuiCol.FrameBg, INPUT_BG_R, INPUT_BG_G, INPUT_BG_B, 1f);
         style.setColor(ImGuiCol.FrameBgHovered, ELEVATED_R, ELEVATED_G, ELEVATED_B, 1f);
         style.setColor(ImGuiCol.FrameBgActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.18f);
-
-        // -- Title bar --
         style.setColor(ImGuiCol.TitleBg, SURFACE_R, SURFACE_G, SURFACE_B, 1f);
         style.setColor(ImGuiCol.TitleBgActive, ELEVATED_R, ELEVATED_G, ELEVATED_B, 1f);
         style.setColor(ImGuiCol.TitleBgCollapsed, SURFACE_R, SURFACE_G, SURFACE_B, 0.6f);
+    }
 
-        // -- Text --
+    private static void applyTextAndButtonColors(ImGuiStyle style) {
         style.setColor(ImGuiCol.Text, TEXT_R, TEXT_G, TEXT_B, 1f);
         style.setColor(ImGuiCol.TextDisabled, DIM_TEXT_R, DIM_TEXT_G, DIM_TEXT_B, 1f);
-
-        // -- Buttons (accent green with subtle opacity) --
         style.setColor(ImGuiCol.Button, ACCENT_R, ACCENT_G, ACCENT_B, 0.18f);
         style.setColor(ImGuiCol.ButtonHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.30f);
         style.setColor(ImGuiCol.ButtonActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.45f);
+    }
 
-        // -- Headers / selectable rows --
+    private static void applyHeaderTabAndTableColors(ImGuiStyle style) {
         style.setColor(ImGuiCol.Header, ACCENT_R, ACCENT_G, ACCENT_B, 0.12f);
         style.setColor(ImGuiCol.HeaderHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.22f);
         style.setColor(ImGuiCol.HeaderActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.35f);
 
-        // -- Tabs --
         style.setColor(ImGuiCol.Tab, SURFACE_R, SURFACE_G, SURFACE_B, 1f);
         style.setColor(ImGuiCol.TabHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.35f);
         style.setColor(ImGuiCol.TabActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.22f);
         style.setColor(ImGuiCol.TabUnfocused, SURFACE_R, SURFACE_G, SURFACE_B, 1f);
         style.setColor(ImGuiCol.TabUnfocusedActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.15f);
 
-        // -- Table --
         style.setColor(ImGuiCol.TableHeaderBg, SURFACE_R, SURFACE_G, SURFACE_B, 1f);
         style.setColor(ImGuiCol.TableBorderStrong, BORDER_R, BORDER_G, BORDER_B, 0.5f);
         style.setColor(ImGuiCol.TableBorderLight, BORDER_R, BORDER_G, BORDER_B, 0.25f);
         style.setColor(ImGuiCol.TableRowBg, 0f, 0f, 0f, 0f);
         style.setColor(ImGuiCol.TableRowBgAlt, 1f, 1f, 1f, 0.02f);
 
-        // -- Separators --
         style.setColor(ImGuiCol.Separator, BORDER_R, BORDER_G, BORDER_B, 0.4f);
         style.setColor(ImGuiCol.SeparatorHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.5f);
         style.setColor(ImGuiCol.SeparatorActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.8f);
+    }
 
-        // -- Scrollbar --
+    private static void applyScrollbarAndWidgetColors(ImGuiStyle style) {
         style.setColor(ImGuiCol.ScrollbarBg, BG_R, BG_G, BG_B, 0.3f);
         style.setColor(ImGuiCol.ScrollbarGrab, DIM_TEXT_R, DIM_TEXT_G, DIM_TEXT_B, 0.4f);
         style.setColor(ImGuiCol.ScrollbarGrabHovered, TEXT_SEC_R, TEXT_SEC_G, TEXT_SEC_B, 0.5f);
         style.setColor(ImGuiCol.ScrollbarGrabActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.8f);
 
-        // -- Widgets --
         style.setColor(ImGuiCol.CheckMark, ACCENT_R, ACCENT_G, ACCENT_B, 1f);
         style.setColor(ImGuiCol.SliderGrab, ACCENT_R, ACCENT_G, ACCENT_B, 0.7f);
         style.setColor(ImGuiCol.SliderGrabActive, ACCENT_R, ACCENT_G, ACCENT_B, 1f);
@@ -173,12 +174,10 @@ public final class ImGuiTheme {
         style.setColor(ImGuiCol.PlotHistogramHovered, ACCENT_R, ACCENT_G, ACCENT_B, 1f);
         style.setColor(ImGuiCol.TextSelectedBg, ACCENT_R, ACCENT_G, ACCENT_B, 0.25f);
 
-        // -- Resize grip --
         style.setColor(ImGuiCol.ResizeGrip, ACCENT_R, ACCENT_G, ACCENT_B, 0.1f);
         style.setColor(ImGuiCol.ResizeGripHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.4f);
         style.setColor(ImGuiCol.ResizeGripActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.7f);
 
-        // -- Nav highlight --
         style.setColor(ImGuiCol.NavHighlight, ACCENT_R, ACCENT_G, ACCENT_B, 0.8f);
     }
 }

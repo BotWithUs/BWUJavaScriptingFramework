@@ -127,7 +127,23 @@ public class ScriptConfigPanel {
         float x1 = x0 + availW;
         float y1 = y0 + bannerH;
 
-        // Gradient backdrop: surface → input bg, plus a soft accent wash on the right.
+        drawBannerBackground(draw, cs, x0, y0, x1, y1, fontH);
+
+        float iconSize = fontH * 2.4f;
+        float iconX = x0 + padX;
+        float iconY = y0 + (bannerH - iconSize) * 0.5f;
+        drawCategoryChip(draw, cs, iconX, iconY, iconSize, fontH);
+
+        float textX = iconX + iconSize + fontH * 0.85f;
+        float titleY = y0 + padY;
+        drawTitleStack(draw, manifest, fontH, textX, titleY, x1 - textX - padX);
+
+        ImGui.dummy(availW, bannerH);
+    }
+
+    /** Gradient surface→input-bg backdrop plus a soft accent wash on the right, then the accent stripe + hairline. */
+    private static void drawBannerBackground(ImDrawList draw, CategoryStyle.Style cs,
+                                             float x0, float y0, float x1, float y1, float fontH) {
         int bgLeft = ImGuiTheme.imCol32(
                 ImGuiTheme.SURFACE_R, ImGuiTheme.SURFACE_G, ImGuiTheme.SURFACE_B, 1f);
         int bgRight = ImGuiTheme.imCol32(
@@ -139,22 +155,19 @@ public class ScriptConfigPanel {
         draw.addRectFilledMultiColor(x0, y0, x1, y1,
                 accentSoft, accentWash, accentWash, accentSoft);
 
-        // Accent stripe at the bottom edge of the banner — defines the section break.
         float stripeH = Math.max(2f, fontH * 0.12f);
         int stripeCol = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.85f);
         draw.addRectFilled(x0, y1 - stripeH, x1, y1, stripeCol);
 
-        // Soft horizontal hairline above the stripe.
         int hairline = ImGuiTheme.imCol32(
                 ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.35f);
         draw.addLine(x0, y1 - stripeH - 1f, x1, y1 - stripeH - 1f, hairline, 1f);
+    }
 
-        // Category icon in a colored chip on the left.
-        float iconSize = fontH * 2.4f;
-        float iconX = x0 + padX;
-        float iconY = y0 + (bannerH - iconSize) * 0.5f;
+    /** Rounded colored chip with the category icon centred inside. */
+    private static void drawCategoryChip(ImDrawList draw, CategoryStyle.Style cs,
+                                         float iconX, float iconY, float iconSize, float fontH) {
         float iconRounding = fontH * 0.45f;
-
         int chipBg = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.16f);
         int chipBorder = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.45f);
         draw.addRectFilled(iconX, iconY, iconX + iconSize, iconY + iconSize, chipBg, iconRounding);
@@ -167,16 +180,15 @@ public class ScriptConfigPanel {
                 iconX + (iconSize - iconTextSize.x) * 0.5f,
                 iconY + (iconSize - iconTextSize.y) * 0.5f,
                 iconCol, cs.icon());
+    }
 
-        // Title block to the right of the chip.
-        float textX = iconX + iconSize + fontH * 0.85f;
-        float titleY = y0 + padY;
-
+    /** Title, subtitle ("Script Settings · v1.0 · by Author"), and truncated description. */
+    private void drawTitleStack(ImDrawList draw, ScriptManifest manifest,
+                                float fontH, float textX, float titleY, float maxTextWidth) {
         int titleCol = ImGuiTheme.imCol32(
                 ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 1f);
         draw.addText(textX, titleY, titleCol, runner.getScriptName());
 
-        // Subtitle: "Script Settings · v1.0 · by Author" — falls back if metadata missing.
         StringBuilder subtitle = new StringBuilder(Icons.SLIDERS + "  Script Settings");
         if (manifest != null && !manifest.version().isEmpty()) {
             subtitle.append("  ·  v").append(manifest.version());
@@ -188,15 +200,12 @@ public class ScriptConfigPanel {
                 ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.92f);
         draw.addText(textX, titleY + fontH * 1.45f, subtitleCol, subtitle.toString());
 
-        // Tertiary line: description, dim and truncated to the banner width.
         if (manifest != null && !manifest.description().isEmpty()) {
             int descCol = ImGuiTheme.imCol32(
                     ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.9f);
-            String desc = truncateToWidth(manifest.description(), x1 - textX - padX);
+            String desc = truncateToWidth(manifest.description(), maxTextWidth);
             draw.addText(textX, titleY + fontH * 2.75f, descCol, desc);
         }
-
-        ImGui.dummy(availW, bannerH);
     }
 
     private static String truncateToWidth(String text, float maxWidth) {
