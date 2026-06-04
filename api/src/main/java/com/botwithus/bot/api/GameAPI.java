@@ -25,6 +25,7 @@ import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
@@ -265,6 +266,18 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * are not yet surfaced and arrive in later slices.</p>
      */
     Component getComponent(int interfaceId, int componentId);
+
+    /**
+     * Batch counterpart of {@link #getComponent(int, int)}. The producer
+     * walks every target on a single game-thread visit, collapsing the
+     * latency of N independent {@code getComponent} calls (one tick each)
+     * into one tick total.
+     *
+     * @param refs components to resolve, in the desired result order
+     * @return one element per input ref, in order; {@code null} entries
+     *         signal "not found" (matches the single-component contract)
+     */
+    List<Component> getComponents(List<ComponentRef> refs);
 
     /**
      * Returns the static (cache-defined) child component ids of

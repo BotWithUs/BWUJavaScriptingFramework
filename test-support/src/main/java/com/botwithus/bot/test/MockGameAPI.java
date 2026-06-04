@@ -12,6 +12,7 @@ import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
@@ -358,6 +359,11 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public List<Component> getComponents(List<ComponentRef> refs) {
+        throw notStubbed("getComponents");
+    }
+
+    @Override
     public List<Integer> getStaticChildren(int interfaceId, int componentId) {
         throw notStubbed("getStaticChildren");
     }
@@ -439,5 +445,20 @@ final class MockGameAPI implements GameAPI {
     @Override
     public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
         throw notStubbed("queryVarbits");
+    }
+
+    @Override
+    public List<Integer> getVarps(List<Integer> varIds) {
+        throw notStubbed("getVarps");
+    }
+
+    @Override
+    public List<Integer> getVarcInts(List<Integer> varcIds) {
+        throw notStubbed("getVarcInts");
+    }
+
+    @Override
+    public List<String> getVarcStrings(List<Integer> varcIds) {
+        throw notStubbed("getVarcStrings");
     }
 }
