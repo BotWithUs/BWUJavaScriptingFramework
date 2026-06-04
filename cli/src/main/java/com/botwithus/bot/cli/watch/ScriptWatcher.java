@@ -66,6 +66,9 @@ public class ScriptWatcher {
 
                 boolean jarChanged = false;
                 for (WatchEvent<?> event : key.pollEvents()) {
+                    // rule-exception: {rule:no-casts} — JDK API boundary. WatchKey.pollEvents()
+                    // returns List<WatchEvent<?>>, so event.context() is typed Object even
+                    // though it is always a Path under StandardWatchEventKinds.ENTRY_*.
                     Path path = (Path) event.context();
                     if (path != null && path.toString().endsWith(".jar")) {
                         jarChanged = true;

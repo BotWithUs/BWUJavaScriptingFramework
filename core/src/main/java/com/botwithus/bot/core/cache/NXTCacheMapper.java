@@ -30,6 +30,13 @@ import static com.botwithus.bot.core.impl.MapHelper.getStringList;
  * <p>Field mapping is largely 1:1; the fixups are noted inline. The
  * cache exposes more fields than the records (full model/render data,
  * member templates, etc.) — extend the records if scripts need them.</p>
+ *
+ * <p>rule-exception: {@code {rule:no-instanceof}} — this file decodes
+ * cache JSON into typed records, recovering shape with {@code instanceof}
+ * patterns where the JSON gives us {@code List<?>} or {@code Object}. The
+ * type discrimination lives outside Java's compile-time reach (it is
+ * encoded by the cache producer). Mirrors {@link com.botwithus.bot.core.impl.MapHelper}'s
+ * wire-decode boundary justification.</p>
  */
 final class NXTCacheMapper {
 

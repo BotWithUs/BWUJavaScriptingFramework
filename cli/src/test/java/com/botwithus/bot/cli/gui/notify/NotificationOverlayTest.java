@@ -50,6 +50,8 @@ class NotificationOverlayTest {
             List<Consumer<? extends GameEvent>> l = listeners.get(event.getClass());
             if (l != null) {
                 for (Consumer<? extends GameEvent> c : l) {
+                    // rule-exception: {rule:no-casts} — stub heterogeneous typed-key bag;
+                    // same pattern as core's EventBusImpl. Single dispatch site.
                     ((Consumer<GameEvent>) c).accept(event);
                 }
             }

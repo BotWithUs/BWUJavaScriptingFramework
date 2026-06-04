@@ -9,6 +9,14 @@ import java.util.Map;
  *
  * <p>Used by {@link GameAPIImpl} and {@link EventDispatcher} to avoid
  * duplicating the same null-safe type coercion logic.</p>
+ *
+ * <p>rule-exception: {@code {rule:no-instanceof}} and
+ * {@code {rule:no-casts}} — every method here narrows {@code Object} to a
+ * concrete shape with {@code instanceof} or a generic-bag cast. This file is
+ * the wire-decode boundary: msgpack returns mixed types into a
+ * {@code Map<String, Object>}, and Java has no compile-time path for
+ * recovering the producer's type discrimination. Callers above this layer
+ * must use these accessors rather than re-implementing the {@code instanceof}.</p>
  */
 public final class MapHelper {
 

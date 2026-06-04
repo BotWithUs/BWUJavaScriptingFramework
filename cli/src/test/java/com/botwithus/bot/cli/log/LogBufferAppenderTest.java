@@ -27,6 +27,9 @@ class LogBufferAppenderTest {
     void setUp() {
         logBuffer = new LogBuffer(100);
 
+        // rule-exception: {rule:no-casts} — SLF4J/Logback binding boundary; same shape
+        // as ImGuiApp.wireLogBufferAppender. ILoggerFactory → LoggerContext narrowing
+        // is forced by the SDK and isolated at this one setup site.
         LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
         appender = new LogBufferAppender();
         appender.setContext(context);

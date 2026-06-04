@@ -709,8 +709,9 @@ public class ImGuiApp extends Application {
      * name collision with the imported {@link org.slf4j.Logger}.
      */
     private static void wireLogBufferAppender(LogBuffer logBuffer) {
-        // Required SLF4J/Logback binding cast: getILoggerFactory() is typed ILoggerFactory,
-        // and Logback's concrete impl is LoggerContext; there is no cast-free path.
+        // rule-exception: {rule:no-casts} — SLF4J/Logback binding boundary.
+        // getILoggerFactory() is typed ILoggerFactory and Logback's concrete impl
+        // is LoggerContext; there is no cast-free path. Concentrated to one site.
         LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
         // ch.qos.logback.classic.Logger fully qualified: name collision with org.slf4j.Logger
         ch.qos.logback.classic.Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);

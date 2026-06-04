@@ -30,6 +30,11 @@ import static org.mockito.Mockito.when;
  * and {@code query_ground_items} RPCs to return canned data so we can verify
  * the Java side wires up the rich wrappers, distance sort, definition cache,
  * and interaction params correctly. Real producer iteration lands later.
+ *
+ * <p>rule-exception: {@code {rule:no-fqn}} — the stub snapshot references
+ * {@code api.snapshot.Npc} / {@code api.snapshot.Location} fully qualified
+ * because the wrappers are the API under test. Same convention as the
+ * production wrapper classes in {@code api/.../entities/}.
  */
 class GameAPIImplSceneObjectsTest {
 

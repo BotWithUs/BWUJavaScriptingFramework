@@ -27,6 +27,11 @@ import static org.mockito.Mockito.when;
  * Slice-21 world-map-element query tests. Stubs query_world_map_elements
  * to canned data and verifies the fluent Query accumulates RPC params,
  * applies post-filters, and sorts by distance.
+ *
+ * <p>rule-exception: {@code {rule:no-fqn}} — the stub snapshot references
+ * {@code api.snapshot.*} record types fully qualified because the wrappers
+ * are the API under test. Same convention as the production wrapper classes
+ * in {@code api/.../entities/}.
  */
 class GameAPIImplWorldMapTest {
 

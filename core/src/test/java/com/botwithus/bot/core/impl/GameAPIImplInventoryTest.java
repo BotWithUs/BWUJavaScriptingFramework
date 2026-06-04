@@ -26,6 +26,11 @@ import static org.mockito.Mockito.verify;
 /**
  * Slice-19 inventory facade tests. Snapshot-backed reads + cached
  * ItemType lookup for name resolution + slot click via queue_action.
+ *
+ * <p>rule-exception: {@code {rule:no-fqn}} — the stub snapshot references
+ * {@code api.snapshot.Npc} / {@code api.snapshot.Player} fully qualified
+ * because the wrappers are the API under test. Same convention as the
+ * production wrapper classes in {@code api/.../entities/}.
  */
 class GameAPIImplInventoryTest {
 
