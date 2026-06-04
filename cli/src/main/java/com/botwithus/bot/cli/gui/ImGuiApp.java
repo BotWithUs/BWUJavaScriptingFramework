@@ -77,6 +77,10 @@ public class ImGuiApp extends Application {
     private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
 
     private static final float UI_FONT_BASE_PX = 17f;
+    /** Initial GLFW window width (px). */
+    private static final int APP_WINDOW_DEFAULT_WIDTH = 1100;
+    /** Initial GLFW window height (px). */
+    private static final int APP_WINDOW_DEFAULT_HEIGHT = 700;
 
     private static final String BANNER = """
 
@@ -137,8 +141,8 @@ public class ImGuiApp extends Application {
     @Override
     protected void configure(Configuration config) {
         config.setTitle("BotWithUs \u2014 disconnected");
-        config.setWidth(1100);
-        config.setHeight(700);
+        config.setWidth(APP_WINDOW_DEFAULT_WIDTH);
+        config.setHeight(APP_WINDOW_DEFAULT_HEIGHT);
     }
 
     @Override

@@ -65,6 +65,8 @@ public final class GroundItems {
     public static final class Query extends EntityQuery<GroundItem, Query> {
         private final IntFunction<ItemType> typeLookup;
         private static final int RPC_PULL_CAP = 256;
+        /** Tile radius around the local player covered by the default ground-item query. */
+        private static final int DEFAULT_QUERY_RADIUS_TILES = 64;
 
         Query(GameAPI api, IntFunction<ItemType> typeLookup) {
             super(api);
@@ -77,7 +79,7 @@ public final class GroundItems {
             int cx = lp == null ? 0 : lp.tileX();
             int cy = lp == null ? 0 : lp.tileY();
             int cp = lp == null ? -1 : lp.plane();
-            List<GroundItemInfo> raw = api.queryGroundItems(cx, cy, /*radius*/ 64, cp, RPC_PULL_CAP);
+            List<GroundItemInfo> raw = api.queryGroundItems(cx, cy, DEFAULT_QUERY_RADIUS_TILES, cp, RPC_PULL_CAP);
             return raw.stream().map(info -> new GroundItem(api, info, typeLookup));
         }
 

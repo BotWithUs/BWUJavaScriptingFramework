@@ -24,6 +24,9 @@ import java.util.Map;
 public class ScriptManagerImpl implements ScriptManager {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptManagerImpl.class);
+
+    /** Time to wait for a runner to drain before restart proceeds (ms). */
+    private static final long RESTART_AWAIT_STOP_MS = 2000L;
     private final ScriptRuntime runtime;
     private final ScriptSchedulerImpl scheduler;
 
@@ -122,7 +125,7 @@ public class ScriptManagerImpl implements ScriptManager {
 
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(RESTART_AWAIT_STOP_MS);
         }
         runner.start();
         log.info("Restarted: {}", runner.getScriptName());

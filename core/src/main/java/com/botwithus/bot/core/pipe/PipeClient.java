@@ -27,6 +27,9 @@ import java.util.stream.Stream;
 public class PipeClient implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(PipeClient.class);
+
+    /** Upper bound on a single length-prefixed message; messages above this are treated as framing corruption. */
+    private static final int MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
     static final String PIPE_PREFIX = "\\\\.\\pipe\\";
 
     /**
@@ -171,7 +174,7 @@ public class PipeClient implements AutoCloseable {
                     | ((header[1] & 0xFF) << 8)
                     | ((header[2] & 0xFF) << 16)
                     | ((header[3] & 0xFF) << 24);
-            if (length <= 0 || length > 16 * 1024 * 1024) {
+            if (length <= 0 || length > MAX_MESSAGE_BYTES) {
                 throw new PipeException("Invalid message length: " + length);
             }
             byte[] payload = new byte[length];

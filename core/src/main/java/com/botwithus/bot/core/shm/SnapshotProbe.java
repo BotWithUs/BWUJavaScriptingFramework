@@ -37,6 +37,13 @@ import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
  */
 public final class SnapshotProbe {
 
+    /** How often the probe prints a snapshot summary (ms). */
+    private static final long PRINT_INTERVAL_MS = 1000L;
+    /** How long the probe sleeps between event-ring polls (ms). */
+    private static final long POLL_INTERVAL_MS = 50L;
+    /** Divisor used to convert {@code currentTimeMillis} to a printable seconds-since-epoch column. */
+    private static final long MS_PER_SECOND = 1000L;
+
     private SnapshotProbe() {}
 
     public static void main(String[] args) throws InterruptedException {
@@ -71,13 +78,13 @@ public final class SnapshotProbe {
                 events.poll(SnapshotProbe::printEvent);
 
                 long now = System.currentTimeMillis();
-                if (now - lastSnapshotPrint >= 1000) {
+                if (now - lastSnapshotPrint >= PRINT_INTERVAL_MS) {
                     GameSnapshot snap = new GameSnapshotImpl(region.snapshot());
                     if (snap.tickId() != lastTick) {
                         LocalPlayer self = snap.self();
                         System.out.printf(
                                 "[t=%d] tick=%d state=%d ownIdx=%d npcs=%d players=%d invs=%d skills=%d (drops: writer=%d reader=%d)%n",
-                                now / 1000,
+                                now / MS_PER_SECOND,
                                 snap.tickId(),
                                 snap.gameState(),
                                 snap.ownIndex(),
@@ -92,7 +99,7 @@ public final class SnapshotProbe {
                     lastSnapshotPrint = now;
                 }
 
-                Thread.sleep(50);
+                Thread.sleep(POLL_INTERVAL_MS);
             }
         }
     }
