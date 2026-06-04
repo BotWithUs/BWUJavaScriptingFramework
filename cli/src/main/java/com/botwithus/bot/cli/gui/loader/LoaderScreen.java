@@ -278,16 +278,22 @@ public class LoaderScreen {
         ImGui.spacing();
         ImGui.spacing();
 
-        // Adjust cursor for slide animation
         float baseY = ImGui.getCursorPosY();
         ImGui.setCursorPosY(baseY + offsetY);
 
-        // "BotWithUs" brand text (centered)
+        renderBrandText(winW, logoAlpha);
+        renderVersionRow(winW, logoAlpha);
+        renderLocalModuleLabel(winW, logoAlpha);
+
+        ImGui.popStyleVar(); // logoAlpha
+    }
+
+    /** Center brand text + the four decorative dots flanking it. */
+    private void renderBrandText(float winW, float logoAlpha) {
         String brandText = "BotWithUs";
         float textWidth = ImGui.calcTextSize(brandText).x;
         ImGui.setCursorPosX((winW - textWidth) / 2f);
 
-        // Decorative dots flanking the text
         ImDrawList draw = ImGui.getWindowDrawList();
         float textX = ImGui.getCursorScreenPosX();
         float textY = ImGui.getCursorScreenPosY();
@@ -303,8 +309,10 @@ public class LoaderScreen {
         ImGui.pushStyleColor(ImGuiCol.Text, ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, logoAlpha);
         ImGui.text(brandText);
         ImGui.popStyleColor();
+    }
 
-        // Version badge
+    /** Version string + optional DEV / PROD-TEST badge, centered as a row. */
+    private void renderVersionRow(float winW, float logoAlpha) {
         String version = "v" + APP_VERSION;
         if (dllAvailable) {
             String dllVersion = bwuClient.getVersion();
@@ -313,7 +321,6 @@ public class LoaderScreen {
             }
         }
 
-        // Calculate total width for centering (version + optional dev/prod-test badge)
         boolean prodForced = prodForced();
         String badgeText = prodForced ? "PROD-TEST" : "DEV";
         float versionWidth = ImGui.calcTextSize(version).x;
@@ -335,21 +342,22 @@ public class LoaderScreen {
                 GuiHelpers.statusBadge(badgeText, ImGuiTheme.ORANGE_R, ImGuiTheme.ORANGE_G, ImGuiTheme.ORANGE_B);
             }
         }
+    }
 
-        // Local module path indicator — only meaningful while we still honor the env var.
-        if (devBuild && localModulePath != null && !prodForced) {
-            String fileName = Path.of(localModulePath).getFileName().toString();
-            String pathLabel = Icons.FOLDER + "  " + fileName;
-            float pathWidth = ImGui.calcTextSize(pathLabel).x;
-            ImGui.setCursorPosX((winW - pathWidth) / 2f);
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, logoAlpha * 0.4f,
-                    pathLabel);
-            if (ImGui.isItemHovered()) {
-                ImGui.setTooltip(localModulePath);
-            }
+    /** Dev-only local module path indicator with hover tooltip. */
+    private void renderLocalModuleLabel(float winW, float logoAlpha) {
+        if (!(devBuild && localModulePath != null && !prodForced())) {
+            return;
         }
-
-        ImGui.popStyleVar(); // logoAlpha
+        String fileName = Path.of(localModulePath).getFileName().toString();
+        String pathLabel = Icons.FOLDER + "  " + fileName;
+        float pathWidth = ImGui.calcTextSize(pathLabel).x;
+        ImGui.setCursorPosX((winW - pathWidth) / 2f);
+        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, logoAlpha * 0.4f,
+                pathLabel);
+        if (ImGui.isItemHovered()) {
+            ImGui.setTooltip(localModulePath);
+        }
     }
 
     // --- Login ---

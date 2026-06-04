@@ -649,11 +649,21 @@ public class AccountsPanel implements GuiPanel {
     }
 
     private void renderClassicRow(BwuAccount acct, int index) {
-        // Name
+        renderClassicNameCell(acct);
+        renderClassicTypeCell(acct);
+        renderClassicWorldCell(acct);
+        renderClassicTargetCell(acct);
+        renderClassicFlagsCell(acct);
+        renderClassicActionsCell(acct);
+        renderClassicDeleteCell(acct);
+    }
+
+    private static void renderClassicNameCell(BwuAccount acct) {
         ImGui.tableSetColumnIndex(0);
         ImGui.text(acct.name());
+    }
 
-        // Type
+    private static void renderClassicTypeCell(BwuAccount acct) {
         ImGui.tableSetColumnIndex(1);
         String typeLabel = switch (acct.accountType()) {
             case DEFAULT -> "Default";
@@ -661,20 +671,23 @@ public class AccountsPanel implements GuiPanel {
             case PLATFORM -> "Platform";
         };
         GuiHelpers.textSecondary(typeLabel);
+    }
 
-        // World
+    private static void renderClassicWorldCell(BwuAccount acct) {
         ImGui.tableSetColumnIndex(2);
         String worldText = "W" + acct.worldA();
         if (acct.worldB() > 0) {
             worldText += " / W" + acct.worldB();
         }
         ImGui.text(worldText);
+    }
 
-        // Target
+    private static void renderClassicTargetCell(BwuAccount acct) {
         ImGui.tableSetColumnIndex(3);
         GuiHelpers.textSecondary(acct.targetType() == BwuTargetType.PRIMARY ? "Primary" : "Secondary");
+    }
 
-        // Auto flags
+    private static void renderClassicFlagsCell(BwuAccount acct) {
         ImGui.tableSetColumnIndex(4);
         if (acct.autoLogin()) {
             ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, Icons.CHECK);
@@ -684,15 +697,15 @@ public class AccountsPanel implements GuiPanel {
             ImGui.textColored(ImGuiTheme.BLUE_ACCENT_R, ImGuiTheme.BLUE_ACCENT_G, ImGuiTheme.BLUE_ACCENT_B, 1f,
                     Icons.ROTATE);
         }
+    }
 
-        // Actions
+    private void renderClassicActionsCell(BwuAccount acct) {
         ImGui.tableSetColumnIndex(5);
         boolean busy = pendingOperation != null && !pendingOperation.isDone();
         if (busy) {
             ImGui.beginDisabled();
         }
 
-        // Launch button
         ImGui.pushStyleColor(ImGuiCol.Text, 0.04f, 0.04f, 0.1f, 1f);
         ImGui.pushStyleColor(ImGuiCol.Button,
                 ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.85f);
@@ -713,8 +726,9 @@ public class AccountsPanel implements GuiPanel {
         if (busy) {
             ImGui.endDisabled();
         }
+    }
 
-        // Delete column
+    private void renderClassicDeleteCell(BwuAccount acct) {
         ImGui.tableSetColumnIndex(6);
         if (!confirmDeleteIsJagex && acct.uuid().equals(confirmDeleteUuid)) {
             if (ImGui.smallButton(Icons.CHECK)) {
