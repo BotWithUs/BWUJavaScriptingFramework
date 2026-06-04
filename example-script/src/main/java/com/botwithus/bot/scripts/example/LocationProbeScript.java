@@ -42,14 +42,12 @@ public class LocationProbeScript implements BotScript {
     private static final int LOOP_DELAY_MS = 2000;
     private static final int SAMPLE_ROW_COUNT = 5;
 
-    private ScriptContext ctx;
     private GameAPI api;
     private int loopCount;
     private int lastSceneVersion = -1;
 
     @Override
     public void onStart(ScriptContext ctx) {
-        this.ctx = ctx;
         this.api = ctx.getGameAPI();
         this.loopCount = 0;
         this.lastSceneVersion = -1;

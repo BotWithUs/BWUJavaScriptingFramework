@@ -40,7 +40,6 @@ public final class SharedRegion implements AutoCloseable {
     private MemorySegment snapshot1;
     private MemorySegment ring;
 
-    private long expectedSize;
     private boolean closed;
 
     /**
@@ -167,7 +166,6 @@ public final class SharedRegion implements AutoCloseable {
         SharedRegion r = new SharedRegion();
         r.mappingHandle = mapping;
         r.baseView      = fullView;
-        r.expectedSize  = totalSize;
         r.header        = fullSlice.asSlice(0, Layout.HEADER_SIZE);
         r.snapshot0     = fullSlice.asSlice(snapshotOff0, snapshotSize);
         r.snapshot1     = fullSlice.asSlice(snapshotOff1, snapshotSize);

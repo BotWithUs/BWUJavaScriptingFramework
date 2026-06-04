@@ -36,7 +36,6 @@ public class ExampleScript implements BotScript {
     private static final int DEFAULT_LOOP_DELAY_MS = 5000;
     private static final int PROGRESS_TARGET_LOOPS = 100;
 
-    private ScriptContext ctx;
     private int loopCount;
     private int loopDelay = DEFAULT_LOOP_DELAY_MS;
     private boolean verbose = true;
@@ -45,7 +44,6 @@ public class ExampleScript implements BotScript {
 
     @Override
     public void onStart(ScriptContext ctx) {
-        this.ctx = ctx;
         this.loopCount = 0;
         this.api = ctx.getGameAPI();
 
