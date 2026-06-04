@@ -606,7 +606,9 @@ public class UserAccountsRenderer {
         try {
             int cCount = bwu.getAccountCount();
             List<BwuAccount> list = new ArrayList<>(cCount);
-            for (int i = 0; i < cCount; i++) list.add(bwu.getAccount(i));
+            for (int i = 0; i < cCount; i++) {
+                list.add(bwu.getAccount(i));
+            }
             classicAccounts = List.copyOf(list);
         } catch (BwuException e) {
             log.trace("Classic refresh: {}", e.getMessage());

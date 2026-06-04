@@ -77,7 +77,9 @@ class GameAPIImplInventoryTest {
     void backpackIsFullWhenAllSlotsOccupied() {
         build();
         InventoryItem[] full = new InventoryItem[28];
-        for (int i = 0; i < 28; ++i) full[i] = slot(i, 1511, 1);
+        for (int i = 0; i < 28; ++i) {
+            full[i] = slot(i, 1511, 1);
+        }
         snap.setInv(Backpack.INVENTORY_ID, 28, items(full));
         assertTrue(api.backpack().isFull());
     }
@@ -228,7 +230,9 @@ class GameAPIImplInventoryTest {
 
     private static List<InventoryItem> items(InventoryItem... is) {
         List<InventoryItem> out = new ArrayList<>(is.length);
-        for (InventoryItem i : is) out.add(i);
+        for (InventoryItem i : is) {
+            out.add(i);
+        }
         return out;
     }
 

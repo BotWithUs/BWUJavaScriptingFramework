@@ -131,7 +131,9 @@ public final class BwuClient implements AutoCloseable {
         }
 
         try (InputStream in = resourceAnchor.getResourceAsStream("/native/bwu.dll")) {
-            if (in == null) return null;
+            if (in == null) {
+                return null;
+            }
             Path tmp = Files.createTempFile("bwu", ".dll");
             tmp.toFile().deleteOnExit();
             Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);

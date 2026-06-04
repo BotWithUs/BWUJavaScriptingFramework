@@ -88,7 +88,9 @@ public final class ManagementScriptLoader {
         for (ModuleReference ref : moduleReferences) {
             String name = ref.descriptor().name();
             var location = ref.location();
-            if (location.isEmpty()) continue;
+            if (location.isEmpty()) {
+                continue;
+            }
 
             try {
                 URL jarURL = location.get().toURL();

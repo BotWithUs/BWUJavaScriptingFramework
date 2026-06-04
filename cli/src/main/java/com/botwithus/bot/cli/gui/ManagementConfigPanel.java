@@ -47,7 +47,9 @@ public class ManagementConfigPanel {
 
         // Fall back to ConfigField-based form
         this.fields = runner.getConfigFields();
-        if (fields == null || fields.isEmpty()) return;
+        if (fields == null || fields.isEmpty()) {
+            return;
+        }
 
         ScriptConfig current = runner.getCurrentConfig();
         edit.clear();
@@ -62,7 +64,9 @@ public class ManagementConfigPanel {
     }
 
     public void render() {
-        if (!open.get() || runner == null) return;
+        if (!open.get() || runner == null) {
+            return;
+        }
         if (runner.isDisposed()) {
             open.set(false);
             runner = null;

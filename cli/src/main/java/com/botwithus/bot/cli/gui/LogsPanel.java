@@ -80,7 +80,9 @@ public class LogsPanel implements GuiPanel {
             connOptions[i + 1] = connections.get(i).getName();
         }
         ImGui.pushItemWidth(120);
-        if (connectionFilter.get() >= connOptions.length) connectionFilter.set(0);
+        if (connectionFilter.get() >= connOptions.length) {
+            connectionFilter.set(0);
+        }
         ImGui.combo("##connFilter", connectionFilter, connOptions);
         ImGui.popItemWidth();
 

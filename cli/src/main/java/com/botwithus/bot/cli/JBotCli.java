@@ -102,9 +102,13 @@ public class JBotCli {
             out.print(connLabel + "> ");
             out.flush();
 
-            if (!scanner.hasNextLine()) break;
+            if (!scanner.hasNextLine()) {
+                break;
+            }
             String line = scanner.nextLine().trim();
-            if (line.isEmpty()) continue;
+            if (line.isEmpty()) {
+                continue;
+            }
 
             ParsedCommand parsed = CommandParser.parse(line);
             Command cmd = registry.resolve(parsed.name());

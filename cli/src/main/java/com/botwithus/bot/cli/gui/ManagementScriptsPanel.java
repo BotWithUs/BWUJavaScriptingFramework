@@ -171,8 +171,12 @@ public class ManagementScriptsPanel implements GuiPanel {
             ImGui.beginTooltip();
             ImGui.text("Name: " + runner.getScriptName());
             ImGui.text("Version: " + manifest.version());
-            if (!manifest.author().isEmpty()) ImGui.text("Author: " + manifest.author());
-            if (!manifest.description().isEmpty()) ImGui.text("Description: " + manifest.description());
+            if (!manifest.author().isEmpty()) {
+                ImGui.text("Author: " + manifest.author());
+            }
+            if (!manifest.description().isEmpty()) {
+                ImGui.text("Description: " + manifest.description());
+            }
             ImGui.text("Class: " + runner.getScript().getClass().getName());
             ImGui.endTooltip();
         }

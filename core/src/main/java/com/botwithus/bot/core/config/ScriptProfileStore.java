@@ -50,7 +50,9 @@ public final class ScriptProfileStore {
     // --- Global settings ---
 
     private void loadSettings() {
-        if (!Files.exists(settingsFile)) return;
+        if (!Files.exists(settingsFile)) {
+            return;
+        }
         try (Reader r = Files.newBufferedReader(settingsFile)) {
             globalSettings.load(r);
         } catch (IOException e) {
@@ -106,7 +108,9 @@ public final class ScriptProfileStore {
     public List<String> getAccountScripts(String displayName) {
         Properties props = loadProfile(accountFile(displayName));
         String scripts = props.getProperty("scripts", "");
-        if (scripts.isBlank()) return List.of();
+        if (scripts.isBlank()) {
+            return List.of();
+        }
         return Arrays.stream(scripts.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
@@ -135,7 +139,9 @@ public final class ScriptProfileStore {
     public List<String> getGroupScripts(String groupName) {
         Properties props = loadProfile(groupFile(groupName));
         String scripts = props.getProperty("scripts", "");
-        if (scripts.isBlank()) return List.of();
+        if (scripts.isBlank()) {
+            return List.of();
+        }
         return Arrays.stream(scripts.split(","))
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
@@ -166,7 +172,9 @@ public final class ScriptProfileStore {
      */
     public Map<String, List<String>> listAccountProfiles() {
         Map<String, List<String>> result = new LinkedHashMap<>();
-        if (!Files.isDirectory(profilesDir)) return result;
+        if (!Files.isDirectory(profilesDir)) {
+            return result;
+        }
         try (Stream<Path> files = Files.list(profilesDir)) {
             files.filter(p -> p.toString().endsWith(".properties") && Files.isRegularFile(p))
                     .forEach(p -> {
@@ -185,7 +193,9 @@ public final class ScriptProfileStore {
      */
     public Map<String, List<String>> listGroupProfiles() {
         Map<String, List<String>> result = new LinkedHashMap<>();
-        if (!Files.isDirectory(groupsDir)) return result;
+        if (!Files.isDirectory(groupsDir)) {
+            return result;
+        }
         try (Stream<Path> files = Files.list(groupsDir)) {
             files.filter(p -> p.toString().endsWith(".properties") && Files.isRegularFile(p))
                     .forEach(p -> {

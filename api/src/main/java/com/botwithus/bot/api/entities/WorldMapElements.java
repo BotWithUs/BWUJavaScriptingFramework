@@ -188,7 +188,9 @@ public final class WorldMapElements {
                             e -> chebyshev(e.tileX(), e.tileY(), finalCx, finalCy)));
                 }
             }
-            if (limit < Integer.MAX_VALUE) stream = stream.limit(limit);
+            if (limit < Integer.MAX_VALUE) {
+                stream = stream.limit(limit);
+            }
             return stream.collect(Collectors.toList());
         }
 
