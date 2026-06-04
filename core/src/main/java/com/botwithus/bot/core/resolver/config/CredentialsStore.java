@@ -111,19 +111,30 @@ public final class CredentialsStore {
     }
 
     static void hardenPermissions(Path target) {
-        try {
-            PosixFileAttributeView posix = Files.getFileAttributeView(target, PosixFileAttributeView.class);
-            if (posix != null) {
-                posix.setPermissions(EnumSet.of(
-                        PosixFilePermission.OWNER_READ,
-                        PosixFilePermission.OWNER_WRITE));
-                return;
-            }
-        } catch (IOException e) {
-            log.warn("could not apply POSIX 600 to {}: {}", target, e.getMessage());
+        if (tryHardenPosix(target)) {
             return;
         }
+        tryHardenAcl(target);
+    }
 
+    /** Returns true when POSIX is available and either succeeded or terminally failed. */
+    private static boolean tryHardenPosix(Path target) {
+        try {
+            PosixFileAttributeView posix = Files.getFileAttributeView(target, PosixFileAttributeView.class);
+            if (posix == null) {
+                return false;
+            }
+            posix.setPermissions(EnumSet.of(
+                    PosixFilePermission.OWNER_READ,
+                    PosixFilePermission.OWNER_WRITE));
+            return true;
+        } catch (IOException e) {
+            log.warn("could not apply POSIX 600 to {}: {}", target, e.getMessage());
+            return true; // POSIX is the right tool here; fall through is incorrect.
+        }
+    }
+
+    private static void tryHardenAcl(Path target) {
         try {
             AclFileAttributeView acl = Files.getFileAttributeView(target, AclFileAttributeView.class, LinkOption.NOFOLLOW_LINKS);
             if (acl == null) {
@@ -131,25 +142,28 @@ public final class CredentialsStore {
                 return;
             }
             UserPrincipal owner = Files.getOwner(target);
-            AclEntry ownerFull = AclEntry.newBuilder()
-                    .setPrincipal(owner)
-                    .setType(AclEntryType.ALLOW)
-                    .setPermissions(
-                            AclEntryPermission.READ_DATA,
-                            AclEntryPermission.WRITE_DATA,
-                            AclEntryPermission.APPEND_DATA,
-                            AclEntryPermission.READ_ATTRIBUTES,
-                            AclEntryPermission.WRITE_ATTRIBUTES,
-                            AclEntryPermission.READ_NAMED_ATTRS,
-                            AclEntryPermission.WRITE_NAMED_ATTRS,
-                            AclEntryPermission.READ_ACL,
-                            AclEntryPermission.WRITE_ACL,
-                            AclEntryPermission.DELETE,
-                            AclEntryPermission.SYNCHRONIZE)
-                    .build();
-            acl.setAcl(List.of(ownerFull));
+            acl.setAcl(List.of(ownerOnlyAcl(owner)));
         } catch (IOException e) {
             log.warn("could not harden Windows ACL on {}: {}", target, e.getMessage());
         }
+    }
+
+    private static AclEntry ownerOnlyAcl(UserPrincipal owner) {
+        return AclEntry.newBuilder()
+                .setPrincipal(owner)
+                .setType(AclEntryType.ALLOW)
+                .setPermissions(
+                        AclEntryPermission.READ_DATA,
+                        AclEntryPermission.WRITE_DATA,
+                        AclEntryPermission.APPEND_DATA,
+                        AclEntryPermission.READ_ATTRIBUTES,
+                        AclEntryPermission.WRITE_ATTRIBUTES,
+                        AclEntryPermission.READ_NAMED_ATTRS,
+                        AclEntryPermission.WRITE_NAMED_ATTRS,
+                        AclEntryPermission.READ_ACL,
+                        AclEntryPermission.WRITE_ACL,
+                        AclEntryPermission.DELETE,
+                        AclEntryPermission.SYNCHRONIZE)
+                .build();
     }
 }

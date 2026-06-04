@@ -2,6 +2,7 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.Navigation;
+import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.WalkArrivedEvent;
 import com.botwithus.bot.api.event.WalkCancelledEvent;
 import com.botwithus.bot.api.event.WalkFailedEvent;
@@ -142,32 +143,17 @@ public class Walker implements Navigation {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<WalkResult> result = new AtomicReference<>();
 
-        Consumer<WalkArrivedEvent> arrivedListener = e -> {
-            result.set(WalkResult.ARRIVED);
-            latch.countDown();
-        };
-        Consumer<WalkCancelledEvent> cancelledListener = e -> {
-            result.set(WalkResult.CANCELLED);
-            latch.countDown();
-        };
-        Consumer<WalkFailedEvent> failedListener = e -> {
-            result.set(WalkResult.FAILED);
-            latch.countDown();
-        };
-
-        eventBus.subscribe(WalkArrivedEvent.class, arrivedListener);
-        eventBus.subscribe(WalkCancelledEvent.class, cancelledListener);
-        eventBus.subscribe(WalkFailedEvent.class, failedListener);
+        Subscription<WalkArrivedEvent> arrived = subscribeTerminal(WalkArrivedEvent.class, latch, result, WalkResult.ARRIVED);
+        Subscription<WalkCancelledEvent> cancelled = subscribeTerminal(WalkCancelledEvent.class, latch, result, WalkResult.CANCELLED);
+        Subscription<WalkFailedEvent> failed = subscribeTerminal(WalkFailedEvent.class, latch, result, WalkResult.FAILED);
 
         try {
             startWalk.run();
-
             if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
                 log.warn("Walk timed out after {}ms", timeoutMs);
                 api.walkCancel();
                 return WalkResult.TIMEOUT;
             }
-
             return result.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -175,9 +161,31 @@ public class Walker implements Navigation {
             api.walkCancel();
             return WalkResult.TIMEOUT;
         } finally {
-            eventBus.unsubscribe(WalkArrivedEvent.class, arrivedListener);
-            eventBus.unsubscribe(WalkCancelledEvent.class, cancelledListener);
-            eventBus.unsubscribe(WalkFailedEvent.class, failedListener);
+            arrived.close();
+            cancelled.close();
+            failed.close();
+        }
+    }
+
+    private <E extends GameEvent> Subscription<E> subscribeTerminal(
+            Class<E> type, CountDownLatch latch, AtomicReference<WalkResult> result, WalkResult outcome) {
+        Consumer<E> listener = e -> {
+            result.set(outcome);
+            latch.countDown();
+        };
+        eventBus.subscribe(type, listener);
+        return new Subscription<>(type, listener);
+    }
+
+    private final class Subscription<E extends GameEvent> implements AutoCloseable {
+        private final Class<E> type;
+        private final Consumer<E> listener;
+        Subscription(Class<E> type, Consumer<E> listener) {
+            this.type = type;
+            this.listener = listener;
+        }
+        @Override public void close() {
+            eventBus.unsubscribe(type, listener);
         }
     }
 }

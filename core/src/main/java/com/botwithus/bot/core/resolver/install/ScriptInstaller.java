@@ -65,9 +65,7 @@ public final class ScriptInstaller {
         Optional<InstalledEntry> existing = index.find(coord);
         if (existing.isPresent() && coord.version().isPresent()
                 && existing.get().version().equals(coord.version().get())) {
-            return new InstallResult.AlreadyInstalled(
-                    MavenCoord.of(coord.groupId(), coord.artifactId(), existing.get().version()),
-                    scriptsDir.resolve(existing.get().jarFilename()));
+            return alreadyInstalled(coord, existing.get());
         }
 
         ResolveOutcome outcome = resolver.resolve(coord);
@@ -77,42 +75,46 @@ public final class ScriptInstaller {
         }
         ResolveOutcome.Resolved resolved = resolvedOpt.get();
 
-        if (existing.isPresent()) {
-            String installed = existing.get().version();
-            String fetched = resolved.artifact().resolvedVersion();
-            if (installed.equals(fetched)) {
-                return new InstallResult.AlreadyInstalled(
-                        MavenCoord.of(coord.groupId(), coord.artifactId(), installed),
-                        scriptsDir.resolve(existing.get().jarFilename()));
-            }
+        if (existing.isPresent() && existing.get().version().equals(resolved.artifact().resolvedVersion())) {
+            return alreadyInstalled(coord, existing.get());
         }
 
         try {
-            Files.createDirectories(scriptsDir);
-            String jarName = resolved.artifact().coord().jarFileName(resolved.artifact().resolvedVersion());
-            Path destination = scriptsDir.resolve(jarName);
-            moveWithAtomicFallback(resolved.artifact().jar(), destination);
-
-            InstalledEntry entry = new InstalledEntry(
-                    jarName,
-                    resolved.artifact().coord(),
-                    Instant.now(clock),
-                    new ChecksumDigest(resolved.artifact().sha256()).toHex(),
-                    resolved.artifact().repository().id());
-
-            Optional<Path> oldJar = removeStaleJar(coord, jarName);
-            index.put(entry);
-            index.save();
-            onScriptsChanged.run();
-
-            if (oldJar.isPresent()) {
-                return new InstallResult.Updated(resolved.artifact().coord(), oldJar.get(), destination);
-            }
-            return new InstallResult.Installed(resolved.artifact().coord(), destination);
+            return performInstall(coord, resolved);
         } catch (IOException e) {
             log.warn("install IO failure for {}", coord, e);
             return new InstallResult.IoError(coord, e);
         }
+    }
+
+    private InstallResult alreadyInstalled(MavenCoord coord, InstalledEntry entry) {
+        return new InstallResult.AlreadyInstalled(
+                MavenCoord.of(coord.groupId(), coord.artifactId(), entry.version()),
+                scriptsDir.resolve(entry.jarFilename()));
+    }
+
+    private InstallResult performInstall(MavenCoord coord, ResolveOutcome.Resolved resolved) throws IOException {
+        Files.createDirectories(scriptsDir);
+        String jarName = resolved.artifact().coord().jarFileName(resolved.artifact().resolvedVersion());
+        Path destination = scriptsDir.resolve(jarName);
+        moveWithAtomicFallback(resolved.artifact().jar(), destination);
+
+        InstalledEntry entry = new InstalledEntry(
+                jarName,
+                resolved.artifact().coord(),
+                Instant.now(clock),
+                new ChecksumDigest(resolved.artifact().sha256()).toHex(),
+                resolved.artifact().repository().id());
+
+        Optional<Path> oldJar = removeStaleJar(coord, jarName);
+        index.put(entry);
+        index.save();
+        onScriptsChanged.run();
+
+        if (oldJar.isPresent()) {
+            return new InstallResult.Updated(resolved.artifact().coord(), oldJar.get(), destination);
+        }
+        return new InstallResult.Installed(resolved.artifact().coord(), destination);
     }
 
     public InstallResult update(MavenCoord coord) {

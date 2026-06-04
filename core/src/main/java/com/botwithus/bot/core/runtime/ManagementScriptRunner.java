@@ -125,16 +125,35 @@ public class ManagementScriptRunner implements Runnable {
     public void run() {
         String name = getScriptName();
         MDC.put("script.name", name);
+        if (!runOnStart(name)) {
+            return;
+        }
+        loadPersistedConfig(name);
+        try {
+            runLoop();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.error("onLoop error in {}: {}", name, e.getMessage());
+            notifyError(name, "onLoop", e);
+        } finally {
+            cleanup(name);
+        }
+    }
+
+    private boolean runOnStart(String name) {
         try {
             script.onStart(context);
+            return true;
         } catch (Exception e) {
             log.error("onStart error in {}: {}", name, e.getMessage());
             notifyError(name, "onStart", e);
             running.set(false);
-            return;
+            return false;
         }
+    }
 
-        // Load persisted config after onStart
+    private void loadPersistedConfig(String name) {
         try {
             List<ConfigField> fields = script.getConfigFields();
             if (fields != null && !fields.isEmpty()) {
@@ -145,35 +164,32 @@ public class ManagementScriptRunner implements Runnable {
         } catch (Exception e) {
             log.error("Config load error in {}: {}", name, e.getMessage());
         }
+    }
 
+    private void runLoop() throws InterruptedException {
+        while (running.get() && !Thread.currentThread().isInterrupted()) {
+            int delay = script.onLoop();
+            if (delay < 0) {
+                break;
+            }
+            if (delay > 0) {
+                Thread.sleep(delay);
+            }
+        }
+    }
+
+    private void cleanup(String name) {
+        running.set(false);
         try {
-            while (running.get() && !Thread.currentThread().isInterrupted()) {
-                int delay = script.onLoop();
-                if (delay < 0) {
-                    break;
-                }
-                if (delay > 0) {
-                    Thread.sleep(delay);
-                }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            script.onStop();
         } catch (Exception e) {
-            log.error("onLoop error in {}: {}", name, e.getMessage());
-            notifyError(name, "onLoop", e);
-        } finally {
-            running.set(false);
-            try {
-                script.onStop();
-            } catch (Exception e) {
-                log.error("onStop error in {}: {}", name, e.getMessage());
-                notifyError(name, "onStop", e);
-            }
-            MDC.clear();
-            CountDownLatch latch = this.stopLatch;
-            if (latch != null) {
-                latch.countDown();
-            }
+            log.error("onStop error in {}: {}", name, e.getMessage());
+            notifyError(name, "onStop", e);
+        }
+        MDC.clear();
+        CountDownLatch latch = this.stopLatch;
+        if (latch != null) {
+            latch.countDown();
         }
     }
 

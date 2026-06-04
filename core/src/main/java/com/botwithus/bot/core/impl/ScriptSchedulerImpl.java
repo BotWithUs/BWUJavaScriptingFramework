@@ -88,36 +88,9 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
     public String runEvery(String scriptName, Duration interval, Duration maxDuration) {
         String id = newId();
         Instant nextRun = Instant.now().plus(interval);
-
-        ScheduledFuture<?> future = executor.scheduleAtFixedRate(() -> {
-            try {
-                if (manager.isRunning(scriptName)) {
-                    manager.restart(scriptName);
-                } else {
-                    manager.start(scriptName);
-                }
-
-                // Schedule auto-stop if maxDuration is set
-                if (maxDuration != null) {
-                    ScheduledFuture<?> stopFuture = executor.schedule(() -> {
-                        if (manager.isRunning(scriptName)) {
-                            manager.stop(scriptName);
-                            log.info("Auto-stopped '{}' after {} (id={})", scriptName, maxDuration, id);
-                        }
-                    }, maxDuration.toMillis(), TimeUnit.MILLISECONDS);
-
-                    // Update state with stop future
-                    ScheduleState old = schedules.get(id);
-                    if (old != null) {
-                        schedules.put(id, new ScheduleState(
-                                old.scriptName, Instant.now().plus(interval),
-                                old.interval, old.maxDuration, old.future, stopFuture));
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Error running '{}': {}", scriptName, e.getMessage());
-            }
-        }, interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
+        ScheduledFuture<?> future = executor.scheduleAtFixedRate(
+                () -> recurringTick(id, scriptName, interval, maxDuration),
+                interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
 
         schedules.put(id, new ScheduleState(scriptName, nextRun, interval, maxDuration, future, null));
         if (maxDuration != null) {
@@ -126,6 +99,37 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
             log.info("Scheduled '{}' every {} (id={})", scriptName, interval, id);
         }
         return id;
+    }
+
+    private void recurringTick(String id, String scriptName, Duration interval, Duration maxDuration) {
+        try {
+            if (manager.isRunning(scriptName)) {
+                manager.restart(scriptName);
+            } else {
+                manager.start(scriptName);
+            }
+            if (maxDuration != null) {
+                scheduleAutoStop(id, scriptName, interval, maxDuration);
+            }
+        } catch (Exception e) {
+            log.error("Error running '{}': {}", scriptName, e.getMessage());
+        }
+    }
+
+    private void scheduleAutoStop(String id, String scriptName, Duration interval, Duration maxDuration) {
+        ScheduledFuture<?> stopFuture = executor.schedule(() -> {
+            if (manager.isRunning(scriptName)) {
+                manager.stop(scriptName);
+                log.info("Auto-stopped '{}' after {} (id={})", scriptName, maxDuration, id);
+            }
+        }, maxDuration.toMillis(), TimeUnit.MILLISECONDS);
+
+        ScheduleState old = schedules.get(id);
+        if (old != null) {
+            schedules.put(id, new ScheduleState(
+                    old.scriptName, Instant.now().plus(interval),
+                    old.interval, old.maxDuration, old.future, stopFuture));
+        }
     }
 
     @Override
