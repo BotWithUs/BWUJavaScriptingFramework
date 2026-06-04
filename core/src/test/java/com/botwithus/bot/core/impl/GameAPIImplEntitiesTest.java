@@ -10,6 +10,7 @@ import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.rpc.RpcClient;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,7 +41,7 @@ class GameAPIImplEntitiesTest {
     private GameAPIImpl build() {
         rpc = mock(RpcClient.class);
         snap = new StubSnapshot();
-        npcTypes = new java.util.HashMap<>();
+        npcTypes = new HashMap<>();
         npcTypeCalls = 0;
         // Override getNpcType so tests don't need a real NXTCache binding —
         // the facade's caching is what we want to verify, not NXTCache.
