@@ -24,6 +24,7 @@ import com.botwithus.bot.api.model.SkillRequirement;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldMapPlacement;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
@@ -533,6 +534,24 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
+    public List<Component> getComponents(List<ComponentRef> refs) {
+        if (refs.isEmpty()) {
+            return List.of();
+        }
+        List<List<Integer>> targets = new ArrayList<>(refs.size());
+        for (ComponentRef ref : refs) {
+            targets.add(List.of(ref.interfaceId(), ref.componentId()));
+        }
+        Map<String, Object> r = rpc.callSync("get_components", Map.of("targets", targets));
+        List<Map<String, Object>> rawNodes = getMapList(r, "components");
+        List<Component> out = new ArrayList<>(rawNodes.size());
+        for (Map<String, Object> node : rawNodes) {
+            out.add(decodeComponent(node));
+        }
+        return out;
+    }
+
+    @Override
     public List<Integer> getStaticChildren(int interfaceId, int componentId) {
         Map<String, Object> r = rpc.callSync("get_static_children",
                 Map.of("iface", interfaceId, "comp", componentId));
@@ -939,6 +958,33 @@ public class GameAPIImpl implements GameAPI {
         // width == 32 would make (1 << 32) wrap to 1 in Java; treat it as all bits.
         int mask = width == 32 ? -1 : (1 << width) - 1;
         return (base >>> def.lsb()) & mask;
+    }
+
+    @Override
+    public List<Integer> getVarps(List<Integer> varIds) {
+        return readVarBatch("get_varps", varIds);
+    }
+
+    @Override
+    public List<Integer> getVarcInts(List<Integer> varcIds) {
+        return readVarBatch("get_varcs_int", varcIds);
+    }
+
+    @Override
+    public List<String> getVarcStrings(List<Integer> varcIds) {
+        if (varcIds.isEmpty()) {
+            return List.of();
+        }
+        Map<String, Object> r = rpc.callSync("get_varcs_string", Map.of("ids", varcIds));
+        return getStringList(r, "values");
+    }
+
+    private List<Integer> readVarBatch(String method, List<Integer> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        Map<String, Object> r = rpc.callSync(method, Map.of("ids", ids));
+        return getIntList(r, "values");
     }
 
     @Override
