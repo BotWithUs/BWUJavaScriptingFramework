@@ -16,6 +16,8 @@ import java.util.List;
  */
 public abstract class TaskScript implements BotScript {
 
+    protected TaskScript() {}
+
     protected ScriptContext ctx;
     private final List<Task> tasks = new ArrayList<>();
 

@@ -74,6 +74,8 @@ import java.util.concurrent.Executors;
  */
 public class ImGuiApp extends Application {
 
+    public ImGuiApp() {}
+
     private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
 
     private static final float UI_FONT_BASE_PX = 17f;
@@ -82,6 +84,9 @@ public class ImGuiApp extends Application {
     /** Initial GLFW window height (px). */
     private static final int APP_WINDOW_DEFAULT_HEIGHT = 700;
 
+    // The ASCII-art \\ sequences javac reads as line-continuation markers; suppression
+    // is narrower than rewriting the banner as concatenated string literals.
+    @SuppressWarnings("text-blocks")
     private static final String BANNER = """
 
             ____        _ __        ___ _   _     _   _

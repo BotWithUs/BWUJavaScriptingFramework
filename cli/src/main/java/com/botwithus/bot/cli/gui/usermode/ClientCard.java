@@ -26,6 +26,8 @@ import java.util.List;
  */
 public class ClientCard {
 
+    public ClientCard() {}
+
     /** Card outer rounding as a fraction of font size. */
     private static final float ROUNDING_EM = 0.5f;
     /** Left status stripe width as a fraction of font size. */

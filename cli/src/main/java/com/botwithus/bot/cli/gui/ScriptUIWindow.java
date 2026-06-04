@@ -10,6 +10,8 @@ import imgui.type.ImBoolean;
 
 public class ScriptUIWindow {
 
+    public ScriptUIWindow() {}
+
     /** Default width (px) for the script custom-UI window. */
     private static final int CUSTOM_UI_WINDOW_DEFAULT_WIDTH = 925;
     /** Default height (px) for the script custom-UI window. */

@@ -32,6 +32,8 @@ import java.util.Locale;
  */
 public class ScriptPickerPopup {
 
+    public ScriptPickerPopup() {}
+
     private static final String POPUP_ID = "Start Script###scriptPicker";
 
     /** Popup width as a fraction of the main viewport width, clamped by the em bounds below. */

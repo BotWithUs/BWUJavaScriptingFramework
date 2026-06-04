@@ -42,6 +42,8 @@ import java.util.Objects;
  */
 public class ScriptConfigPanel {
 
+    public ScriptConfigPanel() {}
+
     private static final int STRING_BUFFER_SIZE = 256;
 
     private static final float DEFAULT_WIDTH_EM = 26f;

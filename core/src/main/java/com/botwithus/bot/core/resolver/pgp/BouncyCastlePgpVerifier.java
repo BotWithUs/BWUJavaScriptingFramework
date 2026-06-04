@@ -51,6 +51,8 @@ import java.util.Objects;
  */
 public final class BouncyCastlePgpVerifier implements PgpVerifier {
 
+    public BouncyCastlePgpVerifier() {}
+
     private static final Logger log = LoggerFactory.getLogger(BouncyCastlePgpVerifier.class);
     private static final int VERIFY_BUFFER_BYTES = 8192;
     private static final int KEY_ID_HEX_DIGITS = 16;

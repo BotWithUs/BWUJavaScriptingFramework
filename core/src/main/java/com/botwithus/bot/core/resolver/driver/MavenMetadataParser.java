@@ -165,6 +165,9 @@ final class MavenMetadataParser {
 
     /** Thrown when {@code maven-metadata.xml} cannot be parsed. */
     static final class MetadataParseException extends Exception {
+
+        private static final long serialVersionUID = 1L;
+
         MetadataParseException(String message) {
             super(message);
         }

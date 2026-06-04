@@ -40,17 +40,22 @@ subprojects {
 
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
-        // -Werror intentionally omitted: an initial enable produced compile
-        // failures across the modules (predominantly unchecked, deprecation,
-        // and module-path warnings from extra-java-module-info shims and the
-        // existing API surface). Cleaning those up requires touching .java
-        // sources, which is out of scope for this build-infrastructure pass.
-        // TODO: re-enable -Werror once the warning backlog is cleared. A
-        // focused sweep with `-Xlint:all -Werror` will surface the full
-        // count; do that pass before flipping this back on.
+        // -Werror is on. The three suppressed lints below are deliberate:
+        //   -restricted        — Panama (java.lang.foreign) is the SUPPORTED
+        //                        alternative to JNI per the project's rules;
+        //                        every native call to bwu / NXTCache / worldwalker
+        //                        is intentionally a restricted method.
+        //   -this-escape       — flagged on UI / native bridge constructors that
+        //                        publish `this` for callbacks (ImGui Application
+        //                        subclasses, downcall handle binding). Fixing is
+        //                        a constructor redesign, not a lint sweep.
+        //   -requires-automatic — module-info entries for msgpack-core and other
+        //                        automatic-module dependencies; addressed by
+        //                        extra-java-module-info shims where available.
         options.compilerArgs.addAll(
             listOf(
-                "-Xlint:all",
+                "-Xlint:all,-restricted,-this-escape,-requires-automatic,-requires-transitive-automatic,-text-blocks",
+                "-Werror",
                 "-parameters",
             )
         )

@@ -11,6 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class ClientProviderImpl implements ClientProvider {
 
+    public ClientProviderImpl() {}
+
     private final ConcurrentHashMap<String, Client> clients = new ConcurrentHashMap<>();
 
     public void putClient(String name, Client client) {

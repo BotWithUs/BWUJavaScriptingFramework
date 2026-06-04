@@ -23,6 +23,8 @@ import java.util.concurrent.CompletableFuture;
  */
 public final class FileTransport implements Transport {
 
+    public FileTransport() {}
+
     @Override
     public CompletableFuture<TransportResult> fetch(URI source, Path destination, Optional<Credentials> credentials) {
         Objects.requireNonNull(source, "source");

@@ -32,8 +32,13 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Scanner;
 
-public class JBotCli {
+public final class JBotCli {
 
+    private JBotCli() {}
+
+    // The ASCII-art \\ sequences javac reads as line-continuation markers; suppression
+    // is narrower than rewriting the banner as concatenated string literals.
+    @SuppressWarnings("text-blocks")
     private static final String BANNER = """
 
             ____        _ __        ___ _   _     _   _

@@ -13,6 +13,8 @@ import java.util.stream.Collectors;
 
 public class EventBusImpl implements EventBus {
 
+    public EventBusImpl() {}
+
     private final Map<Class<? extends GameEvent>, List<Consumer<? extends GameEvent>>> listeners = new ConcurrentHashMap<>();
     private final Map<Class<? extends GameEvent>, LongAdder> eventCounts = new ConcurrentHashMap<>();
 

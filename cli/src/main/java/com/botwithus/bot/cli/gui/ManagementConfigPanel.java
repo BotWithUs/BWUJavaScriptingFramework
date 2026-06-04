@@ -27,6 +27,8 @@ import java.util.Map;
  */
 public class ManagementConfigPanel {
 
+    public ManagementConfigPanel() {}
+
     /** Default width (px) for the management-script custom-UI window. */
     private static final int CUSTOM_UI_WINDOW_DEFAULT_WIDTH = 925;
     /** Default height (px) for the management-script custom-UI window. */

@@ -22,6 +22,8 @@ import java.util.function.Consumer;
  */
 public class UserModeRenderer {
 
+    public UserModeRenderer() {}
+
     /** Minimum card width as a multiple of the current font size. ~352px at 16px font. */
     private static final float MIN_CARD_WIDTH_EM = 22f;
 

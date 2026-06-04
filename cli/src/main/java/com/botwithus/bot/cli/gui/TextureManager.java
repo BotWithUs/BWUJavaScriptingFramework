@@ -14,6 +14,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  */
 public final class TextureManager {
 
+    public TextureManager() {}
+
     private final Queue<Runnable> pendingOps = new ConcurrentLinkedQueue<>();
 
     /**
