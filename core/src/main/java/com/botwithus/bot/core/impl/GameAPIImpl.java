@@ -62,6 +62,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -925,6 +926,14 @@ public class GameAPIImpl implements GameAPI {
     // varbit's base variable, then shift/mask with the bit range from the cache
     // type config — the producer never needs to know about varbits.
 
+    // VarbitType.domainType discriminator: 0 means the base variable lives in
+    // the player-varp hashmap; any other value means it lives in the client-varc
+    // hashmap. Wire constant defined by the cache type config, not invented here.
+    private static final int VARBIT_DOMAIN_PLAYER = 0;
+
+    // A varbit packs into [lsb, msb] of a 32-bit int; any width > 32 is malformed.
+    private static final int VARBIT_MAX_WIDTH = 32;
+
     @Override
     public int getVarp(int varId) {
         Map<String, Object> r = rpc.callSync("get_varp", Map.of("var_id", varId));
@@ -949,15 +958,10 @@ public class GameAPIImpl implements GameAPI {
         if (def == null) {
             return -1;
         }
-        // domainType 0 = player varp; a client-domain varbit reads the base varc.
-        int base = def.domainType() == 0 ? getVarp(def.varId()) : getVarcInt(def.varId());
-        int width = def.msb() - def.lsb() + 1;
-        if (width <= 0 || width > 32) {
-            return -1;
-        }
-        // width == 32 would make (1 << 32) wrap to 1 in Java; treat it as all bits.
-        int mask = width == 32 ? -1 : (1 << width) - 1;
-        return (base >>> def.lsb()) & mask;
+        int base = def.domainType() == VARBIT_DOMAIN_PLAYER
+                ? getVarp(def.varId())
+                : getVarcInt(def.varId());
+        return decodeVarbitBits(def, base);
     }
 
     @Override
@@ -998,48 +1002,63 @@ public class GameAPIImpl implements GameAPI {
         NXTCache cache = requireCache();
         int n = varbitIds.size();
         VarbitType[] defs = new VarbitType[n];
-        Map<Integer, Integer> varpBaseToIndex = new LinkedHashMap<>();
-        Map<Integer, Integer> varcBaseToIndex = new LinkedHashMap<>();
+        LinkedHashSet<Integer> varpBases = new LinkedHashSet<>();
+        LinkedHashSet<Integer> varcBases = new LinkedHashSet<>();
         for (int i = 0; i < n; i++) {
             VarbitType def = cache.getVarbit(varbitIds.get(i));
             defs[i] = def;
             if (def == null) {
                 continue;
             }
-            Map<Integer, Integer> bucket = def.domainType() == 0 ? varpBaseToIndex : varcBaseToIndex;
-            bucket.putIfAbsent(def.varId(), bucket.size());
+            (def.domainType() == VARBIT_DOMAIN_PLAYER ? varpBases : varcBases).add(def.varId());
         }
 
-        List<Integer> varpBases = List.copyOf(varpBaseToIndex.keySet());
-        List<Integer> varcBases = List.copyOf(varcBaseToIndex.keySet());
-        List<Integer> varpValues = getVarps(varpBases);
-        List<Integer> varcValues = getVarcInts(varcBases);
+        Map<Integer, Integer> varpValueByBase = readBatchAsMap("get_varps", varpBases);
+        Map<Integer, Integer> varcValueByBase = readBatchAsMap("get_varcs_int", varcBases);
 
         List<VarbitValue> out = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
-            out.add(new VarbitValue(varbitIds.get(i), decodeVarbit(defs[i], varpBaseToIndex,
-                    varcBaseToIndex, varpValues, varcValues)));
+            VarbitType def = defs[i];
+            int value = -1;
+            if (def != null) {
+                Map<Integer, Integer> values = def.domainType() == VARBIT_DOMAIN_PLAYER
+                        ? varpValueByBase
+                        : varcValueByBase;
+                Integer base = values.get(def.varId());
+                // Missing base → producer truncated the batch past its cap, or the
+                // base var isn't set. -1 matches getVarbit's sentinel for "unknown".
+                if (base != null) {
+                    value = decodeVarbitBits(def, base);
+                }
+            }
+            out.add(new VarbitValue(varbitIds.get(i), value));
         }
         return out;
     }
 
-    private static int decodeVarbit(VarbitType def,
-                                    Map<Integer, Integer> varpBaseToIndex,
-                                    Map<Integer, Integer> varcBaseToIndex,
-                                    List<Integer> varpValues,
-                                    List<Integer> varcValues) {
-        if (def == null) {
-            return -1;
+    private Map<Integer, Integer> readBatchAsMap(String method, LinkedHashSet<Integer> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
         }
+        List<Integer> keys = List.copyOf(ids);
+        List<Integer> values = readVarBatch(method, keys);
+        // Pair by index up to min(keys, values) so a producer-side truncation
+        // leaves the dropped keys absent rather than mispaired with a wrong value.
+        int paired = Math.min(keys.size(), values.size());
+        Map<Integer, Integer> out = new LinkedHashMap<>(paired);
+        for (int i = 0; i < paired; i++) {
+            out.put(keys.get(i), values.get(i));
+        }
+        return out;
+    }
+
+    private static int decodeVarbitBits(VarbitType def, int base) {
         int width = def.msb() - def.lsb() + 1;
-        if (width <= 0 || width > 32) {
+        if (width <= 0 || width > VARBIT_MAX_WIDTH) {
             return -1;
         }
-        Map<Integer, Integer> bucket = def.domainType() == 0 ? varpBaseToIndex : varcBaseToIndex;
-        List<Integer> values = def.domainType() == 0 ? varpValues : varcValues;
-        int base = values.get(bucket.get(def.varId()));
         // width == 32 would make (1 << 32) wrap to 1 in Java; treat as all bits.
-        int mask = width == 32 ? -1 : (1 << width) - 1;
+        int mask = width == VARBIT_MAX_WIDTH ? -1 : (1 << width) - 1;
         return (base >>> def.lsb()) & mask;
     }
 
