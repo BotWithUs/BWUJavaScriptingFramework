@@ -42,6 +42,8 @@ final class UpcallStubs {
     private static final MethodHandle MH_READ_POSITION;
     private static final MethodHandle MH_READ_CAPABILITY;
     private static final MethodHandle MH_READ_VARBIT;
+    private static final MethodHandle MH_READ_ITEM_COUNT;
+    private static final MethodHandle MH_IS_ITEM_WORN;
     private static final MethodHandle MH_IS_INTERFACE_OPEN;
     private static final MethodHandle MH_WALK_TO;
     private static final MethodHandle MH_INTERACT;
@@ -58,6 +60,10 @@ final class UpcallStubs {
                     MethodType.methodType(void.class, Run.class, MemorySegment.class, MemorySegment.class));
             MH_READ_VARBIT = LOOKUP.findStatic(UpcallStubs.class, "readVarbitImpl",
                     MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class));
+            MH_READ_ITEM_COUNT = LOOKUP.findStatic(UpcallStubs.class, "readItemCountImpl",
+                    MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class));
+            MH_IS_ITEM_WORN = LOOKUP.findStatic(UpcallStubs.class, "isItemWornImpl",
+                    MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class));
             MH_IS_INTERFACE_OPEN = LOOKUP.findStatic(UpcallStubs.class, "isInterfaceOpenImpl",
                     MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class));
             MH_WALK_TO = LOOKUP.findStatic(UpcallStubs.class, "walkToImpl",
@@ -66,7 +72,8 @@ final class UpcallStubs {
                     MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class, MemorySegment.class, int.class));
             MH_RUN_CHAIN_STEP = LOOKUP.findStatic(UpcallStubs.class, "runChainStepImpl",
                     MethodType.methodType(void.class, Run.class, MemorySegment.class,
-                            int.class, int.class, int.class, int.class));
+                            int.class, int.class, int.class, int.class, int.class,
+                            int.class, int.class, int.class, int.class, int.class));
             MH_SLEEP_TICKS = LOOKUP.findStatic(UpcallStubs.class, "sleepTicksImpl",
                     MethodType.methodType(void.class, Run.class, MemorySegment.class, int.class));
             MH_SHOULD_CANCEL = LOOKUP.findStatic(UpcallStubs.class, "shouldCancelImpl",
@@ -139,6 +146,10 @@ final class UpcallStubs {
                 stub(linker, arena, MH_READ_CAPABILITY, run, WorldWalkerNative.FD_READ_CAPABILITY));
         struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_VARBIT_OFFSET,
                 stub(linker, arena, MH_READ_VARBIT, run, WorldWalkerNative.FD_READ_VARBIT));
+        struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_ITEM_COUNT_OFFSET,
+                stub(linker, arena, MH_READ_ITEM_COUNT, run, WorldWalkerNative.FD_READ_ITEM_COUNT));
+        struct.set(ADDRESS, WorldWalkerLayouts.CB_IS_ITEM_WORN_OFFSET,
+                stub(linker, arena, MH_IS_ITEM_WORN, run, WorldWalkerNative.FD_IS_ITEM_WORN));
         struct.set(ADDRESS, WorldWalkerLayouts.CB_IS_INTERFACE_OPEN_OFFSET,
                 stub(linker, arena, MH_IS_INTERFACE_OPEN, run, WorldWalkerNative.FD_IS_INTERFACE_OPEN));
         struct.set(ADDRESS, WorldWalkerLayouts.CB_WALK_TO_OFFSET,
@@ -210,6 +221,24 @@ final class UpcallStubs {
         }
     }
 
+    static int readItemCountImpl(Run run, MemorySegment user, int itemId) {
+        try {
+            return run.callbacks.readItemCount(itemId);
+        } catch (Throwable thrown) {
+            run.recordError(thrown);
+            return 0;
+        }
+    }
+
+    static int isItemWornImpl(Run run, MemorySegment user, int itemId) {
+        try {
+            return run.callbacks.isItemWorn(itemId) ? 1 : 0;
+        } catch (Throwable thrown) {
+            run.recordError(thrown);
+            return 0;
+        }
+    }
+
     static int isInterfaceOpenImpl(Run run, MemorySegment user, int interfaceId) {
         try {
             return run.callbacks.isInterfaceOpen(interfaceId) ? 1 : 0;
@@ -236,10 +265,11 @@ final class UpcallStubs {
         }
     }
 
-    static void runChainStepImpl(Run run, MemorySegment user,
-                                 int actionId, int param1, int param2, int param3) {
+    static void runChainStepImpl(Run run, MemorySegment user, int kind,
+                                 int a, int b, int c, int d,
+                                 int e, int f, int g, int h, int i) {
         try {
-            run.callbacks.runChainStep(actionId, param1, param2, param3);
+            run.callbacks.runChainStep(kind, a, b, c, d, e, f, g, h, i);
         } catch (Throwable thrown) {
             run.recordError(thrown);
         }

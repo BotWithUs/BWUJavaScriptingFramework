@@ -637,7 +637,7 @@ public class GameAPIImpl implements GameAPI {
         Consumer<? super GameEvent> publisher = eventPublisher;
         Supplier<GameSnapshot> snapSrc = snapshotSource != null ? snapshotSource : () -> null;
         WorldWalkerCallbackBridge bridge = new WorldWalkerCallbackBridge(
-                this, snapSrc, cancel, e -> log.debug("ww-event: {}", e), goal);
+                this, snapSrc, cancel, e -> log.info("ww-event: {}", e), goal);
         Thread worker = Thread.ofPlatform()
                 .name("ww-executor-" + System.nanoTime())
                 .daemon(true)
@@ -651,6 +651,7 @@ public class GameAPIImpl implements GameAPI {
         WwStatus status = WwStatus.FAILED;
         try {
             status = w.runExecutor(goal, bridge);
+            log.info("WorldWalker walk to ({},{}) finished: {}", x, y, status);
         } catch (Throwable t) {
             log.warn("WorldWalker executor threw", t);
         } finally {
