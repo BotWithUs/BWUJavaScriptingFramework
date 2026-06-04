@@ -1,5 +1,6 @@
 package com.botwithus.bot.api;
 
+import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
@@ -51,4 +52,17 @@ public interface ScriptContext {
      * @return the {@link Navigation} instance
      */
     Navigation getNavigation();
+
+    /**
+     * Returns the debug publisher bound to this script. Calls into the returned
+     * publisher fan out to whoever is subscribed to the agent's {@code script.context}
+     * broker topic (primarily {@code NXTDebugger}).
+     *
+     * <p>The default implementation returns {@link ScriptContextPublisher#NOOP};
+     * runtimes that have wired a channel override this to return a per-script
+     * tagged publisher.</p>
+     */
+    default ScriptContextPublisher getScriptContext() {
+        return ScriptContextPublisher.NOOP;
+    }
 }
