@@ -46,8 +46,6 @@ public final class HttpTransport implements Transport {
     private static final String USER_AGENT_HEADER = "User-Agent";
     private static final String USER_AGENT_VALUE = "botwithus-resolver/1";
     private static final String PART_SUFFIX = ".part";
-    private static final int HTTP_OK = 200;
-    private static final int HTTP_NOT_FOUND = 404;
 
     private final HttpClient client;
     private final Duration requestTimeout;
@@ -102,11 +100,11 @@ public final class HttpTransport implements Transport {
         }
 
         int status = response.statusCode();
-        if (status == HTTP_NOT_FOUND) {
+        if (status == HttpStatus.NOT_FOUND) {
             cleanup(partFile);
             return new TransportResult.NotFound(source.toString());
         }
-        if (status != HTTP_OK) {
+        if (status != HttpStatus.OK) {
             cleanup(partFile);
             return new TransportResult.HttpError(source.toString(), status, "HTTP " + status);
         }

@@ -41,14 +41,12 @@ public class WoodcuttingFletcherScript implements BotScript {
 
     private enum State { CHOPPING, DROPPING }
 
-    private ScriptContext ctx;
     private GameAPI api;
     private Backpack backpack;
     private State state;
 
     @Override
     public void onStart(ScriptContext ctx) {
-        this.ctx = ctx;
         this.api = ctx.getGameAPI();
         this.backpack = api.backpack();
         this.state = State.CHOPPING;

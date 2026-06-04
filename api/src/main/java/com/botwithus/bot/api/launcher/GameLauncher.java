@@ -73,7 +73,10 @@ public interface GameLauncher extends AutoCloseable {
 
     // ── Authentication (BotWithUs) ─────────────────────────────────────────
 
-    /** Start SSO login flow. Opens browser, <strong>blocks</strong> up to 5 min. Auto-starts module download on success. */
+    /**
+     * Start SSO login flow. Opens browser, <strong>blocks</strong> up to 5 min.
+     * Auto-starts module download on success.
+     */
     void login();
 
     void loginWithToken(String token);
@@ -155,7 +158,10 @@ public interface GameLauncher extends AutoCloseable {
 
     void jagexEnsureSession(String uuid);
 
-    /** Launch rs2client.exe with Jagex session. Non-blocking. {@code characterIndex} selects which character to launch. */
+    /**
+     * Launch rs2client.exe with Jagex session. Non-blocking.
+     * {@code characterIndex} selects which character to launch.
+     */
     void jagexLaunch(String jagexUuid, String accountUuid, int characterIndex);
 
     // ── Utility ────────────────────────────────────────────────────────────
