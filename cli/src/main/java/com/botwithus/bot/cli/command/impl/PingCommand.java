@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
+import com.botwithus.bot.core.impl.MapHelper;
 import com.botwithus.bot.core.pipe.PipeException;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcException;
@@ -31,7 +32,7 @@ public class PingCommand implements Command {
         try {
             Map<String, Object> result = rpc.callSync("rpc.ping", Map.of());
             long elapsed = (System.nanoTime() - start) / 1_000_000;
-            boolean pong = result.get("pong") instanceof Boolean b && b;
+            boolean pong = MapHelper.getBool(result, "pong");
             if (pong) {
                 ctx.out().println("Pong! (" + elapsed + "ms)");
             } else {

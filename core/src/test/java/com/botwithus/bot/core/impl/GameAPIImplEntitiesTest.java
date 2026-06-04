@@ -172,8 +172,9 @@ class GameAPIImplEntitiesTest {
         npcTypes.put(50, makeType(50, "Goblin", "Attack"));
         npcTypes.put(51, makeType(51, "Cow", "Milk"));
 
+        Predicate<Npc> isGoblin = n -> n.typeId() == 50;
         List<Npc> goblins = api.npcs().query()
-                .filter((Predicate<Npc>) n -> n.typeId() == 50)
+                .filter(isGoblin)
                 .all();
         assertEquals(2, goblins.size());
     }

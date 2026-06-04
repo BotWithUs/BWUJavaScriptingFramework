@@ -88,8 +88,7 @@ class ReconnectControllerTest {
 
         assertEquals(3, r.calls.get());
         ReconnectState last = states.get(states.size() - 1);
-        assertInstanceOf(ReconnectState.GivingUp.class, last);
-        ReconnectState.GivingUp gu = (ReconnectState.GivingUp) last;
+        ReconnectState.GivingUp gu = assertInstanceOf(ReconnectState.GivingUp.class, last);
         assertEquals(3, gu.attempts());
         assertInstanceOf(ReconnectState.GivingUp.class, controller.currentState());
     }

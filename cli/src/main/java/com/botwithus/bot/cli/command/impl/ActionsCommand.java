@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
+import com.botwithus.bot.core.impl.MapHelper;
 import com.botwithus.bot.core.rpc.RpcClient;
 
 import org.slf4j.Logger;
@@ -88,7 +89,7 @@ public class ActionsCommand implements Command {
     private void showBlocked(RpcClient rpc, CliContext ctx) {
         try {
             Map<String, Object> result = rpc.callSync("are_actions_blocked", Map.of());
-            boolean blocked = result.get("blocked") instanceof Boolean b && b;
+            boolean blocked = MapHelper.getBool(result, "blocked");
             ctx.out().println("Actions blocked: " + blocked);
         } catch (Exception e) {
             ctx.out().println("Error: " + e.getMessage());
