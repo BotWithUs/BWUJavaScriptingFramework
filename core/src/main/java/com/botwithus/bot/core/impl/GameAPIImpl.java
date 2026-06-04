@@ -637,7 +637,7 @@ public class GameAPIImpl implements GameAPI {
         Consumer<? super GameEvent> publisher = eventPublisher;
         Supplier<GameSnapshot> snapSrc = snapshotSource != null ? snapshotSource : () -> null;
         WorldWalkerCallbackBridge bridge = new WorldWalkerCallbackBridge(
-                this, snapSrc, cancel, e -> log.debug("ww-event: {}", e));
+                this, snapSrc, cancel, e -> log.debug("ww-event: {}", e), goal);
         Thread worker = Thread.ofPlatform()
                 .name("ww-executor-" + System.nanoTime())
                 .daemon(true)

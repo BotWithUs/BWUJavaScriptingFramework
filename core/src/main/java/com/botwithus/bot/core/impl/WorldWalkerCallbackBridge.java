@@ -1,20 +1,31 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.component.ComponentNode;
 import com.botwithus.bot.api.inventory.ActionTypes;
+import com.botwithus.bot.api.inventory.Backpack;
+import com.botwithus.bot.api.inventory.Equipment;
+import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.Skill;
+import com.botwithus.bot.api.util.Interfaces;
+import com.botwithus.bot.core.worldwalker.ChainStepKind;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
 import com.botwithus.bot.core.worldwalker.WwCallbacks;
 import com.botwithus.bot.core.worldwalker.WwEvent;
+import com.botwithus.bot.core.worldwalker.WwGoal;
 import com.botwithus.bot.core.worldwalker.WwTile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -26,19 +37,47 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
 
     private static final long TICK_MS = 600L;
 
+    // Opportunistic Surge config. Surge launches the avatar 10 tiles forward in
+    // its current facing; we piggy-back it onto walkTo when the next chunk is a
+    // straight ≥8-tile run and we're not within overshoot range of the final
+    // goal. Detection is by sprite scan over the active action-bar interface —
+    // sprite 14659 is Surge's canonical icon and is unique across slots.
+    private static final int  SURGE_SPRITE_ID    = 14659;
+    private static final int  MAGIC_SKILL_TYPE   = 6;     // StatType.id for Magic
+    private static final int  SURGE_MIN_MAGIC    = 24;    // ability unlock level
+    private static final long SURGE_COOLDOWN_MS  = 17_000L;
+    private static final int  SURGE_MIN_TILES    = 8;     // don't burn cooldown on short hops
+    private static final int  SURGE_GOAL_GUARD   = 12;    // skip if close enough to overshoot
+    // Candidate action-bar interfaces, scanned in priority order. 1670 is the
+    // NIS modern bar; 1430 is the legacy one. Both expose ability slot sprites
+    // at the same offset structure.
+    private static final int[] ACTION_BAR_IFACES = { 1670, 1430 };
+
     private final GameAPI api;
     private final Supplier<GameSnapshot> snapshotSource;
     private final AtomicBoolean cancel;
     private final Consumer<WwEvent> eventSink;
+    private final WwGoal goal;
+
+    // Surge slot cache: resolved once per run on the first eligible walkTo, then
+    // reused. -1 in surgeIface means "not yet attempted"; SURGE_DISABLED in it
+    // means "we looked, didn't find the icon — give up for this run".
+    private static final int SURGE_NOT_RESOLVED = -1;
+    private static final int SURGE_DISABLED     = -2;
+    private int  surgeIface  = SURGE_NOT_RESOLVED;
+    private int  surgeComp   = SURGE_NOT_RESOLVED;
+    private long lastSurgeMs = 0L;
 
     WorldWalkerCallbackBridge(GameAPI api,
                               Supplier<GameSnapshot> snapshotSource,
                               AtomicBoolean cancel,
-                              Consumer<WwEvent> eventSink) {
+                              Consumer<WwEvent> eventSink,
+                              WwGoal goal) {
         this.api = Objects.requireNonNull(api, "api");
         this.snapshotSource = Objects.requireNonNull(snapshotSource, "snapshotSource");
         this.cancel = Objects.requireNonNull(cancel, "cancel");
         this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
+        this.goal = goal;
     }
 
     @Override
@@ -66,18 +105,217 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     }
 
     @Override
+    public int readItemCount(int itemId) {
+        int n = readItemCountImpl(itemId);
+        if (n > 0) {
+            log.info("ww readItemCount({}) = {}", itemId, n);
+        }
+        return n;
+    }
+
+    private int readItemCountImpl(int itemId) {
+        // Total held = worn (equipment, inv 94) + carried (backpack, inv 93).
+        // Used to gate item-requirement teleports (e.g. a dungeoneering cape).
+        // Must never throw: the snapshot inventory accessors raise
+        // IndexOutOfBoundsException on a mid-update / absent inventory, and any
+        // exception escaping a callback is recorded by the upcall stub and
+        // cancels the entire run (shouldCancel trips) — so a transient inventory
+        // read would silently kill an otherwise-fine teleport before any action
+        // fires. Swallow to 0, exactly like readVarbit.
+        try {
+            return containerCount(Equipment.INVENTORY_ID, itemId)
+                    + containerCount(Backpack.INVENTORY_ID, itemId);
+        } catch (RuntimeException e) {
+            log.debug("readItemCount({}) failed: {}", itemId, e.toString());
+            return 0;
+        }
+    }
+
+    @Override
+    public boolean isItemWorn(int itemId) {
+        try {
+            boolean worn = containerCount(Equipment.INVENTORY_ID, itemId) > 0;
+            log.info("ww isItemWorn({}) = {}", itemId, worn);
+            return worn;
+        } catch (RuntimeException e) {
+            log.info("ww isItemWorn({}) failed: {}", itemId, e.toString());
+            return false;
+        }
+    }
+
+    // Live backpack slot holding itemId, or -1 if absent / no snapshot / read
+    // failure. The dungeoneering-cape click_item step addresses the item by
+    // slot, which is dynamic, so it must be resolved at click time, not baked.
+    private int backpackSlotOf(int itemId) {
+        try {
+            GameSnapshot snap = snapshotSource.get();
+            if (snap == null) {
+                return -1;
+            }
+            return snap.inventories().byInvId(Backpack.INVENTORY_ID)
+                    .flatMap(inv -> inv.items().stream()
+                            .filter(it -> it.itemId() == itemId)
+                            .map(InventoryItem::slot)
+                            .findFirst())
+                    .orElse(-1);
+        } catch (RuntimeException e) {
+            log.debug("backpackSlotOf({}) failed: {}", itemId, e.toString());
+            return -1;
+        }
+    }
+
+    // Sum of stack quantities of itemId in the given inventory container, read
+    // from the live snapshot. Zero when the snapshot or container is absent.
+    // May throw (snapshot accessors are index-checked) — callers swallow.
+    private int containerCount(int invId, int itemId) {
+        GameSnapshot snap = snapshotSource.get();
+        if (snap == null) {
+            return 0;
+        }
+        return snap.inventories().byInvId(invId)
+                .map(inv -> inv.items().stream()
+                        .filter(it -> it.itemId() == itemId)
+                        .mapToInt(InventoryItem::quantity)
+                        .sum())
+                .orElse(0);
+    }
+
+    @Override
     public boolean isInterfaceOpen(int interfaceId) {
         try {
-            return !api.getInterfaceTree(interfaceId, 0).isEmpty();
+            // An interface stays in the component tree even while loaded-but-
+            // closed, so "tree non-empty" is a false positive — it reports open
+            // before the cape click has even run, defeating the wait_interface
+            // gate. An *open* interface lays out and un-hides its content, so
+            // require at least one explicitly-visible component (hidden == 0).
+            List<ComponentTreeNode> tree = api.getInterfaceTree(interfaceId, 0);
+            int visible = 0;
+            int hidden = 0;
+            int unknown = 0;
+            for (ComponentTreeNode node : tree) {
+                Component c = node.component();
+                if (c == null) {
+                    continue;
+                }
+                int h = c.hidden();
+                if (h == 0) {
+                    visible++;
+                } else if (h == 1) {
+                    hidden++;
+                } else {
+                    unknown++;
+                }
+            }
+            boolean open = visible > 0;
+            log.info("ww isInterfaceOpen({}) = {} (visible={} hidden={} unknown={} total={})",
+                    interfaceId, open, visible, hidden, unknown, tree.size());
+            return open;
         } catch (RuntimeException e) {
-            log.debug("isInterfaceOpen({}) failed: {}", interfaceId, e.toString());
+            log.info("ww isInterfaceOpen({}) failed: {}", interfaceId, e.toString());
             return false;
         }
     }
 
     @Override
     public void walkTo(WwTile target) {
+        log.info("ww walkTo ({},{},p{})", target.x(), target.y(), target.plane());
         api.queueAction(new GameAction(ActionTypes.WALK, 1, target.x(), target.y()));
+        // Walk queued first so the engine starts the move + orients the avatar
+        // along the path BEFORE surge drains off the queue next tick — surge
+        // dashes in current facing, so the order matters.
+        maybeFireSurge(target);
+    }
+
+    // Best-effort opportunistic Surge. Every gate is conservative — anything
+    // wrong → silent fall-through so the plain walk we just queued still runs.
+    private void maybeFireSurge(WwTile target) {
+        long now = System.currentTimeMillis();
+        if (now - lastSurgeMs < SURGE_COOLDOWN_MS) {
+            return;
+        }
+        LocalPlayer lp = currentPlayer();
+        if (lp == null || lp.plane() != target.plane()) {
+            return;
+        }
+        if (magicLevel(lp) < SURGE_MIN_MAGIC) {
+            return;
+        }
+        int dx   = target.x() - lp.tileX();
+        int dy   = target.y() - lp.tileY();
+        int adx  = Math.abs(dx);
+        int ady  = Math.abs(dy);
+        int dist = Math.max(adx, ady);
+        if (dist < SURGE_MIN_TILES) {
+            return;
+        }
+        // 8-way straight: pure cardinal (one axis is 0) OR pure diagonal (axes equal).
+        // Surge fires 10 tiles in one direction, so any path bend wastes the cooldown.
+        boolean straight = (dx == 0) || (dy == 0) || (adx == ady);
+        if (!straight) {
+            return;
+        }
+        if (goal != null && goal.plane() == lp.plane()) {
+            int distToGoal = Math.max(Math.abs(goal.x() - lp.tileX()),
+                                      Math.abs(goal.y() - lp.tileY()));
+            // Surge moves 10 tiles. If we're already within ~12 of the goal,
+            // skip — overshooting forces a re-plan that costs more than the
+            // walk would have.
+            if (distToGoal < SURGE_GOAL_GUARD) {
+                return;
+            }
+        }
+        if (!resolveSurgeSlot()) {
+            return;
+        }
+        api.queueAction(new GameAction(
+                ActionTypes.COMPONENT,
+                /* option= */ 1,
+                /* sub= */    -1,
+                Interfaces.componentHash(surgeIface, surgeComp)));
+        lastSurgeMs = now;
+        log.info("ww surge fired toward ({},{}) dist={} via iface={} comp={}",
+                target.x(), target.y(), dist, surgeIface, surgeComp);
+    }
+
+    // True when Surge's click target is known. Scans candidate bars on first
+    // call; latches to disabled if Surge isn't bound on the active bar so the
+    // next walkTo doesn't pay the RPC again.
+    private boolean resolveSurgeSlot() {
+        if (surgeIface == SURGE_DISABLED) {
+            return false;
+        }
+        if (surgeIface != SURGE_NOT_RESOLVED) {
+            return true;
+        }
+        for (int iface : ACTION_BAR_IFACES) {
+            ComponentNode sprite;
+            try {
+                sprite = api.components().in(iface).withSpriteId(SURGE_SPRITE_ID).first();
+            } catch (RuntimeException e) {
+                log.debug("ww surge slot scan failed on iface={}: {}", iface, e.toString());
+                continue;
+            }
+            if (sprite != null) {
+                // Slot layout: ability sprite at comp N, click-target Box at comp N+1.
+                surgeIface = iface;
+                surgeComp  = sprite.componentId() + 1;
+                log.info("ww surge slot resolved: iface={} sprite_comp={} click_comp={}",
+                        iface, sprite.componentId(), surgeComp);
+                return true;
+            }
+        }
+        log.info("ww surge slot not found on any candidate bar; disabling for this run");
+        surgeIface = SURGE_DISABLED;
+        return false;
+    }
+
+    private static int magicLevel(LocalPlayer lp) {
+        for (Skill s : lp.skills()) {
+            if (s.typeId() == MAGIC_SKILL_TYPE) {
+                return s.actualLevel();
+            }
+        }
+        return 0;
     }
 
     @Override
@@ -116,15 +354,71 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     }
 
     @Override
-    public void runChainStep(int actionId, int param1, int param2, int param3) {
-        // One step of a transition's chain (e.g. a lodestone-network or spell
-        // teleport), already shaped as a ready-to-queue game action by the
-        // chain builder. We forward it verbatim — for a component click the
-        // values are (COMPONENT, option, sub_component, (iface<<16)|comp), and
-        // the executor has already gated on the target interface being open.
-        log.debug("runChainStep: queue action id={} p1={} p2={} p3={}",
-                actionId, param1, param2, param3);
-        api.queueAction(new GameAction(actionId, param1, param2, param3));
+    public void runChainStep(int kind, int a, int b, int c, int d,
+                             int e, int f, int g, int h, int i) {
+        // The executor resolves Wait / WaitInterface itself and pre-resolves a
+        // ClickItem's worn-vs-backpack variant; only these kinds reach us.
+        switch (ChainStepKind.fromWire(kind)) {
+            case CLICK -> {
+                // Generic ready-to-queue action: a=actionId, b..d=param1..3.
+                // For a component click that is (COMPONENT, option, sub,
+                // (iface<<16)|comp); the executor already gated the interface.
+                log.info("ww runChainStep CLICK: action id={} p1={} p2={} p3={} (iface={})",
+                        a, b, c, d, d >>> 16);
+                api.queueAction(new GameAction(a, b, c, d));
+            }
+            case CLICK_ITEM -> {
+                // Executor chose the variant: a=iface, b=comp, c=option, d=sub
+                // (slot fallback), e=special, f=carried item id. Map special to
+                // COMPONENT_SPECIAL, else COMPONENT. For the backpack variant
+                // (f != 0) the item's slot is dynamic, so resolve it live; the
+                // baked d is only used if the item isn't found.
+                int actionId = e != 0 ? ActionTypes.COMPONENT_SPECIAL : ActionTypes.COMPONENT;
+                int hash = (a << 16) | (b & 0xFFFF);
+                int subComponent = d;
+                if (f != 0) {
+                    int slot = backpackSlotOf(f);
+                    if (slot >= 0) {
+                        subComponent = slot;
+                    } else {
+                        log.warn("runChainStep CLICK_ITEM: item {} not in backpack; "
+                                + "falling back to baked slot {}", f, d);
+                    }
+                }
+                log.info("ww runChainStep CLICK_ITEM: actionId={} iface={} comp={} opt={} "
+                        + "sub(slot)={} special={} item={} -> hash={}",
+                        actionId, a, b, c, subComponent, e, f, hash);
+                api.queueAction(new GameAction(actionId, c, subComponent, hash));
+            }
+            case DIALOGUE_SELECT -> dispatchDialogueSelect(a, b, c, d);
+            default ->
+                // Wait / WaitInterface are handled executor-side and never sent
+                // here; a stray one is a producer/consumer drift — log, ignore.
+                log.warn("runChainStep: unexpected host-side kind {} (ignored)", kind);
+        }
+    }
+
+    // Standard RS3 dialogue option component ids for the first nine options on a
+    // page. Mirrors the prior nav stack's DIALOGUE_SELECT mapping.
+    private static final int[] DIALOGUE_OPTION_COMPS = {1, 20, 23, 26, 29, 32, 35, 38, 41};
+
+    // Select option `index` in dialogue interface `iface`. perPage/nextComp drive
+    // multi-page dialogues; most teleport dialogues are single-page (index <
+    // perPage), the only case exercised today.
+    private void dispatchDialogueSelect(int iface, int index, int perPage, int nextComp) {
+        int pp = perPage > 0 ? perPage : DIALOGUE_OPTION_COMPS.length;
+        int targetPage = index / pp;
+        int optionOnPage = index % pp;
+        // Advance to the target page first (best-effort, no inter-click wait —
+        // single-page is the common path and needs none).
+        for (int p = 0; p < targetPage; p++) {
+            api.queueAction(new GameAction(ActionTypes.DIALOGUE, 0, -1, (iface << 16) | nextComp));
+        }
+        int comp = optionOnPage < DIALOGUE_OPTION_COMPS.length
+                ? DIALOGUE_OPTION_COMPS[optionOnPage] : 1;
+        log.info("ww runChainStep DIALOGUE_SELECT: iface={} index={} -> page={} comp={} hash={}",
+                iface, index, targetPage, comp, (iface << 16) | comp);
+        api.queueAction(new GameAction(ActionTypes.DIALOGUE, 0, -1, (iface << 16) | comp));
     }
 
     @Override
