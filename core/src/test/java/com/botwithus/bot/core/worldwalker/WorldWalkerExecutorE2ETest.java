@@ -169,6 +169,16 @@ class WorldWalkerExecutorE2ETest {
         }
 
         @Override
+        public int readItemCount(int itemId) {
+            return 0;
+        }
+
+        @Override
+        public boolean isItemWorn(int itemId) {
+            return false;
+        }
+
+        @Override
         public boolean isInterfaceOpen(int interfaceId) {
             isInterfaceOpenCalls.incrementAndGet();
             // SimulateTransition not in scope for this test — return false
@@ -194,7 +204,8 @@ class WorldWalkerExecutorE2ETest {
         }
 
         @Override
-        public void runChainStep(int actionId, int param1, int param2, int param3) {
+        public void runChainStep(int kind, int a, int b, int c, int d,
+                                 int e, int f, int g, int h, int i) {
             runChainStepCalls.incrementAndGet();
         }
 

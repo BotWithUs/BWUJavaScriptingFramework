@@ -62,6 +62,14 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_READ_VARBIT =
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
 
+    /** {@code int32_t(*)(void *user, int32_t itemId)}. */
+    static final FunctionDescriptor FD_READ_ITEM_COUNT =
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
+
+    /** {@code int32_t(*)(void *user, int32_t itemId)} — non-zero if worn. */
+    static final FunctionDescriptor FD_IS_ITEM_WORN =
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
+
     /** {@code int32_t(*)(void *user, int32_t interfaceId)}. */
     static final FunctionDescriptor FD_IS_INTERFACE_OPEN =
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
@@ -75,9 +83,10 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_INTERACT = FunctionDescriptor.of(
             JAVA_INT, ADDRESS, JAVA_INT, WorldWalkerLayouts.WW_TILE, JAVA_INT);
 
-    /** {@code void(*)(void *user, int32_t actionId, int32_t param1, int32_t param2, int32_t param3)}. */
+    /** {@code void(*)(void *user, int32_t kind, int32_t a..i)} — kind + nine generic slots. */
     static final FunctionDescriptor FD_RUN_CHAIN_STEP =
-            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT);
+            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT,
+                    JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT);
 
     /** {@code void(*)(void *user, int32_t ticks)}. */
     static final FunctionDescriptor FD_SLEEP_TICKS =

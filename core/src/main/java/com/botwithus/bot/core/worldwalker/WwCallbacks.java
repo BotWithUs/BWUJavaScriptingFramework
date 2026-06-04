@@ -50,6 +50,21 @@ public interface WwCallbacks {
     /** Read one varbit by id. */
     int readVarbit(int id);
 
+    /**
+     * Live count of item {@code itemId} the player holds (worn + carried). Used
+     * to gate item-requirement teleports (e.g. a dungeoneering cape). Mirrors
+     * {@link #readVarbit}: the executor pulls only the ids some requirement
+     * references. Return 0 when absent.
+     */
+    int readItemCount(int itemId);
+
+    /**
+     * Whether item {@code itemId} is currently worn (equipped) rather than
+     * carried in the backpack. Used to pick the worn-vs-backpack variant of a
+     * {@link ChainStepKind#CLICK_ITEM} step.
+     */
+    boolean isItemWorn(int itemId);
+
     /** Whether the given interface id is currently open. */
     boolean isInterfaceOpen(int interfaceId);
 
@@ -71,21 +86,28 @@ public interface WwCallbacks {
     int interact(int objectId, WwTile tile, int optionIndex);
 
     /**
-     * Fire one {@code Click} step of a transition's execution chain — e.g. a
-     * lodestone-network or spell teleport — as a generic queued game action.
-     * The four params are a ready-to-queue action; the implementation forwards
-     * them verbatim to {@code queueAction} with no component/hash knowledge. For
-     * a component click these are {@code (COMPONENT, option, sub_component,
-     * (iface<<16)|comp)}. The executor has already waited for the target
-     * interface (derived from {@code param3>>16} for COMPONENT actions) to be
-     * open before calling.
+     * Fire one host-resolved step of a transition's execution chain. {@code kind}
+     * is the {@link ChainStepKind} discriminant; {@code a..i} are its nine
+     * generic slots. The executor handles {@code Wait}/{@code WaitInterface}
+     * itself, so only these kinds reach the host:
+     * <ul>
+     *   <li>{@link ChainStepKind#CLICK} — generic queued action {@code (a=actionId,
+     *       b..d=param1..3)}; a component click is {@code (COMPONENT, option,
+     *       sub, (iface<<16)|comp)}. The executor has already waited for the
+     *       target interface (param3>>16 for COMPONENT) to open.</li>
+     *   <li>{@link ChainStepKind#DIALOGUE_SELECT} — {@code a=interface, b=index,
+     *       c=per_page, d=next_comp, e=wait_ticks}; resolve the option component
+     *       against the live (possibly paged) dialogue and click it.</li>
+     *   <li>{@link ChainStepKind#CLICK_ITEM} — {@code a..d=worn(iface,comp,opt,
+     *       sub)}, {@code e..h=backpack(iface,comp,opt,sub)}, {@code i=backpack
+     *       _special}; check whether the teleport item is worn or carried and
+     *       dispatch the matching variant.</li>
+     * </ul>
      *
-     * @param actionId the {@code ActionTypes} id (e.g. COMPONENT)
-     * @param param1   action param 1 (component click: option index)
-     * @param param2   action param 2 (component click: sub-component, -1 = none)
-     * @param param3   action param 3 (component click: packed (iface<<16)|comp)
+     * @param kind the {@link ChainStepKind} wire value
+     * @param a..i the nine generic slots (meaning keyed on {@code kind})
      */
-    void runChainStep(int actionId, int param1, int param2, int param3);
+    void runChainStep(int kind, int a, int b, int c, int d, int e, int f, int g, int h, int i);
 
     /** Sleep for the given number of game ticks (~600ms each). */
     void sleepTicks(int ticks);

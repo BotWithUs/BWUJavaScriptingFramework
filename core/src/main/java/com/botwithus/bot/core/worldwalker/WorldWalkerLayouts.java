@@ -108,8 +108,8 @@ final class WorldWalkerLayouts {
     );
 
     /**
-     * {@code WwCallbacks} — opaque {@code user} cookie + ten function pointers
-     * (eleven 8-byte slots), 88 bytes on 64-bit. Field order is fixed by the C
+     * {@code WwCallbacks} — opaque {@code user} cookie + twelve function pointers
+     * (thirteen 8-byte slots), 104 bytes on 64-bit. Field order is fixed by the C
      * struct in {@code worldwalker_c.h}: any reorder there must reorder both
      * this layout and the offset constants below.
      */
@@ -118,6 +118,8 @@ final class WorldWalkerLayouts {
             ValueLayout.ADDRESS.withName("readPosition"),
             ValueLayout.ADDRESS.withName("readCapability"),
             ValueLayout.ADDRESS.withName("readVarbit"),
+            ValueLayout.ADDRESS.withName("readItemCount"),
+            ValueLayout.ADDRESS.withName("isItemWorn"),
             ValueLayout.ADDRESS.withName("isInterfaceOpen"),
             ValueLayout.ADDRESS.withName("walkTo"),
             ValueLayout.ADDRESS.withName("interact"),
@@ -132,13 +134,15 @@ final class WorldWalkerLayouts {
     static final long CB_READ_POSITION_OFFSET     =  8;
     static final long CB_READ_CAPABILITY_OFFSET   = 16;
     static final long CB_READ_VARBIT_OFFSET       = 24;
-    static final long CB_IS_INTERFACE_OPEN_OFFSET = 32;
-    static final long CB_WALK_TO_OFFSET           = 40;
-    static final long CB_INTERACT_OFFSET          = 48;
-    static final long CB_RUN_CHAIN_STEP_OFFSET    = 56;
-    static final long CB_SLEEP_TICKS_OFFSET       = 64;
-    static final long CB_SHOULD_CANCEL_OFFSET     = 72;
-    static final long CB_ON_EVENT_OFFSET          = 80;
+    static final long CB_READ_ITEM_COUNT_OFFSET   = 32;
+    static final long CB_IS_ITEM_WORN_OFFSET      = 40;
+    static final long CB_IS_INTERFACE_OPEN_OFFSET = 48;
+    static final long CB_WALK_TO_OFFSET           = 56;
+    static final long CB_INTERACT_OFFSET          = 64;
+    static final long CB_RUN_CHAIN_STEP_OFFSET    = 72;
+    static final long CB_SLEEP_TICKS_OFFSET       = 80;
+    static final long CB_SHOULD_CANCEL_OFFSET     = 88;
+    static final long CB_ON_EVENT_OFFSET          = 96;
 
     // Pin layout sizes so a future structLayout typo trips the class loader
     // rather than misreading bytes at runtime.
@@ -150,7 +154,7 @@ final class WorldWalkerLayouts {
         assertSize(WW_CAPABILITY_ENTRY,     8, "WwCapabilityEntry");
         assertSize(WW_CAPABILITY_SNAPSHOT, 64, "WwCapabilitySnapshot");
         assertSize(WW_EVENT,               16, "WwEvent");
-        assertSize(WW_CALLBACKS,           88, "WwCallbacks");
+        assertSize(WW_CALLBACKS,          104, "WwCallbacks");
     }
 
     private static void assertSize(MemoryLayout layout, long expected, String name) {
