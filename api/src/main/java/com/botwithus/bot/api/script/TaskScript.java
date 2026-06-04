@@ -4,6 +4,7 @@ import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.util.Timing;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -50,7 +51,7 @@ public abstract class TaskScript implements BotScript {
                 return task.execute();
             }
         }
-        return 600; // default tick delay if no task validates
+        return Timing.TICK_MS; // default tick delay if no task validates
     }
 
     @Override

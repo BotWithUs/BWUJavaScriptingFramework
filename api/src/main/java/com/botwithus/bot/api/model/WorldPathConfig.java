@@ -46,12 +46,25 @@ public record WorldPathConfig(
         float heuristicWeight
 ) {
 
+    // ── Defaults matching the server. Named once and reused by both DEFAULT and
+    //    the Builder field initializers so a bump on one side can't drift away from the other.
+    private static final int   DEFAULT_AGILITY_LEVEL_AUTO       = 0;
+    private static final int   DEFAULT_MAX_ITERATIONS           = 500_000;
+    private static final float DEFAULT_DOOR_COST                = 5.0f;
+    private static final float DEFAULT_TRANSITION_COST          = 10.0f;
+    private static final float DEFAULT_SHORTCUT_COST            = 3.0f;
+    private static final float DEFAULT_CLIMBOVER_COST           = 3.0f;
+    private static final float DEFAULT_TRANSPORT_COST           = 15.0f;
+    private static final float DEFAULT_TELEPORT_MIN_HEURISTIC   = 100.0f;
+    private static final float DEFAULT_HEURISTIC_WEIGHT         = 1.0f;
+
     /** Default config matching server defaults. */
     public static final WorldPathConfig DEFAULT = new WorldPathConfig(
-            0, 500_000,
+            DEFAULT_AGILITY_LEVEL_AUTO, DEFAULT_MAX_ITERATIONS,
             true, true, true, true, true, true,
-            5.0f, 10.0f, 3.0f, 3.0f, 15.0f,
-            100.0f, 1.0f
+            DEFAULT_DOOR_COST, DEFAULT_TRANSITION_COST, DEFAULT_SHORTCUT_COST,
+            DEFAULT_CLIMBOVER_COST, DEFAULT_TRANSPORT_COST,
+            DEFAULT_TELEPORT_MIN_HEURISTIC, DEFAULT_HEURISTIC_WEIGHT
     );
 
     public static Builder builder() {
@@ -59,21 +72,21 @@ public record WorldPathConfig(
     }
 
     public static final class Builder {
-        private int agilityLevel = 0;
-        private int maxIterations = 500_000;
+        private int agilityLevel = DEFAULT_AGILITY_LEVEL_AUTO;
+        private int maxIterations = DEFAULT_MAX_ITERATIONS;
         private boolean allowDoors = true;
         private boolean allowShortcuts = true;
         private boolean allowPlaneTransitions = true;
         private boolean allowClimbovers = true;
         private boolean allowTransports = true;
         private boolean allowTeleports = true;
-        private float doorCost = 5.0f;
-        private float transitionCost = 10.0f;
-        private float shortcutCost = 3.0f;
-        private float climboverCost = 3.0f;
-        private float transportCost = 15.0f;
-        private float globalTeleportMinHeuristic = 100.0f;
-        private float heuristicWeight = 1.0f;
+        private float doorCost = DEFAULT_DOOR_COST;
+        private float transitionCost = DEFAULT_TRANSITION_COST;
+        private float shortcutCost = DEFAULT_SHORTCUT_COST;
+        private float climboverCost = DEFAULT_CLIMBOVER_COST;
+        private float transportCost = DEFAULT_TRANSPORT_COST;
+        private float globalTeleportMinHeuristic = DEFAULT_TELEPORT_MIN_HEURISTIC;
+        private float heuristicWeight = DEFAULT_HEURISTIC_WEIGHT;
 
         private Builder() {}
 

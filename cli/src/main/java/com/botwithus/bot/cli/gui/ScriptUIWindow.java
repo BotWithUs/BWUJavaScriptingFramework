@@ -10,13 +10,18 @@ import imgui.type.ImBoolean;
 
 public class ScriptUIWindow {
 
+    /** Default width (px) for the script custom-UI window. */
+    private static final int CUSTOM_UI_WINDOW_DEFAULT_WIDTH = 925;
+    /** Default height (px) for the script custom-UI window. */
+    private static final int CUSTOM_UI_WINDOW_DEFAULT_HEIGHT = 690;
+
     private ScriptRunner runner;
     private final ImBoolean open = new ImBoolean(false);
 
     public void open(ScriptRunner runner) {
         this.runner = runner;
         open.set(true);
-        ImGui.setNextWindowSize(925, 690, ImGuiCond.FirstUseEver);
+        ImGui.setNextWindowSize(CUSTOM_UI_WINDOW_DEFAULT_WIDTH, CUSTOM_UI_WINDOW_DEFAULT_HEIGHT, ImGuiCond.FirstUseEver);
     }
 
     public boolean isOpen() {
@@ -39,7 +44,7 @@ public class ScriptUIWindow {
             return;
         }
 
-        ImGui.setNextWindowSize(925, 690, ImGuiCond.FirstUseEver);
+        ImGui.setNextWindowSize(CUSTOM_UI_WINDOW_DEFAULT_WIDTH, CUSTOM_UI_WINDOW_DEFAULT_HEIGHT, ImGuiCond.FirstUseEver);
         if (ImGui.begin(runner.getScriptName() + " Config###scriptUIWindow", open,
                 ImGuiWindowFlags.NoCollapse)) {
             try {

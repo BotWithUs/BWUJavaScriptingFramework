@@ -610,11 +610,14 @@ public final class BwuClient implements AutoCloseable {
         }
     }
 
+    /** Upper bound on the length of any string returned by the loader native side. */
+    private static final long MAX_RETURNED_STRING_BYTES = 4096L;
+
     private static String readReturnedString(MemorySegment seg) {
         if (seg.equals(MemorySegment.NULL)) {
             return null;
         }
-        return seg.reinterpret(4096).getString(0);
+        return seg.reinterpret(MAX_RETURNED_STRING_BYTES).getString(0);
     }
 
     // ── MethodHandle invocation wrappers ───────────────────────────────────

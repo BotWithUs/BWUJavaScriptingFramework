@@ -91,6 +91,8 @@ public final class SceneObjects {
         /** Pull cap passed to the RPC. Bounded so a misbehaving filter can't
          *  drag back the entire scene; client-side filters/sorts apply on top. */
         private static final int RPC_PULL_CAP = 256;
+        /** Tile radius around the local player covered by the default scene query (~one map view). */
+        private static final int DEFAULT_QUERY_RADIUS_TILES = 64;
 
         Query(GameAPI api, IntFunction<LocationType> typeLookup) {
             super(api);
@@ -107,7 +109,7 @@ public final class SceneObjects {
             int cx = lp == null ? 0 : lp.tileX();
             int cy = lp == null ? 0 : lp.tileY();
             int cp = lp == null ? -1 : lp.plane();
-            List<SceneObjectInfo> raw = api.queryLocations(cx, cy, /*radius*/ 64, cp, RPC_PULL_CAP);
+            List<SceneObjectInfo> raw = api.queryLocations(cx, cy, DEFAULT_QUERY_RADIUS_TILES, cp, RPC_PULL_CAP);
             return raw.stream().map(info -> new SceneObject(api, info, typeLookup));
         }
 

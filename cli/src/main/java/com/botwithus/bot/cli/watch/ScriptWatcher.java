@@ -17,6 +17,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class ScriptWatcher {
 
+    /** Minimum wall-clock between successive change callbacks (ms). */
+    private static final long JAR_CHANGE_DEBOUNCE_MS = 500L;
+    /** Short pause after a change burst lets a partial JAR write finish before we reload (ms). */
+    private static final long JAR_SETTLE_DELAY_MS = 500L;
+
     private static final Logger log = LoggerFactory.getLogger(ScriptWatcher.class);
 
     private final Path scriptsDir;
@@ -78,11 +83,9 @@ public class ScriptWatcher {
 
                 if (jarChanged) {
                     long now = System.currentTimeMillis();
-                    // Debounce: ignore events within 500ms of last trigger
-                    if (now - lastTrigger > 500) {
+                    if (now - lastTrigger > JAR_CHANGE_DEBOUNCE_MS) {
                         lastTrigger = now;
-                        // Small delay to let file writes complete
-                        try { Thread.sleep(500); } catch (InterruptedException e) {
+                        try { Thread.sleep(JAR_SETTLE_DELAY_MS); } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                             break;
                         }

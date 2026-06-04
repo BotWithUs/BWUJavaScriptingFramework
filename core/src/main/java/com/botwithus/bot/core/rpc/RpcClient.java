@@ -54,7 +54,10 @@ public class RpcClient implements AutoCloseable {
     private volatile boolean running;
     private String connectionName;
 
-    private long timeoutMs = 10_000;
+    /** Default per-call deadline before doCall gives up and throws RpcException. */
+    private static final long DEFAULT_TIMEOUT_MS = 10_000L;
+
+    private long timeoutMs = DEFAULT_TIMEOUT_MS;
     private RetryPolicy retryPolicy = RetryPolicy.NONE;
     private final RpcMetrics metrics = new RpcMetrics();
 

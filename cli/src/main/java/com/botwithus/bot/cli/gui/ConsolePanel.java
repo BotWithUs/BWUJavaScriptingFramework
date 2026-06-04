@@ -246,7 +246,7 @@ public class ConsolePanel implements GuiPanel {
 
     private void handleCommand(String line, CliContext ctx) {
         PrintStream out = outputBuffer.getPrintStream();
-        out.println(AnsiCodes.colorize("> " + line, "\u001B[33m"));
+        out.println(AnsiCodes.colorize("> " + line, AnsiCodes.YELLOW));
 
         executor.submit(() -> {
             ParsedCommand parsed = CommandParser.parse(line);
