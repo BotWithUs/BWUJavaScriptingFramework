@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
+import com.botwithus.bot.core.impl.MapHelper;
 import com.botwithus.bot.core.pipe.PipeException;
 import com.botwithus.bot.core.rpc.RpcException;
 
@@ -90,16 +91,12 @@ public class ScreenshotCommand implements Command {
             return null;
         }
 
-        Object data = response.get("data");
-        if (data == null) {
-            String error = response.getOrDefault("error", "unknown error").toString();
-            reportError("Screenshot failed: " + error, ctx, progress, progressHandle);
-            return null;
+        byte[] bytes = MapHelper.getBytes(response, "data");
+        if (bytes != null) {
+            return bytes;
         }
-        if (data instanceof byte[] b) {
-            return b;
-        }
-        reportError("Unexpected response format.", ctx, progress, progressHandle);
+        String error = response.getOrDefault("error", "unknown error").toString();
+        reportError("Screenshot failed: " + error, ctx, progress, progressHandle);
         return null;
     }
 

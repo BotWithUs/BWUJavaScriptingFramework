@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.rpc;
 
+import com.botwithus.bot.core.impl.MapHelper;
 import com.botwithus.bot.core.pipe.PipeClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -50,15 +52,14 @@ class LiveStaleRpcSmokeTest {
             log.info("get_account_info: {}", ai);
             assertNotNull(ai.get("display_name"), "display_name key must be present");
             assertNotNull(ai.get("jx_display_name"), "jx_display_name key must be present");
-            assertTrue(ai.get("logged_in") instanceof Boolean, "logged_in must be a Boolean");
-            assertTrue(ai.get("is_member") instanceof Boolean, "is_member must be a Boolean");
+            assertInstanceOf(Boolean.class, ai.get("logged_in"), "logged_in must be a Boolean");
+            assertInstanceOf(Boolean.class, ai.get("is_member"), "is_member must be a Boolean");
 
             Map<String, Object> cw = rpc.callSync("get_current_world", Map.of());
             log.info("get_current_world: {}", cw);
-            Object widObj = cw.get("world_id");
-            assertNotNull(widObj, "world_id key must be present");
-            int worldId = ((Number) widObj).intValue();
-            boolean loggedIn = (Boolean) ai.get("logged_in");
+            assertNotNull(cw.get("world_id"), "world_id key must be present");
+            int worldId = MapHelper.getInt(cw, "world_id");
+            boolean loggedIn = MapHelper.getBool(ai, "logged_in");
             if (loggedIn) {
                 assertTrue(worldId > 0, "logged_in but world_id=" + worldId);
             }
@@ -81,11 +82,11 @@ class LiveStaleRpcSmokeTest {
             // Sanity-tie back to game state — if logged_in, the LocalPlayer
             // snapshot block should agree with what get_account_info reported.
             Map<String, Object> ls = rpc.callSync("get_login_state", Map.of());
-            int gameState = ((Number) ls.get("state")).intValue();
+            int gameState = MapHelper.getInt(ls, "state");
             if (gameState == GAME_STATE_IN_GAME) {
                 assertEquals(Boolean.TRUE, ai.get("logged_in"),
                         "get_login_state reports in-game but get_account_info says not logged in");
-                assertTrue(((String) ai.get("display_name")).length() > 0,
+                assertTrue(!MapHelper.getString(ai, "display_name").isEmpty(),
                         "in-game -> non-empty display_name");
             }
         }

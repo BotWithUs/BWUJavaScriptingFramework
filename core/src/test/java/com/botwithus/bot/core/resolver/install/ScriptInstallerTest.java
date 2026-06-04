@@ -67,8 +67,7 @@ class ScriptInstallerTest {
 
         InstallResult result = installer.install(MavenCoord.of("com.example", "wc-script"));
 
-        assertInstanceOf(InstallResult.Installed.class, result);
-        InstallResult.Installed installed = (InstallResult.Installed) result;
+        InstallResult.Installed installed = assertInstanceOf(InstallResult.Installed.class, result);
         assertEquals(scriptsDir.resolve("wc-script-1.0.0.jar"), installed.jar());
         assertTrue(Files.exists(installed.jar()));
         assertEquals(1, changeCount.get());
@@ -101,8 +100,7 @@ class ScriptInstallerTest {
 
         publish("1.1.0");
         InstallResult result = installer.install(MavenCoord.of("com.example", "wc-script"));
-        assertInstanceOf(InstallResult.Updated.class, result);
-        InstallResult.Updated updated = (InstallResult.Updated) result;
+        InstallResult.Updated updated = assertInstanceOf(InstallResult.Updated.class, result);
         assertEquals(scriptsDir.resolve("wc-script-1.1.0.jar"), updated.newJar());
         assertFalse(Files.exists(oldJar));
         assertTrue(Files.exists(updated.newJar()));
@@ -115,8 +113,8 @@ class ScriptInstallerTest {
         installer.install(MavenCoord.of("com.example", "wc-script"));
 
         InstallResult result = installer.update(MavenCoord.of("com.example", "wc-script"));
-        assertInstanceOf(InstallResult.NoUpdateAvailable.class, result);
-        assertEquals("1.0.0", ((InstallResult.NoUpdateAvailable) result).installedVersion());
+        InstallResult.NoUpdateAvailable noUpdate = assertInstanceOf(InstallResult.NoUpdateAvailable.class, result);
+        assertEquals("1.0.0", noUpdate.installedVersion());
     }
 
     @Test
@@ -127,9 +125,8 @@ class ScriptInstallerTest {
         publish("2.0.0");
 
         InstallResult result = installer.update(MavenCoord.of("com.example", "wc-script"));
-        assertInstanceOf(InstallResult.Updated.class, result);
-        assertEquals(scriptsDir.resolve("wc-script-2.0.0.jar"),
-                ((InstallResult.Updated) result).newJar());
+        InstallResult.Updated updated = assertInstanceOf(InstallResult.Updated.class, result);
+        assertEquals(scriptsDir.resolve("wc-script-2.0.0.jar"), updated.newJar());
     }
 
     @Test

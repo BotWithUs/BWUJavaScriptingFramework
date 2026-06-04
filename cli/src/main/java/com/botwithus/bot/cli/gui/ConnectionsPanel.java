@@ -7,6 +7,7 @@ import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.CommandResult;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.command.impl.ConnectCommand;
+import com.botwithus.bot.core.impl.MapHelper;
 
 import imgui.ImGui;
 import imgui.flag.ImGuiTableFlags;
@@ -235,9 +236,9 @@ public class ConnectionsPanel implements GuiPanel {
                 ImGui.tableSetColumnIndex(2);
                 Map<String, Object> info = conn.getAccountInfo();
                 if (info != null) {
-                    Object worldId = info.get("world_id");
-                    if (worldId instanceof Number n && n.intValue() > 0) {
-                        ImGui.text("W" + n.intValue());
+                    int worldId = MapHelper.getInt(info, "world_id");
+                    if (worldId > 0) {
+                        ImGui.text("W" + worldId);
                     } else {
                         ImGui.text("-");
                     }

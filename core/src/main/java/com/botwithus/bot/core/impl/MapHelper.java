@@ -15,8 +15,12 @@ public final class MapHelper {
     private MapHelper() {}
 
     public static int getInt(Map<String, Object> map, String key) {
+        return getIntOr(map, key, 0);
+    }
+
+    public static int getIntOr(Map<String, Object> map, String key, int fallback) {
         Object v = map.get(key);
-        return v instanceof Number n ? n.intValue() : 0;
+        return v instanceof Number n ? n.intValue() : fallback;
     }
 
     public static long getLong(Map<String, Object> map, String key) {
@@ -115,5 +119,15 @@ public final class MapHelper {
     public static String getStringNullable(Map<String, Object> map, String key) {
         Object v = map.get(key);
         return v instanceof String s ? s : null;
+    }
+
+    /**
+     * Gets a {@code byte[]} payload (msgpack bin format), or {@code null} when
+     * the key is absent or the value is the wrong shape. Used by callers that
+     * fetch binary blobs from RPC responses (screenshots, raw cache slices).
+     */
+    public static byte[] getBytes(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        return v instanceof byte[] b ? b : null;
     }
 }

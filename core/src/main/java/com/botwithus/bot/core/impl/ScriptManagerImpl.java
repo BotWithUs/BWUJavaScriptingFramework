@@ -161,6 +161,11 @@ public class ScriptManagerImpl implements ScriptManager {
         return scheduler;
     }
 
+    /** Package-private impl accessor for tests that need direct {@code shutdown()}. */
+    ScriptSchedulerImpl scheduler() {
+        return scheduler;
+    }
+
     /**
      * Shuts down the scheduler. Called during application shutdown.
      */

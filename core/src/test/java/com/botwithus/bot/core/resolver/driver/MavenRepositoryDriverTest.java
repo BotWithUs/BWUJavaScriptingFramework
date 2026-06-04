@@ -40,8 +40,7 @@ class MavenRepositoryDriverTest {
     void locateJarBuildsCanonicalMavenUrl() {
         MavenCoord coord = MavenCoord.of("com.example", "art");
         ArtifactLocation loc = driver.locateJar(repo, coord, "1.2.3");
-        assertInstanceOf(ArtifactLocation.Url.class, loc);
-        URI uri = ((ArtifactLocation.Url) loc).uri();
+        URI uri = assertInstanceOf(ArtifactLocation.Url.class, loc).uri();
         assertTrue(uri.toString().endsWith("com/example/art/1.2.3/art-1.2.3.jar"));
     }
 
@@ -49,7 +48,7 @@ class MavenRepositoryDriverTest {
     void locateChecksumAppendsSha256Suffix() {
         MavenCoord coord = MavenCoord.of("com.example", "art");
         ArtifactLocation loc = driver.locateChecksum(repo, coord, "1.0");
-        URI uri = ((ArtifactLocation.Url) loc).uri();
+        URI uri = assertInstanceOf(ArtifactLocation.Url.class, loc).uri();
         assertTrue(uri.toString().endsWith("art-1.0.jar.sha256"));
     }
 
@@ -57,7 +56,7 @@ class MavenRepositoryDriverTest {
     void locateLegacyChecksumAppendsSha1Suffix() {
         MavenCoord coord = MavenCoord.of("com.example", "art");
         ArtifactLocation loc = driver.locateLegacyChecksum(repo, coord, "1.0");
-        URI uri = ((ArtifactLocation.Url) loc).uri();
+        URI uri = assertInstanceOf(ArtifactLocation.Url.class, loc).uri();
         assertTrue(uri.toString().endsWith("art-1.0.jar.sha1"));
     }
 
@@ -65,7 +64,7 @@ class MavenRepositoryDriverTest {
     void locateSignatureAppendsAscSuffix() {
         MavenCoord coord = MavenCoord.of("com.example", "art");
         ArtifactLocation loc = driver.locateSignature(repo, coord, "1.0");
-        URI uri = ((ArtifactLocation.Url) loc).uri();
+        URI uri = assertInstanceOf(ArtifactLocation.Url.class, loc).uri();
         assertTrue(uri.toString().endsWith("art-1.0.jar.asc"));
     }
 
