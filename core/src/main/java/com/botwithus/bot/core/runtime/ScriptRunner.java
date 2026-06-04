@@ -215,17 +215,36 @@ public class ScriptRunner implements Runnable {
         if (connectionName != null) {
             MDC.put("connection.name", connectionName);
         }
+        if (!runOnStart(name)) {
+            return;
+        }
+        loadPersistedConfig(name);
+        try {
+            runLoop();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.error("onLoop error in {}: {}", name, e.getMessage());
+            notifyError(Phase.ON_LOOP, e);
+        } finally {
+            cleanup(name);
+        }
+    }
+
+    private boolean runOnStart(String name) {
         try {
             script.onStart(context);
+            return true;
         } catch (Exception e) {
             log.error("onStart error in {}: {}", name, e.getMessage());
             notifyError(Phase.ON_START, e);
             running.set(false);
             connectionCleaner.run();
-            return;
+            return false;
         }
+    }
 
-        // Load persisted config after onStart
+    private void loadPersistedConfig(String name) {
         try {
             List<ConfigField> fields = script.getConfigFields();
             if (fields != null && !fields.isEmpty()) {
@@ -237,45 +256,42 @@ public class ScriptRunner implements Runnable {
             log.error("Config load error in {}: {}", name, e.getMessage());
             notifyError(Phase.ON_CONFIG_UPDATE, e);
         }
+    }
 
+    private void runLoop() throws InterruptedException {
         GameAPI gameAPI = context.getGameAPI();
+        while (running.get() && !Thread.currentThread().isInterrupted()) {
+            long loopStart = System.nanoTime();
+            int delay = script.onLoop();
+            profiler.recordLoop(System.nanoTime() - loopStart);
+            if (delay < 0) {
+                break;
+            }
+            if (delay > 0) {
+                delay = adjustDelay(delay, gameAPI);
+                Thread.sleep(delay);
+            }
+        }
+    }
+
+    private void cleanup(String name) {
+        running.set(false);
         try {
-            while (running.get() && !Thread.currentThread().isInterrupted()) {
-                long loopStart = System.nanoTime();
-                int delay = script.onLoop();
-                profiler.recordLoop(System.nanoTime() - loopStart);
-                if (delay < 0) {
-                    break;
-                }
-                if (delay > 0) {
-                    delay = adjustDelay(delay, gameAPI);
-                    Thread.sleep(delay);
-                }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            script.onStop();
         } catch (Exception e) {
-            log.error("onLoop error in {}: {}", name, e.getMessage());
-            notifyError(Phase.ON_LOOP, e);
-        } finally {
-            running.set(false);
-            try {
-                script.onStop();
-            } catch (Exception e) {
-                log.error("onStop error in {}: {}", name, e.getMessage());
-                notifyError(Phase.ON_STOP, e);
-            }
-            try {
-                context.getNavigation().cleanup();
-            } catch (Exception e) {
-                log.debug("Navigation cleanup error in {}: {}", name, e.getMessage());
-            }
-            MDC.clear();
-            connectionCleaner.run();
-            CountDownLatch latch = this.stopLatch;
-            if (latch != null) {
-                latch.countDown();
-            }
+            log.error("onStop error in {}: {}", name, e.getMessage());
+            notifyError(Phase.ON_STOP, e);
+        }
+        try {
+            context.getNavigation().cleanup();
+        } catch (Exception e) {
+            log.debug("Navigation cleanup error in {}: {}", name, e.getMessage());
+        }
+        MDC.clear();
+        connectionCleaner.run();
+        CountDownLatch latch = this.stopLatch;
+        if (latch != null) {
+            latch.countDown();
         }
     }
 
