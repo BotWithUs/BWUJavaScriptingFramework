@@ -29,6 +29,14 @@ import static org.mockito.Mockito.when;
  * Slice-18 entity query surface. Exercises the Npcs/Players facades
  * against a stub {@link GameSnapshot} so we don't need a live SHM
  * binding. Real producer integration is covered by the probes.
+ *
+ * <p>rule-exception: {@code {rule:no-fqn}} — this file references the
+ * snapshot record types {@code api.snapshot.Npc} and
+ * {@code api.snapshot.Player} fully qualified throughout. The wrapper
+ * types {@code api.entities.Npc} / {@code api.entities.Player} are
+ * imported because they are the API under test; the raw snapshot records
+ * collide with them. Same convention as the production wrapper classes
+ * in {@code api/.../entities/}.
  */
 class GameAPIImplEntitiesTest {
 

@@ -36,6 +36,10 @@ public class EventBusImpl implements EventBus {
         List<Consumer<? extends GameEvent>> list = listeners.get(event.getClass());
         if (list != null) {
             for (Consumer<? extends GameEvent> listener : list) {
+                // rule-exception: {rule:no-casts} — heterogeneous typed-key bag.
+                // Listeners are keyed by Class<T> but stored as Consumer<? extends GameEvent>;
+                // Java's wildcard system can't express "the T whose Class<T> is this key".
+                // The cast is one-per-container at the single dispatch site.
                 ((Consumer<GameEvent>) listener).accept(event);
             }
         }

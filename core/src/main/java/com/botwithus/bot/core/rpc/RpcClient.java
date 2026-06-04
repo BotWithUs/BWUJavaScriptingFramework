@@ -141,6 +141,10 @@ public class RpcClient implements AutoCloseable {
             throw new RpcException("RPC error: " + response.get("error"));
         }
         Object result = response.get("result");
+        // rule-exception: {rule:no-instanceof} and {rule:no-casts} — wire-decode boundary.
+        // RpcClient is the msgpack layer; result is Object because the codec returns mixed
+        // types. callSync's contract guarantees Map<String, Object> when the producer wraps
+        // its result in a map, so this is the single recovery seam for non-Map producers.
         if (result instanceof Map<?, ?> m) {
             return (Map<String, Object>) m;
         }
@@ -165,6 +169,9 @@ public class RpcClient implements AutoCloseable {
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> callSyncList(String method, Map<String, Object> params) {
         Object raw = callSyncRaw(method, params);
+        // rule-exception: {rule:no-instanceof} and {rule:no-casts} — wire-decode boundary;
+        // same justification as callSync. callSyncList is the typed seam for array-returning
+        // RPC methods; the cast is one-per-shape at this single recovery site.
         if (raw instanceof List<?> list) {
             return (List<Map<String, Object>>) list;
         }
@@ -366,6 +373,9 @@ public class RpcClient implements AutoCloseable {
 
     private boolean matchesId(Map<String, Object> msg, int expectedId) {
         Object idObj = msg.get("id");
+        // rule-exception: {rule:no-instanceof} — wire-decode boundary. RPC response IDs
+        // arrive as msgpack ints decoded to Integer or Long; the producer's id field is
+        // Object until we recover it here.
         if (idObj instanceof Number n) {
             return n.intValue() == expectedId;
         }

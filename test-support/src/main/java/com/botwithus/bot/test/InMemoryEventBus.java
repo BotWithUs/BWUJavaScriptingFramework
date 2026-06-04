@@ -52,6 +52,9 @@ public final class InMemoryEventBus implements EventBus {
             return;
         }
         for (Consumer<? extends GameEvent> listener : list) {
+            // rule-exception: {rule:no-casts} — heterogeneous typed-key bag; same shape
+            // as EventBusImpl in core. Listeners are keyed by Class<T> but stored as
+            // Consumer<? extends GameEvent>; the cast is the single dispatch site.
             ((Consumer<GameEvent>) listener).accept(event);
         }
     }
