@@ -10,6 +10,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
+import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -463,7 +464,7 @@ public final class WorldWalker implements AutoCloseable {
 
     // ── Internals — error / invocation ────────────────────────────────────
 
-    private static void invokeVoid(java.lang.invoke.MethodHandle mh, MemorySegment arg) {
+    private static void invokeVoid(MethodHandle mh, MemorySegment arg) {
         try {
             mh.invokeExact(arg);
         } catch (Throwable t) {
