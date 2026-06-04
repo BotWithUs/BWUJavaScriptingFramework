@@ -59,6 +59,38 @@ public interface WwCallbacks {
     int readItemCount(int itemId);
 
     /**
+     * Batched variant of {@link #readVarbit} invoked at (re-)plan entry, where
+     * the executor pulls every varbit referenced by any transition requirement.
+     * Implementations must write exactly {@code ids.length} values into
+     * {@code outValues} in the same order, using {@code 0} for "absent /
+     * unknown".
+     *
+     * <p>The default fallback loops over the scalar {@link #readVarbit} — fine
+     * for test doubles and one-off implementations. The production bridge
+     * overrides this to route through {@code api.queryVarbits} so the
+     * 25-30 lodestone-unlock varbits collapse to two batched RPC round-trips
+     * instead of N synchronous pipe calls (the dominant pre-walk cost).</p>
+     */
+    default void readVarbits(int[] ids, int[] outValues) {
+        for (int i = 0; i < ids.length; i++) {
+            outValues[i] = readVarbit(ids[i]);
+        }
+    }
+
+    /**
+     * Batched variant of {@link #readItemCount}. Implementations must write
+     * exactly {@code ids.length} counts into {@code outValues} in the same
+     * order. The default fallback loops over the scalar
+     * {@link #readItemCount}; the production bridge overrides it to read the
+     * snapshot once and walk both inventories once instead of N times.
+     */
+    default void readItemCounts(int[] ids, int[] outValues) {
+        for (int i = 0; i < ids.length; i++) {
+            outValues[i] = readItemCount(ids[i]);
+        }
+    }
+
+    /**
      * Whether item {@code itemId} is currently worn (equipped) rather than
      * carried in the backpack. Used to pick the worn-vs-backpack variant of a
      * {@link ChainStepKind#CLICK_ITEM} step.

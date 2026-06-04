@@ -66,6 +66,14 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_READ_ITEM_COUNT =
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
 
+    /** {@code void(*)(void *user, const int32_t *ids, size_t count, int32_t *outValues)}. */
+    static final FunctionDescriptor FD_READ_VARBITS =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_LONG, ADDRESS);
+
+    /** {@code void(*)(void *user, const int32_t *ids, size_t count, int32_t *outValues)}. */
+    static final FunctionDescriptor FD_READ_ITEM_COUNTS =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_LONG, ADDRESS);
+
     /** {@code int32_t(*)(void *user, int32_t itemId)} — non-zero if worn. */
     static final FunctionDescriptor FD_IS_ITEM_WORN =
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);

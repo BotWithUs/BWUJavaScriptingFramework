@@ -43,6 +43,8 @@ final class UpcallStubs {
     private static final MethodHandle MH_READ_CAPABILITY;
     private static final MethodHandle MH_READ_VARBIT;
     private static final MethodHandle MH_READ_ITEM_COUNT;
+    private static final MethodHandle MH_READ_VARBITS;
+    private static final MethodHandle MH_READ_ITEM_COUNTS;
     private static final MethodHandle MH_IS_ITEM_WORN;
     private static final MethodHandle MH_IS_INTERFACE_OPEN;
     private static final MethodHandle MH_WALK_TO;
@@ -62,6 +64,12 @@ final class UpcallStubs {
                     MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class));
             MH_READ_ITEM_COUNT = LOOKUP.findStatic(UpcallStubs.class, "readItemCountImpl",
                     MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class));
+            MH_READ_VARBITS = LOOKUP.findStatic(UpcallStubs.class, "readVarbitsImpl",
+                    MethodType.methodType(void.class, Run.class, MemorySegment.class,
+                            MemorySegment.class, long.class, MemorySegment.class));
+            MH_READ_ITEM_COUNTS = LOOKUP.findStatic(UpcallStubs.class, "readItemCountsImpl",
+                    MethodType.methodType(void.class, Run.class, MemorySegment.class,
+                            MemorySegment.class, long.class, MemorySegment.class));
             MH_IS_ITEM_WORN = LOOKUP.findStatic(UpcallStubs.class, "isItemWornImpl",
                     MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class));
             MH_IS_INTERFACE_OPEN = LOOKUP.findStatic(UpcallStubs.class, "isInterfaceOpenImpl",
@@ -148,6 +156,10 @@ final class UpcallStubs {
                 stub(linker, arena, MH_READ_VARBIT, run, WorldWalkerNative.FD_READ_VARBIT));
         struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_ITEM_COUNT_OFFSET,
                 stub(linker, arena, MH_READ_ITEM_COUNT, run, WorldWalkerNative.FD_READ_ITEM_COUNT));
+        struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_VARBITS_OFFSET,
+                stub(linker, arena, MH_READ_VARBITS, run, WorldWalkerNative.FD_READ_VARBITS));
+        struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_ITEM_COUNTS_OFFSET,
+                stub(linker, arena, MH_READ_ITEM_COUNTS, run, WorldWalkerNative.FD_READ_ITEM_COUNTS));
         struct.set(ADDRESS, WorldWalkerLayouts.CB_IS_ITEM_WORN_OFFSET,
                 stub(linker, arena, MH_IS_ITEM_WORN, run, WorldWalkerNative.FD_IS_ITEM_WORN));
         struct.set(ADDRESS, WorldWalkerLayouts.CB_IS_INTERFACE_OPEN_OFFSET,
@@ -227,6 +239,61 @@ final class UpcallStubs {
         } catch (Throwable thrown) {
             run.recordError(thrown);
             return 0;
+        }
+    }
+
+    static void readVarbitsImpl(Run run, MemorySegment user,
+                                MemorySegment idsPtr, long count, MemorySegment outPtr) {
+        readBatchImpl(run, idsPtr, count, outPtr, /*itemsNotVarbits*/ false);
+    }
+
+    static void readItemCountsImpl(Run run, MemorySegment user,
+                                   MemorySegment idsPtr, long count, MemorySegment outPtr) {
+        readBatchImpl(run, idsPtr, count, outPtr, /*itemsNotVarbits*/ true);
+    }
+
+    /**
+     * Common body for the batched varbit / item-count upcalls. Reads the
+     * {@code count} ids, dispatches to the appropriate {@link WwCallbacks}
+     * batch method, and writes the resulting values back. count == 0 is a
+     * no-op (the executor still calls the batch every plan; skip the empty
+     * reinterpret + alloc rather than ask the host to handle a zero-length
+     * array). On any throw, fills the output with zeros so the planner reads
+     * sentinels instead of uninitialised memory.
+     */
+    private static void readBatchImpl(Run run, MemorySegment idsPtr, long count,
+                                       MemorySegment outPtr, boolean itemsNotVarbits) {
+        if (count <= 0) {
+            return;
+        }
+        if (count > Integer.MAX_VALUE) {
+            run.recordError(new IllegalArgumentException(
+                    "batch count out of range: " + count));
+            return;
+        }
+        int n = (int) count;
+        long bytes = (long) n * Integer.BYTES;
+        MemorySegment idsView = idsPtr.reinterpret(bytes);
+        MemorySegment outView = outPtr.reinterpret(bytes);
+        int[] ids = new int[n];
+        int[] out = new int[n];
+        for (int i = 0; i < n; i++) {
+            ids[i] = idsView.get(JAVA_INT, (long) i * Integer.BYTES);
+        }
+        try {
+            if (itemsNotVarbits) {
+                run.callbacks.readItemCounts(ids, out);
+            } else {
+                run.callbacks.readVarbits(ids, out);
+            }
+        } catch (Throwable thrown) {
+            run.recordError(thrown);
+            // out[] already zero-initialised — leave it that way so the
+            // executor reads the sentinel for every id and treats the run as
+            // an empty snapshot.
+        }
+        for (int i = 0; i < n; i++) {
+            outView.set(JAVA_INT, (long) i * Integer.BYTES, out[i]);
         }
     }
 
