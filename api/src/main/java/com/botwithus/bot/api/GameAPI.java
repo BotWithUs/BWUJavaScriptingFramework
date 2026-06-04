@@ -273,9 +273,16 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * latency of N independent {@code getComponent} calls (one tick each)
      * into one tick total.
      *
+     * <p>The producer hard-caps the per-call batch (currently 64). Oversize
+     * inputs are silently truncated by the producer, so the returned list
+     * may be shorter than {@code refs}; callers that need more than the cap
+     * should split into chunks themselves.</p>
+     *
      * @param refs components to resolve, in the desired result order
-     * @return one element per input ref, in order; {@code null} entries
-     *         signal "not found" (matches the single-component contract)
+     * @return one element per resolved ref, in input order; {@code null}
+     *         entries signal "not found" (matches the single-component
+     *         contract). Length may be less than {@code refs.size()} when
+     *         the producer cap is exceeded.
      */
     List<Component> getComponents(List<ComponentRef> refs);
 
