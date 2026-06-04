@@ -5,6 +5,7 @@ import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.entities.SceneObject;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
@@ -44,12 +45,15 @@ public class WoodcuttingFletcherScript implements BotScript {
     private GameAPI api;
     private Backpack backpack;
     private State state;
+    private ScriptContextPublisher publisher;
 
     @Override
     public void onStart(ScriptContext ctx) {
         this.api = ctx.getGameAPI();
         this.backpack = api.backpack();
         this.state = State.CHOPPING;
+        this.publisher = ctx.getScriptContext();
+        publisher.annotation("state", state.name());
         log.info("Started!");
     }
 
@@ -68,9 +72,11 @@ public class WoodcuttingFletcherScript implements BotScript {
     }
 
     private int handleChopping() {
+        publisher.annotation("logs_in_pack", backpack.count(LOGS_ITEM_ID));
         if (backpack.isFull()) {
             log.info("Inventory full, switching to dropping.");
             state = State.DROPPING;
+            publisher.annotation("state", state.name());
             return LOOP_STATE_TRANSITION_MS;
         }
 
@@ -85,9 +91,11 @@ public class WoodcuttingFletcherScript implements BotScript {
 
         if (tree == null) {
             log.warn("No tree found within {} tiles.", CHOPPING_DISTANCE_TILES);
+            publisher.trace("WARN", "No tree within " + CHOPPING_DISTANCE_TILES + " tiles");
             return LOOP_WAITING_MS;
         }
 
+        publisher.trace("INFO", "Chopping tree at (" + tree.tileX() + "," + tree.tileY() + ")");
         tree.interact("Chop down");
         return LOOP_AFTER_CHOP_MS;
     }
@@ -96,6 +104,7 @@ public class WoodcuttingFletcherScript implements BotScript {
         if (!backpack.contains(LOGS_ITEM_ID)) {
             log.info("No logs remaining, switching to chopping.");
             state = State.CHOPPING;
+            publisher.annotation("state", state.name());
             return LOOP_STATE_TRANSITION_MS;
         }
         backpack.interactFirst(LOGS_ITEM_ID, DROP_LOGS_OPTION_INDEX);

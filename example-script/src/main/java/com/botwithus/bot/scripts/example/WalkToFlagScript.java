@@ -7,6 +7,7 @@ import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.model.WalkResult;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 
@@ -49,8 +50,17 @@ public class WalkToFlagScript implements BotScript {
     @Override
     public void onStart(ScriptContext ctx) {
         this.ctx = ctx;
+        publishDestination();
         log.info("Walk to Flag script started — destination ({}, {}, plane {}).",
                 targetX, targetY, targetPlane);
+    }
+
+    private void publishDestination() {
+        if (ctx == null) {
+            return;
+        }
+        ctx.getScriptContext().annotation("destination",
+                targetX + "," + targetY + ",p" + targetPlane);
     }
 
     @Override
@@ -66,26 +76,39 @@ public class WalkToFlagScript implements BotScript {
         this.targetX = config.getInt("targetX", DEFAULT_TARGET_X);
         this.targetY = config.getInt("targetY", DEFAULT_TARGET_Y);
         this.targetPlane = config.getInt("targetPlane", DEFAULT_TARGET_PLANE);
+        publishDestination();
     }
 
     @Override
     public int onLoop() {
+        ScriptContextPublisher publisher = ctx.getScriptContext();
         LocalPlayer lp = ctx.getGameAPI().getLocalPlayer();
+        if (lp != null) {
+            publisher.annotation("position", lp.tileX() + "," + lp.tileY() + ",p" + lp.plane());
+        }
         if (lp != null && lp.tileX() == targetX && lp.tileY() == targetY && lp.plane() == targetPlane) {
             log.info("Already at destination — stopping.");
+            publisher.trace("INFO", "Arrived at destination — stopping");
             return -1;
         }
 
         log.info("Walking to ({}, {}, plane {})...", targetX, targetY, targetPlane);
+        publisher.trace("INFO",
+                "Walking to (" + targetX + "," + targetY + ",p" + targetPlane + ")");
         Navigation nav = ctx.getNavigation();
         WalkResult result = nav.walkWorldPath(targetX, targetY, targetPlane);
 
         switch (result) {
-            case ARRIVED   -> log.info("Arrived at ({}, {})", targetX, targetY);
-            case CANCELLED -> log.warn("Walk cancelled before reaching ({}, {})", targetX, targetY);
-            case FAILED    -> log.warn("Walk failed to reach ({}, {})", targetX, targetY);
-            case TIMEOUT   -> log.warn("Walk timed out heading to ({}, {})", targetX, targetY);
+            case ARRIVED   -> { log.info("Arrived at ({}, {})", targetX, targetY);
+                                publisher.trace("INFO", "Arrived at (" + targetX + "," + targetY + ")"); }
+            case CANCELLED -> { log.warn("Walk cancelled before reaching ({}, {})", targetX, targetY);
+                                publisher.trace("WARN", "Walk cancelled"); }
+            case FAILED    -> { log.warn("Walk failed to reach ({}, {})", targetX, targetY);
+                                publisher.trace("ERROR", "Walk failed"); }
+            case TIMEOUT   -> { log.warn("Walk timed out heading to ({}, {})", targetX, targetY);
+                                publisher.trace("WARN", "Walk timed out"); }
         }
+        publisher.annotation("last_walk_result", result.name());
         return LOOP_AFTER_WALK_MS;
     }
 

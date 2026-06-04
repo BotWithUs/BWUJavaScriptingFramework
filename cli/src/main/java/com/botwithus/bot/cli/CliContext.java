@@ -14,6 +14,7 @@ import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
+import com.botwithus.bot.core.impl.ScriptContextChannel;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
@@ -263,12 +264,15 @@ public class CliContext {
 
             rpc.start();
 
+            ScriptContextChannel scriptCtxChannel = new ScriptContextChannel(rpc, resolvedName);
+
             ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen, pump.region());
             clientProvider.putClient(resolvedName, client);
 
             ScriptRuntime runtime = new ScriptRuntime(context,
                     ConnectionContext::set, ConnectionContext::clear, eventBus::publish);
             runtime.setConnectionName(resolvedName);
+            runtime.setPublisherFactory(scriptCtxChannel::publisherFor);
 
             ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
 
@@ -283,6 +287,7 @@ public class CliContext {
             conn.setEventPump(pump);
             conn.setReconnectController(reconnect);
             conn.setGameAPI(gameAPI);
+            conn.setScriptContextChannel(scriptCtxChannel);
             connections.put(resolvedName, conn);
             activeConnectionName = resolvedName;
             if (onConnect != null) {
