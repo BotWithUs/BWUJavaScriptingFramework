@@ -1,16 +1,25 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.component.ComponentNode;
+import com.botwithus.bot.api.component.ComponentQuery;
+import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.inventory.ActionTypes;
+import com.botwithus.bot.api.inventory.Backpack;
+import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.Inventory;
+import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
+import com.botwithus.bot.core.worldwalker.ChainStepKind;
 import com.botwithus.bot.core.worldwalker.WwEvent;
 import com.botwithus.bot.core.worldwalker.WwEventKind;
+import com.botwithus.bot.core.worldwalker.WwGoal;
 import com.botwithus.bot.core.worldwalker.WwTile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
@@ -26,6 +36,10 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 class WorldWalkerCallbackBridgeTest {
+
+    // Suppresses the surge near-goal guard in tests that don't care: a null goal
+    // is the documented "no goal info" sentinel and skips the overshoot check.
+    private static final WwGoal NO_GOAL = null;
 
     private GameAPI api;
     private GameSnapshot snapshot;
@@ -43,7 +57,7 @@ class WorldWalkerCallbackBridgeTest {
         when(locationsTable.stream()).thenReturn(Stream.empty());
         cancel = new AtomicBoolean(false);
         events = new ArrayList<>();
-        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add);
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL);
     }
 
     private LocalPlayer player(int x, int y, int plane) {
@@ -65,7 +79,7 @@ class WorldWalkerCallbackBridgeTest {
 
     @Test
     void readPositionFallsBackWhenSnapshotNull() {
-        bridge = new WorldWalkerCallbackBridge(api, () -> null, cancel, events::add);
+        bridge = new WorldWalkerCallbackBridge(api, () -> null, cancel, events::add, NO_GOAL);
 
         WwTile pos = bridge.readPosition();
 
@@ -103,11 +117,31 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(0, bridge.readVarbit(99));
     }
 
+    // ComponentTreeNode whose component reports the given tri-state hidden flag
+    // (0 = visible, 1 = hidden, -1 = unsupported).
+    private static ComponentTreeNode node(int hidden) {
+        Component c = new Component(1234, 0, 0, 8, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                "", hidden, -1, -1, -1);
+        return new ComponentTreeNode(c, -1);
+    }
+
     @Test
-    void isInterfaceOpenReturnsTrueWhenTreeNonEmpty() {
+    void isInterfaceOpenReturnsTrueWhenAComponentIsVisible() {
+        // An open interface has at least one explicitly-visible (hidden==0)
+        // component.
         when(api.getInterfaceTree(1234, 0))
-                .thenReturn(List.of(mock(ComponentTreeNode.class)));
+                .thenReturn(List.of(node(1), node(0), node(-1)));
         assertTrue(bridge.isInterfaceOpen(1234));
+    }
+
+    @Test
+    void isInterfaceOpenReturnsFalseWhenAllHiddenOrUnsupported() {
+        // Loaded-but-closed: present in the tree but nothing visible. This is the
+        // false positive the old "tree non-empty" check produced.
+        when(api.getInterfaceTree(1234, 0))
+                .thenReturn(List.of(node(1), node(-1), node(1)));
+        assertFalse(bridge.isInterfaceOpen(1234));
     }
 
     @Test
@@ -135,6 +169,118 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(1, action.param1());
         assertEquals(3221, action.param2());
         assertEquals(3219, action.param3());
+    }
+
+    // ============================== Surge ==============================
+
+    /** Wire up the components fluent API to return one mock node when scanning
+     *  the given iface for the surge sprite. Other ifaces resolve to an empty
+     *  query that returns null. */
+    private void stubSurgeOnIface(int iface, int spriteComp) {
+        Components componentsFacade = mock(Components.class);
+        ComponentQuery hit  = mock(ComponentQuery.class);
+        ComponentQuery miss = mock(ComponentQuery.class);
+        ComponentNode  node = mock(ComponentNode.class);
+        when(api.components()).thenReturn(componentsFacade);
+        when(componentsFacade.in(anyInt())).thenReturn(miss);
+        when(componentsFacade.in(iface)).thenReturn(hit);
+        when(hit.withSpriteId(anyInt())).thenReturn(hit);
+        when(miss.withSpriteId(anyInt())).thenReturn(miss);
+        when(hit.first()).thenReturn(node);
+        when(miss.first()).thenReturn(null);
+        when(node.componentId()).thenReturn(spriteComp);
+        when(node.interfaceId()).thenReturn(iface);
+    }
+
+    private LocalPlayer playerWithMagic(int x, int y, int plane, int magicLevel) {
+        Skill magic = new Skill(6, 0, magicLevel, magicLevel);
+        return new LocalPlayer(0, 0, x, y, plane, 0, -1, -1, 0, -1, 0, false, List.of(magic));
+    }
+
+    @Test
+    void walkToFiresSurgeOnLongStraightChunkWhenMagicLevelIsHigh() {
+        // Magic 99, player at (3000,3000), target 10 tiles due east, no goal
+        // guard active (NO_GOAL). Surge slot is on iface 1670, sprite at comp 165
+        // → click target at 166.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3010, 3000, 0));
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api, times(2)).queueAction(captor.capture());
+        List<GameAction> actions = captor.getAllValues();
+        // Walk goes first so the engine orients the avatar before surge drains
+        // off the queue.
+        assertEquals(ActionTypes.WALK, actions.get(0).actionId());
+        GameAction surge = actions.get(1);
+        assertEquals(ActionTypes.COMPONENT, surge.actionId());
+        assertEquals(1, surge.param1(), "option index");
+        assertEquals(-1, surge.param2(), "no sub-slot");
+        assertEquals((1670 << 16) | 166, surge.param3(), "(iface<<16)|click_comp");
+    }
+
+    @Test
+    void walkToSkipsSurgeBelowMinTiles() {
+        // Same direction but only 6 tiles away (< SURGE_MIN_TILES = 8). Only the
+        // plain walk should queue.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3006, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void walkToSkipsSurgeOnBentPath() {
+        // L-shaped offset (dx=10, dy=4) — not cardinal, not pure-diagonal, so
+        // surge would waste the cooldown moving off the path.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3010, 3004, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void walkToSkipsSurgeWhenMagicLevelBelowGate() {
+        // Magic 20 (< 24) — Surge is locked. The slot scan never runs.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 20));
+
+        bridge.walkTo(new WwTile(3010, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+        verify(api, never()).components();
+    }
+
+    @Test
+    void walkToSkipsSurgeWhenNearGoal() {
+        // Goal-aware overshoot guard: with the goal 8 tiles east of the player
+        // (< SURGE_GOAL_GUARD = 12), surge would land us past the goal even
+        // though the walk chunk itself is a 10-tile straight run.
+        WwGoal nearGoal = new WwGoal(3008, 3000, 0, 1);
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, nearGoal);
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+
+        bridge.walkTo(new WwTile(3010, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+        verify(api, never()).components();
+    }
+
+    @Test
+    void walkToSurgesOnPureDiagonal() {
+        // Pure diagonal (dx=dy=10) is the other valid straight path.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3010, 3010, 0));
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api, times(2)).queueAction(captor.capture());
+        assertEquals(ActionTypes.COMPONENT, captor.getAllValues().get(1).actionId());
     }
 
     @Test
@@ -263,12 +409,13 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void runChainStepQueuesActionVerbatim() {
-        // The chain step is already a ready-to-queue action (actionId, p1, p2,
-        // p3); the bridge forwards it verbatim with no packing. Here: a Lumbridge
-        // lodestone select click — COMPONENT, option=1, sub=-1, hash=(1092<<16)|17.
+    void runChainStepClickQueuesActionVerbatim() {
+        // A CLICK step is already a ready-to-queue action (a=actionId, b..d=
+        // param1..3); the bridge forwards it verbatim. Here: a Lumbridge lodestone
+        // select click — COMPONENT, option=1, sub=-1, hash=(1092<<16)|17.
         int hash = (1092 << 16) | 17;
-        bridge.runChainStep(ActionTypes.COMPONENT, 1, -1, hash);
+        bridge.runChainStep(ChainStepKind.CLICK.wire(),
+                ActionTypes.COMPONENT, 1, -1, hash, 0, 0, 0, 0, 0);
 
         ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
         verify(api).queueAction(captor.capture());
@@ -277,6 +424,88 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(1, action.param1(), "option index in param1");
         assertEquals(-1, action.param2(), "sub-component in param2");
         assertEquals(hash, action.param3(), "packed component hash in param3");
+    }
+
+    @Test
+    void runChainStepClickItemBackpackSpecialUsesComponentSpecial() {
+        // The executor pre-resolves the variant; the bridge receives a single
+        // variant (a=iface, b=comp, c=option, d=sub, e=special). A backpack
+        // special click maps to COMPONENT_SPECIAL with hash=(iface<<16)|comp.
+        bridge.runChainStep(ChainStepKind.CLICK_ITEM.wire(),
+                1473, 5, 7, 1, /*special=*/1, 0, 0, 0, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.COMPONENT_SPECIAL, action.actionId());
+        assertEquals(7, action.param1(), "option index in param1");
+        assertEquals(1, action.param2(), "sub-component in param2");
+        assertEquals((1473 << 16) | 5, action.param3(), "packed component hash in param3");
+    }
+
+    @Test
+    void runChainStepClickItemWornUsesComponent() {
+        bridge.runChainStep(ChainStepKind.CLICK_ITEM.wire(),
+                1464, 15, 3, 1, /*special=*/0, 0, 0, 0, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(ActionTypes.COMPONENT, captor.getValue().actionId());
+        assertEquals((1464 << 16) | 15, captor.getValue().param3());
+    }
+
+    @Test
+    void runChainStepClickItemResolvesLiveBackpackSlot() {
+        // The cape (item 34295) sits in backpack slot 12, not the baked slot 1.
+        // When the executor passes the carried item id (f), the bridge must use
+        // the live slot for param2, overriding the baked sub.
+        GameSnapshot.Inventories invs = mock(GameSnapshot.Inventories.class);
+        when(snapshot.inventories()).thenReturn(invs);
+        Inventory backpack = new Inventory(Backpack.INVENTORY_ID, 28,
+                List.of(new InventoryItem(12, 34295, 1)));
+        when(invs.byInvId(Backpack.INVENTORY_ID)).thenReturn(Optional.of(backpack));
+
+        // Executor-resolved backpack variant: iface=1473, comp=5, option=7,
+        // baked sub=1, special=1, carried item id=34295 in slot f.
+        bridge.runChainStep(ChainStepKind.CLICK_ITEM.wire(),
+                1473, 5, 7, 1, 1, 34295, 0, 0, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.COMPONENT_SPECIAL, action.actionId());
+        assertEquals(7, action.param1(), "context-menu option in param1");
+        assertEquals(12, action.param2(), "LIVE backpack slot 12 overrides baked slot 1");
+        assertEquals((1473 << 16) | 5, action.param3());
+    }
+
+    @Test
+    void runChainStepClickItemFallsBackToBakedSlotWhenItemAbsent() {
+        // Item not in the backpack -> keep the baked sub as a fallback.
+        GameSnapshot.Inventories invs = mock(GameSnapshot.Inventories.class);
+        when(snapshot.inventories()).thenReturn(invs);
+        when(invs.byInvId(Backpack.INVENTORY_ID)).thenReturn(Optional.empty());
+
+        bridge.runChainStep(ChainStepKind.CLICK_ITEM.wire(),
+                1473, 5, 7, 1, 1, 34295, 0, 0, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(1, captor.getValue().param2(), "baked slot 1 used when item not found");
+    }
+
+    @Test
+    void runChainStepDialogueSelectClicksOptionComponent() {
+        // index=1 on a single page -> option component DIALOGUE_OPTION_COMPS[1]=20
+        // on interface 720, dispatched as a DIALOGUE action.
+        bridge.runChainStep(ChainStepKind.DIALOGUE_SELECT.wire(),
+                720, 1, 9, 44, 3, 0, 0, 0, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.DIALOGUE, action.actionId());
+        assertEquals((720 << 16) | 20, action.param3(), "option component 20 for index 1");
     }
 
     @Test
