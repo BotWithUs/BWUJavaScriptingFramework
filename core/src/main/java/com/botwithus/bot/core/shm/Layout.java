@@ -23,9 +23,12 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v14 added the {@code openIfaces[]} tail block — a per-tick snapshot of every entry in
+     *  jag::InterfaceManager's open-subs hashmap, so {@code isInterfaceOpen}-style checks no
+     *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 13;
+    public static final int PROTOCOL_VERSION = 14;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -40,6 +43,9 @@ public final class Layout {
     public static final int SKILL_CAP          = 32;
     public static final int INVENTORY_CAP      = 32;
     public static final int INVENTORY_ITEM_CAP = 2048;
+    /** Mirrors {@code kOpenIfaceCap} in SharedLayout.h. Snapshot of the
+     *  open-sub-interfaces hashmap; live counts are typically <20. */
+    public static final int OPEN_IFACE_CAP     = 64;
 
     /** Bit flag shared between NpcEntry and PlayerEntry. */
     public static final int FLAG_MOVING = 1;
@@ -226,7 +232,26 @@ public final class Layout {
      *  per-region caches. Mirrors ProducerState::sceneVersion. */
     public static final int PRODUCER_SCENEVERSION_OFFSET        = 24;   // u32
 
-    public static final int SNAPSHOT_SIZE = SNAP_PRODUCER_OFFSET + PRODUCER_SIZE;
+    // ------------------------------------------------------------------
+    // Open sub-interfaces tail (v14+)
+    //
+    // Per-tick snapshot of jag::InterfaceManager's open-subs hashmap. The
+    // count fits in a u32; entries [0, count) carry the interface ids the
+    // producer found this tick. {@link #isInterfaceOpen} on SnapshotView
+    // does a linear scan — the keyset is small (~20 ids) and locality wins
+    // over any data structure with constant overhead.
+    // ------------------------------------------------------------------
+
+    public static final int SNAP_OPENIFACECOUNT_OFFSET = SNAP_PRODUCER_OFFSET + PRODUCER_SIZE;
+    public static final int SNAP_OPENIFACES_OFFSET     = SNAP_OPENIFACECOUNT_OFFSET + 4;
+
+    // 4-byte explicit trailing pad: openIfaceCount(4) + openIfaces[64](256) =
+    // 260, which lands at 4 mod 8. ProducerState aligns Snapshot to 8 so the
+    // C++ compiler inserts implicit trailing padding; mirroring it here keeps
+    // SNAPSHOT_SIZE = sizeof(Snapshot). See SharedLayout.h Snapshot::_padTail.
+    public static final int SNAPSHOT_SIZE = SNAP_OPENIFACES_OFFSET
+                                          + OPEN_IFACE_CAP * 4
+                                          + 4;
 
     // ------------------------------------------------------------------
     // Event ring

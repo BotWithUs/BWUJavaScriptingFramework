@@ -14,7 +14,7 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 
 - **Pipe name**: producer publishes `\\.\pipe\BotWithUs_<pid>`. Java side: `core/.../pipe/PipeClient.java` (`NAME_PREFIX`, `firstAvailableOrThrow`), all `new PipeClient(...)` callers.
 - **SHM mapping**: producer publishes `Local\nxt_snapshot_<pid>`. Java side: `core/.../shm/Layout.java` (`MAPPING_NAME_PREFIX`), `SharedRegion`.
-- **Wire protocol version**: `Layout.PROTOCOL_VERSION` (currently `13`) must equal `kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h`. `SharedRegion.open()` validates and refuses mismatched versions.
+- **Wire protocol version**: `Layout.PROTOCOL_VERSION` (currently `14`) must equal `kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h`. `SharedRegion.open()` validates and refuses mismatched versions.
 - **Event-type discriminators**: `Layout.EVT_*` mirrors `kEvent*` enum in `NXTLibrary/src/ipc/Events.h`. Decoder switch arms in `EventRingReader` must cover every type the producer emits.
 - **Wire body shapes**: each `api/.../event/*Event.java` constructor mirrors a POD struct in `NXTLibrary/src/ipc/Events.h`. Field order is load-bearing for the byte-offset decoders.
 - **Snapshot field offsets**: `Layout.SNAP_*` / `LP_*` / `NPC_*` / `PLAYER_*` / `LOC_*` mirror `NXTLibrary/src/ipc/SharedLayout.h`. Static_asserts on the C++ side will catch divergent strides at compile time, but the Java side is untyped — keep the offset constants in lockstep.
