@@ -173,4 +173,42 @@ public final class SnapshotView {
         long base = Layout.SNAP_INVITEMS_OFFSET + (long) flatIdx * Layout.INV_ITEM_SIZE;
         return seg.get(ValueLayout.JAVA_INT, base + Layout.INV_ITEM_QUANTITY_OFFSET);
     }
+
+    // ------------------------------------------------------------------
+    // Open sub-interfaces (v14+)
+    //
+    // The producer publishes a snapshot of jag::InterfaceManager's open-subs
+    // hashmap each tick; membership = open. Hot polling (scripts looping on
+    // "is interface X open?") used to pay a ~1-tick RPC round-trip per call —
+    // now it's a sub-microsecond linear scan.
+    // ------------------------------------------------------------------
+
+    /** Number of live entries in {@code openIfaces} this tick. */
+    public int openIfaceCount() {
+        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_OPENIFACECOUNT_OFFSET);
+        return n < 0 ? 0 : Math.min(n, Layout.OPEN_IFACE_CAP);
+    }
+
+    /** Returns the interface id at index {@code i} (0..openIfaceCount-1). */
+    public int openIfaceAt(int i) {
+        if (i < 0 || i >= openIfaceCount()) {
+            throw new IndexOutOfBoundsException(i);
+        }
+        return seg.get(ValueLayout.JAVA_INT,
+                       Layout.SNAP_OPENIFACES_OFFSET + (long) i * 4);
+    }
+
+    /** True iff {@code ifaceId} appears in this tick's open-subs snapshot.
+     *  Linear scan; the keyset is small (~20 ids) so this is faster than
+     *  any data structure with constant overhead. */
+    public boolean isInterfaceOpen(int ifaceId) {
+        int count = openIfaceCount();
+        for (int i = 0; i < count; i++) {
+            if (seg.get(ValueLayout.JAVA_INT,
+                        Layout.SNAP_OPENIFACES_OFFSET + (long) i * 4) == ifaceId) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
