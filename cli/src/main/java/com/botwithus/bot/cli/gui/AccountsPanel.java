@@ -54,6 +54,10 @@ public class AccountsPanel implements GuiPanel {
     // Jagex accounts (refreshed from DLL)
     private List<BwuJagexAccount> jagexAccounts = List.of();
     private long jagexAccountsLastRefresh;
+    // Snapshot of the loader's in-flight restore so the empty state can show
+    // "Restoring 3/8..." instead of "No accounts" when the loader is still
+    // working through its saved-account list on startup.
+    private BwuClient.RestoreStatus restoreStatus = BwuClient.RestoreStatus.UNAVAILABLE;
 
     // Classic accounts (refreshed from DLL)
     private List<BwuAccount> classicAccounts = List.of();
@@ -268,7 +272,20 @@ public class AccountsPanel implements GuiPanel {
 
         if (jagexAccounts.isEmpty()) {
             ImGui.spacing();
-            GuiHelpers.textMuted("No Jagex accounts. Add one via OAuth or restore from a previous session.");
+            if (restoreStatus.busy()) {
+                // Pulsing accent text matches UserAccountsRenderer so both
+                // panels look the same while a background restore runs.
+                float pulse = 0.5f + 0.5f * (float) Math.sin(ImGui.getTime() * 4.0);
+                String label = restoreStatus.expected() > 0
+                        ? Icons.SPINNER + "  Restoring "
+                                + restoreStatus.completed() + "/"
+                                + restoreStatus.expected() + " accounts..."
+                        : Icons.SPINNER + "  Restoring accounts...";
+                ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G,
+                        ImGuiTheme.ACCENT_B, pulse, label);
+            } else {
+                GuiHelpers.textMuted("No Jagex accounts. Add one via OAuth or restore from a previous session.");
+            }
             ImGui.spacing();
         } else {
             for (int i = 0; i < jagexAccounts.size(); i++) {
@@ -803,6 +820,7 @@ public class AccountsPanel implements GuiPanel {
             } else {
                 jagexAccounts = List.of();
             }
+            restoreStatus = bwu.jagexRestoreStatus();
         } catch (BwuException e) {
             log.trace("Failed to refresh Jagex accounts: {}", e.getMessage());
         }
