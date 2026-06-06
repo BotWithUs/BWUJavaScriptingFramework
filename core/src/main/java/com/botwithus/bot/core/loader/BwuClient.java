@@ -532,6 +532,41 @@ public final class BwuClient implements AutoCloseable {
     }
 
     /**
+     * Snapshot of an in-flight {@link #jagexRestoreAccounts} call: lets the UI
+     * show a spinner with {@code completed/expected} instead of the
+     * empty-state "No accounts" message while the per-account HTTPS chain is
+     * still running.
+     *
+     * <p>{@code expected} stays at {@code 0} until the loader has parsed its
+     * saved-account index (very brief). After a restore finishes, both
+     * counters keep their last values so the UI can render a final
+     * {@code "Restored M/M"} tick, and {@link #busy} flips back to false.
+     */
+    public record RestoreStatus(boolean busy, int expected, int completed) {
+        /** Returned when the bundled bwu.dll predates the status export. */
+        public static final RestoreStatus UNAVAILABLE = new RestoreStatus(false, 0, 0);
+    }
+
+    /**
+     * Read the current Jagex-restore progress from the loader. Safe to call
+     * from any thread on any tick — the loader uses atomic counters.
+     *
+     * @return {@link RestoreStatus#UNAVAILABLE} if the bundled bwu.dll is too
+     *         old to expose the status export, otherwise a fresh snapshot.
+     */
+    public RestoreStatus jagexRestoreStatus() {
+        if (n.bwuJagexRestoreStatus == null) return RestoreStatus.UNAVAILABLE;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment expected = arena.allocate(JAVA_INT);
+            MemorySegment completed = arena.allocate(JAVA_INT);
+            int busy = callInt2(n.bwuJagexRestoreStatus, expected, completed);
+            return new RestoreStatus(busy != 0,
+                    expected.get(JAVA_INT, 0),
+                    completed.get(JAVA_INT, 0));
+        }
+    }
+
+    /**
      * Re-fetch the character list for a Jagex account using its current session.
      * Requires a valid session — call {@link #jagexEnsureSession} first.
      *

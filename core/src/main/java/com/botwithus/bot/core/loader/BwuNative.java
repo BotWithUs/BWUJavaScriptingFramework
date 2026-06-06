@@ -75,6 +75,7 @@ final class BwuNative {
     final MethodHandle bwuJagexAccountCount;         // () -> int
     final MethodHandle bwuJagexRemoveAccount;        // (ptr) -> int
     final MethodHandle bwuJagexRestoreAccounts;      // () -> int
+    final MethodHandle bwuJagexRestoreStatus;        // (ptr, ptr) -> int   [optional, may be null on older DLLs]
     final MethodHandle bwuJagexRefreshCharacters;    // (ptr) -> int
     final MethodHandle bwuJagexSelectCharacter;      // (ptr, int) -> int
     final MethodHandle bwuJagexEnsureSession;        // (ptr) -> int
@@ -170,6 +171,10 @@ final class BwuNative {
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
         bwuJagexRestoreAccounts = downcall(linker, lookup, "bwu_jagex_restore_accounts",
                 FunctionDescriptor.of(JAVA_INT));
+        // Optional — older bundled bwu.dll builds predate this export. The
+        // host should treat null as "no restore-status signal available".
+        bwuJagexRestoreStatus = optionalDowncall(linker, lookup, "bwu_jagex_restore_status",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
         bwuJagexRefreshCharacters = downcall(linker, lookup, "bwu_jagex_refresh_characters",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
         bwuJagexSelectCharacter = downcall(linker, lookup, "bwu_jagex_select_character",
