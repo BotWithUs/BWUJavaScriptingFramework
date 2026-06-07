@@ -283,6 +283,13 @@ public class UserAccountsRenderer {
             startJagexLogin();
         }
 
+        // When restore is the reason the card is disabled, surface that —
+        // a generic disabled cursor doesn't tell the user a fresh login would
+        // race the in-flight restore and risk minting a duplicate UUID.
+        if (busy && restoreStatus.busy() && ImGui.isItemHovered()) {
+            ImGui.setTooltip("Waiting for previous accounts to restore...");
+        }
+
         if (busy) {
             ImGui.endDisabled();
         }
