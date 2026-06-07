@@ -8,6 +8,7 @@ import java.lang.invoke.MethodHandle;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
+import static java.lang.foreign.ValueLayout.JAVA_SHORT;
 
 /**
  * Raw Panama downcall handles for every exported function in bwu.dll.
@@ -43,6 +44,7 @@ final class BwuNative {
 
     final MethodHandle bwuRefreshModule;         // () -> int
     final MethodHandle bwuLoadLocalModule;       // (ptr) -> int  [dev builds only, may be null]
+    final MethodHandle bwuSetHeartbeatEndpoint;  // (ptr, u16, int) -> int  [dev builds only, may be null]
 
     // ── Account Management (Classic) ───────────────────────────────────────
 
@@ -123,6 +125,8 @@ final class BwuNative {
                 FunctionDescriptor.of(JAVA_INT));
         bwuLoadLocalModule = optionalDowncall(linker, lookup, "bwu_load_local_module",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
+        bwuSetHeartbeatEndpoint = optionalDowncall(linker, lookup, "bwu_set_heartbeat_endpoint",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_SHORT, JAVA_INT));
 
         // ── Account Management (Classic) ──
         bwuAddAccount = downcall(linker, lookup, "bwu_add_account",

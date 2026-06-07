@@ -339,9 +339,37 @@ public class ImGuiApp extends Application {
             bwu = BwuClient.load(dllPath).orElse(null);
         }
         if (bwu != null) {
+            applyDevHeartbeatOverride(bwu);
             bwu.init();
         }
         return bwu;
+    }
+
+    /**
+     * Forward the LOCAL_TEST heartbeat overrides from system properties (set by
+     * cli/build.gradle.kts from local.properties keys
+     * {@code bwu.heartbeat.host/port/skipCertPin}) into the loader. No-ops when
+     * none of the three properties is set — production stays untouched. Called
+     * <em>before</em> {@link BwuClient#init} so the override is in place when
+     * the subsequent login triggers a TLS connect. See RUN-LOCAL.md.
+     */
+    private void applyDevHeartbeatOverride(BwuClient bwu) {
+        String host = System.getProperty("bwu.heartbeat.host");
+        String portStr = System.getProperty("bwu.heartbeat.port");
+        String skipStr = System.getProperty("bwu.heartbeat.skipCertPin");
+        if (host == null && portStr == null && skipStr == null) {
+            return;
+        }
+        int port = 0;
+        if (portStr != null && !portStr.isBlank()) {
+            try {
+                port = Integer.parseInt(portStr.trim());
+            } catch (NumberFormatException e) {
+                log.warn("Ignoring non-numeric bwu.heartbeat.port='{}'", portStr);
+            }
+        }
+        boolean skipPin = "true".equalsIgnoreCase(skipStr) || "1".equals(skipStr);
+        bwu.setHeartbeatEndpoint(host, port, skipPin);
     }
 
     private void buildPanels(BwuClient bwu) {

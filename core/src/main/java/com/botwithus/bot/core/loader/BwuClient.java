@@ -186,6 +186,41 @@ public final class BwuClient implements AutoCloseable {
         initialized = true;
     }
 
+    /**
+     * Redirect the heartbeat-server peer at the loader layer. Only takes effect
+     * against a debug bwu.dll — the corresponding native export is compiled out
+     * in Release builds, so this no-ops (with a warning) for production loaders.
+     *
+     * <p>Must be called <em>before</em> {@link #login} / {@link #loginWithToken}:
+     * the loader's {@code bwu_session_create} reads the override at TLS-connect
+     * time and ignores it for an already-open link.</p>
+     *
+     * @param host           heartbeat host. {@code null} or empty leaves the prod default.
+     * @param port           TCP port. {@code 0} leaves the prod default (9124).
+     * @param skipCertPin    when {@code true}, skip the SHA-1 thumbprint check on
+     *                       the server cert (required when pairing with the
+     *                       LOCAL_TEST heartbeat's self-signed cert).
+     * @return {@code true} when the dev export was present and the call was made;
+     *         {@code false} on a Release DLL (call ignored).
+     */
+    public boolean setHeartbeatEndpoint(String host, int port, boolean skipCertPin) {
+        if (n.bwuSetHeartbeatEndpoint == null) {
+            log.warn("setHeartbeatEndpoint ignored — bwu.dll is a Release build (export compiled out). " +
+                    "Build BotWithUs-Loader in Debug to enable local heartbeat redirect.");
+            return false;
+        }
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment hostSeg = (host != null && !host.isEmpty())
+                    ? arena.allocateFrom(host)
+                    : MemorySegment.NULL;
+            check(callIntSHI(n.bwuSetHeartbeatEndpoint,
+                    hostSeg, (short) port, skipCertPin ? 1 : 0));
+        }
+        log.info("bwu.dll: heartbeat endpoint override → host='{}' port={} skipCertPin={}",
+                host == null ? "<default>" : host, port, skipCertPin);
+        return true;
+    }
+
     public void shutdown() {
         if (initialized) {
             callVoid(n.bwuShutdown);
@@ -692,6 +727,11 @@ public final class BwuClient implements AutoCloseable {
 
     /** (MemorySegment, MemorySegment, int) -> int */
     private static int callIntSSI(MethodHandle mh, MemorySegment a0, MemorySegment a1, int a2) {
+        try { return (int) mh.invokeExact(a0, a1, a2); } catch (Throwable t) { throw rethrow(t); }
+    }
+
+    /** (MemorySegment, short, int) -> int */
+    private static int callIntSHI(MethodHandle mh, MemorySegment a0, short a1, int a2) {
         try { return (int) mh.invokeExact(a0, a1, a2); } catch (Throwable t) { throw rethrow(t); }
     }
 
