@@ -38,3 +38,23 @@
 # Directory of nav-graph data to bundle into the packaged JRE zip. Also
 # settable via the NAV_DATA_DIR environment variable.
 # navDataDir=C:/path/to/nav_data
+
+# ─── End-to-end LOCAL_TEST heartbeat wiring ──────────────────────────
+# These three knobs redirect the loader (bwu.dll) from the production
+# heartbeat server to a local instance started via
+# ../BotWithUs-Heartbeat/run-local.ps1 (which serves a self-signed cert
+# with a canned subscriber). They only take effect against a DEBUG
+# bwu.dll — the Release export is compiled out. See RUN-LOCAL.md for
+# the full step-by-step.
+# bwu.heartbeat.host=127.0.0.1
+# bwu.heartbeat.port=9124
+# bwu.heartbeat.skipCertPin=true
+
+# Hex-encoded Ed25519 public key (64 hex chars, no 0x prefix) written by
+# the LOCAL_TEST heartbeat to BotWithUs-Heartbeat/license_pubkey.hex on
+# each startup. Forwarded as BWU_DEV_LICENSE_PUBKEY into the :cli:run
+# environment, where NXTLibrary.dll picks it up via the existing
+# debug-build override (see NXTLibrary/src/license/License.cpp).
+# Either paste the hex inline OR set the file path; the file path wins.
+# bwu.license.devPubKeyHex=abcdef...64hex
+# bwu.license.devPubKeyHexFile=C:/path/to/BotWithUs-Heartbeat/license_pubkey.hex
