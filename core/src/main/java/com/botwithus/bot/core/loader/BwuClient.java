@@ -602,6 +602,26 @@ public final class BwuClient implements AutoCloseable {
     }
 
     /**
+     * Sweep Windows Credential Manager for orphan {@code BotWithUs:Jagex:*}
+     * entries whose UUID is no longer in the loader's in-memory store.
+     *
+     * <p>Orphans accumulate when a fresh login races an in-flight restore:
+     * the login mints a new UUID for the subject, restore later sees the
+     * subject already loaded and bails without cleaning the original UUID's
+     * blobs. The loader runs this sweep automatically at the end of every
+     * restore; expose it here for a host-driven "clean up stored credentials"
+     * debug action.
+     *
+     * <p>No-op when the bundled bwu.dll predates the export, or when the
+     * loader has no live accounts (guard against wiping working credentials
+     * during a transient network-down restore).
+     */
+    public void jagexGcOrphans() {
+        if (n.bwuJagexGcOrphans == null) return;
+        check(callInt(n.bwuJagexGcOrphans));
+    }
+
+    /**
      * Re-fetch the character list for a Jagex account using its current session.
      * Requires a valid session — call {@link #jagexEnsureSession} first.
      *

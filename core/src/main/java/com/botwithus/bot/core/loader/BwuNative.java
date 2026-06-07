@@ -78,6 +78,7 @@ final class BwuNative {
     final MethodHandle bwuJagexRemoveAccount;        // (ptr) -> int
     final MethodHandle bwuJagexRestoreAccounts;      // () -> int
     final MethodHandle bwuJagexRestoreStatus;        // (ptr, ptr) -> int   [optional, may be null on older DLLs]
+    final MethodHandle bwuJagexGcOrphans;            // () -> int           [optional, may be null on older DLLs]
     final MethodHandle bwuJagexRefreshCharacters;    // (ptr) -> int
     final MethodHandle bwuJagexSelectCharacter;      // (ptr, int) -> int
     final MethodHandle bwuJagexEnsureSession;        // (ptr) -> int
@@ -179,6 +180,11 @@ final class BwuNative {
         // host should treat null as "no restore-status signal available".
         bwuJagexRestoreStatus = optionalDowncall(linker, lookup, "bwu_jagex_restore_status",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
+        // Optional — older bundled bwu.dll builds predate this export. Host
+        // treats null as "no manual orphan-GC trigger available"; the loader
+        // still runs GC automatically at the end of each restore.
+        bwuJagexGcOrphans = optionalDowncall(linker, lookup, "bwu_jagex_gc_orphans",
+                FunctionDescriptor.of(JAVA_INT));
         bwuJagexRefreshCharacters = downcall(linker, lookup, "bwu_jagex_refresh_characters",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
         bwuJagexSelectCharacter = downcall(linker, lookup, "bwu_jagex_select_character",
