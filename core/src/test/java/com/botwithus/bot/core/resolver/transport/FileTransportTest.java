@@ -25,8 +25,7 @@ class FileTransportTest {
         Path dest = tempDir.resolve("out").resolve("dest.txt");
 
         TransportResult result = transport.fetch(src.toUri(), dest, Optional.empty()).join();
-        assertInstanceOf(TransportResult.Ok.class, result);
-        TransportResult.Ok ok = (TransportResult.Ok) result;
+        TransportResult.Ok ok = assertInstanceOf(TransportResult.Ok.class, result);
         assertEquals(dest, ok.localPath());
         assertEquals(5, ok.bytesWritten());
         assertEquals("hello", Files.readString(dest));

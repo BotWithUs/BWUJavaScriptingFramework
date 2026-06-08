@@ -25,6 +25,8 @@ import java.util.Map;
  */
 public class DiagnosticsPanel implements GuiPanel {
 
+    public DiagnosticsPanel() {}
+
     private static final int TOP_METHOD_LIMIT = 25;
     private static final double LATENCY_WARN_MS = 50.0;
     private static final double LOOP_WARN_MS = 100.0;

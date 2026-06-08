@@ -31,7 +31,9 @@ public enum BwuError {
     static {
         int max = 0;
         for (BwuError e : values()) {
-            if (e.code > max) max = e.code;
+            if (e.code > max) {
+                max = e.code;
+            }
         }
         BY_CODE = new BwuError[max + 1];
         for (BwuError e : values()) {

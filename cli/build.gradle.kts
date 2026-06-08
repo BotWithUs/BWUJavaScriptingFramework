@@ -92,6 +92,30 @@ tasks.named<JavaExec>("run") {
         ?.let { jvmArgs("-Dworldwalker.dll=$it") }
     project.localProperty("worldwalker.artifact", "WORLDWALKER_ARTIFACT")
         ?.let { jvmArgs("-Dworldwalker.artifact=$it") }
+
+    // Optional: LOCAL_TEST heartbeat redirect. Forwarded to the loader at
+    // startup via BwuClient.setHeartbeatEndpoint (debug bwu.dll only — the
+    // export is compiled out in Release). See RUN-LOCAL.md.
+    project.localProperty("bwu.heartbeat.host", "BWU_HEARTBEAT_HOST")
+        ?.let { jvmArgs("-Dbwu.heartbeat.host=$it") }
+    project.localProperty("bwu.heartbeat.port", "BWU_HEARTBEAT_PORT")
+        ?.let { jvmArgs("-Dbwu.heartbeat.port=$it") }
+    project.localProperty("bwu.heartbeat.skipCertPin", "BWU_HEARTBEAT_SKIP_CERT_PIN")
+        ?.let { jvmArgs("-Dbwu.heartbeat.skipCertPin=$it") }
+
+    // Optional: agent license pubkey override. Picked up by NXTLibrary.dll
+    // (debug build) via the BWU_DEV_LICENSE_PUBKEY env var. We set it on
+    // *this* JVM, and bwu.dll's CreateProcessW for the game client inherits
+    // the env block by default — so the agent sees it when it loads.
+    val devPubKeyHex = project.localProperty("bwu.license.devPubKeyHex", "BWU_DEV_LICENSE_PUBKEY")
+    val devPubKeyFile = project.localProperty("bwu.license.devPubKeyHexFile", "BWU_DEV_LICENSE_PUBKEY_FILE")
+    val resolvedDevPubKey = devPubKeyFile
+        ?.let { path ->
+            val f = file(path)
+            if (f.isFile) f.readText().trim() else null
+        }
+        ?: devPubKeyHex
+    resolvedDevPubKey?.let { environment("BWU_DEV_LICENSE_PUBKEY", it) }
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink

@@ -28,7 +28,7 @@ class ScriptSchedulerImplTest {
         ScriptContext ctx = mock(ScriptContext.class);
         runtime = new ScriptRuntime(ctx);
         manager = new ScriptManagerImpl(runtime);
-        scheduler = (ScriptSchedulerImpl) manager.getScheduler();
+        scheduler = manager.scheduler();
     }
 
     @AfterEach

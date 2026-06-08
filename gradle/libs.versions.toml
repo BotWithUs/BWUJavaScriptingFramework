@@ -15,7 +15,7 @@ imgui = "1.90.0"
 lwjgl = "3.3.6"
 
 # Testing
-junit = "5.10.0"
+junit = "5.12.1"
 mockito = "5.20.0"
 
 # Plugins
@@ -40,6 +40,7 @@ bcprov-jdk18on = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bo
 
 # UI / GUI
 imgui-java-app = { module = "io.github.spair:imgui-java-app", version.ref = "imgui" }
+imgui-java-binding = { module = "io.github.spair:imgui-java-binding", version.ref = "imgui" }
 imgui-java-natives-windows = { module = "io.github.spair:imgui-java-natives-windows", version.ref = "imgui" }
 lwjgl-core = { module = "org.lwjgl:lwjgl", version.ref = "lwjgl" }
 lwjgl-glfw = { module = "org.lwjgl:lwjgl-glfw", version.ref = "lwjgl" }

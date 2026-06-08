@@ -62,4 +62,29 @@ public interface VariableAPI {
      * @return one {@link VarbitValue} per input id, in order
      */
     List<VarbitValue> queryVarbits(List<Integer> varbitIds);
+
+    /**
+     * Batch counterpart of {@link #getVarp(int)}. One pipe round-trip and one
+     * game-thread visit for the whole batch, instead of one per id.
+     *
+     * @param varIds the varp IDs to read
+     * @return one value per input id, in order; unset entries are {@code -1}
+     */
+    List<Integer> getVarps(List<Integer> varIds);
+
+    /**
+     * Batch counterpart of {@link #getVarcInt(int)}.
+     *
+     * @param varcIds the varc IDs to read
+     * @return one value per input id, in order; unset entries are {@code -1}
+     */
+    List<Integer> getVarcInts(List<Integer> varcIds);
+
+    /**
+     * Batch counterpart of {@link #getVarcString(int)}.
+     *
+     * @param varcIds the varc IDs to read
+     * @return one string per input id, in order; unset entries are empty
+     */
+    List<String> getVarcStrings(List<Integer> varcIds);
 }

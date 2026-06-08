@@ -16,14 +16,13 @@ import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
-import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.ResourceItem;
 import com.botwithus.bot.api.model.ResourceSection;
-import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.model.SkillRequirement;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldMapPlacement;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
@@ -61,6 +60,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -160,8 +160,8 @@ public class GameAPIImpl implements GameAPI {
 
     /**
      * Full ctor accepting a {@link StubGuard} for instrumented WARN-once
-     * reporting of producer stubs ({@link #queryLocations}, {@link #queryGroundItems},
-     * {@link #queryWorldMapElements}) and an {@code eventPublisher} for
+     * reporting of producer stubs ({@link #queryWorldMapElements}) and an
+     * {@code eventPublisher} for
      * surfacing terminal walk events from the WorldWalker executor. Production
      * wiring constructs one {@code StubGuard} per session in {@code CliContext}
      * and passes {@code eventBus::publish} as the publisher; shorter ctors
@@ -214,27 +214,6 @@ public class GameAPIImpl implements GameAPI {
     public GroundItems groundItems() { return groundItemsFacade; }
 
     @Override
-    public List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max) {
-        stubGuard.warnOnce("queryLocations");
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("tile_x", centerX);
-        params.put("tile_y", centerY);
-        params.put("radius", radius);
-        params.put("plane", plane);
-        params.put("max", max);
-        return rpc.callSyncList("query_locations", params).stream()
-                .map(m -> new SceneObjectInfo(
-                        getInt(m, "handle"),
-                        getInt(m, "type_id"),
-                        getInt(m, "tile_x"),
-                        getInt(m, "tile_y"),
-                        getInt(m, "plane"),
-                        getString(m, "name"),
-                        getStringList(m, "options")))
-                .toList();
-    }
-
-    @Override
     public WorldMapElements mapElements() { return mapElementsFacade; }
 
     @Override
@@ -283,26 +262,6 @@ public class GameAPIImpl implements GameAPI {
                                         getInt(pl, "tile_y"),
                                         getBool(pl, "members_only")))
                                 .toList()))
-                .toList();
-    }
-
-    @Override
-    public List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max) {
-        stubGuard.warnOnce("queryGroundItems");
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("tile_x", centerX);
-        params.put("tile_y", centerY);
-        params.put("radius", radius);
-        params.put("plane", plane);
-        params.put("max", max);
-        return rpc.callSyncList("query_ground_items", params).stream()
-                .map(m -> new GroundItemInfo(
-                        getInt(m, "handle"),
-                        getInt(m, "item_id"),
-                        getInt(m, "quantity"),
-                        getInt(m, "tile_x"),
-                        getInt(m, "tile_y"),
-                        getInt(m, "plane")))
                 .toList();
     }
 
@@ -533,6 +492,24 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
+    public List<Component> getComponents(List<ComponentRef> refs) {
+        if (refs.isEmpty()) {
+            return List.of();
+        }
+        List<List<Integer>> targets = new ArrayList<>(refs.size());
+        for (ComponentRef ref : refs) {
+            targets.add(List.of(ref.interfaceId(), ref.componentId()));
+        }
+        Map<String, Object> r = rpc.callSync("get_components", Map.of("targets", targets));
+        List<Map<String, Object>> rawNodes = getMapList(r, "components");
+        List<Component> out = new ArrayList<>(rawNodes.size());
+        for (Map<String, Object> node : rawNodes) {
+            out.add(decodeComponent(node));
+        }
+        return out;
+    }
+
+    @Override
     public List<Integer> getStaticChildren(int interfaceId, int componentId) {
         Map<String, Object> r = rpc.callSync("get_static_children",
                 Map.of("iface", interfaceId, "comp", componentId));
@@ -637,7 +614,7 @@ public class GameAPIImpl implements GameAPI {
         Consumer<? super GameEvent> publisher = eventPublisher;
         Supplier<GameSnapshot> snapSrc = snapshotSource != null ? snapshotSource : () -> null;
         WorldWalkerCallbackBridge bridge = new WorldWalkerCallbackBridge(
-                this, snapSrc, cancel, e -> log.debug("ww-event: {}", e));
+                this, snapSrc, cancel, e -> log.info("ww-event: {}", e), goal);
         Thread worker = Thread.ofPlatform()
                 .name("ww-executor-" + System.nanoTime())
                 .daemon(true)
@@ -651,6 +628,7 @@ public class GameAPIImpl implements GameAPI {
         WwStatus status = WwStatus.FAILED;
         try {
             status = w.runExecutor(goal, bridge);
+            log.info("WorldWalker walk to ({},{}) finished: {}", x, y, status);
         } catch (Throwable t) {
             log.warn("WorldWalker executor threw", t);
         } finally {
@@ -905,6 +883,14 @@ public class GameAPIImpl implements GameAPI {
     // varbit's base variable, then shift/mask with the bit range from the cache
     // type config — the producer never needs to know about varbits.
 
+    // VarbitType.domainType discriminator: 0 means the base variable lives in
+    // the player-varp hashmap; any other value means it lives in the client-varc
+    // hashmap. Wire constant defined by the cache type config, not invented here.
+    private static final int VARBIT_DOMAIN_PLAYER = 0;
+
+    // A varbit packs into [lsb, msb] of a 32-bit int; any width > 32 is malformed.
+    private static final int VARBIT_MAX_WIDTH = 32;
+
     @Override
     public int getVarp(int varId) {
         Map<String, Object> r = rpc.callSync("get_varp", Map.of("var_id", varId));
@@ -929,24 +915,108 @@ public class GameAPIImpl implements GameAPI {
         if (def == null) {
             return -1;
         }
-        // domainType 0 = player varp; a client-domain varbit reads the base varc.
-        int base = def.domainType() == 0 ? getVarp(def.varId()) : getVarcInt(def.varId());
-        int width = def.msb() - def.lsb() + 1;
-        if (width <= 0 || width > 32) {
-            return -1;
+        int base = def.domainType() == VARBIT_DOMAIN_PLAYER
+                ? getVarp(def.varId())
+                : getVarcInt(def.varId());
+        return decodeVarbitBits(def, base);
+    }
+
+    @Override
+    public List<Integer> getVarps(List<Integer> varIds) {
+        return readVarBatch("get_varps", varIds);
+    }
+
+    @Override
+    public List<Integer> getVarcInts(List<Integer> varcIds) {
+        return readVarBatch("get_varcs_int", varcIds);
+    }
+
+    @Override
+    public List<String> getVarcStrings(List<Integer> varcIds) {
+        if (varcIds.isEmpty()) {
+            return List.of();
         }
-        // width == 32 would make (1 << 32) wrap to 1 in Java; treat it as all bits.
-        int mask = width == 32 ? -1 : (1 << width) - 1;
-        return (base >>> def.lsb()) & mask;
+        Map<String, Object> r = rpc.callSync("get_varcs_string", Map.of("ids", varcIds));
+        return getStringList(r, "values");
+    }
+
+    private List<Integer> readVarBatch(String method, List<Integer> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        Map<String, Object> r = rpc.callSync(method, Map.of("ids", ids));
+        return getIntList(r, "values");
     }
 
     @Override
     public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
-        List<VarbitValue> out = new ArrayList<>(varbitIds.size());
-        for (int id : varbitIds) {
-            out.add(new VarbitValue(id, getVarbit(id)));
+        if (varbitIds.isEmpty()) {
+            return List.of();
+        }
+        // Resolve every def up front; partition into the two base-variable
+        // domains so each domain takes exactly one batched round-trip
+        // regardless of how many varbits share a base.
+        NXTCache cache = requireCache();
+        int n = varbitIds.size();
+        VarbitType[] defs = new VarbitType[n];
+        LinkedHashSet<Integer> varpBases = new LinkedHashSet<>();
+        LinkedHashSet<Integer> varcBases = new LinkedHashSet<>();
+        for (int i = 0; i < n; i++) {
+            VarbitType def = cache.getVarbit(varbitIds.get(i));
+            defs[i] = def;
+            if (def == null) {
+                continue;
+            }
+            (def.domainType() == VARBIT_DOMAIN_PLAYER ? varpBases : varcBases).add(def.varId());
+        }
+
+        Map<Integer, Integer> varpValueByBase = readBatchAsMap("get_varps", varpBases);
+        Map<Integer, Integer> varcValueByBase = readBatchAsMap("get_varcs_int", varcBases);
+
+        List<VarbitValue> out = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            VarbitType def = defs[i];
+            int value = -1;
+            if (def != null) {
+                Map<Integer, Integer> values = def.domainType() == VARBIT_DOMAIN_PLAYER
+                        ? varpValueByBase
+                        : varcValueByBase;
+                Integer base = values.get(def.varId());
+                // Missing base → producer truncated the batch past its cap, or the
+                // base var isn't set. -1 matches getVarbit's sentinel for "unknown".
+                if (base != null) {
+                    value = decodeVarbitBits(def, base);
+                }
+            }
+            out.add(new VarbitValue(varbitIds.get(i), value));
         }
         return out;
+    }
+
+    private Map<Integer, Integer> readBatchAsMap(String method, LinkedHashSet<Integer> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        List<Integer> keys = List.copyOf(ids);
+        List<Integer> values = readVarBatch(method, keys);
+        // Pair by index up to min(keys, values) so a producer-side truncation
+        // leaves the dropped keys absent rather than mispaired with a wrong value.
+        int paired = Math.min(keys.size(), values.size());
+        Map<Integer, Integer> out = new LinkedHashMap<>(paired);
+        for (int i = 0; i < paired; i++) {
+            out.put(keys.get(i), values.get(i));
+        }
+        return out;
+    }
+
+    private static int decodeVarbitBits(VarbitType def, int base) {
+        int width = def.msb() - def.lsb() + 1;
+        if (width <= 0 || width > VARBIT_MAX_WIDTH) {
+            return -1;
+        }
+        // width == 32 would make (1 << 32) wrap to 1 in Java; treat as all bits.
+        int mask = width == VARBIT_MAX_WIDTH ? -1 : (1 << width) - 1;
+        return (base >>> def.lsb()) & mask;
     }
 
 }

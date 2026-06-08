@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -30,7 +31,7 @@ class EventBusImplTest {
     @Test
     void unsubscribe() {
         AtomicInteger count = new AtomicInteger();
-        var listener = new java.util.function.Consumer<TickEvent>() {
+        var listener = new Consumer<TickEvent>() {
             @Override public void accept(TickEvent e) {
                 count.incrementAndGet();
             }

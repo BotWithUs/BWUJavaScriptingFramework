@@ -30,6 +30,13 @@ import static com.botwithus.bot.core.impl.MapHelper.getStringList;
  * <p>Field mapping is largely 1:1; the fixups are noted inline. The
  * cache exposes more fields than the records (full model/render data,
  * member templates, etc.) — extend the records if scripts need them.</p>
+ *
+ * <p>rule-exception: {@code {rule:no-instanceof}} — this file decodes
+ * cache JSON into typed records, recovering shape with {@code instanceof}
+ * patterns where the JSON gives us {@code List<?>} or {@code Object}. The
+ * type discrimination lives outside Java's compile-time reach (it is
+ * encoded by the cache producer). Mirrors {@link com.botwithus.bot.core.impl.MapHelper}'s
+ * wire-decode boundary justification.</p>
  */
 final class NXTCacheMapper {
 
@@ -167,10 +174,14 @@ final class NXTCacheMapper {
      * order: id, then the two thresholds.
      */
     private static List<Map<String, Object>> tripleListToMaps(Object raw) {
-        if (!(raw instanceof List<?> list)) return List.of();
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
         List<Map<String, Object>> out = new ArrayList<>(list.size());
         for (Object e : list) {
-            if (!(e instanceof List<?> triple) || triple.size() < 3) continue;
+            if (!(e instanceof List<?> triple) || triple.size() < 3) {
+                continue;
+            }
             Map<String, Object> m = new LinkedHashMap<>(3);
             m.put("id",         triple.get(0) instanceof Number n ? n.intValue() : 0);
             m.put("threshold1", triple.get(1) instanceof Number n ? n.intValue() : 0);

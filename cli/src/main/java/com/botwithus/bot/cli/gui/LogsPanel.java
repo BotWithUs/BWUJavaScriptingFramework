@@ -20,6 +20,8 @@ import java.util.List;
  */
 public class LogsPanel implements GuiPanel {
 
+    public LogsPanel() {}
+
     private static final String[] LEVELS = {"ALL", "INFO", "WARN", "ERROR"};
     private static final DateTimeFormatter TIME_FMT =
             DateTimeFormatter.ofPattern("HH:mm:ss.SSS").withZone(ZoneId.systemDefault());
@@ -80,7 +82,9 @@ public class LogsPanel implements GuiPanel {
             connOptions[i + 1] = connections.get(i).getName();
         }
         ImGui.pushItemWidth(120);
-        if (connectionFilter.get() >= connOptions.length) connectionFilter.set(0);
+        if (connectionFilter.get() >= connOptions.length) {
+            connectionFilter.set(0);
+        }
         ImGui.combo("##connFilter", connectionFilter, connOptions);
         ImGui.popItemWidth();
 

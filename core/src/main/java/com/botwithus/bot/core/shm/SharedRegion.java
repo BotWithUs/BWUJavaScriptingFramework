@@ -31,6 +31,8 @@ import java.util.OptionalLong;
  */
 public final class SharedRegion implements AutoCloseable {
 
+    private SharedRegion() {}
+
     private static final Logger log = LoggerFactory.getLogger(SharedRegion.class);
 
     private MemorySegment mappingHandle;
@@ -40,7 +42,6 @@ public final class SharedRegion implements AutoCloseable {
     private MemorySegment snapshot1;
     private MemorySegment ring;
 
-    private long expectedSize;
     private boolean closed;
 
     /**
@@ -108,6 +109,26 @@ public final class SharedRegion implements AutoCloseable {
      */
     public static SharedRegion open(long pid) {
         String name = Layout.MAPPING_NAME_PREFIX + pid;
+        MemorySegment mapping = openMappingOrThrow(name, pid);
+        RegionLayout layout = probeHeader(mapping, pid);
+        MemorySegment fullSlice = mapFullRegion(mapping, layout.totalSize());
+
+        SharedRegion r = new SharedRegion();
+        r.mappingHandle = mapping;
+        r.baseView      = fullSlice;
+        populateSlices(r, fullSlice, layout);
+
+        log.info("Opened shared region for pid {} (snapshot={} bytes, ring={} bytes, total={} bytes)",
+                pid, layout.snapshotSize(), layout.ringSize(), layout.totalSize());
+        return r;
+    }
+
+    /** Resolved offsets/sizes captured from the header view during {@link #probeHeader}. */
+    private record RegionLayout(
+            long snapshotOff0, long snapshotOff1, long snapshotSize,
+            long ringOff, long ringSize, long totalSize) {}
+
+    private static MemorySegment openMappingOrThrow(String name, long pid) {
         MemorySegment mapping = Kernel32.openFileMapping(
                 Kernel32.FILE_MAP_READ, false, name);
         if (mapping.address() == 0) {
@@ -116,12 +137,15 @@ public final class SharedRegion implements AutoCloseable {
                     "OpenFileMappingW(\"" + name + "\") failed: GetLastError=" + err
                             + " (is the DLL injected into pid " + pid + "?)");
         }
+        return mapping;
+    }
 
-        // First pass: map just the header so we can read snapshotSize/ringSize
-        // and compute the full region size. Mapping the entire address space
-        // up front would also work — kernel mappings expose only their
-        // committed length anyway — but the two-step probe makes the failure
-        // message clearer when sizes don't match.
+    /**
+     * Map only the header, validate magic / version / target pid, read the
+     * snapshot and ring layout, then drop the header view so the caller can
+     * remap the full region in one shot (pointers stay stable for life).
+     */
+    private static RegionLayout probeHeader(MemorySegment mapping, long pid) {
         MemorySegment headerView = Kernel32.mapViewOfFile(
                 mapping, Kernel32.FILE_MAP_READ, 0, Layout.HEADER_SIZE);
         if (headerView.address() == 0) {
@@ -130,8 +154,6 @@ public final class SharedRegion implements AutoCloseable {
             throw new SharedMemoryException(
                     "MapViewOfFile(header) failed: GetLastError=" + err);
         }
-        // The MemorySegment returned by Panama is unsized — reinterpret with
-        // the known byte length so JAVA_INT/JAVA_LONG accessors succeed.
         MemorySegment hdrSlice = headerView.reinterpret(Layout.HEADER_SIZE);
 
         try {
@@ -149,11 +171,11 @@ public final class SharedRegion implements AutoCloseable {
         long ringOff      = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGOFF_OFFSET));
         long ringSize     = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGSIZE_OFFSET));
 
-        long totalSize = ringOff + ringSize;
-        // Drop the header-only view — re-map the full region in one shot so
-        // pointers we hand out remain stable for the lifetime of this object.
         Kernel32.unmapViewOfFile(headerView);
+        return new RegionLayout(snapshotOff0, snapshotOff1, snapshotSize, ringOff, ringSize, ringOff + ringSize);
+    }
 
+    private static MemorySegment mapFullRegion(MemorySegment mapping, long totalSize) {
         MemorySegment fullView = Kernel32.mapViewOfFile(
                 mapping, Kernel32.FILE_MAP_READ, 0, totalSize);
         if (fullView.address() == 0) {
@@ -162,20 +184,14 @@ public final class SharedRegion implements AutoCloseable {
             throw new SharedMemoryException(
                     "MapViewOfFile(full=" + totalSize + ") failed: GetLastError=" + err);
         }
-        MemorySegment fullSlice = fullView.reinterpret(totalSize);
+        return fullView.reinterpret(totalSize);
+    }
 
-        SharedRegion r = new SharedRegion();
-        r.mappingHandle = mapping;
-        r.baseView      = fullView;
-        r.expectedSize  = totalSize;
-        r.header        = fullSlice.asSlice(0, Layout.HEADER_SIZE);
-        r.snapshot0     = fullSlice.asSlice(snapshotOff0, snapshotSize);
-        r.snapshot1     = fullSlice.asSlice(snapshotOff1, snapshotSize);
-        r.ring          = fullSlice.asSlice(ringOff,      ringSize);
-
-        log.info("Opened shared region for pid {} (snapshot={} bytes, ring={} bytes, total={} bytes)",
-                pid, snapshotSize, ringSize, totalSize);
-        return r;
+    private static void populateSlices(SharedRegion r, MemorySegment fullSlice, RegionLayout layout) {
+        r.header    = fullSlice.asSlice(0, Layout.HEADER_SIZE);
+        r.snapshot0 = fullSlice.asSlice(layout.snapshotOff0(), layout.snapshotSize());
+        r.snapshot1 = fullSlice.asSlice(layout.snapshotOff1(), layout.snapshotSize());
+        r.ring      = fullSlice.asSlice(layout.ringOff(),      layout.ringSize());
     }
 
     private static void validateMagicAndVersion(MemorySegment header) {

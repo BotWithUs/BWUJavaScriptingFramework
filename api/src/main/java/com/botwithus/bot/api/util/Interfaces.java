@@ -22,16 +22,21 @@ public final class Interfaces {
     public static final int LOGOUT = 182;
     public static final int SETTINGS = 1433;
 
+    /** Bit-position used by the game client to pack the interface ID into a component hash. */
+    private static final int INTERFACE_ID_SHIFT = 16;
+    /** Mask for the component ID half of a packed component hash. */
+    private static final int COMPONENT_ID_MASK = 0xFFFF;
+
     /** Packs into the format used by the game client for component addressing. */
     public static int componentHash(int interfaceId, int componentId) {
-        return (interfaceId << 16) | componentId;
+        return (interfaceId << INTERFACE_ID_SHIFT) | componentId;
     }
 
     public static int interfaceIdFromHash(int hash) {
-        return hash >>> 16;
+        return hash >>> INTERFACE_ID_SHIFT;
     }
 
     public static int componentIdFromHash(int hash) {
-        return hash & 0xFFFF;
+        return hash & COMPONENT_ID_MASK;
     }
 }

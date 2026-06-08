@@ -5,6 +5,8 @@ package com.botwithus.bot.core.loader;
  */
 public class BwuException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     private final BwuError error;
 
     public BwuException(BwuError error) {

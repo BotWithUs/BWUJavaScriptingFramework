@@ -35,12 +35,32 @@ public class StatusBar {
 
     public void render(CliContext ctx) {
         ImDrawList draw = ImGui.getWindowDrawList();
+        renderTopBorder(draw);
+        ImGui.dummy(0f, ImGui.getFontSize() * 0.25f);
+
+        float gap = ImGui.getStyle().getItemSpacingX();
+        boolean connected = ctx.hasActiveConnection();
+        String activeName = ctx.getActiveConnectionName();
+
+        renderActiveConnectionStatus(connected, activeName, activeReconnectState(ctx), gap);
+        renderConnectionCountChip(ctx.getConnections().size(), gap);
+        renderRunningScriptsChip(countRunningScripts(ctx), gap);
+        if (ctx.isMounted()) {
+            renderMountedBadge(ctx.getMountedConnectionName(), gap);
+        }
+        if (ctx.isWatcherRunning()) {
+            renderWatcherBadge(gap);
+        }
+        // Last-loader-error readout (right-aligned, only when non-empty);
+        // bwu_get_last_error() is a cheap pointer return so per-frame polling is fine.
+        renderBwuError(gap);
+    }
+
+    /** Soft gradient top border: transparent at the edges, dim in the middle. */
+    private static void renderTopBorder(ImDrawList draw) {
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         float w = ImGui.getContentRegionAvailX();
-        float fontH = ImGui.getFontSize();
-
-        // Soft top-border: transparent at the edges, dim in the middle — gives the bar a subtle lift
         int edge = ImGuiTheme.imCol32(
                 ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0f);
         int mid = ImGuiTheme.imCol32(
@@ -48,17 +68,9 @@ public class StatusBar {
         float half = w * 0.5f;
         draw.addRectFilledMultiColor(x, y, x + half, y + 1f, edge, mid, mid, edge);
         draw.addRectFilledMultiColor(x + half, y, x + w, y + 1f, mid, edge, edge, mid);
+    }
 
-        ImGui.dummy(0f, fontH * 0.25f);
-
-        // Gather state
-        boolean connected = ctx.hasActiveConnection();
-        String activeName = ctx.getActiveConnectionName();
-        int connCount = ctx.getConnections().size();
-        boolean mounted = ctx.isMounted();
-        String mountedName = ctx.getMountedConnectionName();
-        boolean watcherRunning = ctx.isWatcherRunning();
-
+    private static int countRunningScripts(CliContext ctx) {
         int runningScripts = 0;
         for (Connection conn : ctx.getConnections()) {
             for (ScriptRunner runner : conn.getRuntime().getRunners()) {
@@ -67,22 +79,18 @@ public class StatusBar {
                 }
             }
         }
+        return runningScripts;
+    }
 
-        float gap = ImGui.getStyle().getItemSpacingX();
-
-        // Active-connection dot (pulses when live) + name. If a reconnect is
-        // in flight, surface the controller's state machine instead of the
-        // green/red binary so the user sees the retry counter.
-        renderActiveConnectionStatus(connected, activeName, activeReconnectState(ctx), gap);
-
-        // Connection count chip
+    private static void renderConnectionCountChip(int connCount, float gap) {
         ImGui.sameLine(0, gap);
         GuiHelpers.inlineDotSep();
         ImGui.sameLine(0, gap * 0.5f);
         GuiHelpers.metricChip("conn", String.valueOf(connCount),
                 ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B);
+    }
 
-        // Running scripts chip (green when active, dim when none)
+    private static void renderRunningScriptsChip(int runningScripts, float gap) {
         ImGui.sameLine(0, gap);
         GuiHelpers.inlineDotSep();
         ImGui.sameLine(0, gap * 0.5f);
@@ -93,29 +101,22 @@ public class StatusBar {
         } else {
             GuiHelpers.textMuted("idle");
         }
+    }
 
-        // Mounted badge
-        if (mounted) {
-            ImGui.sameLine(0, gap);
-            GuiHelpers.inlineDotSep();
-            ImGui.sameLine(0, gap * 0.5f);
-            GuiHelpers.statusBadge("mounted · " + mountedName,
-                    ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B);
-        }
+    private static void renderMountedBadge(String mountedName, float gap) {
+        ImGui.sameLine(0, gap);
+        GuiHelpers.inlineDotSep();
+        ImGui.sameLine(0, gap * 0.5f);
+        GuiHelpers.statusBadge("mounted · " + mountedName,
+                ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B);
+    }
 
-        // Watcher badge
-        if (watcherRunning) {
-            ImGui.sameLine(0, gap);
-            GuiHelpers.inlineDotSep();
-            ImGui.sameLine(0, gap * 0.5f);
-            GuiHelpers.statusBadge("watching",
-                    ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B);
-        }
-
-        // Last-loader-error readout (right-aligned, only when non-empty).
-        // Reads bwu_get_last_error() once per frame; the native call is a cheap
-        // pointer return so per-frame polling is fine.
-        renderBwuError(gap);
+    private static void renderWatcherBadge(float gap) {
+        ImGui.sameLine(0, gap);
+        GuiHelpers.inlineDotSep();
+        ImGui.sameLine(0, gap * 0.5f);
+        GuiHelpers.statusBadge("watching",
+                ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B);
     }
 
     /**

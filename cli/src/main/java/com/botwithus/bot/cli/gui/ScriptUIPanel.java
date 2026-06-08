@@ -17,6 +17,8 @@ import java.util.List;
  */
 public class ScriptUIPanel implements GuiPanel {
 
+    public ScriptUIPanel() {}
+
     @Override
     public String title() {
         return "Script UI";

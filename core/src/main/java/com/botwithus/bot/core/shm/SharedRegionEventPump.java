@@ -25,6 +25,8 @@ public final class SharedRegionEventPump implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(SharedRegionEventPump.class);
 
     private static final long POLL_INTERVAL_MS = 50L;
+    /** Time the pump thread is given to drain before close() returns (ms). */
+    private static final long SHUTDOWN_JOIN_TIMEOUT_MS = 1000L;
 
     private final SharedRegion region;
     private final EventRingReader reader;
@@ -89,7 +91,7 @@ public final class SharedRegionEventPump implements AutoCloseable {
         running = false;
         thread.interrupt();
         try {
-            thread.join(1_000);
+            thread.join(SHUTDOWN_JOIN_TIMEOUT_MS);
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }

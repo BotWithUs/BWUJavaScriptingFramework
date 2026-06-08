@@ -131,7 +131,9 @@ public final class BwuClient implements AutoCloseable {
         }
 
         try (InputStream in = resourceAnchor.getResourceAsStream("/native/bwu.dll")) {
-            if (in == null) return null;
+            if (in == null) {
+                return null;
+            }
             Path tmp = Files.createTempFile("bwu", ".dll");
             tmp.toFile().deleteOnExit();
             Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
@@ -182,6 +184,41 @@ public final class BwuClient implements AutoCloseable {
     public void init() {
         check(callInt(n.bwuInit));
         initialized = true;
+    }
+
+    /**
+     * Redirect the heartbeat-server peer at the loader layer. Only takes effect
+     * against a debug bwu.dll — the corresponding native export is compiled out
+     * in Release builds, so this no-ops (with a warning) for production loaders.
+     *
+     * <p>Must be called <em>before</em> {@link #login} / {@link #loginWithToken}:
+     * the loader's {@code bwu_session_create} reads the override at TLS-connect
+     * time and ignores it for an already-open link.</p>
+     *
+     * @param host           heartbeat host. {@code null} or empty leaves the prod default.
+     * @param port           TCP port. {@code 0} leaves the prod default (9124).
+     * @param skipCertPin    when {@code true}, skip the SHA-1 thumbprint check on
+     *                       the server cert (required when pairing with the
+     *                       LOCAL_TEST heartbeat's self-signed cert).
+     * @return {@code true} when the dev export was present and the call was made;
+     *         {@code false} on a Release DLL (call ignored).
+     */
+    public boolean setHeartbeatEndpoint(String host, int port, boolean skipCertPin) {
+        if (n.bwuSetHeartbeatEndpoint == null) {
+            log.warn("setHeartbeatEndpoint ignored — bwu.dll is a Release build (export compiled out). " +
+                    "Build BotWithUs-Loader in Debug to enable local heartbeat redirect.");
+            return false;
+        }
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment hostSeg = (host != null && !host.isEmpty())
+                    ? arena.allocateFrom(host)
+                    : MemorySegment.NULL;
+            check(callIntSHI(n.bwuSetHeartbeatEndpoint,
+                    hostSeg, (short) port, skipCertPin ? 1 : 0));
+        }
+        log.info("bwu.dll: heartbeat endpoint override → host='{}' port={} skipCertPin={}",
+                host == null ? "<default>" : host, port, skipCertPin);
+        return true;
     }
 
     public void shutdown() {
@@ -530,6 +567,61 @@ public final class BwuClient implements AutoCloseable {
     }
 
     /**
+     * Snapshot of an in-flight {@link #jagexRestoreAccounts} call: lets the UI
+     * show a spinner with {@code completed/expected} instead of the
+     * empty-state "No accounts" message while the per-account HTTPS chain is
+     * still running.
+     *
+     * <p>{@code expected} stays at {@code 0} until the loader has parsed its
+     * saved-account index (very brief). After a restore finishes, both
+     * counters keep their last values so the UI can render a final
+     * {@code "Restored M/M"} tick, and {@link #busy} flips back to false.
+     */
+    public record RestoreStatus(boolean busy, int expected, int completed) {
+        /** Returned when the bundled bwu.dll predates the status export. */
+        public static final RestoreStatus UNAVAILABLE = new RestoreStatus(false, 0, 0);
+    }
+
+    /**
+     * Read the current Jagex-restore progress from the loader. Safe to call
+     * from any thread on any tick — the loader uses atomic counters.
+     *
+     * @return {@link RestoreStatus#UNAVAILABLE} if the bundled bwu.dll is too
+     *         old to expose the status export, otherwise a fresh snapshot.
+     */
+    public RestoreStatus jagexRestoreStatus() {
+        if (n.bwuJagexRestoreStatus == null) return RestoreStatus.UNAVAILABLE;
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment expected = arena.allocate(JAVA_INT);
+            MemorySegment completed = arena.allocate(JAVA_INT);
+            int busy = callInt2(n.bwuJagexRestoreStatus, expected, completed);
+            return new RestoreStatus(busy != 0,
+                    expected.get(JAVA_INT, 0),
+                    completed.get(JAVA_INT, 0));
+        }
+    }
+
+    /**
+     * Sweep Windows Credential Manager for orphan {@code BotWithUs:Jagex:*}
+     * entries whose UUID is no longer in the loader's in-memory store.
+     *
+     * <p>Orphans accumulate when a fresh login races an in-flight restore:
+     * the login mints a new UUID for the subject, restore later sees the
+     * subject already loaded and bails without cleaning the original UUID's
+     * blobs. The loader runs this sweep automatically at the end of every
+     * restore; expose it here for a host-driven "clean up stored credentials"
+     * debug action.
+     *
+     * <p>No-op when the bundled bwu.dll predates the export, or when the
+     * loader has no live accounts (guard against wiping working credentials
+     * during a transient network-down restore).
+     */
+    public void jagexGcOrphans() {
+        if (n.bwuJagexGcOrphans == null) return;
+        check(callInt(n.bwuJagexGcOrphans));
+    }
+
+    /**
      * Re-fetch the character list for a Jagex account using its current session.
      * Requires a valid session — call {@link #jagexEnsureSession} first.
      *
@@ -608,11 +700,14 @@ public final class BwuClient implements AutoCloseable {
         }
     }
 
+    /** Upper bound on the length of any string returned by the loader native side. */
+    private static final long MAX_RETURNED_STRING_BYTES = 4096L;
+
     private static String readReturnedString(MemorySegment seg) {
         if (seg.equals(MemorySegment.NULL)) {
             return null;
         }
-        return seg.reinterpret(4096).getString(0);
+        return seg.reinterpret(MAX_RETURNED_STRING_BYTES).getString(0);
     }
 
     // ── MethodHandle invocation wrappers ───────────────────────────────────
@@ -652,6 +747,11 @@ public final class BwuClient implements AutoCloseable {
 
     /** (MemorySegment, MemorySegment, int) -> int */
     private static int callIntSSI(MethodHandle mh, MemorySegment a0, MemorySegment a1, int a2) {
+        try { return (int) mh.invokeExact(a0, a1, a2); } catch (Throwable t) { throw rethrow(t); }
+    }
+
+    /** (MemorySegment, short, int) -> int */
+    private static int callIntSHI(MethodHandle mh, MemorySegment a0, short a1, int a2) {
         try { return (int) mh.invokeExact(a0, a1, a2); } catch (Throwable t) { throw rethrow(t); }
     }
 

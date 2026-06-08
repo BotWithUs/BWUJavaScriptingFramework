@@ -6,6 +6,7 @@ import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.ScriptCrashedEvent;
 import com.botwithus.bot.api.runtime.LastCrash;
@@ -31,11 +32,19 @@ import java.util.function.Consumer;
 public class ScriptRunner implements Runnable {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptRunner.class);
+
+    /** Lifecycle state strings emitted on the {@code script.context} broker topic. */
+    private static final String STATE_STARTING = "STARTING";
+    private static final String STATE_RUNNING  = "RUNNING";
+    private static final String STATE_STOPPED  = "STOPPED";
+    private static final String STATE_CRASHED  = "CRASHED";
+
     private final BotScript script;
     private final ScriptContext context;
     private final Consumer<String> connectionTagger;
     private final Runnable connectionCleaner;
     private final Consumer<GameEvent> eventSink;
+    private final ScriptContextPublisher scriptCtxPublisher;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean disposed = new AtomicBoolean(false);
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
@@ -71,6 +80,25 @@ public class ScriptRunner implements Runnable {
     }
 
     /**
+     * Constructs a runner with an explicit {@link ScriptContextPublisher} to
+     * emit lifecycle state changes to. {@code scriptCtxPublisher} may be
+     * {@link ScriptContextPublisher#NOOP} (or null, treated as NOOP) when no
+     * debugger channel is wired.
+     */
+    public ScriptRunner(BotScript script, ScriptContext context,
+                        Consumer<String> connectionTagger, Runnable connectionCleaner,
+                        Consumer<GameEvent> eventSink,
+                        ScriptContextPublisher scriptCtxPublisher) {
+        this.script = script;
+        this.context = context;
+        this.connectionTagger = connectionTagger;
+        this.connectionCleaner = connectionCleaner;
+        this.eventSink = eventSink;
+        this.scriptCtxPublisher = scriptCtxPublisher != null
+                ? scriptCtxPublisher : ScriptContextPublisher.NOOP;
+    }
+
+    /**
      * Constructs a runner that tags / clears its thread via the supplied callbacks
      * and publishes {@link ScriptCrashedEvent}s through the supplied sink.
      *
@@ -80,11 +108,8 @@ public class ScriptRunner implements Runnable {
     public ScriptRunner(BotScript script, ScriptContext context,
                         Consumer<String> connectionTagger, Runnable connectionCleaner,
                         Consumer<GameEvent> eventSink) {
-        this.script = script;
-        this.context = context;
-        this.connectionTagger = connectionTagger;
-        this.connectionCleaner = connectionCleaner;
-        this.eventSink = eventSink;
+        this(script, context, connectionTagger, connectionCleaner, eventSink,
+                ScriptContextPublisher.NOOP);
     }
 
     /**
@@ -94,7 +119,8 @@ public class ScriptRunner implements Runnable {
      */
     public ScriptRunner(BotScript script, ScriptContext context,
                         Consumer<String> connectionTagger, Runnable connectionCleaner) {
-        this(script, context, connectionTagger, connectionCleaner, e -> {});
+        this(script, context, connectionTagger, connectionCleaner, e -> {},
+                ScriptContextPublisher.NOOP);
     }
 
     /**
@@ -104,7 +130,8 @@ public class ScriptRunner implements Runnable {
      * threads.
      */
     public ScriptRunner(BotScript script, ScriptContext context) {
-        this(script, context, ConnectionContext::set, ConnectionContext::clear, e -> {});
+        this(script, context, ConnectionContext::set, ConnectionContext::clear, e -> {},
+                ScriptContextPublisher.NOOP);
     }
 
     public void start() {
@@ -215,17 +242,38 @@ public class ScriptRunner implements Runnable {
         if (connectionName != null) {
             MDC.put("connection.name", connectionName);
         }
+        if (!runOnStart(name)) {
+            return;
+        }
+        loadPersistedConfig(name);
+        try {
+            runLoop();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.error("onLoop error in {}: {}", name, e.getMessage());
+            notifyError(Phase.ON_LOOP, e);
+        } finally {
+            cleanup(name);
+        }
+    }
+
+    private boolean runOnStart(String name) {
+        publishState(STATE_STARTING, null);
         try {
             script.onStart(context);
+            publishState(STATE_RUNNING, null);
+            return true;
         } catch (Exception e) {
             log.error("onStart error in {}: {}", name, e.getMessage());
             notifyError(Phase.ON_START, e);
             running.set(false);
             connectionCleaner.run();
-            return;
+            return false;
         }
+    }
 
-        // Load persisted config after onStart
+    private void loadPersistedConfig(String name) {
         try {
             List<ConfigField> fields = script.getConfigFields();
             if (fields != null && !fields.isEmpty()) {
@@ -237,45 +285,55 @@ public class ScriptRunner implements Runnable {
             log.error("Config load error in {}: {}", name, e.getMessage());
             notifyError(Phase.ON_CONFIG_UPDATE, e);
         }
+    }
 
+    private void runLoop() throws InterruptedException {
         GameAPI gameAPI = context.getGameAPI();
+        while (running.get() && !Thread.currentThread().isInterrupted()) {
+            long loopStart = System.nanoTime();
+            int delay = script.onLoop();
+            profiler.recordLoop(System.nanoTime() - loopStart);
+            if (delay < 0) {
+                break;
+            }
+            if (delay > 0) {
+                delay = adjustDelay(delay, gameAPI);
+                Thread.sleep(delay);
+            }
+        }
+    }
+
+    private void cleanup(String name) {
+        running.set(false);
         try {
-            while (running.get() && !Thread.currentThread().isInterrupted()) {
-                long loopStart = System.nanoTime();
-                int delay = script.onLoop();
-                profiler.recordLoop(System.nanoTime() - loopStart);
-                if (delay < 0) {
-                    break;
-                }
-                if (delay > 0) {
-                    delay = adjustDelay(delay, gameAPI);
-                    Thread.sleep(delay);
-                }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            script.onStop();
         } catch (Exception e) {
-            log.error("onLoop error in {}: {}", name, e.getMessage());
-            notifyError(Phase.ON_LOOP, e);
-        } finally {
-            running.set(false);
-            try {
-                script.onStop();
-            } catch (Exception e) {
-                log.error("onStop error in {}: {}", name, e.getMessage());
-                notifyError(Phase.ON_STOP, e);
+            log.error("onStop error in {}: {}", name, e.getMessage());
+            notifyError(Phase.ON_STOP, e);
+        }
+        try {
+            context.getNavigation().cleanup();
+        } catch (Exception e) {
+            log.debug("Navigation cleanup error in {}: {}", name, e.getMessage());
+        }
+        publishState(STATE_STOPPED, null);
+        MDC.clear();
+        connectionCleaner.run();
+        CountDownLatch latch = this.stopLatch;
+        if (latch != null) {
+            latch.countDown();
+        }
+    }
+
+    private void publishState(String state, String detail) {
+        try {
+            if (detail == null) {
+                scriptCtxPublisher.state(state);
+            } else {
+                scriptCtxPublisher.state(state, detail);
             }
-            try {
-                context.getNavigation().cleanup();
-            } catch (Exception e) {
-                log.debug("Navigation cleanup error in {}: {}", name, e.getMessage());
-            }
-            MDC.clear();
-            connectionCleaner.run();
-            CountDownLatch latch = this.stopLatch;
-            if (latch != null) {
-                latch.countDown();
-            }
+        } catch (RuntimeException e) {
+            log.debug("script.context state publish threw: {}", e.getMessage());
         }
     }
 
@@ -293,6 +351,7 @@ public class ScriptRunner implements Runnable {
     private void notifyError(Phase phase, Throwable error) {
         LastCrash crash = new LastCrash(phase, profiler.getLoopCount(), Instant.now(), error);
         healthRef.updateAndGet(h -> h.withCrash(crash));
+        publishState(STATE_CRASHED, phase + ": " + (error != null ? error.getMessage() : "?"));
         ErrorHandler handler = this.errorHandler;
         if (handler != null) {
             try {

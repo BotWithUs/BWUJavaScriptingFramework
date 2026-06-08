@@ -4,6 +4,7 @@ import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.api.script.ScriptScheduler;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.GameAPIImpl;
+import com.botwithus.bot.core.impl.ScriptContextChannel;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
@@ -30,6 +31,7 @@ public class Connection {
     private SharedRegionEventPump eventPump;
     private ReconnectController reconnectController;
     private GameAPIImpl gameAPI;
+    private ScriptContextChannel scriptContextChannel;
     private String accountName;
     private Map<String, Object> accountInfo;
     private boolean lobbyLoginAttempted;
@@ -59,6 +61,9 @@ public class Connection {
 
     public void setGameAPI(GameAPIImpl gameAPI) { this.gameAPI = gameAPI; }
     public GameAPIImpl getGameAPI() { return gameAPI; }
+
+    public void setScriptContextChannel(ScriptContextChannel channel) { this.scriptContextChannel = channel; }
+    public ScriptContextChannel getScriptContextChannel() { return scriptContextChannel; }
 
     /** Current reconnect state; {@code null} if no controller is attached. */
     public ReconnectState currentReconnectState() {
@@ -114,6 +119,13 @@ public class Connection {
                 eventPump.close();
             } catch (RuntimeException e) {
                 log.error("Error stopping event pump for {}", name, e);
+            }
+        }
+        if (scriptContextChannel != null) {
+            try {
+                scriptContextChannel.close();
+            } catch (RuntimeException e) {
+                log.error("Error closing script-context channel for {}", name, e);
             }
         }
         try {

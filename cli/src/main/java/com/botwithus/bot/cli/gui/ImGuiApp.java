@@ -74,10 +74,19 @@ import java.util.concurrent.Executors;
  */
 public class ImGuiApp extends Application {
 
+    public ImGuiApp() {}
+
     private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
 
     private static final float UI_FONT_BASE_PX = 17f;
+    /** Initial GLFW window width (px). */
+    private static final int APP_WINDOW_DEFAULT_WIDTH = 1100;
+    /** Initial GLFW window height (px). */
+    private static final int APP_WINDOW_DEFAULT_HEIGHT = 700;
 
+    // The ASCII-art \\ sequences javac reads as line-continuation markers; suppression
+    // is narrower than rewriting the banner as concatenated string literals.
+    @SuppressWarnings("text-blocks")
     private static final String BANNER = """
 
             ____        _ __        ___ _   _     _   _
@@ -137,8 +146,8 @@ public class ImGuiApp extends Application {
     @Override
     protected void configure(Configuration config) {
         config.setTitle("BotWithUs \u2014 disconnected");
-        config.setWidth(1100);
-        config.setHeight(700);
+        config.setWidth(APP_WINDOW_DEFAULT_WIDTH);
+        config.setHeight(APP_WINDOW_DEFAULT_HEIGHT);
     }
 
     @Override
@@ -330,9 +339,37 @@ public class ImGuiApp extends Application {
             bwu = BwuClient.load(dllPath).orElse(null);
         }
         if (bwu != null) {
+            applyDevHeartbeatOverride(bwu);
             bwu.init();
         }
         return bwu;
+    }
+
+    /**
+     * Forward the LOCAL_TEST heartbeat overrides from system properties (set by
+     * cli/build.gradle.kts from local.properties keys
+     * {@code bwu.heartbeat.host/port/skipCertPin}) into the loader. No-ops when
+     * none of the three properties is set — production stays untouched. Called
+     * <em>before</em> {@link BwuClient#init} so the override is in place when
+     * the subsequent login triggers a TLS connect. See RUN-LOCAL.md.
+     */
+    private void applyDevHeartbeatOverride(BwuClient bwu) {
+        String host = System.getProperty("bwu.heartbeat.host");
+        String portStr = System.getProperty("bwu.heartbeat.port");
+        String skipStr = System.getProperty("bwu.heartbeat.skipCertPin");
+        if (host == null && portStr == null && skipStr == null) {
+            return;
+        }
+        int port = 0;
+        if (portStr != null && !portStr.isBlank()) {
+            try {
+                port = Integer.parseInt(portStr.trim());
+            } catch (NumberFormatException e) {
+                log.warn("Ignoring non-numeric bwu.heartbeat.port='{}'", portStr);
+            }
+        }
+        boolean skipPin = "true".equalsIgnoreCase(skipStr) || "1".equals(skipStr);
+        bwu.setHeartbeatEndpoint(host, port, skipPin);
     }
 
     private void buildPanels(BwuClient bwu) {
@@ -390,7 +427,9 @@ public class ImGuiApp extends Application {
      * config-only scripts open a window that immediately closes itself.
      */
     private void openScriptConfig(ScriptRunner runner) {
-        if (runner == null) return;
+        if (runner == null) {
+            return;
+        }
         if (runner.getScript().getUI() != null) {
             scriptUIWindow.open(runner);
         } else {
@@ -707,8 +746,9 @@ public class ImGuiApp extends Application {
      * name collision with the imported {@link org.slf4j.Logger}.
      */
     private static void wireLogBufferAppender(LogBuffer logBuffer) {
-        // Required SLF4J/Logback binding cast: getILoggerFactory() is typed ILoggerFactory,
-        // and Logback's concrete impl is LoggerContext; there is no cast-free path.
+        // rule-exception: {rule:no-casts} — SLF4J/Logback binding boundary.
+        // getILoggerFactory() is typed ILoggerFactory and Logback's concrete impl
+        // is LoggerContext; there is no cast-free path. Concentrated to one site.
         LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
         // ch.qos.logback.classic.Logger fully qualified: name collision with org.slf4j.Logger
         ch.qos.logback.classic.Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
@@ -778,7 +818,9 @@ public class ImGuiApp extends Application {
         if (ctx.getStreamManager() != null) {
             ctx.getStreamManager().stopAll(name -> {
                 for (var c : ctx.getConnections()) {
-                    if (c.getName().equals(name)) return c;
+                    if (c.getName().equals(name)) {
+                        return c;
+                    }
                 }
                 return null;
             });

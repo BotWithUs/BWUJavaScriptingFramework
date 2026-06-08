@@ -38,6 +38,9 @@ import java.util.stream.Stream;
  */
 public final class WorldMapElements {
 
+    /** Default tile radius for {@code nearPlayer()} — covers a typical map view. */
+    private static final int DEFAULT_QUERY_RADIUS_TILES = 64;
+
     private final GameAPI api;
 
     public WorldMapElements(GameAPI api) {
@@ -121,8 +124,8 @@ public final class WorldMapElements {
             return this;
         }
 
-        /** Default radius of 64 around the local player (covers a typical map view). */
-        public Query nearPlayer() { return nearPlayer(64); }
+        /** Default radius around the local player (covers a typical map view). */
+        public Query nearPlayer() { return nearPlayer(DEFAULT_QUERY_RADIUS_TILES); }
 
         public Query onPlane(int plane) {
             rpcFilter.put("plane", plane);
@@ -188,7 +191,9 @@ public final class WorldMapElements {
                             e -> chebyshev(e.tileX(), e.tileY(), finalCx, finalCy)));
                 }
             }
-            if (limit < Integer.MAX_VALUE) stream = stream.limit(limit);
+            if (limit < Integer.MAX_VALUE) {
+                stream = stream.limit(limit);
+            }
             return stream.collect(Collectors.toList());
         }
 

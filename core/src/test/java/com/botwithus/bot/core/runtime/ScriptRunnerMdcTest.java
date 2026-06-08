@@ -34,8 +34,12 @@ class ScriptRunnerMdcTest {
         public int onLoop() {
             String scriptName = MDC.get("script.name");
             String connName = MDC.get("connection.name");
-            if (scriptName != null) capturedMdc.put("script.name", scriptName);
-            if (connName != null) capturedMdc.put("connection.name", connName);
+            if (scriptName != null) {
+                capturedMdc.put("script.name", scriptName);
+            }
+            if (connName != null) {
+                capturedMdc.put("connection.name", connName);
+            }
             loopLatch.countDown();
             return -1; // stop after one loop
         }

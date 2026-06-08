@@ -8,6 +8,7 @@ import java.lang.invoke.MethodHandle;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
+import static java.lang.foreign.ValueLayout.JAVA_SHORT;
 
 /**
  * Raw Panama downcall handles for every exported function in bwu.dll.
@@ -43,6 +44,7 @@ final class BwuNative {
 
     final MethodHandle bwuRefreshModule;         // () -> int
     final MethodHandle bwuLoadLocalModule;       // (ptr) -> int  [dev builds only, may be null]
+    final MethodHandle bwuSetHeartbeatEndpoint;  // (ptr, u16, int) -> int  [dev builds only, may be null]
 
     // ── Account Management (Classic) ───────────────────────────────────────
 
@@ -75,6 +77,8 @@ final class BwuNative {
     final MethodHandle bwuJagexAccountCount;         // () -> int
     final MethodHandle bwuJagexRemoveAccount;        // (ptr) -> int
     final MethodHandle bwuJagexRestoreAccounts;      // () -> int
+    final MethodHandle bwuJagexRestoreStatus;        // (ptr, ptr) -> int   [optional, may be null on older DLLs]
+    final MethodHandle bwuJagexGcOrphans;            // () -> int           [optional, may be null on older DLLs]
     final MethodHandle bwuJagexRefreshCharacters;    // (ptr) -> int
     final MethodHandle bwuJagexSelectCharacter;      // (ptr, int) -> int
     final MethodHandle bwuJagexEnsureSession;        // (ptr) -> int
@@ -122,6 +126,8 @@ final class BwuNative {
                 FunctionDescriptor.of(JAVA_INT));
         bwuLoadLocalModule = optionalDowncall(linker, lookup, "bwu_load_local_module",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
+        bwuSetHeartbeatEndpoint = optionalDowncall(linker, lookup, "bwu_set_heartbeat_endpoint",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_SHORT, JAVA_INT));
 
         // ── Account Management (Classic) ──
         bwuAddAccount = downcall(linker, lookup, "bwu_add_account",
@@ -169,6 +175,15 @@ final class BwuNative {
         bwuJagexRemoveAccount = downcall(linker, lookup, "bwu_jagex_remove_account",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));
         bwuJagexRestoreAccounts = downcall(linker, lookup, "bwu_jagex_restore_accounts",
+                FunctionDescriptor.of(JAVA_INT));
+        // Optional — older bundled bwu.dll builds predate this export. The
+        // host should treat null as "no restore-status signal available".
+        bwuJagexRestoreStatus = optionalDowncall(linker, lookup, "bwu_jagex_restore_status",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
+        // Optional — older bundled bwu.dll builds predate this export. Host
+        // treats null as "no manual orphan-GC trigger available"; the loader
+        // still runs GC automatically at the end of each restore.
+        bwuJagexGcOrphans = optionalDowncall(linker, lookup, "bwu_jagex_gc_orphans",
                 FunctionDescriptor.of(JAVA_INT));
         bwuJagexRefreshCharacters = downcall(linker, lookup, "bwu_jagex_refresh_characters",
                 FunctionDescriptor.of(JAVA_INT, ADDRESS));

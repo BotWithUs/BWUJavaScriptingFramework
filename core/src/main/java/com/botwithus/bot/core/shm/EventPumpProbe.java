@@ -40,7 +40,7 @@ public final class EventPumpProbe {
         bus.subscribe(ChatMessageEvent.class,      e -> System.out.println("Chat:  '" + e.message().text() + "'"));
 
         try (SharedRegionEventPump pump = new SharedRegionEventPump(pid, bus::publish)) {
-            System.out.println("Pump running for pid=" + pid + ". Ctrl+C to stop.");
+            System.out.println("Pump running for pid=" + pump.region().frontIdx() + ". Ctrl+C to stop.");
             // Sleep until interrupt — pump runs on its own daemon thread.
             Thread.currentThread().join();
         }

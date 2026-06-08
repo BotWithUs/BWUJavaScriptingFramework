@@ -6,6 +6,7 @@ import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
+import com.botwithus.bot.core.impl.ScriptContextChannel;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
@@ -26,7 +27,9 @@ import java.util.List;
 /**
  * Entry point: connects the pipe, loads scripts, and starts the runtime.
  */
-public class JBotApplication {
+public final class JBotApplication {
+
+    private JBotApplication() {}
 
     private static final Logger log = LoggerFactory.getLogger(JBotApplication.class);
 
@@ -58,6 +61,8 @@ public class JBotApplication {
 
             rpc.start();
 
+            ScriptContextChannel scriptCtxChannel = new ScriptContextChannel(rpc, pipeName);
+
             clientProvider.putClient(pipeName,
                     new ClientImpl(pipeName, gameAPI, eventBus, pipe::isOpen, pump.region()));
 
@@ -69,6 +74,7 @@ public class JBotApplication {
             // the CLI's stdout interception sees the tag on script virtual threads.
             ScriptRuntime runtime = new ScriptRuntime(context,
                     ConnectionContext::set, ConnectionContext::clear);
+            runtime.setPublisherFactory(scriptCtxChannel::publisherFor);
 
             ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
 
@@ -79,6 +85,7 @@ public class JBotApplication {
                 log.info("Shutting down...");
                 scriptManager.shutdown();
                 runtime.stopAll();
+                scriptCtxChannel.close();
                 pump.close();
                 rpc.close();
                 gameAPI.closeWorldWalker();

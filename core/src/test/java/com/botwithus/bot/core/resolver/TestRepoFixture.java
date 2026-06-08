@@ -52,7 +52,6 @@ public final class TestRepoFixture {
         return digest.sha256();
     }
 
-    /** Same as {@link #publish} but writes a corrupt sha256 sidecar. */
     /**
      * Publishes a JAR with a SHA-1 sidecar but no SHA-256 — exercises the
      * legacy Maven Central fallback path.

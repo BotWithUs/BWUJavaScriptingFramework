@@ -116,8 +116,12 @@ public interface ClientOrchestrator {
     /** Schedules a one-shot start of a script on every client in a group. */
     List<ScheduleOpResult> scheduleScriptOnGroup(String groupName, String scriptName, Duration delay);
 
-    /** Schedules a one-shot start of a script on every client in a group, applying {@code config} before start. */
-    List<ScheduleOpResult> scheduleScriptOnGroup(String groupName, String scriptName, Duration delay, Map<String, Object> config);
+    /**
+     * Schedules a one-shot start of a script on every client in a group,
+     * applying {@code config} before start.
+     */
+    List<ScheduleOpResult> scheduleScriptOnGroup(
+            String groupName, String scriptName, Duration delay, Map<String, Object> config);
 
     /** Schedules a one-shot start at the given instant on every client in a group. */
     List<ScheduleOpResult> scheduleScriptOnGroupAt(String groupName, String scriptName, Instant at);
@@ -125,8 +129,12 @@ public interface ClientOrchestrator {
     /** Schedules a recurring script on every client in a group. */
     List<ScheduleOpResult> scheduleScriptOnGroupEvery(String groupName, String scriptName, Duration interval);
 
-    /** Schedules a recurring script on every client in a group with an auto-stop after {@code maxDuration} each cycle. */
-    List<ScheduleOpResult> scheduleScriptOnGroupEvery(String groupName, String scriptName, Duration interval, Duration maxDuration);
+    /**
+     * Schedules a recurring script on every client in a group with an
+     * auto-stop after {@code maxDuration} each cycle.
+     */
+    List<ScheduleOpResult> scheduleScriptOnGroupEvery(
+            String groupName, String scriptName, Duration interval, Duration maxDuration);
 
     // ── All-client schedule operations ──────────────────────────────────
 
@@ -142,8 +150,12 @@ public interface ClientOrchestrator {
     /** Schedules a recurring script on every connected client. */
     List<ScheduleOpResult> scheduleScriptOnAllEvery(String scriptName, Duration interval);
 
-    /** Schedules a recurring script on every connected client with an auto-stop after {@code maxDuration} each cycle. */
-    List<ScheduleOpResult> scheduleScriptOnAllEvery(String scriptName, Duration interval, Duration maxDuration);
+    /**
+     * Schedules a recurring script on every connected client with an
+     * auto-stop after {@code maxDuration} each cycle.
+     */
+    List<ScheduleOpResult> scheduleScriptOnAllEvery(
+            String scriptName, Duration interval, Duration maxDuration);
 
     // ── Schedule cancellation ───────────────────────────────────────────
 

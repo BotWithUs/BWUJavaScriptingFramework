@@ -44,9 +44,12 @@ public final class Throwables {
      * @return the {@link RuntimeException} to throw at the call site
      */
     public static RuntimeException rethrow(Throwable t, Function<Throwable, RuntimeException> wrap) {
+        // rule-exception: {rule:no-instanceof} — Throwable bucket-routing idiom.
+        // See class javadoc for the full rationale.
         if (t instanceof RuntimeException re) {
             return re;
         }
+        // rule-exception: {rule:no-instanceof} — see above.
         if (t instanceof Error e) {
             throw e;
         }

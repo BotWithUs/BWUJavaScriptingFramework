@@ -15,6 +15,8 @@ import java.time.Instant;
  */
 public class LogBufferAppender extends AppenderBase<ILoggingEvent> {
 
+    public LogBufferAppender() {}
+
     private volatile LogBuffer logBuffer;
 
     public void setLogBuffer(LogBuffer buffer) {

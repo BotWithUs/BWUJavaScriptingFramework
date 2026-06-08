@@ -22,6 +22,8 @@ import imgui.flag.ImGuiStyleVar;
  */
 public class TopBar {
 
+    public TopBar() {}
+
     private static final String[] TAB_ICONS = {Icons.GAMEPAD, Icons.TH_LARGE, Icons.CODE};
     private static final String[] TAB_LABELS = {"Launcher", "Normal", "Advanced"};
     private static final AppMode[] TAB_MODES = {AppMode.LAUNCHER, AppMode.NORMAL, AppMode.ADVANCED};

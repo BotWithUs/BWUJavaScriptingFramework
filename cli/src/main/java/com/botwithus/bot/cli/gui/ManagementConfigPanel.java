@@ -27,6 +27,15 @@ import java.util.Map;
  */
 public class ManagementConfigPanel {
 
+    public ManagementConfigPanel() {}
+
+    /** Default width (px) for the management-script custom-UI window. */
+    private static final int CUSTOM_UI_WINDOW_DEFAULT_WIDTH = 925;
+    /** Default height (px) for the management-script custom-UI window. */
+    private static final int CUSTOM_UI_WINDOW_DEFAULT_HEIGHT = 690;
+    /** Width (px) for the auto-height ConfigField-form fallback window. */
+    private static final int CONFIG_FORM_WINDOW_WIDTH = 350;
+
     private static final int STRING_BUFFER_SIZE = 256;
 
     private ManagementScriptRunner runner;
@@ -47,7 +56,9 @@ public class ManagementConfigPanel {
 
         // Fall back to ConfigField-based form
         this.fields = runner.getConfigFields();
-        if (fields == null || fields.isEmpty()) return;
+        if (fields == null || fields.isEmpty()) {
+            return;
+        }
 
         ScriptConfig current = runner.getCurrentConfig();
         edit.clear();
@@ -62,7 +73,9 @@ public class ManagementConfigPanel {
     }
 
     public void render() {
-        if (!open.get() || runner == null) return;
+        if (!open.get() || runner == null) {
+            return;
+        }
         if (runner.isDisposed()) {
             open.set(false);
             runner = null;
@@ -72,7 +85,7 @@ public class ManagementConfigPanel {
         // Custom UI mode
         ScriptUI ui = runner.getScript().getUI();
         if (ui != null) {
-            ImGui.setNextWindowSize(925, 690, ImGuiCond.FirstUseEver);
+            ImGui.setNextWindowSize(CUSTOM_UI_WINDOW_DEFAULT_WIDTH, CUSTOM_UI_WINDOW_DEFAULT_HEIGHT, ImGuiCond.FirstUseEver);
             if (ImGui.begin(runner.getScriptName() + " Config###mgmtUIWindow", open,
                     ImGuiWindowFlags.NoCollapse)) {
                 try {
@@ -92,7 +105,7 @@ public class ManagementConfigPanel {
             return;
         }
 
-        ImGui.setNextWindowSize(350, 0);
+        ImGui.setNextWindowSize(CONFIG_FORM_WINDOW_WIDTH, 0);
         if (ImGui.begin("Config: " + runner.getScriptName() + "###mgmtConfigWindow", open,
                 ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoCollapse)) {
 
