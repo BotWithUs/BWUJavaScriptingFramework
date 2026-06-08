@@ -14,8 +14,6 @@ import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.EnumType;
-import com.botwithus.bot.api.model.GroundItemInfo;
-import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
@@ -25,6 +23,7 @@ import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
@@ -109,25 +108,10 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     /** Ground-item query facade. Singleton per {@link GameAPI}. */
     GroundItems groundItems();
 
-    /**
-     * Low-level RPC: ask the producer for live scene objects within
-     * {@code radius} of {@code (centerX, centerY)} on {@code plane}
-     * ({@code -1} for any). Cap is the maximum number to pull back. Most
-     * scripts go through {@link #objects()} instead — this is here for
-     * advanced callers and as the seam {@link SceneObjects} drives.
-     *
-     * <p>Currently returns an empty list; the producer-side iteration
-     * lands in a follow-up slice.</p>
-     */
-    List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max);
-
-    /**
-     * Low-level RPC: ask the producer for live ground items within
-     * {@code radius} of {@code (centerX, centerY)} on {@code plane}.
-     * Mirrors {@link #queryLocations} for ObjStackList. Stub-empty until
-     * the producer-side iteration lands.
-     */
-    List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max);
+    // Scene entity queries are SHM-backed as of v15 — read them via the
+    // {@link #objects()} / {@link #groundItems()} facades, which in turn
+    // pull from {@link #snapshot()}. The old query_locations /
+    // query_ground_items RPCs were retired.
 
     /** World-map element query facade. Singleton per {@link GameAPI}. */
     WorldMapElements mapElements();
@@ -265,6 +249,25 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * are not yet surfaced and arrive in later slices.</p>
      */
     Component getComponent(int interfaceId, int componentId);
+
+    /**
+     * Batch counterpart of {@link #getComponent(int, int)}. The producer
+     * walks every target on a single game-thread visit, collapsing the
+     * latency of N independent {@code getComponent} calls (one tick each)
+     * into one tick total.
+     *
+     * <p>The producer hard-caps the per-call batch (currently 64). Oversize
+     * inputs are silently truncated by the producer, so the returned list
+     * may be shorter than {@code refs}; callers that need more than the cap
+     * should split into chunks themselves.</p>
+     *
+     * @param refs components to resolve, in the desired result order
+     * @return one element per resolved ref, in input order; {@code null}
+     *         entries signal "not found" (matches the single-component
+     *         contract). Length may be less than {@code refs.size()} when
+     *         the producer cap is exceeded.
+     */
+    List<Component> getComponents(List<ComponentRef> refs);
 
     /**
      * Returns the static (cache-defined) child component ids of

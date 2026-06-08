@@ -16,6 +16,8 @@ import java.util.stream.Collectors;
  */
 public class RpcMetrics {
 
+    public RpcMetrics() {}
+
     public record MethodStats(long callCount, long totalTimeNanos, long errorCount,
                               long[] percentileNanos, int[] percentiles) {
         public MethodStats {

@@ -10,6 +10,8 @@ package com.botwithus.bot.core.cache;
  */
 public class NXTCacheException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public NXTCacheException(String message) {
         super(message);
     }

@@ -35,6 +35,8 @@ import java.util.concurrent.ExecutorService;
  */
 public class UserAccountsRenderer {
 
+    public UserAccountsRenderer() {}
+
     private static final Logger log = LoggerFactory.getLogger(UserAccountsRenderer.class);
 
     private static final float CARD_SPACING = 10f;
@@ -48,6 +50,10 @@ public class UserAccountsRenderer {
     private List<BwuJagexAccount> jagexAccounts = List.of();
     private List<BwuAccount> classicAccounts = List.of();
     private long lastRefresh;
+    // Snapshot of the loader's background restore (set by LoaderScreen on
+    // startup). When busy, the empty card grid shows a spinner instead of
+    // letting the "+" add-card stand alone and read as "you have no accounts".
+    private BwuClient.RestoreStatus restoreStatus = BwuClient.RestoreStatus.UNAVAILABLE;
 
     // Async state
     private CompletableFuture<?> pendingOp;
@@ -109,7 +115,13 @@ public class UserAccountsRenderer {
             lastRefresh = now;
         }
 
-        boolean busy = pendingOp != null;
+        // The loader-side restore (kicked off by LoaderScreen) and any
+        // user-initiated op (jagexLogin, refresh, ensure_session, ...) both
+        // need to gate the action buttons. The background restore *also*
+        // needs to drive the spinner, which previously only fired for
+        // user-initiated ops.
+        boolean restoreInFlight = restoreStatus.busy();
+        boolean busy = pendingOp != null || restoreInFlight;
         boolean hasAccounts = !jagexAccounts.isEmpty() || !classicAccounts.isEmpty();
 
         // ── Section header ──
@@ -123,7 +135,17 @@ public class UserAccountsRenderer {
         // ── Pending spinner ──
         if (busy) {
             float pulse = 0.5f + 0.5f * (float) Math.sin(ImGui.getTime() * 4.0);
-            String label = pendingLabel != null ? pendingLabel : "Working...";
+            String label;
+            if (pendingLabel != null) {
+                label = pendingLabel;
+            } else if (restoreInFlight) {
+                label = restoreStatus.expected() > 0
+                        ? "Restoring " + restoreStatus.completed() + "/"
+                                + restoreStatus.expected() + " accounts..."
+                        : "Restoring accounts...";
+            } else {
+                label = "Working...";
+            }
             ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, pulse,
                     Icons.SPINNER + "  " + label);
             ImGui.spacing();
@@ -259,6 +281,13 @@ public class UserAccountsRenderer {
 
         if (accountCard.renderAddCard("Add Jagex\nAccount", Icons.PLUS, cardWidth, addCardH, "jagex")) {
             startJagexLogin();
+        }
+
+        // When restore is the reason the card is disabled, surface that —
+        // a generic disabled cursor doesn't tell the user a fresh login would
+        // race the in-flight restore and risk minting a duplicate UUID.
+        if (busy && restoreStatus.busy() && ImGui.isItemHovered()) {
+            ImGui.setTooltip("Waiting for previous accounts to restore...");
         }
 
         if (busy) {
@@ -600,13 +629,16 @@ public class UserAccountsRenderer {
         try {
             int jCount = bwu.jagexAccountCount();
             jagexAccounts = jCount > 0 ? bwu.jagexGetAccounts(jCount) : List.of();
+            restoreStatus = bwu.jagexRestoreStatus();
         } catch (BwuException e) {
             log.trace("Jagex refresh: {}", e.getMessage());
         }
         try {
             int cCount = bwu.getAccountCount();
             List<BwuAccount> list = new ArrayList<>(cCount);
-            for (int i = 0; i < cCount; i++) list.add(bwu.getAccount(i));
+            for (int i = 0; i < cCount; i++) {
+                list.add(bwu.getAccount(i));
+            }
             classicAccounts = List.copyOf(list);
         } catch (BwuException e) {
             log.trace("Classic refresh: {}", e.getMessage());

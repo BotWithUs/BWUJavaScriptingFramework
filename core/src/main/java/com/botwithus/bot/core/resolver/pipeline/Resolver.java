@@ -474,13 +474,20 @@ public final class Resolver {
         return severity(candidate) > severity(accumulated) ? candidate : accumulated;
     }
 
+    // Informativeness ranks for preferBetter(): higher == more specific outcome.
+    private static final int RANK_NOT_FOUND          = 0;
+    private static final int RANK_TRANSPORT_FAILURE  = 1;
+    private static final int RANK_SIGNATURE_INVALID  = 2;
+    private static final int RANK_CHECKSUM_MISMATCH  = 3;
+    private static final int RANK_RESOLVED           = 4;
+
     private static int severity(ResolveOutcome outcome) {
         return switch (outcome) {
-            case ResolveOutcome.Resolved ignored -> 4;
-            case ResolveOutcome.ChecksumMismatch ignored -> 3;
-            case ResolveOutcome.SignatureInvalid ignored -> 2;
-            case ResolveOutcome.TransportFailure ignored -> 1;
-            case ResolveOutcome.NotFound ignored -> 0;
+            case ResolveOutcome.Resolved ignored          -> RANK_RESOLVED;
+            case ResolveOutcome.ChecksumMismatch ignored  -> RANK_CHECKSUM_MISMATCH;
+            case ResolveOutcome.SignatureInvalid ignored  -> RANK_SIGNATURE_INVALID;
+            case ResolveOutcome.TransportFailure ignored  -> RANK_TRANSPORT_FAILURE;
+            case ResolveOutcome.NotFound ignored          -> RANK_NOT_FOUND;
         };
     }
 

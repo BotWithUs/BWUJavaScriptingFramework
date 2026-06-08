@@ -49,6 +49,19 @@ tasks.register<JavaExec>("snapshotProbe") {
     // Pass CLI args: ./gradlew :core:snapshotProbe --args="32784"
 }
 
+tasks.register<JavaExec>("sceneObjectsProbe") {
+    description = "Exercise api.objects().query().namedExact(...).withinDistance(...).nearest() against the live SHM"
+    group = "verification"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass = "com.botwithus.bot.core.shm.SceneObjectsLiveProbe"
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // Forward NXTCache locators set on the gradle command line so getLocationType resolves.
+    listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    // Pass CLI args: ./gradlew :core:sceneObjectsProbe --args="32996 8 Tree"
+}
+
 tasks.register<JavaExec>("eventPumpProbe") {
     description = "End-to-end check of the slice-3 bridge: pump -> bus -> subscriber"
     group = "verification"

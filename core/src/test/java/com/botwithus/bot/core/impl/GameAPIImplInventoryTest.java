@@ -26,6 +26,11 @@ import static org.mockito.Mockito.verify;
 /**
  * Slice-19 inventory facade tests. Snapshot-backed reads + cached
  * ItemType lookup for name resolution + slot click via queue_action.
+ *
+ * <p>rule-exception: {@code {rule:no-fqn}} — the stub snapshot references
+ * {@code api.snapshot.Npc} / {@code api.snapshot.Player} fully qualified
+ * because the wrappers are the API under test. Same convention as the
+ * production wrapper classes in {@code api/.../entities/}.
  */
 class GameAPIImplInventoryTest {
 
@@ -77,7 +82,9 @@ class GameAPIImplInventoryTest {
     void backpackIsFullWhenAllSlotsOccupied() {
         build();
         InventoryItem[] full = new InventoryItem[28];
-        for (int i = 0; i < 28; ++i) full[i] = slot(i, 1511, 1);
+        for (int i = 0; i < 28; ++i) {
+            full[i] = slot(i, 1511, 1);
+        }
         snap.setInv(Backpack.INVENTORY_ID, 28, items(full));
         assertTrue(api.backpack().isFull());
     }
@@ -228,7 +235,9 @@ class GameAPIImplInventoryTest {
 
     private static List<InventoryItem> items(InventoryItem... is) {
         List<InventoryItem> out = new ArrayList<>(is.length);
-        for (InventoryItem i : is) out.add(i);
+        for (InventoryItem i : is) {
+            out.add(i);
+        }
         return out;
     }
 
@@ -288,6 +297,15 @@ class GameAPIImplInventoryTest {
                     return Optional.ofNullable(invMap.get(id));
                 }
                 @Override public Stream<Inventory> stream() { return invMap.values().stream(); }
+            };
+        }
+
+        @Override public GroundItems groundItems() {
+            return new GroundItems() {
+                @Override public int count() { return 0; }
+                @Override public com.botwithus.bot.api.snapshot.GroundItem at(int i) { throw new IndexOutOfBoundsException(i); }
+                @Override public List<com.botwithus.bot.api.snapshot.GroundItem> filter(com.botwithus.bot.api.snapshot.GroundItemFilter f) { return List.of(); }
+                @Override public Stream<com.botwithus.bot.api.snapshot.GroundItem> stream() { return Stream.empty(); }
             };
         }
 

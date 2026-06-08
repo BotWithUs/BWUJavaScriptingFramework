@@ -33,8 +33,10 @@ public record CommandResult(boolean success, String message, Map<Key<?>, Object>
     }
 
     public <T> T get(Key<T> key) {
-        // Type-safe by construction: a value is only ever stored under a Key<T> whose type
-        // parameter matches it (see ok(message, key, value)), so this narrowing always holds.
+        // rule-exception: {rule:no-casts} — heterogeneous typed-key map.
+        // Values are only ever stored under a Key<T> whose type parameter matches
+        // (see ok(message, key, value)); the cast is one-per-container at the
+        // single recovery site, with the type token providing the static guarantee.
         @SuppressWarnings("unchecked")
         T value = (T) data.get(key);
         return value;

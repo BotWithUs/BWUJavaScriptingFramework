@@ -7,6 +7,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class SharedStateImpl implements SharedState {
 
+    public SharedStateImpl() {}
+
     private final ConcurrentHashMap<String, Object> store = new ConcurrentHashMap<>();
 
     @Override

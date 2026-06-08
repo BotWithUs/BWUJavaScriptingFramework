@@ -58,7 +58,9 @@ public final class GroundItem implements EntityContext {
 
     public boolean hasOption(String option) {
         for (String o : getOptions()) {
-            if (o != null && o.equalsIgnoreCase(option)) return true;
+            if (o != null && o.equalsIgnoreCase(option)) {
+                return true;
+            }
         }
         return false;
     }

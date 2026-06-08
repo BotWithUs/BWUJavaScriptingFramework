@@ -10,6 +10,7 @@ import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.rpc.RpcClient;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,6 +29,14 @@ import static org.mockito.Mockito.when;
  * Slice-18 entity query surface. Exercises the Npcs/Players facades
  * against a stub {@link GameSnapshot} so we don't need a live SHM
  * binding. Real producer integration is covered by the probes.
+ *
+ * <p>rule-exception: {@code {rule:no-fqn}} — this file references the
+ * snapshot record types {@code api.snapshot.Npc} and
+ * {@code api.snapshot.Player} fully qualified throughout. The wrapper
+ * types {@code api.entities.Npc} / {@code api.entities.Player} are
+ * imported because they are the API under test; the raw snapshot records
+ * collide with them. Same convention as the production wrapper classes
+ * in {@code api/.../entities/}.
  */
 class GameAPIImplEntitiesTest {
 
@@ -40,7 +49,7 @@ class GameAPIImplEntitiesTest {
     private GameAPIImpl build() {
         rpc = mock(RpcClient.class);
         snap = new StubSnapshot();
-        npcTypes = new java.util.HashMap<>();
+        npcTypes = new HashMap<>();
         npcTypeCalls = 0;
         // Override getNpcType so tests don't need a real NXTCache binding —
         // the facade's caching is what we want to verify, not NXTCache.
@@ -171,8 +180,9 @@ class GameAPIImplEntitiesTest {
         npcTypes.put(50, makeType(50, "Goblin", "Attack"));
         npcTypes.put(51, makeType(51, "Cow", "Milk"));
 
+        Predicate<Npc> isGoblin = n -> n.typeId() == 50;
         List<Npc> goblins = api.npcs().query()
-                .filter((Predicate<Npc>) n -> n.typeId() == 50)
+                .filter(isGoblin)
                 .all();
         assertEquals(2, goblins.size());
     }
@@ -322,6 +332,15 @@ class GameAPIImplEntitiesTest {
                 @Override public com.botwithus.bot.api.snapshot.Inventory at(int i) { throw new IndexOutOfBoundsException(i); }
                 @Override public Optional<com.botwithus.bot.api.snapshot.Inventory> byInvId(int id) { return Optional.empty(); }
                 @Override public Stream<com.botwithus.bot.api.snapshot.Inventory> stream() { return Stream.empty(); }
+            };
+        }
+
+        @Override public GroundItems groundItems() {
+            return new GroundItems() {
+                @Override public int count() { return 0; }
+                @Override public com.botwithus.bot.api.snapshot.GroundItem at(int i) { throw new IndexOutOfBoundsException(i); }
+                @Override public List<com.botwithus.bot.api.snapshot.GroundItem> filter(com.botwithus.bot.api.snapshot.GroundItemFilter f) { return List.of(); }
+                @Override public Stream<com.botwithus.bot.api.snapshot.GroundItem> stream() { return Stream.empty(); }
             };
         }
 

@@ -9,6 +9,8 @@ package com.botwithus.bot.core.shm;
  */
 public class SharedMemoryException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     public SharedMemoryException(String message) {
         super(message);
     }

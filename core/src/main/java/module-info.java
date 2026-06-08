@@ -2,13 +2,18 @@ module com.botwithus.bot.core {
     uses com.botwithus.bot.api.BotScript;
     uses com.botwithus.bot.api.script.ManagementScript;
     uses com.botwithus.bot.core.resolver.driver.RepositoryDriver;
-    requires com.botwithus.bot.api;
+    // transitive: core's exported types (e.g. ManagementContextImpl, GameAPIImpl)
+    // reference api types in their public signatures. Re-exporting api avoids
+    // 160+ -Xlint [exports] warnings about consumers needing both modules.
+    requires transitive com.botwithus.bot.api;
+    // transitive: SearchService and HttpTransport's public methods accept
+    // HttpClient — re-export so callers don't need to require java.net.http.
+    requires transitive java.net.http;
     requires msgpack.core;
     requires com.google.gson;
     requires ch.qos.logback.classic;
     requires ch.qos.logback.core;
     requires java.xml;
-    requires java.net.http;
     requires jdk.httpserver;
     // BouncyCastle (PGP). Required at module-resolution time so the
     // resolver's BouncyCastlePgpVerifier can call into it, but the

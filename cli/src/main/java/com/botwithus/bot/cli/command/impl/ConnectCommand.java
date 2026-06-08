@@ -7,6 +7,7 @@ import com.botwithus.bot.cli.command.CommandResult;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.output.TableFormatter;
+import com.botwithus.bot.core.impl.MapHelper;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 
@@ -400,24 +401,22 @@ public class ConnectCommand implements Command {
         }
     }
 
+    /**
+     * Returns the string at {@code key} via {@code Object.toString()}, or {@code null}
+     * when the key is absent. Unlike {@link MapHelper#getStringNullable} this accepts
+     * non-string values (numbers, booleans) by stringifying them — preserved for
+     * back-compat with callers that probe heterogeneous RPC payloads.
+     */
     private static String getString(Map<String, Object> map, String key) {
         Object v = map.get(key);
         return v != null ? v.toString() : null;
     }
 
     private static int getInt(Map<String, Object> map, String key) {
-        Object v = map.get(key);
-        if (v instanceof Number n) {
-            return n.intValue();
-        }
-        return -1;
+        return MapHelper.getIntOr(map, key, -1);
     }
 
     private static boolean getBool(Map<String, Object> map, String key) {
-        Object v = map.get(key);
-        if (v instanceof Boolean b) {
-            return b;
-        }
-        return false;
+        return MapHelper.getBool(map, key);
     }
 }

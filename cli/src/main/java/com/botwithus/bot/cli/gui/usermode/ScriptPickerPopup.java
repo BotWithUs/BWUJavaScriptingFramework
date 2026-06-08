@@ -32,6 +32,8 @@ import java.util.Locale;
  */
 public class ScriptPickerPopup {
 
+    public ScriptPickerPopup() {}
+
     private static final String POPUP_ID = "Start Script###scriptPicker";
 
     /** Popup width as a fraction of the main viewport width, clamped by the em bounds below. */
@@ -141,7 +143,9 @@ public class ScriptPickerPopup {
     }
 
     private static String displayName(Connection c) {
-        if (c == null) return "";
+        if (c == null) {
+            return "";
+        }
         String accountName = c.getAccountName();
         if (accountName != null && !accountName.isEmpty()) {
             return accountName;

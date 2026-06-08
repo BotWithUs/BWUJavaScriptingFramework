@@ -35,6 +35,10 @@ public final class NativeCache {
     /** File name of the WorldWalker baked artifact within the native cache. */
     public static final String WORLDWALKER_ARTIFACT_NAME = "worldwalker.wwa";
 
+    /** Editable global-teleport datasets within the native cache (scripter-editable). */
+    public static final String WORLDWALKER_SPELL_TELEPORTS_NAME = "spell_teleports.json";
+    public static final String WORLDWALKER_ITEM_TELEPORTS_NAME = "item_teleports.json";
+
     private final Path cacheDir;
 
     /** Cache rooted at the user's home directory ({@code ~/.botwithus/native/}). */
@@ -123,5 +127,24 @@ public final class NativeCache {
         }
         Path cached = new NativeCache().resolve(WORLDWALKER_ARTIFACT_NAME);
         return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();
+    }
+
+    /**
+     * Locate the directory holding the editable WorldWalker teleport datasets
+     * ({@code spell_teleports.json}, {@code item_teleports.json}). The
+     * {@code -Dworldwalker.teleports} override wins when it points at an existing
+     * directory; otherwise the default native-cache root (where
+     * {@code worldwalker.dll} lives). Always returns a path — the native loader
+     * skips any dataset file that is absent, so a missing file is not an error.
+     */
+    public static Path locateTeleportsDir() {
+        String override = System.getProperty("worldwalker.teleports");
+        if (override != null && !override.isBlank()) {
+            Path overridePath = Path.of(override);
+            if (Files.isDirectory(overridePath)) {
+                return overridePath;
+            }
+        }
+        return new NativeCache().cacheDir();
     }
 }

@@ -6,6 +6,7 @@ import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.gui.GuiHelpers;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
+import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImGui;
 
@@ -21,18 +22,20 @@ import java.util.function.Consumer;
  */
 public class UserModeRenderer {
 
+    public UserModeRenderer() {}
+
     /** Minimum card width as a multiple of the current font size. ~352px at 16px font. */
     private static final float MIN_CARD_WIDTH_EM = 22f;
 
     private final ClientCard clientCard = new ClientCard();
     private final ScriptPickerPopup scriptPicker = new ScriptPickerPopup();
-    private Consumer<com.botwithus.bot.core.runtime.ScriptRunner> configPanelOpener;
+    private Consumer<ScriptRunner> configPanelOpener;
 
     /**
      * Set the callback that opens the script config panel (floating window).
      * This should be wired to the same opener used in Advanced mode.
      */
-    public void setConfigPanelOpener(Consumer<com.botwithus.bot.core.runtime.ScriptRunner> opener) {
+    public void setConfigPanelOpener(Consumer<ScriptRunner> opener) {
         this.configPanelOpener = opener;
     }
 

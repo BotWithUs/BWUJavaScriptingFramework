@@ -1,6 +1,8 @@
 package com.botwithus.bot.core.impl.snapshot;
 
 import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.GroundItem;
+import com.botwithus.bot.api.snapshot.GroundItemFilter;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
@@ -11,6 +13,7 @@ import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
 import com.botwithus.bot.api.snapshot.Skill;
+import com.botwithus.bot.core.shm.GroundItemEntry;
 import com.botwithus.bot.core.shm.LocalPlayerView;
 import com.botwithus.bot.core.shm.LocationEntry;
 import com.botwithus.bot.core.shm.NpcEntry;
@@ -111,8 +114,18 @@ public final class GameSnapshotImpl implements GameSnapshot {
     }
 
     @Override
+    public GroundItems groundItems() {
+        return new GroundItemsImpl();
+    }
+
+    @Override
     public int sceneVersion() {
         return view.sceneVersion();
+    }
+
+    @Override
+    public boolean isInterfaceOpen(int ifaceId) {
+        return view.isInterfaceOpen(ifaceId);
     }
 
     private static Npc toNpc(NpcEntry e) {
@@ -141,6 +154,15 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.animationId(),
                 e.stanceId(),
                 e.combatLevel());
+    }
+
+    private static GroundItem toGroundItem(GroundItemEntry e) {
+        return new GroundItem(
+                e.itemId(),
+                e.quantity(),
+                e.tileX(),
+                e.tileY(),
+                e.plane());
     }
 
     private static Location toLocation(LocationEntry e) {
@@ -270,6 +292,37 @@ public final class GameSnapshotImpl implements GameSnapshot {
         @Override
         public Stream<Location> stream() {
             return IntStream.range(0, view.locationCount()).mapToObj(this::at);
+        }
+    }
+
+    private final class GroundItemsImpl implements GroundItems {
+
+        @Override
+        public int count() {
+            return view.groundItemCount();
+        }
+
+        @Override
+        public GroundItem at(int index) {
+            return toGroundItem(view.groundItemAt(index));
+        }
+
+        @Override
+        public List<GroundItem> filter(GroundItemFilter filter) {
+            int n = view.groundItemCount();
+            List<GroundItem> out = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                GroundItem rec = toGroundItem(view.groundItemAt(i));
+                if (filter.test(rec)) {
+                    out.add(rec);
+                }
+            }
+            return out;
+        }
+
+        @Override
+        public Stream<GroundItem> stream() {
+            return IntStream.range(0, view.groundItemCount()).mapToObj(this::at);
         }
     }
 

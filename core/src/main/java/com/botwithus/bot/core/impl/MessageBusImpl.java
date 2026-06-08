@@ -14,6 +14,8 @@ import java.util.function.Consumer;
 
 public class MessageBusImpl implements MessageBus {
 
+    public MessageBusImpl() {}
+
     private final Map<String, List<Consumer<ScriptMessage>>> subscribers = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<ScriptMessage>> pendingRequests = new ConcurrentHashMap<>();
 

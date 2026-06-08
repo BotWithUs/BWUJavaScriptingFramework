@@ -20,6 +20,8 @@ import java.util.Set;
  */
 public class GroupsPanel implements GuiPanel {
 
+    public GroupsPanel() {}
+
     private final ImString newGroupName = new ImString("", 128);
 
     @Override

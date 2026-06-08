@@ -42,6 +42,9 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
         this.api = api;
     }
 
+    // rule-exception: {rule:no-casts} — CRTP self-cast. Java cannot express the
+    // self-bounded recurrence Q extends EntityQuery<T, Q> at the language level,
+    // so the fluent-chain return must narrow once. Isolated to this one helper.
     @SuppressWarnings("unchecked")
     private Q self() { return (Q) this; }
 

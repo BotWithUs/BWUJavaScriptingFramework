@@ -1,9 +1,7 @@
-val imguiVersion = "1.90.0"
-
 dependencies {
     implementation(project(":api"))
-    compileOnly("io.github.spair:imgui-java-binding:$imguiVersion")
-    testImplementation("io.github.spair:imgui-java-binding:$imguiVersion")
+    compileOnly(libs.imgui.java.binding)
+    testImplementation(libs.imgui.java.binding)
     testImplementation(project(":test-support"))
 }
 

@@ -50,6 +50,9 @@ public interface GameSnapshot {
     /** Inventory table accessor. */
     Inventories inventories();
 
+    /** Ground items table accessor (v15+). */
+    GroundItems groundItems();
+
     /**
      * Producer-side scene-shape version. Bumps whenever the streamed
      * {@code loaded_map_squares} identity changes — region crossings, login,
@@ -57,6 +60,27 @@ public interface GameSnapshot {
      * snapshot data; a change invalidates anything keyed on the prior scene.
      */
     int sceneVersion();
+
+    /**
+     * Whether {@code ifaceId} is currently mounted in
+     * {@code jag::InterfaceManager}'s open-subs hashmap — the engine's
+     * canonical "this interface is open right now" signal. Backed by the v14
+     * SHM snapshot of the open-subs keyset (linear scan over a small
+     * keyset, typically &lt;20 entries this tick); no RPC round-trip.
+     *
+     * <p>Use this for chain gates that need to wait for a dialog to appear
+     * after a click that opens it (lodestone map, max-cape menu, dungeoneering
+     * cape teleport list). HUD-style interfaces that are always mounted while
+     * in-game (the minimap iface 1465 etc.) return {@code true} the whole
+     * session; a per-component "is this thing clickable" check is a separate
+     * question handled by {@link com.botwithus.bot.api.model.Component#hidden()}.</p>
+     *
+     * <p>Defaults to {@code false} so test doubles / hand-rolled stubs don't
+     * have to implement it; the live {@code GameSnapshotImpl} overrides.</p>
+     */
+    default boolean isInterfaceOpen(int ifaceId) {
+        return false;
+    }
 
     interface Npcs {
         int count();
@@ -100,5 +124,15 @@ public interface GameSnapshot {
         Optional<Inventory> byInvId(int invId);
 
         Stream<Inventory> stream();
+    }
+
+    interface GroundItems {
+        int count();
+
+        GroundItem at(int index);
+
+        List<GroundItem> filter(GroundItemFilter filter);
+
+        Stream<GroundItem> stream();
     }
 }

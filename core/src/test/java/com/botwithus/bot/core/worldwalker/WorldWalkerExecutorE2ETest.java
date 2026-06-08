@@ -169,6 +169,16 @@ class WorldWalkerExecutorE2ETest {
         }
 
         @Override
+        public int readItemCount(int itemId) {
+            return 0;
+        }
+
+        @Override
+        public boolean isItemWorn(int itemId) {
+            return false;
+        }
+
+        @Override
         public boolean isInterfaceOpen(int interfaceId) {
             isInterfaceOpenCalls.incrementAndGet();
             // SimulateTransition not in scope for this test — return false
@@ -185,12 +195,17 @@ class WorldWalkerExecutorE2ETest {
         }
 
         @Override
-        public void interact(int objectId, WwTile tile, int optionIndex) {
+        public int interact(int objectId, WwTile tile, int optionIndex) {
             interactCalls.incrementAndGet();
+            // Report an action as issued so the executor settles as before —
+            // this double exercises the normal (closed-door / climb) path, not
+            // the already-open skip.
+            return 1;
         }
 
         @Override
-        public void runChainStep(int chainIndex, int stepIndex) {
+        public void runChainStep(int kind, int a, int b, int c, int d,
+                                 int e, int f, int g, int h, int i) {
             runChainStepCalls.incrementAndGet();
         }
 

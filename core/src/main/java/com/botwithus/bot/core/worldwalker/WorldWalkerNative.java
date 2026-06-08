@@ -32,6 +32,7 @@ final class WorldWalkerNative {
 
     final MethodHandle wwArtifactOpen;       // (ptr) -> ptr
     final MethodHandle wwArtifactClose;      // (ptr) -> void
+    final MethodHandle wwArtifactLoadTeleports; // (ptr, ptr) -> int
 
     // ── Context pool lifecycle ─────────────────────────────────────────────
 
@@ -61,7 +62,26 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_READ_VARBIT =
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
 
-    /** {@code int32_t(*)(void *user, int32_t interfaceId)}. */
+    /** {@code int32_t(*)(void *user, int32_t itemId)}. */
+    static final FunctionDescriptor FD_READ_ITEM_COUNT =
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
+
+    /** {@code void(*)(void *user, const int32_t *ids, size_t count, int32_t *outValues)}. */
+    static final FunctionDescriptor FD_READ_VARBITS =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_LONG, ADDRESS);
+
+    /** {@code void(*)(void *user, const int32_t *ids, size_t count, int32_t *outValues)}. */
+    static final FunctionDescriptor FD_READ_ITEM_COUNTS =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS, JAVA_LONG, ADDRESS);
+
+    /** {@code int32_t(*)(void *user, int32_t itemId)} — non-zero if worn. */
+    static final FunctionDescriptor FD_IS_ITEM_WORN =
+            FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
+
+    /** {@code int32_t(*)(void *user, int32_t interfaceId)} — non-zero when
+        the interface is mounted in the engine's open-subs hashmap. The
+        bridge implementation delegates to {@code GameSnapshot.isInterfaceOpen},
+        which is a sub-microsecond SHM linear scan (no RPC). */
     static final FunctionDescriptor FD_IS_INTERFACE_OPEN =
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
 
@@ -69,13 +89,15 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_WALK_TO =
             FunctionDescriptor.ofVoid(ADDRESS, WorldWalkerLayouts.WW_TILE);
 
-    /** {@code void(*)(void *user, int32_t objectId, WwTile tile, int32_t optionIndex)}. */
-    static final FunctionDescriptor FD_INTERACT = FunctionDescriptor.ofVoid(
-            ADDRESS, JAVA_INT, WorldWalkerLayouts.WW_TILE, JAVA_INT);
+    /** {@code int32_t(*)(void *user, int32_t objectId, WwTile tile, int32_t optionIndex)} —
+        returns 1 if an action was issued, 0 if a no-op (loc absent / door already open). */
+    static final FunctionDescriptor FD_INTERACT = FunctionDescriptor.of(
+            JAVA_INT, ADDRESS, JAVA_INT, WorldWalkerLayouts.WW_TILE, JAVA_INT);
 
-    /** {@code void(*)(void *user, int32_t chainIndex, int32_t stepIndex)}. */
+    /** {@code void(*)(void *user, int32_t kind, int32_t a..i)} — kind + nine generic slots. */
     static final FunctionDescriptor FD_RUN_CHAIN_STEP =
-            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT);
+            FunctionDescriptor.ofVoid(ADDRESS, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT,
+                    JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_INT);
 
     /** {@code void(*)(void *user, int32_t ticks)}. */
     static final FunctionDescriptor FD_SLEEP_TICKS =
@@ -101,6 +123,8 @@ final class WorldWalkerNative {
                 FunctionDescriptor.of(ADDRESS, ADDRESS));
         wwArtifactClose = downcall(linker, lookup, "ww_artifact_close",
                 FunctionDescriptor.ofVoid(ADDRESS));
+        wwArtifactLoadTeleports = downcall(linker, lookup, "ww_artifact_load_teleports",
+                FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS));
 
         wwContextPoolCreate = downcall(linker, lookup, "ww_context_pool_create",
                 FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG));

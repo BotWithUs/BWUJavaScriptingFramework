@@ -51,6 +51,8 @@ import java.util.Objects;
  */
 public final class BouncyCastlePgpVerifier implements PgpVerifier {
 
+    public BouncyCastlePgpVerifier() {}
+
     private static final Logger log = LoggerFactory.getLogger(BouncyCastlePgpVerifier.class);
     private static final int VERIFY_BUFFER_BYTES = 8192;
     private static final int KEY_ID_HEX_DIGITS = 16;
@@ -200,12 +202,18 @@ public final class BouncyCastlePgpVerifier implements PgpVerifier {
         return severity(candidate) > severity(accumulated) ? candidate : accumulated;
     }
 
+    // Specificity ranks for preferBetter(): higher == more informative failure.
+    private static final int RANK_MISSING_SIGNATURE = 1;
+    private static final int RANK_UNKNOWN_KEY       = 2;
+    private static final int RANK_INVALID_SIGNATURE = 3;
+    private static final int RANK_VERIFIED          = 4;
+
     private static int severity(SignatureResult r) {
         return switch (r) {
-            case SignatureResult.Verified v -> 4;
-            case SignatureResult.InvalidSignature inv -> 3;
-            case SignatureResult.UnknownKey uk -> 2;
-            case SignatureResult.MissingSignatureFile m -> 1;
+            case SignatureResult.Verified v               -> RANK_VERIFIED;
+            case SignatureResult.InvalidSignature inv     -> RANK_INVALID_SIGNATURE;
+            case SignatureResult.UnknownKey uk            -> RANK_UNKNOWN_KEY;
+            case SignatureResult.MissingSignatureFile m   -> RANK_MISSING_SIGNATURE;
         };
     }
 

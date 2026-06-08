@@ -37,64 +37,77 @@ import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
  */
 public final class SnapshotProbe {
 
+    /** How often the probe prints a snapshot summary (ms). */
+    private static final long PRINT_INTERVAL_MS = 1000L;
+    /** How long the probe sleeps between event-ring polls (ms). */
+    private static final long POLL_INTERVAL_MS = 50L;
+    /** Divisor used to convert {@code currentTimeMillis} to a printable seconds-since-epoch column. */
+    private static final long MS_PER_SECOND = 1000L;
+
     private SnapshotProbe() {}
 
     public static void main(String[] args) throws InterruptedException {
-        long pid;
-        if (args.length >= 1) {
-            pid = Long.parseLong(args[0]);
-        } else {
-            // No pid given — discover via pipe scan. Pipe + snapshot are
-            // created together by the DLL, so any visible pipe pairs with
-            // a bindable snapshot mapping.
-            var discovered = SharedRegion.discoverPids();
-            if (discovered.isEmpty()) {
-                System.err.println("No BotWithUs_<pid> pipes found. Is the DLL injected?");
-                System.err.println("usage: SnapshotProbe [<pid>]");
-                System.exit(2);
-                return;
-            }
-            if (discovered.size() > 1) {
-                System.err.println("Multiple games detected: " + discovered + " — picking first.");
-            }
-            pid = discovered.getFirst();
-        }
-
+        long pid = resolvePid(args);
         try (SharedRegion region = SharedRegion.open(pid)) {
             System.out.println("Bound to pid=" + pid + " (frontIdx=" + region.frontIdx() + ")");
-
             EventRingReader events = new EventRingReader(region, /*fromHead*/ true);
-            long lastSnapshotPrint = 0;
-            long lastTick = -1;
-
-            while (!Thread.currentThread().isInterrupted()) {
-                events.poll(SnapshotProbe::printEvent);
-
-                long now = System.currentTimeMillis();
-                if (now - lastSnapshotPrint >= 1000) {
-                    GameSnapshot snap = new GameSnapshotImpl(region.snapshot());
-                    if (snap.tickId() != lastTick) {
-                        LocalPlayer self = snap.self();
-                        System.out.printf(
-                                "[t=%d] tick=%d state=%d ownIdx=%d npcs=%d players=%d invs=%d skills=%d (drops: writer=%d reader=%d)%n",
-                                now / 1000,
-                                snap.tickId(),
-                                snap.gameState(),
-                                snap.ownIndex(),
-                                snap.npcs().count(),
-                                snap.players().count(),
-                                snap.inventories().count(),
-                                self == null ? 0 : self.skills().size(),
-                                events.writerSideDroppedCount(),
-                                events.droppedCount());
-                        lastTick = snap.tickId();
-                    }
-                    lastSnapshotPrint = now;
-                }
-
-                Thread.sleep(50);
-            }
+            pollLoop(region, events);
         }
+    }
+
+    private static long resolvePid(String[] args) {
+        if (args.length >= 1) {
+            return Long.parseLong(args[0]);
+        }
+        // Pipe + snapshot are created together by the DLL, so any visible pipe
+        // pairs with a bindable snapshot mapping.
+        var discovered = SharedRegion.discoverPids();
+        if (discovered.isEmpty()) {
+            System.err.println("No BotWithUs_<pid> pipes found. Is the DLL injected?");
+            System.err.println("usage: SnapshotProbe [<pid>]");
+            System.exit(2);
+            throw new AssertionError("System.exit returned");
+        }
+        if (discovered.size() > 1) {
+            System.err.println("Multiple games detected: " + discovered + " — picking first.");
+        }
+        return discovered.getFirst();
+    }
+
+    private static void pollLoop(SharedRegion region, EventRingReader events) throws InterruptedException {
+        long lastSnapshotPrint = 0;
+        long lastTick = -1;
+        while (!Thread.currentThread().isInterrupted()) {
+            events.poll(SnapshotProbe::printEvent);
+            long now = System.currentTimeMillis();
+            if (now - lastSnapshotPrint >= PRINT_INTERVAL_MS) {
+                GameSnapshot snap = new GameSnapshotImpl(region.snapshot());
+                if (snap.tickId() != lastTick) {
+                    printSnapshot(snap, events, now);
+                    lastTick = snap.tickId();
+                }
+                lastSnapshotPrint = now;
+            }
+            Thread.sleep(POLL_INTERVAL_MS);
+        }
+    }
+
+    private static void printSnapshot(GameSnapshot snap, EventRingReader events, long nowMs) {
+        LocalPlayer self = snap.self();
+        System.out.printf(
+                "[t=%d] tick=%d state=%d ownIdx=%d npcs=%d players=%d locs=%d gItems=%d invs=%d skills=%d (drops: writer=%d reader=%d)%n",
+                nowMs / MS_PER_SECOND,
+                snap.tickId(),
+                snap.gameState(),
+                snap.ownIndex(),
+                snap.npcs().count(),
+                snap.players().count(),
+                snap.locations().count(),
+                snap.groundItems().count(),
+                snap.inventories().count(),
+                self == null ? 0 : self.skills().size(),
+                events.writerSideDroppedCount(),
+                events.droppedCount());
     }
 
     private static void printEvent(GameEvent ev) {

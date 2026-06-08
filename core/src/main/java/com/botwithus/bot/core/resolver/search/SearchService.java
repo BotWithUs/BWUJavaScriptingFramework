@@ -5,6 +5,7 @@ import com.botwithus.bot.core.resolver.Repository;
 import com.botwithus.bot.core.resolver.SearchOutcome;
 import com.botwithus.bot.core.resolver.driver.RepositoryDriver;
 import com.botwithus.bot.core.resolver.driver.SearchProtocol;
+import com.botwithus.bot.core.resolver.transport.HttpStatus;
 import com.botwithus.bot.core.resolver.transport.TransportResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,8 +48,6 @@ public final class SearchService {
     private static final String USER_AGENT_VALUE = "botwithus-resolver/1";
     private static final String AUTH_HEADER = "Authorization";
     private static final String AUTH_SCHEME_BASIC = "Basic ";
-    private static final int HTTP_OK = 200;
-    private static final int HTTP_NOT_FOUND = 404;
 
     private final HttpClient client;
     private final Function<Repository, Optional<Credentials>> credentialsLookup;
@@ -105,10 +104,10 @@ public final class SearchService {
         }
 
         int status = response.statusCode();
-        if (status == HTTP_NOT_FOUND) {
+        if (status == HttpStatus.NOT_FOUND) {
             return new SearchOutcome.NotSupported(repo, "endpoint returned 404");
         }
-        if (status != HTTP_OK) {
+        if (status != HttpStatus.OK) {
             return new SearchOutcome.TransportFailure(repo,
                     new TransportResult.HttpError(request.toString(), status, "HTTP " + status));
         }

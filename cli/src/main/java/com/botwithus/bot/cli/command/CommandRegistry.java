@@ -6,6 +6,8 @@ import java.util.Map;
 
 public class CommandRegistry {
 
+    public CommandRegistry() {}
+
     private final Map<String, Command> commands = new LinkedHashMap<>();
     private final Map<String, Command> aliasMap = new LinkedHashMap<>();
 

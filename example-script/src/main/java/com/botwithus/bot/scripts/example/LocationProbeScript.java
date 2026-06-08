@@ -5,6 +5,7 @@ import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
@@ -42,15 +43,15 @@ public class LocationProbeScript implements BotScript {
     private static final int LOOP_DELAY_MS = 2000;
     private static final int SAMPLE_ROW_COUNT = 5;
 
-    private ScriptContext ctx;
     private GameAPI api;
+    private ScriptContextPublisher publisher;
     private int loopCount;
     private int lastSceneVersion = -1;
 
     @Override
     public void onStart(ScriptContext ctx) {
-        this.ctx = ctx;
         this.api = ctx.getGameAPI();
+        this.publisher = ctx.getScriptContext();
         this.loopCount = 0;
         this.lastSceneVersion = -1;
         log.info("LocationProbe started");
@@ -62,6 +63,7 @@ public class LocationProbeScript implements BotScript {
         GameSnapshot snap = api.snapshot();
         if (snap == null) {
             log.warn("snapshot() returned null on loop {}", loopCount);
+            publisher.trace("WARN", "snapshot() returned null on loop " + loopCount);
             return LOOP_DELAY_MS;
         }
 
@@ -72,8 +74,14 @@ public class LocationProbeScript implements BotScript {
                 ? "(no self)"
                 : "(" + me.tileX() + "," + me.tileY() + ",p" + me.plane() + ")";
 
+        publisher.annotation("loop_count", loopCount);
+        publisher.annotation("locations_count", count);
+        publisher.annotation("scene_version", sceneVer);
+        publisher.annotation("position", where);
+
         if (sceneVer != lastSceneVersion) {
             log.info("sceneVersion bumped {} -> {}", lastSceneVersion, sceneVer);
+            publisher.trace("INFO", "sceneVersion bumped " + lastSceneVersion + " -> " + sceneVer);
             lastSceneVersion = sceneVer;
         }
 

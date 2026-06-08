@@ -7,6 +7,7 @@ import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.ActionExecutedEvent;
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
@@ -36,20 +37,22 @@ public class ExampleScript implements BotScript {
     private static final int DEFAULT_LOOP_DELAY_MS = 5000;
     private static final int PROGRESS_TARGET_LOOPS = 100;
 
-    private ScriptContext ctx;
     private int loopCount;
     private int loopDelay = DEFAULT_LOOP_DELAY_MS;
     private boolean verbose = true;
 
     private GameAPI api;
+    private ScriptContextPublisher publisher;
 
     @Override
     public void onStart(ScriptContext ctx) {
-        this.ctx = ctx;
         this.loopCount = 0;
         this.api = ctx.getGameAPI();
+        this.publisher = ctx.getScriptContext();
 
         log.info("Started!");
+        publisher.annotation("loop_count", loopCount);
+        publisher.annotation("mode", "Passive");
 
         EventBus events = ctx.getEventBus();
         events.subscribe(ActionExecutedEvent.class, this::handleActionEvent);
@@ -77,6 +80,11 @@ public class ExampleScript implements BotScript {
         if (verbose) {
             log.info("Config updated: delay={}, mode={}", loopDelay, mode);
         }
+        if (publisher != null) {
+            publisher.annotation("mode", mode);
+            publisher.annotation("loop_delay_ms", loopDelay);
+            publisher.trace("INFO", "Config updated: delay=" + loopDelay + "ms, mode=" + mode);
+        }
     }
 
     @Override
@@ -86,6 +94,10 @@ public class ExampleScript implements BotScript {
         if (lp != null && verbose) {
             log.debug("LocalPlayer at ({}, {}, plane {}) anim={}",
                     lp.tileX(), lp.tileY(), lp.plane(), lp.animationId());
+        }
+        publisher.annotation("loop_count", loopCount);
+        if (lp != null) {
+            publisher.annotation("position", lp.tileX() + "," + lp.tileY() + ",p" + lp.plane());
         }
         return loopDelay;
     }

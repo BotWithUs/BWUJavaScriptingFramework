@@ -27,6 +27,11 @@ import static org.mockito.Mockito.when;
  * Slice-21 world-map-element query tests. Stubs query_world_map_elements
  * to canned data and verifies the fluent Query accumulates RPC params,
  * applies post-filters, and sorts by distance.
+ *
+ * <p>rule-exception: {@code {rule:no-fqn}} — the stub snapshot references
+ * {@code api.snapshot.*} record types fully qualified because the wrappers
+ * are the API under test. Same convention as the production wrapper classes
+ * in {@code api/.../entities/}.
  */
 class GameAPIImplWorldMapTest {
 
@@ -209,6 +214,12 @@ class GameAPIImplWorldMapTest {
             @Override public com.botwithus.bot.api.snapshot.Inventory at(int i) { throw new IndexOutOfBoundsException(); }
             @Override public Optional<com.botwithus.bot.api.snapshot.Inventory> byInvId(int id) { return Optional.empty(); }
             @Override public Stream<com.botwithus.bot.api.snapshot.Inventory> stream() { return Stream.empty(); }
+        }; }
+        @Override public GroundItems groundItems() { return new GroundItems() {
+            @Override public int count() { return 0; }
+            @Override public com.botwithus.bot.api.snapshot.GroundItem at(int i) { throw new IndexOutOfBoundsException(); }
+            @Override public List<com.botwithus.bot.api.snapshot.GroundItem> filter(com.botwithus.bot.api.snapshot.GroundItemFilter f) { return List.of(); }
+            @Override public Stream<com.botwithus.bot.api.snapshot.GroundItem> stream() { return Stream.empty(); }
         }; }
         @Override public int sceneVersion() { return 0; }
     }

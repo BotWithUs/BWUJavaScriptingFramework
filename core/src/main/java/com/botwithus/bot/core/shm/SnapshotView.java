@@ -173,4 +173,68 @@ public final class SnapshotView {
         long base = Layout.SNAP_INVITEMS_OFFSET + (long) flatIdx * Layout.INV_ITEM_SIZE;
         return seg.get(ValueLayout.JAVA_INT, base + Layout.INV_ITEM_QUANTITY_OFFSET);
     }
+
+    // ------------------------------------------------------------------
+    // Open sub-interfaces (v14+)
+    //
+    // The producer publishes a snapshot of jag::InterfaceManager's open-subs
+    // hashmap each tick; membership = open. Hot polling (scripts looping on
+    // "is interface X open?") used to pay a ~1-tick RPC round-trip per call —
+    // now it's a sub-microsecond linear scan.
+    // ------------------------------------------------------------------
+
+    /** Number of live entries in {@code openIfaces} this tick. */
+    public int openIfaceCount() {
+        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_OPENIFACECOUNT_OFFSET);
+        return n < 0 ? 0 : Math.min(n, Layout.OPEN_IFACE_CAP);
+    }
+
+    /** Returns the interface id at index {@code i} (0..openIfaceCount-1). */
+    public int openIfaceAt(int i) {
+        if (i < 0 || i >= openIfaceCount()) {
+            throw new IndexOutOfBoundsException(i);
+        }
+        return seg.get(ValueLayout.JAVA_INT,
+                       Layout.SNAP_OPENIFACES_OFFSET + (long) i * 4);
+    }
+
+    /** True iff {@code ifaceId} appears in this tick's open-subs snapshot.
+     *  Linear scan; the keyset is small (~20 ids) so this is faster than
+     *  any data structure with constant overhead. */
+    public boolean isInterfaceOpen(int ifaceId) {
+        int count = openIfaceCount();
+        for (int i = 0; i < count; i++) {
+            if (seg.get(ValueLayout.JAVA_INT,
+                        Layout.SNAP_OPENIFACES_OFFSET + (long) i * 4) == ifaceId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ------------------------------------------------------------------
+    // Ground items (v15+)
+    //
+    // Mirrors the producer-side ObjStackList walk. Replaces the retired
+    // query_ground_items RPC — scripts read the immutable snapshot and
+    // apply their own spatial filters.
+    // ------------------------------------------------------------------
+
+    public int groundItemCount() {
+        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_GROUNDITEMCOUNT_OFFSET);
+        return n < 0 ? 0 : Math.min(n, Layout.GROUND_ITEM_CAP);
+    }
+
+    public GroundItemEntry groundItemAt(int i) {
+        if (i < 0 || i >= groundItemCount()) {
+            throw new IndexOutOfBoundsException(i);
+        }
+        long base = Layout.SNAP_GROUNDITEMS_OFFSET + (long) i * Layout.GROUND_ITEM_ENTRY_SIZE;
+        return new GroundItemEntry(
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.GROUND_ITEM_ITEMID_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.GROUND_ITEM_QUANTITY_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.GROUND_ITEM_TILEX_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.GROUND_ITEM_TILEY_OFFSET),
+                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.GROUND_ITEM_PLANE_OFFSET));
+    }
 }

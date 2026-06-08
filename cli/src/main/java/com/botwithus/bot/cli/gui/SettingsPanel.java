@@ -23,6 +23,8 @@ import java.util.Map;
  */
 public class SettingsPanel implements GuiPanel {
 
+    public SettingsPanel() {}
+
     private static final int METRICS_TOP_N = 20;
     private static final double METRICS_SLOW_AVG_MS = 50.0;
     private static final double PROFILING_SLOW_MAX_MS = 100.0;

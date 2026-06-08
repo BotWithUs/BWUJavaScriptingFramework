@@ -24,6 +24,11 @@ import java.util.function.Function;
  */
 public class StreamManager {
 
+    /** Maximum width (px) the embedded stream texture is clamped to in the console buffer. */
+    private static final int STREAM_EMBED_MAX_WIDTH_PX = 800;
+    /** Maximum height (px) the embedded stream texture is clamped to in the console buffer. */
+    private static final int STREAM_EMBED_MAX_HEIGHT_PX = 450;
+
     private static final Logger log = LoggerFactory.getLogger(StreamManager.class);
 
     private record ActiveStream(StreamPipeReader reader, OutputLine streamLine, int[] textureId) {}
@@ -75,8 +80,8 @@ public class StreamManager {
         out.println("Stream pipe name: " + streamPipeName);
 
         // Clamp embedded size
-        int embW = Math.min(width, 800);
-        int embH = Math.min(height, 450);
+        int embW = Math.min(width, STREAM_EMBED_MAX_WIDTH_PX);
+        int embH = Math.min(height, STREAM_EMBED_MAX_HEIGHT_PX);
 
         // Insert stream line in buffer (texture starts at 0 = no image yet)
         OutputLine streamLine = outputBuffer.insertStream(name, "Stream: " + name, 0, embW, embH);

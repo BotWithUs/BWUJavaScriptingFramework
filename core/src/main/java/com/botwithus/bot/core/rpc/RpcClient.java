@@ -54,7 +54,17 @@ public class RpcClient implements AutoCloseable {
     private volatile boolean running;
     private String connectionName;
 
-    private long timeoutMs = 10_000;
+    /** Default per-call deadline before doCall gives up and throws RpcException. */
+    private static final long DEFAULT_TIMEOUT_MS = 10_000L;
+
+    /**
+     * Reader idle re-poll interval. Bounds worst-case latency for unsolicited
+     * server events when no RPC is in flight while keeping the syscall rate
+     * well below the scheduler's resolution.
+     */
+    private static final long READER_IDLE_WAIT_NANOS = 1_000_000L;
+
+    private long timeoutMs = DEFAULT_TIMEOUT_MS;
     private RetryPolicy retryPolicy = RetryPolicy.NONE;
     private final RpcMetrics metrics = new RpcMetrics();
 
@@ -141,6 +151,10 @@ public class RpcClient implements AutoCloseable {
             throw new RpcException("RPC error: " + response.get("error"));
         }
         Object result = response.get("result");
+        // rule-exception: {rule:no-instanceof} and {rule:no-casts} — wire-decode boundary.
+        // RpcClient is the msgpack layer; result is Object because the codec returns mixed
+        // types. callSync's contract guarantees Map<String, Object> when the producer wraps
+        // its result in a map, so this is the single recovery seam for non-Map producers.
         if (result instanceof Map<?, ?> m) {
             return (Map<String, Object>) m;
         }
@@ -165,6 +179,9 @@ public class RpcClient implements AutoCloseable {
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> callSyncList(String method, Map<String, Object> params) {
         Object raw = callSyncRaw(method, params);
+        // rule-exception: {rule:no-instanceof} and {rule:no-casts} — wire-decode boundary;
+        // same justification as callSync. callSyncList is the typed seam for array-returning
+        // RPC methods; the cast is one-per-shape at this single recovery site.
         if (raw instanceof List<?> list) {
             return (List<Map<String, Object>>) list;
         }
@@ -193,37 +210,17 @@ public class RpcClient implements AutoCloseable {
      * round-trip and picks up buffered events with no extra delay.</p>
      */
     private void readerLoop() {
-        // 1ms idle re-poll — bounded worst-case latency for unsolicited
-        // server events when no RPC is in flight. Tighter than the previous
-        // 5ms, still well under a syscall's cost to the OS scheduler.
-        final long idleWaitNanos = 1_000_000L;
         Throwable disconnectCause = null;
-
         while (running && pipe.isOpen()) {
             try {
                 if (pipe.available() > 0 && pipeLock.tryLock()) {
                     try {
-                        // The pipe carries only RPC responses now; doCall reads
-                        // its own response. Anything visible here while no call
-                        // is in flight is stray traffic — drain and discard so
-                        // the kernel buffer doesn't fill.
-                        while (pipe.available() > 0) {
-                            pipe.readMessage();
-                        }
+                        drainStrayMessages();
                     } finally {
                         pipeLock.unlock();
                     }
                 } else {
-                    pipeLock.lock();
-                    try {
-                        // Re-check under the lock to avoid a lost-wakeup race
-                        // between the available() check above and the await.
-                        if (pipe.available() == 0) {
-                            dataAvailable.awaitNanos(idleWaitNanos);
-                        }
-                    } finally {
-                        pipeLock.unlock();
-                    }
+                    awaitDataOrIdle();
                 }
             } catch (PipeException e) {
                 disconnectCause = e;
@@ -241,16 +238,47 @@ public class RpcClient implements AutoCloseable {
         boolean wasRunning = running;
         running = false;
         if (wasRunning) {
-            Consumer<Throwable> cb = this.disconnectHandler;
-            if (cb != null) {
-                Throwable cause = disconnectCause;
-                Thread.startVirtualThread(() -> {
-                    try { cb.accept(cause); } catch (RuntimeException ex) {
-                        log.warn("disconnectHandler threw: {}", ex.getMessage());
-                    }
-                });
-            }
+            notifyDisconnect(disconnectCause);
         }
+    }
+
+    /**
+     * Drain stray messages from the pipe — anything visible to the reader is
+     * traffic not claimed by an in-flight doCall, so the kernel buffer must
+     * not be allowed to fill. Caller holds {@code pipeLock}.
+     */
+    private void drainStrayMessages() throws PipeException {
+        while (pipe.available() > 0) {
+            pipe.readMessage();
+        }
+    }
+
+    /**
+     * Sleep on {@code dataAvailable} with the re-poll interval. Re-checks
+     * {@code pipe.available()} under the lock to avoid a lost-wakeup race
+     * between the available() probe and the await.
+     */
+    private void awaitDataOrIdle() throws InterruptedException {
+        pipeLock.lock();
+        try {
+            if (pipe.available() == 0) {
+                dataAvailable.awaitNanos(READER_IDLE_WAIT_NANOS);
+            }
+        } finally {
+            pipeLock.unlock();
+        }
+    }
+
+    private void notifyDisconnect(Throwable disconnectCause) {
+        Consumer<Throwable> cb = this.disconnectHandler;
+        if (cb == null) {
+            return;
+        }
+        Thread.startVirtualThread(() -> {
+            try { cb.accept(disconnectCause); } catch (RuntimeException ex) {
+                log.warn("disconnectHandler threw: {}", ex.getMessage());
+            }
+        });
     }
 
     /**
@@ -265,13 +293,7 @@ public class RpcClient implements AutoCloseable {
      */
     private Map<String, Object> doCall(String method, Map<String, Object> params) {
         int id = idCounter.getAndIncrement();
-
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("method", method);
-        request.put("id", id);
-        if (params != null && !params.isEmpty()) {
-            request.put("params", params);
-        }
+        Map<String, Object> request = encodeRequest(method, id, params);
 
         pipeLock.lock();
         // settled wins the race between the watchdog and the completing call
@@ -282,38 +304,8 @@ public class RpcClient implements AutoCloseable {
         ScheduledFuture<?> watchdogTask = null;
         try {
             pipe.send(MessagePackCodec.encode(request));
-
-            watchdogTask = watchdog.schedule(() -> {
-                if (settled.compareAndSet(false, true)) {
-                    try {
-                        pipe.close();
-                    } catch (RuntimeException e) {
-                        log.debug("watchdog pipe.close threw", e);
-                    }
-                }
-            }, timeoutMs, TimeUnit.MILLISECONDS);
-
-            while (true) {
-                byte[] responseBytes;
-                try {
-                    responseBytes = pipe.readMessage();
-                } catch (PipeException e) {
-                    // If we lose the CAS, the watchdog already claimed the
-                    // outcome — translate to a timeout. Otherwise it's a
-                    // genuine pipe error.
-                    if (!settled.compareAndSet(false, true)) {
-                        throw new RpcTimeoutException(method, timeoutMs);
-                    }
-                    throw e;
-                }
-                Map<String, Object> msg = MessagePackCodec.decode(responseBytes);
-
-                if (matchesId(msg, id)) {
-                    settled.set(true);
-                    return msg;
-                }
-                // Wrong id (stale response, mismatched call) — skip it
-            }
+            watchdogTask = scheduleWatchdog(settled);
+            return awaitMatchingResponse(method, id, settled);
         } catch (RpcException e) {
             throw e;
         } catch (Exception e) {
@@ -327,6 +319,53 @@ public class RpcClient implements AutoCloseable {
             // Signal reader thread that the lock is about to be released
             dataAvailable.signal();
             pipeLock.unlock();
+        }
+    }
+
+    private static Map<String, Object> encodeRequest(String method, int id, Map<String, Object> params) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("method", method);
+        request.put("id", id);
+        if (params != null && !params.isEmpty()) {
+            request.put("params", params);
+        }
+        return request;
+    }
+
+    private ScheduledFuture<?> scheduleWatchdog(AtomicBoolean settled) {
+        return watchdog.schedule(() -> {
+            if (settled.compareAndSet(false, true)) {
+                try {
+                    pipe.close();
+                } catch (RuntimeException e) {
+                    log.debug("watchdog pipe.close threw", e);
+                }
+            }
+        }, timeoutMs, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Reads pipe messages until one with the matching id arrives. A
+     * {@link PipeException} after the watchdog has already CAS'd settled is
+     * translated to {@link RpcTimeoutException}; otherwise it propagates.
+     */
+    private Map<String, Object> awaitMatchingResponse(String method, int id, AtomicBoolean settled) throws PipeException {
+        while (true) {
+            byte[] responseBytes;
+            try {
+                responseBytes = pipe.readMessage();
+            } catch (PipeException e) {
+                if (!settled.compareAndSet(false, true)) {
+                    throw new RpcTimeoutException(method, timeoutMs);
+                }
+                throw e;
+            }
+            Map<String, Object> msg = MessagePackCodec.decode(responseBytes);
+            if (matchesId(msg, id)) {
+                settled.set(true);
+                return msg;
+            }
+            // Wrong id (stale response, mismatched call) — skip it
         }
     }
 
@@ -366,6 +405,9 @@ public class RpcClient implements AutoCloseable {
 
     private boolean matchesId(Map<String, Object> msg, int expectedId) {
         Object idObj = msg.get("id");
+        // rule-exception: {rule:no-instanceof} — wire-decode boundary. RPC response IDs
+        // arrive as msgpack ints decoded to Integer or Long; the producer's id field is
+        // Object until we recover it here.
         if (idObj instanceof Number n) {
             return n.intValue() == expectedId;
         }

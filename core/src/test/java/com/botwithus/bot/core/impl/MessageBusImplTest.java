@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -36,7 +37,7 @@ class MessageBusImplTest {
     @Test
     void unsubscribe() throws Exception {
         AtomicReference<ScriptMessage> received = new AtomicReference<>();
-        var handler = new java.util.function.Consumer<ScriptMessage>() {
+        var handler = new Consumer<ScriptMessage>() {
             @Override public void accept(ScriptMessage m) { received.set(m); }
         };
         bus.subscribe("ch", handler);

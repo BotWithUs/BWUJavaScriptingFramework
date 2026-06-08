@@ -12,10 +12,10 @@ import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
-import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.LoginState;
@@ -23,7 +23,6 @@ import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.PathResult;
 import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
-import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
@@ -260,16 +259,6 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
-    public List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max) {
-        throw notStubbed("queryLocations");
-    }
-
-    @Override
-    public List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max) {
-        throw notStubbed("queryGroundItems");
-    }
-
-    @Override
     public List<WorldMapElement> queryWorldMapElements(Map<String, Object> filter) {
         throw notStubbed("queryWorldMapElements");
     }
@@ -358,6 +347,11 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public List<Component> getComponents(List<ComponentRef> refs) {
+        throw notStubbed("getComponents");
+    }
+
+    @Override
     public List<Integer> getStaticChildren(int interfaceId, int componentId) {
         throw notStubbed("getStaticChildren");
     }
@@ -439,5 +433,20 @@ final class MockGameAPI implements GameAPI {
     @Override
     public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
         throw notStubbed("queryVarbits");
+    }
+
+    @Override
+    public List<Integer> getVarps(List<Integer> varIds) {
+        throw notStubbed("getVarps");
+    }
+
+    @Override
+    public List<Integer> getVarcInts(List<Integer> varcIds) {
+        throw notStubbed("getVarcInts");
+    }
+
+    @Override
+    public List<String> getVarcStrings(List<Integer> varcIds) {
+        throw notStubbed("getVarcStrings");
     }
 }
