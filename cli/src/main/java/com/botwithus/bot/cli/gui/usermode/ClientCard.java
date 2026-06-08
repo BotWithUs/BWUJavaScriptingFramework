@@ -198,7 +198,7 @@ public class ClientCard {
         GuiHelpers.subtleSeparator();
         ImGui.spacing();
 
-        GuiHelpers.textMuted(Icons.PLUG + "  Disconnected");
+        GuiHelpers.textMuted(Icons.PLUG + "  Lost contact");
         ImGui.dummy(0f, ImGui.getStyle().getItemSpacingY() * 0.5f);
 
         if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reconnect##" + cardIndex,
@@ -215,7 +215,7 @@ public class ClientCard {
         ImGui.spacing();
 
         ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.85f,
-                Icons.STOP + "  No script running");
+                Icons.STOP + "  Pick a script to run");
         ImGui.dummy(0f, ImGui.getStyle().getItemSpacingY() * 0.5f);
 
         if (GuiHelpers.buttonPrimary(Icons.PLAY + "  Start Script##" + cardIndex,
@@ -302,13 +302,14 @@ public class ClientCard {
         float gap = ImGui.getStyle().getItemSpacingX();
 
         if (hasUI) {
-            float half = (availW - gap) * 0.5f;
+            float configureW = (availW - gap) * 0.32f;
+            float stopW = (availW - gap) - configureW;
             CardAction action = null;
-            if (GuiHelpers.buttonSecondary(Icons.GEAR + "  Configure##" + cardIndex, half, btnH)) {
+            if (GuiHelpers.buttonSecondary(Icons.GEAR + "  Configure##" + cardIndex, configureW, btnH)) {
                 action = new CardAction(CardAction.Type.CONFIGURE, connection, runner);
             }
             ImGui.sameLine(0, gap);
-            if (GuiHelpers.buttonDanger(Icons.STOP + "  Stop##" + cardIndex, half, btnH)) {
+            if (GuiHelpers.buttonDanger(Icons.STOP + "  Stop##" + cardIndex, stopW, btnH)) {
                 action = new CardAction(CardAction.Type.STOP, connection, runner);
             }
             return action;
