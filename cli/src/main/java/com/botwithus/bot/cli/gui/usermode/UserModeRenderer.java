@@ -131,10 +131,10 @@ public class UserModeRenderer {
         String title = "Waiting for a game client";
         String subtitle = "Launch RuneScape through the BotWithUs Loader \u2014";
         String subtitle2 = "your client shows up here automatically.";
-        String hint = "Press F12 to cycle modes";
 
-        // Center vertically \u2014 estimate total stack height
-        float totalHeight = lineH * 7f;
+        // Vertically center the stack. F12 discoverability is covered by the
+        // always-visible kbdHint in the top bar, so no per-screen hint here.
+        float totalHeight = lineH * 5f;
         ImGui.setCursorPosY((windowHeight - totalHeight) * 0.5f);
 
         centerText(icon, windowWidth, () ->
@@ -145,10 +145,6 @@ public class UserModeRenderer {
         centerText(title, windowWidth, () -> ImGui.text(title));
         centerText(subtitle, windowWidth, () -> GuiHelpers.textSecondary(subtitle));
         centerText(subtitle2, windowWidth, () -> GuiHelpers.textSecondary(subtitle2));
-
-        ImGui.dummy(0f, lineH * 0.6f);
-
-        centerText(hint, windowWidth, () -> GuiHelpers.textSecondary(hint));
     }
 
     private static void centerText(String text, float windowWidth, Runnable draw) {
