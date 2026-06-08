@@ -19,12 +19,19 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class AutoStartCommandTest {
+
+    private static final String UUID_PLAYER_ONE = "acc-playerone";
+    private static final String UUID_ALICE = "acc-alice";
+    private static final String UUID_BOB = "acc-bob";
+    private static final String UUID_SOMEPLAYER = "acc-someplayer";
 
     @TempDir
     Path tempDir;
@@ -60,9 +67,12 @@ class AutoStartCommandTest {
     }
 
     /**
-     * Creates a spy CliContext with a mock connection that has the given account name.
+     * Creates a spy CliContext wrapping a Connection whose account UUID and
+     * display name have been pre-populated. {@code accountUuid} is the storage
+     * key the AutoStart command uses; {@code displayName} is what user-facing
+     * output renders.
      */
-    private CliContext spyWithAccount(String accountName) {
+    private CliContext spyWithAccount(String accountUuid, String displayName) {
         output.reset();
         LogBuffer logBuffer = new LogBuffer();
         LogCapture logCapture = new LogCapture(logBuffer, new PrintStream(output), new PrintStream(output));
@@ -77,7 +87,11 @@ class AutoStartCommandTest {
         ScriptRuntime runtime = new ScriptRuntime(scriptCtx);
         ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
         Connection conn = new Connection("BotWithUs", pipe, rpc, runtime, scriptManager);
-        conn.setAccountName(accountName);
+        conn.setAccountName(displayName);
+        Map<String, Object> info = new HashMap<>();
+        info.put("display_name", displayName);
+        info.put("account_uuid", accountUuid);
+        conn.setAccountInfo(info);
 
         doReturn(conn).when(spyCtx).getActiveConnection();
         doReturn(true).when(spyCtx).hasActiveConnection();
@@ -104,8 +118,10 @@ class AutoStartCommandTest {
 
     @Test
     void listShowsAccountProfiles() {
-        profileStore.setAccountScripts("Alice", List.of("Script1", "Script2"));
-        profileStore.setAccountScripts("Bob", List.of("Script3"));
+        profileStore.setAccountScripts(UUID_ALICE, List.of("Script1", "Script2"));
+        profileStore.setDisplayName(UUID_ALICE, "Alice");
+        profileStore.setAccountScripts(UUID_BOB, List.of("Script3"));
+        profileStore.setDisplayName(UUID_BOB, "Bob");
 
         command.execute(parse("autostart list"), ctx);
         String out = output();
@@ -147,16 +163,17 @@ class AutoStartCommandTest {
 
     @Test
     void addScript() {
-        CliContext spyCtx = spyWithAccount("PlayerOne");
+        CliContext spyCtx = spyWithAccount(UUID_PLAYER_ONE, "PlayerOne");
         command.execute(parse("autostart add WoodcuttingScript"), spyCtx);
         assertTrue(output().contains("Added"));
-        assertTrue(profileStore.getAccountScripts("PlayerOne").contains("WoodcuttingScript"));
+        assertTrue(profileStore.getAccountScripts(UUID_PLAYER_ONE).contains("WoodcuttingScript"));
+        assertEquals("PlayerOne", profileStore.getDisplayName(UUID_PLAYER_ONE));
     }
 
     @Test
     void addDuplicateScript() {
-        profileStore.setAccountScripts("PlayerOne", List.of("WoodcuttingScript"));
-        CliContext spyCtx = spyWithAccount("PlayerOne");
+        profileStore.setAccountScripts(UUID_PLAYER_ONE, List.of("WoodcuttingScript"));
+        CliContext spyCtx = spyWithAccount(UUID_PLAYER_ONE, "PlayerOne");
         command.execute(parse("autostart add WoodcuttingScript"), spyCtx);
         assertTrue(output().contains("already in auto-start"));
     }
@@ -165,17 +182,17 @@ class AutoStartCommandTest {
 
     @Test
     void removeScript() {
-        profileStore.setAccountScripts("PlayerOne", List.of("ScriptA", "ScriptB"));
-        CliContext spyCtx = spyWithAccount("PlayerOne");
+        profileStore.setAccountScripts(UUID_PLAYER_ONE, List.of("ScriptA", "ScriptB"));
+        CliContext spyCtx = spyWithAccount(UUID_PLAYER_ONE, "PlayerOne");
         command.execute(parse("autostart remove ScriptA"), spyCtx);
         assertTrue(output().contains("Removed"));
-        assertEquals(List.of("ScriptB"), profileStore.getAccountScripts("PlayerOne"));
+        assertEquals(List.of("ScriptB"), profileStore.getAccountScripts(UUID_PLAYER_ONE));
     }
 
     @Test
     void removeNonExistentScript() {
-        profileStore.setAccountScripts("PlayerOne", List.of("ScriptA"));
-        CliContext spyCtx = spyWithAccount("PlayerOne");
+        profileStore.setAccountScripts(UUID_PLAYER_ONE, List.of("ScriptA"));
+        CliContext spyCtx = spyWithAccount(UUID_PLAYER_ONE, "PlayerOne");
         command.execute(parse("autostart remove ScriptX"), spyCtx);
         assertTrue(output().contains("not found in auto-start"));
     }
@@ -190,19 +207,19 @@ class AutoStartCommandTest {
 
     @Test
     void enableAutoStart() {
-        profileStore.setAutoStart("PlayerOne", false);
-        CliContext spyCtx = spyWithAccount("PlayerOne");
+        profileStore.setAutoStart(UUID_PLAYER_ONE, false);
+        CliContext spyCtx = spyWithAccount(UUID_PLAYER_ONE, "PlayerOne");
         command.execute(parse("autostart enable"), spyCtx);
         assertTrue(output().contains("enabled"));
-        assertTrue(profileStore.isAutoStart("PlayerOne"));
+        assertTrue(profileStore.isAutoStart(UUID_PLAYER_ONE));
     }
 
     @Test
     void disableAutoStart() {
-        CliContext spyCtx = spyWithAccount("PlayerOne");
+        CliContext spyCtx = spyWithAccount(UUID_PLAYER_ONE, "PlayerOne");
         command.execute(parse("autostart disable"), spyCtx);
         assertTrue(output().contains("disabled"));
-        assertFalse(profileStore.isAutoStart("PlayerOne"));
+        assertFalse(profileStore.isAutoStart(UUID_PLAYER_ONE));
     }
 
     @Test
@@ -215,18 +232,20 @@ class AutoStartCommandTest {
 
     @Test
     void clearCurrentAccountProfile() {
-        profileStore.setAccountScripts("PlayerOne", List.of("Script1"));
-        CliContext spyCtx = spyWithAccount("PlayerOne");
+        profileStore.setAccountScripts(UUID_PLAYER_ONE, List.of("Script1"));
+        CliContext spyCtx = spyWithAccount(UUID_PLAYER_ONE, "PlayerOne");
         command.execute(parse("autostart clear"), spyCtx);
         assertTrue(output().contains("Cleared"));
-        assertTrue(profileStore.getAccountScripts("PlayerOne").isEmpty());
+        assertTrue(profileStore.getAccountScripts(UUID_PLAYER_ONE).isEmpty());
     }
 
     @Test
-    void clearSpecificAccount() {
-        profileStore.setAccountScripts("SomePlayer", List.of("Script1"));
+    void clearSpecificAccountByDisplayName() {
+        profileStore.setAccountScripts(UUID_SOMEPLAYER, List.of("Script1"));
+        profileStore.setDisplayName(UUID_SOMEPLAYER, "SomePlayer");
         command.execute(parse("autostart clear SomePlayer"), ctx);
         assertTrue(output().contains("Cleared"));
+        assertTrue(profileStore.getAccountScripts(UUID_SOMEPLAYER).isEmpty());
     }
 
     @Test

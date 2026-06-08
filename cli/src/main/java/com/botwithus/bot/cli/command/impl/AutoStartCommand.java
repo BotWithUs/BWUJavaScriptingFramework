@@ -64,7 +64,7 @@ public class AutoStartCommand implements Command {
     }
 
     private void listProfiles(CliContext ctx) {
-        Map<String, List<String>> accounts = profileStore.listAccountProfiles();
+        Map<String, ScriptProfileStore.ProfileSummary> accounts = profileStore.listAccountProfiles();
         Map<String, List<String>> groups = profileStore.listGroupProfiles();
 
         if (accounts.isEmpty() && groups.isEmpty()) {
@@ -77,13 +77,14 @@ public class AutoStartCommand implements Command {
             ctx.out().println("Account Profiles:");
             TableFormatter table = new TableFormatter().headers("Account", "Auto-Start", "Scripts");
             for (var entry : accounts.entrySet()) {
-                String name = entry.getKey();
-                boolean enabled = profileStore.isAutoStart(name);
-                String status = enabled
+                String uuid = entry.getKey();
+                ScriptProfileStore.ProfileSummary summary = entry.getValue();
+                String label = summary.displayName().isBlank() ? uuid : summary.displayName();
+                String status = summary.autoStart()
                         ? AnsiCodes.colorize("ON", AnsiCodes.GREEN)
                         : AnsiCodes.colorize("OFF", AnsiCodes.RED);
-                String scripts = entry.getValue().isEmpty() ? "(none)" : String.join(", ", entry.getValue());
-                table.row(name, status, scripts);
+                String scripts = summary.scripts().isEmpty() ? "(none)" : String.join(", ", summary.scripts());
+                table.row(label, status, scripts);
             }
             ctx.out().print(table.build());
         }
@@ -109,19 +110,23 @@ public class AutoStartCommand implements Command {
             ctx.out().println("Usage: autostart add <scriptName>");
             return;
         }
-        String accountName = getActiveAccountName(ctx);
-        if (accountName == null) {
+        String uuid = getActiveAccountUuid(ctx);
+        if (uuid == null) {
             return;
         }
+        String displayName = ctx.getActiveConnection().getAccountName();
 
-        List<String> scripts = new ArrayList<>(profileStore.getAccountScripts(accountName));
+        List<String> scripts = new ArrayList<>(profileStore.getAccountScripts(uuid));
         if (scripts.stream().anyMatch(s -> s.equalsIgnoreCase(scriptName))) {
-            ctx.out().println("Script '" + scriptName + "' already in auto-start for " + accountName + ".");
+            ctx.out().println("Script '" + scriptName + "' already in auto-start for " + displayName + ".");
             return;
         }
         scripts.add(scriptName);
-        profileStore.setAccountScripts(accountName, scripts);
-        ctx.out().println("Added '" + scriptName + "' to auto-start for " + accountName + ".");
+        profileStore.setAccountScripts(uuid, scripts);
+        if (displayName != null && !displayName.isBlank()) {
+            profileStore.setDisplayName(uuid, displayName);
+        }
+        ctx.out().println("Added '" + scriptName + "' to auto-start for " + displayName + ".");
     }
 
     private void removeScript(String scriptName, CliContext ctx) {
@@ -129,28 +134,30 @@ public class AutoStartCommand implements Command {
             ctx.out().println("Usage: autostart remove <scriptName>");
             return;
         }
-        String accountName = getActiveAccountName(ctx);
-        if (accountName == null) {
+        String uuid = getActiveAccountUuid(ctx);
+        if (uuid == null) {
             return;
         }
+        String displayName = ctx.getActiveConnection().getAccountName();
 
-        List<String> scripts = new ArrayList<>(profileStore.getAccountScripts(accountName));
+        List<String> scripts = new ArrayList<>(profileStore.getAccountScripts(uuid));
         boolean removed = scripts.removeIf(s -> s.equalsIgnoreCase(scriptName));
         if (!removed) {
-            ctx.out().println("Script '" + scriptName + "' not found in auto-start for " + accountName + ".");
+            ctx.out().println("Script '" + scriptName + "' not found in auto-start for " + displayName + ".");
             return;
         }
-        profileStore.setAccountScripts(accountName, scripts);
-        ctx.out().println("Removed '" + scriptName + "' from auto-start for " + accountName + ".");
+        profileStore.setAccountScripts(uuid, scripts);
+        ctx.out().println("Removed '" + scriptName + "' from auto-start for " + displayName + ".");
     }
 
     private void setEnabled(boolean enabled, CliContext ctx) {
-        String accountName = getActiveAccountName(ctx);
-        if (accountName == null) {
+        String uuid = getActiveAccountUuid(ctx);
+        if (uuid == null) {
             return;
         }
-        profileStore.setAutoStart(accountName, enabled);
-        ctx.out().println("Auto-start " + (enabled ? "enabled" : "disabled") + " for " + accountName + ".");
+        String displayName = ctx.getActiveConnection().getAccountName();
+        profileStore.setAutoStart(uuid, enabled);
+        ctx.out().println("Auto-start " + (enabled ? "enabled" : "disabled") + " for " + displayName + ".");
     }
 
     private void saveCurrentState(CliContext ctx) {
@@ -172,6 +179,10 @@ public class AutoStartCommand implements Command {
                 if (accountName != null && !accountName.isEmpty()) {
                     conn.setAccountName(accountName);
                     conn.setAccountInfo(info);
+                    String probedUuid = conn.getAccountUuid();
+                    if (probedUuid != null) {
+                        conn.getRuntime().setAccountUuid(probedUuid);
+                    }
                 }
             } catch (Exception e) {
                 ctx.out().println("Failed to probe account info: " + e.getMessage());
@@ -179,28 +190,55 @@ public class AutoStartCommand implements Command {
             }
         }
 
-        if (accountName == null || accountName.isBlank()) {
-            ctx.out().println("Cannot determine account name. Connect and log in first.");
+        String uuid = conn.getAccountUuid();
+        if (accountName == null || accountName.isBlank() || uuid == null || uuid.isBlank()) {
+            ctx.out().println("Cannot determine account. Connect and log in first.");
             return;
         }
 
         autoStartManager.saveState(conn);
-        List<String> saved = profileStore.getAccountScripts(accountName);
+        List<String> saved = profileStore.getAccountScripts(uuid);
         ctx.out().println("Saved profile for " + accountName + ": " + (saved.isEmpty() ? "(no running scripts)" : String.join(", ", saved)));
     }
 
-    private void clearProfile(String accountName, CliContext ctx) {
-        if (accountName == null) {
-            accountName = getActiveAccountName(ctx);
-            if (accountName == null) {
+    private void clearProfile(String accountArg, CliContext ctx) {
+        String uuid;
+        String label;
+        if (accountArg == null) {
+            uuid = getActiveAccountUuid(ctx);
+            if (uuid == null) {
                 return;
             }
-        }
-        if (profileStore.clearAccountProfile(accountName)) {
-            ctx.out().println("Cleared profile for " + accountName + ".");
+            label = ctx.getActiveConnection().getAccountName();
         } else {
-            ctx.out().println("No profile found for " + accountName + ".");
+            // Allow either a uuid or a display-name lookup against the stored hints.
+            uuid = resolveUuidFromArg(accountArg);
+            label = accountArg;
         }
+        if (profileStore.clearAccountProfile(uuid)) {
+            ctx.out().println("Cleared profile for " + label + ".");
+        } else {
+            ctx.out().println("No profile found for " + label + ".");
+        }
+    }
+
+    /**
+     * Maps a CLI argument to a stored {@code account_uuid}. Tries the argument
+     * verbatim first (the user may have copied the uuid), then falls back to a
+     * case-insensitive match against the {@code displayName} hint persisted on
+     * each profile.
+     */
+    private String resolveUuidFromArg(String arg) {
+        Map<String, ScriptProfileStore.ProfileSummary> profiles = profileStore.listAccountProfiles();
+        if (profiles.containsKey(arg)) {
+            return arg;
+        }
+        for (var entry : profiles.entrySet()) {
+            if (arg.equalsIgnoreCase(entry.getValue().displayName())) {
+                return entry.getKey();
+            }
+        }
+        return arg;
     }
 
     private void handleGroup(ParsedCommand parsed, CliContext ctx) {
@@ -262,18 +300,18 @@ public class AutoStartCommand implements Command {
         ctx.out().println("  scanInterval: " + profileStore.getScanIntervalMs() + "ms");
     }
 
-    private String getActiveAccountName(CliContext ctx) {
+    private String getActiveAccountUuid(CliContext ctx) {
         if (!ctx.hasActiveConnection()) {
             ctx.out().println("No active connection.");
             return null;
         }
         Connection conn = ctx.getActiveConnection();
-        String name = conn.getAccountName();
-        if (name == null || name.isBlank()) {
-            ctx.out().println("Account name not known. Use 'autostart save' to probe and save, or connect to a logged-in client.");
+        String uuid = conn.getAccountUuid();
+        if (uuid == null || uuid.isBlank()) {
+            ctx.out().println("Account not identified. Use 'autostart save' to probe and save, or connect to a logged-in client.");
             return null;
         }
-        return name;
+        return uuid;
     }
 
     private static String getString(Map<String, Object> map, String key) {

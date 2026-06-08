@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -12,6 +13,11 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ScriptProfileStoreTest {
+
+    private static final String UUID_ALICE = "acc-aaaa-bbbb";
+    private static final String UUID_BOB = "acc-cccc-dddd";
+    private static final String UUID_PLAYER_ONE = "acc-1111";
+    private static final String UUID_PLAYER_TWO = "acc-2222";
 
     @TempDir
     Path tempDir;
@@ -32,18 +38,18 @@ class ScriptProfileStoreTest {
     @Test
     void getAccountScripts_returnsEmptyForNewAccount() {
         ScriptProfileStore store = newStore();
-        List<String> scripts = store.getAccountScripts("PlayerOne");
+        List<String> scripts = store.getAccountScripts(UUID_PLAYER_ONE);
         assertTrue(scripts.isEmpty());
     }
 
     @Test
     void setAndGetAccountScripts() {
         ScriptProfileStore store = newStore();
-        store.setAccountScripts("PlayerOne", List.of("WoodcuttingScript", "FishingScript"));
+        store.setAccountScripts(UUID_PLAYER_ONE, List.of("WoodcuttingScript", "FishingScript"));
 
         // Read back with a fresh store instance to verify file persistence
         ScriptProfileStore store2 = newStore();
-        List<String> scripts = store2.getAccountScripts("PlayerOne");
+        List<String> scripts = store2.getAccountScripts(UUID_PLAYER_ONE);
         assertEquals(2, scripts.size());
         assertTrue(scripts.contains("WoodcuttingScript"));
         assertTrue(scripts.contains("FishingScript"));
@@ -52,10 +58,10 @@ class ScriptProfileStoreTest {
     @Test
     void setAccountScripts_overwritesPrevious() {
         ScriptProfileStore store = newStore();
-        store.setAccountScripts("PlayerOne", List.of("ScriptA", "ScriptB"));
-        store.setAccountScripts("PlayerOne", List.of("ScriptC"));
+        store.setAccountScripts(UUID_PLAYER_ONE, List.of("ScriptA", "ScriptB"));
+        store.setAccountScripts(UUID_PLAYER_ONE, List.of("ScriptC"));
 
-        List<String> scripts = store.getAccountScripts("PlayerOne");
+        List<String> scripts = store.getAccountScripts(UUID_PLAYER_ONE);
         assertEquals(1, scripts.size());
         assertEquals("ScriptC", scripts.getFirst());
     }
@@ -63,10 +69,10 @@ class ScriptProfileStoreTest {
     @Test
     void setAccountScripts_emptyListClearsScripts() {
         ScriptProfileStore store = newStore();
-        store.setAccountScripts("PlayerOne", List.of("ScriptA"));
-        store.setAccountScripts("PlayerOne", List.of());
+        store.setAccountScripts(UUID_PLAYER_ONE, List.of("ScriptA"));
+        store.setAccountScripts(UUID_PLAYER_ONE, List.of());
 
-        List<String> scripts = store.getAccountScripts("PlayerOne");
+        List<String> scripts = store.getAccountScripts(UUID_PLAYER_ONE);
         assertTrue(scripts.isEmpty());
     }
 
@@ -75,25 +81,47 @@ class ScriptProfileStoreTest {
     @Test
     void isAutoStart_defaultsToTrue() {
         ScriptProfileStore store = newStore();
-        assertTrue(store.isAutoStart("NewPlayer"));
+        assertTrue(store.isAutoStart("acc-fresh"));
     }
 
     @Test
     void setAndGetAutoStart() {
         ScriptProfileStore store = newStore();
-        store.setAutoStart("PlayerOne", false);
+        store.setAutoStart(UUID_PLAYER_ONE, false);
 
         ScriptProfileStore store2 = newStore();
-        assertFalse(store2.isAutoStart("PlayerOne"));
+        assertFalse(store2.isAutoStart(UUID_PLAYER_ONE));
     }
 
     @Test
     void setAutoStart_toggle() {
         ScriptProfileStore store = newStore();
-        store.setAutoStart("PlayerOne", false);
-        assertFalse(store.isAutoStart("PlayerOne"));
-        store.setAutoStart("PlayerOne", true);
-        assertTrue(store.isAutoStart("PlayerOne"));
+        store.setAutoStart(UUID_PLAYER_ONE, false);
+        assertFalse(store.isAutoStart(UUID_PLAYER_ONE));
+        store.setAutoStart(UUID_PLAYER_ONE, true);
+        assertTrue(store.isAutoStart(UUID_PLAYER_ONE));
+    }
+
+    // --- Display name hint ---
+
+    @Test
+    void setDisplayName_persistsAsHintReadableViaSummary() {
+        ScriptProfileStore store = newStore();
+        store.setAccountScripts(UUID_PLAYER_ONE, List.of("Foo"));
+        store.setDisplayName(UUID_PLAYER_ONE, "PlayerOne");
+
+        ScriptProfileStore store2 = newStore();
+        Map<String, ScriptProfileStore.ProfileSummary> summaries = store2.listAccountProfiles();
+        ScriptProfileStore.ProfileSummary summary = summaries.get(UUID_PLAYER_ONE);
+        assertNotNull(summary);
+        assertEquals("PlayerOne", summary.displayName());
+        assertEquals(List.of("Foo"), summary.scripts());
+    }
+
+    @Test
+    void getDisplayName_defaultsToEmpty() {
+        ScriptProfileStore store = newStore();
+        assertEquals("", store.getDisplayName(UUID_PLAYER_ONE));
     }
 
     // --- Group scripts ---
@@ -135,11 +163,11 @@ class ScriptProfileStoreTest {
     @Test
     void multipleAccountsAreSeparate() {
         ScriptProfileStore store = newStore();
-        store.setAccountScripts("PlayerOne", List.of("ScriptA"));
-        store.setAccountScripts("PlayerTwo", List.of("ScriptB", "ScriptC"));
+        store.setAccountScripts(UUID_PLAYER_ONE, List.of("ScriptA"));
+        store.setAccountScripts(UUID_PLAYER_TWO, List.of("ScriptB", "ScriptC"));
 
-        assertEquals(List.of("ScriptA"), store.getAccountScripts("PlayerOne"));
-        assertEquals(List.of("ScriptB", "ScriptC"), store.getAccountScripts("PlayerTwo"));
+        assertEquals(List.of("ScriptA"), store.getAccountScripts(UUID_PLAYER_ONE));
+        assertEquals(List.of("ScriptB", "ScriptC"), store.getAccountScripts(UUID_PLAYER_TWO));
     }
 
     // --- Listing profiles ---
@@ -153,15 +181,19 @@ class ScriptProfileStoreTest {
     @Test
     void listAccountProfiles_returnsAllAccounts() {
         ScriptProfileStore store = newStore();
-        store.setAccountScripts("Alice", List.of("Script1"));
-        store.setAccountScripts("Bob", List.of("Script2", "Script3"));
+        store.setAccountScripts(UUID_ALICE, List.of("Script1"));
+        store.setDisplayName(UUID_ALICE, "Alice");
+        store.setAccountScripts(UUID_BOB, List.of("Script2", "Script3"));
+        store.setDisplayName(UUID_BOB, "Bob");
 
-        Map<String, List<String>> profiles = store.listAccountProfiles();
+        Map<String, ScriptProfileStore.ProfileSummary> profiles = store.listAccountProfiles();
         assertEquals(2, profiles.size());
-        assertTrue(profiles.containsKey("Alice"));
-        assertTrue(profiles.containsKey("Bob"));
-        assertEquals(List.of("Script1"), profiles.get("Alice"));
-        assertEquals(List.of("Script2", "Script3"), profiles.get("Bob"));
+        assertTrue(profiles.containsKey(UUID_ALICE));
+        assertTrue(profiles.containsKey(UUID_BOB));
+        assertEquals(List.of("Script1"), profiles.get(UUID_ALICE).scripts());
+        assertEquals("Alice", profiles.get(UUID_ALICE).displayName());
+        assertEquals(List.of("Script2", "Script3"), profiles.get(UUID_BOB).scripts());
+        assertEquals("Bob", profiles.get(UUID_BOB).displayName());
     }
 
     @Test
@@ -181,17 +213,17 @@ class ScriptProfileStoreTest {
     @Test
     void clearAccountProfile_removesFile() {
         ScriptProfileStore store = newStore();
-        store.setAccountScripts("PlayerOne", List.of("Script1"));
-        assertFalse(store.getAccountScripts("PlayerOne").isEmpty());
+        store.setAccountScripts(UUID_PLAYER_ONE, List.of("Script1"));
+        assertFalse(store.getAccountScripts(UUID_PLAYER_ONE).isEmpty());
 
-        assertTrue(store.clearAccountProfile("PlayerOne"));
-        assertTrue(store.getAccountScripts("PlayerOne").isEmpty());
+        assertTrue(store.clearAccountProfile(UUID_PLAYER_ONE));
+        assertTrue(store.getAccountScripts(UUID_PLAYER_ONE).isEmpty());
     }
 
     @Test
     void clearAccountProfile_returnsFalseForNonExistent() {
         ScriptProfileStore store = newStore();
-        assertFalse(store.clearAccountProfile("Nobody"));
+        assertFalse(store.clearAccountProfile("acc-nobody"));
     }
 
     // --- Global settings ---
@@ -251,12 +283,12 @@ class ScriptProfileStoreTest {
     // --- Name sanitization ---
 
     @Test
-    void accountNameWithSpecialCharsIsSanitized() {
+    void accountKeyWithSpecialCharsIsSanitized() {
         ScriptProfileStore store = newStore();
-        store.setAccountScripts("Player One!", List.of("Script1"));
+        store.setAccountScripts("uuid with spaces!", List.of("Script1"));
 
         // Should still be retrievable with the same key
-        List<String> scripts = store.getAccountScripts("Player One!");
+        List<String> scripts = store.getAccountScripts("uuid with spaces!");
         assertEquals(List.of("Script1"), scripts);
     }
 
@@ -265,11 +297,11 @@ class ScriptProfileStoreTest {
     @Test
     void profileFileIsCreatedUnderBotwithus() {
         ScriptProfileStore store = newStore();
-        store.setAccountScripts("TestPlayer", List.of("MyScript"));
+        store.setAccountScripts("acc-testplayer", List.of("MyScript"));
 
         Path profilesDir = baseDir.resolve("profiles");
         assertTrue(Files.isDirectory(profilesDir));
-        assertTrue(Files.exists(profilesDir.resolve("TestPlayer.properties")));
+        assertTrue(Files.exists(profilesDir.resolve("acc-testplayer.properties")));
     }
 
     @Test
@@ -290,5 +322,60 @@ class ScriptProfileStoreTest {
 
         Path settingsFile = baseDir.resolve("autostart.properties");
         assertTrue(Files.exists(settingsFile));
+    }
+
+    // --- One-shot hard-cut migration ---
+
+    @Test
+    void migration_wipesLegacyFiles_andTouchesSentinel() throws IOException {
+        Path profilesDir = baseDir.resolve("profiles");
+        Path groupsDir = profilesDir.resolve("groups");
+        Path configDir = baseDir.resolve("config");
+        Files.createDirectories(groupsDir);
+        Files.createDirectories(configDir);
+
+        Path legacyProfile = profilesDir.resolve("Old.properties");
+        Path legacyConfigJson = configDir.resolve("SomeScript.json");
+        Path legacyConfigProps = configDir.resolve("Other.properties");
+        Path keepGroup = groupsDir.resolve("farm.properties");
+        Files.writeString(legacyProfile, "scripts=Foo\n");
+        Files.writeString(legacyConfigJson, "{}\n");
+        Files.writeString(legacyConfigProps, "k=v\n");
+        Files.writeString(keepGroup, "scripts=Bar\n");
+
+        // Constructing the store triggers the cleanup.
+        newStore();
+
+        Path sentinel = baseDir.resolve(".account-uuid-keying-v1");
+        assertTrue(Files.exists(sentinel), "sentinel must be written");
+        assertFalse(Files.exists(legacyProfile), "legacy display-name profile must be deleted");
+        assertFalse(Files.exists(legacyConfigJson), "legacy config json must be deleted");
+        assertFalse(Files.exists(legacyConfigProps), "legacy config properties must be deleted");
+        assertTrue(Files.exists(keepGroup), "group profile must be preserved");
+    }
+
+    @Test
+    void migration_isIdempotent_andLeavesNewLayoutAlone() throws IOException {
+        Path profilesDir = baseDir.resolve("profiles");
+        Path configDir = baseDir.resolve("config");
+        Path sentinel = baseDir.resolve(".account-uuid-keying-v1");
+        Files.createDirectories(profilesDir);
+        Files.createDirectories(configDir);
+        Files.createFile(sentinel);
+
+        // The sentinel exists, so a fresh post-migration uuid-keyed profile
+        // and a per-account config subdir must survive a second construction.
+        Path uuidProfile = profilesDir.resolve("acc-aaaa.properties");
+        Files.writeString(uuidProfile, "scripts=Foo\n");
+        Path uuidConfigDir = configDir.resolve("acc-aaaa");
+        Files.createDirectories(uuidConfigDir);
+        Path uuidConfigJson = uuidConfigDir.resolve("Bar.json");
+        Files.writeString(uuidConfigJson, "{}\n");
+
+        newStore();
+
+        assertTrue(Files.exists(sentinel));
+        assertTrue(Files.exists(uuidProfile), "new uuid-keyed profile must survive idempotent run");
+        assertTrue(Files.exists(uuidConfigJson), "per-account config subdir must survive");
     }
 }
