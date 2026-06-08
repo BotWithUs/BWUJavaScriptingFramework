@@ -23,12 +23,17 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v15 added the {@code groundItems[]} tail block — per-tick snapshot of every alive
+     *  ground-item stack within the loaded-scene tile bounds. Pairs with the host-side
+     *  rewire of GroundItems and SceneObjects facades onto the SHM snapshot (parity with
+     *  NPCs / Players), and retires {@code query_locations} / {@code query_ground_items}
+     *  RPCs.
      *  v14 added the {@code openIfaces[]} tail block — a per-tick snapshot of every entry in
      *  jag::InterfaceManager's open-subs hashmap, so {@code isInterfaceOpen}-style checks no
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 14;
+    public static final int PROTOCOL_VERSION = 15;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -46,6 +51,10 @@ public final class Layout {
     /** Mirrors {@code kOpenIfaceCap} in SharedLayout.h. Snapshot of the
      *  open-sub-interfaces hashmap; live counts are typically <20. */
     public static final int OPEN_IFACE_CAP     = 64;
+    /** Mirrors {@code kGroundItemCap} in SharedLayout.h. Cap on the per-tick
+     *  ground-item array; matches {@link #NPC_CAP} for symmetry, costs 16 KB
+     *  per buffer at {@link #GROUND_ITEM_ENTRY_SIZE} per row. */
+    public static final int GROUND_ITEM_CAP    = 1024;
 
     /** Bit flag shared between NpcEntry and PlayerEntry. */
     public static final int FLAG_MOVING = 1;
@@ -114,6 +123,22 @@ public final class Layout {
     public static final int LOC_SHAPE_OFFSET       = 17;   // u8
     public static final int LOC_ROTATION_OFFSET    = 18;   // u8
     public static final int LOC_FLAGS_OFFSET       = 19;   // u8
+
+    // ------------------------------------------------------------------
+    // GroundItemEntry (16 bytes) — mirrors ipc::GroundItemEntry in
+    // SharedLayout.h. One row per alive ObjEntry the producer found in the
+    // ObjStackList (v15+). itemId is the cache item type, quantity is the
+    // stack size (1 for non-stackables).
+    // ------------------------------------------------------------------
+
+    public static final int GROUND_ITEM_ENTRY_SIZE = 16;
+
+    public static final int GROUND_ITEM_ITEMID_OFFSET   = 0;    // i32
+    public static final int GROUND_ITEM_QUANTITY_OFFSET = 4;    // i32
+    public static final int GROUND_ITEM_TILEX_OFFSET    = 8;    // i16
+    public static final int GROUND_ITEM_TILEY_OFFSET    = 10;   // i16
+    public static final int GROUND_ITEM_PLANE_OFFSET    = 12;   // i8
+    // bytes 13..15 are trailing pad; not accessed
 
     // ------------------------------------------------------------------
     // PlayerEntry (24 bytes)
@@ -245,13 +270,25 @@ public final class Layout {
     public static final int SNAP_OPENIFACECOUNT_OFFSET = SNAP_PRODUCER_OFFSET + PRODUCER_SIZE;
     public static final int SNAP_OPENIFACES_OFFSET     = SNAP_OPENIFACECOUNT_OFFSET + 4;
 
-    // 4-byte explicit trailing pad: openIfaceCount(4) + openIfaces[64](256) =
-    // 260, which lands at 4 mod 8. ProducerState aligns Snapshot to 8 so the
-    // C++ compiler inserts implicit trailing padding; mirroring it here keeps
-    // SNAPSHOT_SIZE = sizeof(Snapshot). See SharedLayout.h Snapshot::_padTail.
-    public static final int SNAPSHOT_SIZE = SNAP_OPENIFACES_OFFSET
-                                          + OPEN_IFACE_CAP * 4
-                                          + 4;
+    // ------------------------------------------------------------------
+    // Ground items tail (v15+)
+    //
+    // Per-tick snapshot of every alive ground-item stack within the
+    // loaded-scene tile bounds, captured from the producer's ObjStackList
+    // walk. Membership in this array is the canonical "what's on the
+    // ground" signal — host facades scan it locally instead of paying a
+    // per-tick RPC round-trip. Replaces the retired query_ground_items.
+    // ------------------------------------------------------------------
+
+    public static final int SNAP_GROUNDITEMCOUNT_OFFSET = SNAP_OPENIFACES_OFFSET
+                                                        + OPEN_IFACE_CAP * 4;
+    public static final int SNAP_GROUNDITEMS_OFFSET     = SNAP_GROUNDITEMCOUNT_OFFSET + 4;
+
+    // No trailing pad: openIfaces ended at offset 4 mod 8; adding
+    // groundItemCount(4) + groundItems[1024]*16 = 16388 brings the
+    // running offset to 0 mod 8, matching Snapshot's alignof-8 anchor.
+    public static final int SNAPSHOT_SIZE = SNAP_GROUNDITEMS_OFFSET
+                                          + GROUND_ITEM_CAP * GROUND_ITEM_ENTRY_SIZE;
 
     // ------------------------------------------------------------------
     // Event ring

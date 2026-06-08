@@ -3,6 +3,7 @@ package com.botwithus.bot.api.entities;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.ItemType;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,8 +17,10 @@ import java.util.stream.Stream;
  * Ground-item query facade. Singleton per {@link GameAPI}; obtain via
  * {@code api.groundItems()}.
  *
- * <p>RPC-backed (same shape as {@link SceneObjects}). Stub-empty until the
- * producer-side ObjStackList iteration lands.</p>
+ * <p>Snapshot-backed (v15+) — reads from {@code api.snapshot().groundItems()}
+ * each time the source is materialised, mirroring the {@link Npcs} and
+ * {@link SceneObjects} pattern. The producer publishes every alive ground
+ * stack within the loaded-scene tile bounds each tick.</p>
  *
  * <pre>{@code
  * GroundItem coins = api.groundItems().query()
@@ -64,9 +67,6 @@ public final class GroundItems {
 
     public static final class Query extends EntityQuery<GroundItem, Query> {
         private final IntFunction<ItemType> typeLookup;
-        private static final int RPC_PULL_CAP = 256;
-        /** Tile radius around the local player covered by the default ground-item query. */
-        private static final int DEFAULT_QUERY_RADIUS_TILES = 64;
 
         Query(GameAPI api, IntFunction<ItemType> typeLookup) {
             super(api);
@@ -75,12 +75,25 @@ public final class GroundItems {
 
         @Override
         protected Stream<GroundItem> source() {
-            var lp = api.getLocalPlayer();
-            int cx = lp == null ? 0 : lp.tileX();
-            int cy = lp == null ? 0 : lp.tileY();
-            int cp = lp == null ? -1 : lp.plane();
-            List<GroundItemInfo> raw = api.queryGroundItems(cx, cy, DEFAULT_QUERY_RADIUS_TILES, cp, RPC_PULL_CAP);
-            return raw.stream().map(info -> new GroundItem(api, info, typeLookup));
+            // Producer already drops empty/dead stacks; consumer-side filters
+            // (named, withId, withinDistance, ...) compose downstream.
+            // handle == itemId mirrors the retired RPC convention so the rich
+            // GroundItem.interact path keeps the action queue's param1 stable.
+            GameSnapshot snap = api.snapshot();
+            if (snap == null) {
+                return Stream.empty();
+            }
+            return snap.groundItems().stream()
+                    .map(g -> new GroundItem(
+                            api,
+                            new GroundItemInfo(
+                                    g.itemId(),  // handle
+                                    g.itemId(),
+                                    g.quantity(),
+                                    g.tileX(),
+                                    g.tileY(),
+                                    g.plane()),
+                            typeLookup));
         }
 
         /**
