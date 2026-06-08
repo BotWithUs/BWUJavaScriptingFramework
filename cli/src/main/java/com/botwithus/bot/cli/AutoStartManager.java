@@ -71,15 +71,26 @@ public class AutoStartManager {
 
         conn.setAccountName(displayName);
 
+        String uuid = conn.getAccountUuid();
+        if (uuid == null || uuid.isBlank()) {
+            out().println("[AutoStart] No accountUuid for " + displayName
+                    + " — agent reply missing the field; auto-start skipped.");
+            return;
+        }
+
+        // Push the uuid into the runtime so any scripts registered against this
+        // connection persist their config under the right per-account bucket.
+        conn.getRuntime().setAccountUuid(uuid);
+
         // Wire state change callback to auto-save
         conn.getRuntime().setOnStateChange(() -> saveState(conn));
 
-        if (!profileStore.isAutoStart(displayName)) {
+        if (!profileStore.isAutoStart(uuid)) {
             out().println("[AutoStart] Auto-start disabled for " + displayName + ".");
             return;
         }
 
-        List<String> scriptNames = profileStore.getAccountScripts(displayName);
+        List<String> scriptNames = profileStore.getAccountScripts(uuid);
         if (scriptNames.isEmpty()) {
             out().println("[AutoStart] No scripts configured for " + displayName + ".");
             return;
@@ -124,8 +135,8 @@ public class AutoStartManager {
      * Saves the current running script state for a connection's account.
      */
     public void saveState(Connection conn) {
-        String accountName = conn.getAccountName();
-        if (accountName == null || accountName.isBlank()) {
+        String uuid = conn.getAccountUuid();
+        if (uuid == null || uuid.isBlank()) {
             return;
         }
 
@@ -134,7 +145,11 @@ public class AutoStartManager {
                 .map(ScriptRunner::getScriptName)
                 .toList();
 
-        profileStore.setAccountScripts(accountName, runningScripts);
+        profileStore.setAccountScripts(uuid, runningScripts);
+        String displayName = conn.getAccountName();
+        if (displayName != null && !displayName.isBlank()) {
+            profileStore.setDisplayName(uuid, displayName);
+        }
     }
 
     /**

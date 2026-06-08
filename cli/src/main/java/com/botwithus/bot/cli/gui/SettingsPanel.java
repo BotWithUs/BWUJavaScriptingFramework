@@ -169,7 +169,7 @@ public class SettingsPanel implements GuiPanel {
     }
 
     private void renderAutoStartProfiles(ScriptProfileStore store) {
-        Map<String, List<String>> profiles = store.listAccountProfiles();
+        Map<String, ScriptProfileStore.ProfileSummary> profiles = store.listAccountProfiles();
         if (profiles.isEmpty()) {
             renderEmptyState(Icons.USERS, "No saved profiles",
                     "Use the Accounts panel to save an account + script selection for auto-start.");
@@ -194,33 +194,33 @@ public class SettingsPanel implements GuiPanel {
         }
     }
 
-    private static void renderAutoStartProfileRow(ScriptProfileStore store, String account,
-                                                  List<String> scripts, int idx) {
+    private static void renderAutoStartProfileRow(ScriptProfileStore store, String accountUuid,
+                                                  ScriptProfileStore.ProfileSummary summary, int idx) {
         ImGui.tableNextRow();
 
         ImGui.tableSetColumnIndex(0);
+        String label = summary.displayName().isBlank() ? accountUuid : summary.displayName();
         ImGui.textColored(
-                ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f, account);
+                ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f, label);
 
         ImGui.tableSetColumnIndex(1);
-        if (scripts.isEmpty()) {
+        if (summary.scripts().isEmpty()) {
             GuiHelpers.textMuted("none");
         } else {
-            GuiHelpers.textSecondary(String.join(" · ", scripts));
+            GuiHelpers.textSecondary(String.join(" · ", summary.scripts()));
         }
 
         ImGui.tableSetColumnIndex(2);
         ImGui.pushID("as_toggle_" + idx);
-        boolean enabled = store.isAutoStart(account);
-        if (GuiHelpers.toggleSwitch("##t", enabled)) {
-            store.setAutoStart(account, !enabled);
+        if (GuiHelpers.toggleSwitch("##t", summary.autoStart())) {
+            store.setAutoStart(accountUuid, !summary.autoStart());
         }
         ImGui.popID();
 
         ImGui.tableSetColumnIndex(3);
         ImGui.pushID("as_clear_" + idx);
         if (GuiHelpers.smallButtonDanger("Clear")) {
-            store.clearAccountProfile(account);
+            store.clearAccountProfile(accountUuid);
         }
         ImGui.popID();
     }
