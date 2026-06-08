@@ -34,7 +34,7 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 
 ### Machine-specific paths (`local.properties`)
 
-Absolute paths that differ per developer must **not** be committed. They live in `local.properties` at the project root (git-ignored); copy `local.properties.example` to start. The `Project.localProperty(key, envVar?)` helper in `buildSrc` resolves each key in order: Gradle project property (`-Pkey=` / `gradle.properties`) → `local.properties` → environment variable. Supported keys: `bwu.loaderDll` (source for the bundled `/native/bwu.dll`), `nxtcache.dll`, `nxtcache.path`, `jlink.javaHome`, `navDataDir`. Use forward slashes in `.properties` files — a backslash is an escape char.
+Absolute paths that differ per developer must **not** be committed. They live in `local.properties` at the project root (git-ignored); copy `local.properties.example` to start. The `Project.localProperty(key, envVar?)` helper in `buildSrc` resolves each key in order: Gradle project property (`-Pkey=` / `gradle.properties`) → `local.properties` → environment variable. Supported keys: `nxtcache.dll`, `nxtcache.path`, `worldwalker.dll`, `worldwalker.artifact`, `jlink.javaHome`, `navDataDir`. Use forward slashes in `.properties` files — a backslash is an escape char.
 
 ## Module Architecture
 
@@ -44,7 +44,7 @@ Five Gradle subprojects with strict dependency layering:
 api                 (slf4j-api)                — Public interfaces, models, snapshot view, query filters
   ↑ required by
 core                (api + msgpack + logback   — Pipe + SHM transport, RPC client, script runtime,
-                     + bouncycastle + panama)    Maven resolver, loader DLL bridge
+                     + bouncycastle + panama)    Maven resolver, cache + pathfinder bridges
   ↑ required by                                ↑
 cli                 (api + core + imgui)       test-support  (api)
                                                — Mocks for scripts: MockGameAPI, MockScriptContext,
@@ -70,7 +70,6 @@ Pure interface module (sole runtime dependency: `slf4j-api`, exposed transitivel
 - **`event/`** — `EventBus` (game-event push from the producer) and event types.
 - **`isc/`** — Inter-Script Communication: `MessageBus` (request/response) + `SharedState` (thread-safe KV).
 - **`script/`** — `ManagementScript` SPI (cross-client orchestration), `ScriptManager`, `ScriptScheduler`, `TaskScript`, `ClientOrchestrator`.
-- **`launcher/GameLauncher`** — Abstraction for the loader DLL (login, accounts, launch+library-load); concrete impl in `core/loader/`.
 - **`ui/ScriptUI`** — Hook for scripts to render their own ImGui tab.
 - **`config/`** — `ConfigField` + `ScriptConfig` for runtime-editable, persisted script parameters.
 
@@ -84,7 +83,7 @@ Runtime, transports, RPC, script discovery, native bridges:
 - **`msgpack/MessagePackCodec`** — Serialization via `org.msgpack:msgpack-core:0.9.8`.
 - **`impl/`** — Concrete implementations: `GameAPIImpl`, `EventBusImpl`, `ClientImpl`, `ClientProviderImpl`, `ScriptContextImpl`, `ScriptManagerImpl`, `ScriptSchedulerImpl`, `MessageBusImpl`, `SharedStateImpl`, `Walker`, plus `impl/snapshot/` for the snapshot view backed by `SharedRegion`.
 - **`runtime/`** — Script lifecycle: `LocalScriptLoader` (filesystem JAR discovery), `SDNScriptLoader` (signed-network distribution), `ManagementScriptLoader`, `ScriptRunner` (per-script virtual thread; sets MDC `script.name` and `connection.name`), `ScriptRuntime`, `ScriptProfiler`, `ConnectionContext`.
-- **`loader/`** — Panama FFI bridge to `bwu.dll` (the BotWithUs-Loader: auth, account management, agent download, DLL library load). `BwuClient` (high-level wrapper), `BwuNative` (downcall handles), `BwuLayouts` (struct layouts), `NativeCache` (resolves the `~/.botwithus/native/` path; cache is populated externally by the loader DLL).
+- **`util/NativeCache`** — Path-only resolver for the `~/.botwithus/native/` directory where the NXTCache and WorldWalker DLLs live. Populated by a separate loader (out-of-band from the host); dev work can bypass with `-Dnxtcache.dll=…` / `-Dworldwalker.dll=…` overrides.
 - **`resolver/`** — Maven-coordinate script installer: discovers versions via `maven-metadata.xml`, fetches JAR + `.sha1`/`.sha256`/`.asc` sidecars, optional PGP verification, writes to `scripts/`, tracks installs in `~/.botwithus/installed-scripts.json`. Repository drivers are plugged in via `RepositoryDriver` ServiceLoader SPI.
 - **`crypto/`** — `SdnLoader` reflects into a JVM-injected `jdk.internal.sdn.SdnClassLoader` for signed scripts (see *Java rules exceptions* below).
 - **`cache/`** — Lazy NXT cache reader for cache-resident asset queries.
