@@ -218,7 +218,7 @@ public class TopBar {
         if (counts.connections() == 0) {
             return "offline";
         }
-        return counts.connections() + (counts.connections() == 1 ? " conn" : " conns")
+        return counts.connections() + (counts.connections() == 1 ? " client" : " clients")
                 + "  ·  " + counts.runningScripts() + " running";
     }
 

@@ -243,7 +243,7 @@ public class ImGuiApp extends Application {
     }
 
     private void setupTheme() {
-        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable);
+        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable | ImGuiConfigFlags.NavEnableKeyboard);
         ImGuiTheme.apply(dpiScale);
     }
 
