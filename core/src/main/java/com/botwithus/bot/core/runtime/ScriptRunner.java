@@ -53,6 +53,7 @@ public class ScriptRunner implements Runnable {
     private volatile CountDownLatch stopLatch;
     private Thread thread;
     private String connectionName;
+    private String accountUuid;
 
     @FunctionalInterface
     public interface ErrorHandler {
@@ -206,6 +207,20 @@ public class ScriptRunner implements Runnable {
         return connectionName;
     }
 
+    /**
+     * Sets the stable {@code account_uuid} this runner persists its config
+     * under. When {@code null}, persistence is skipped (load returns defaults,
+     * save is a no-op) — this only happens in test seams where the runner is
+     * constructed without going through {@link ScriptRuntime#registerScript}.
+     */
+    public void setAccountUuid(String accountUuid) {
+        this.accountUuid = accountUuid;
+    }
+
+    public String getAccountUuid() {
+        return accountUuid;
+    }
+
     public List<ConfigField> getConfigFields() {
         return script.getConfigFields();
     }
@@ -223,7 +238,12 @@ public class ScriptRunner implements Runnable {
     public void applyConfig(ScriptConfig config) {
         currentConfig.set(config);
         String name = getScriptName();
-        Thread.startVirtualThread(() -> ScriptConfigStore.save(name, config));
+        String uuid = accountUuid;
+        if (uuid == null) {
+            log.info("applyConfig({}): no accountUuid set, skipping persist", name);
+        } else {
+            Thread.startVirtualThread(() -> ScriptConfigStore.save(name, uuid, config));
+        }
         try {
             script.onConfigUpdate(config);
         } catch (Exception e) {
@@ -274,10 +294,14 @@ public class ScriptRunner implements Runnable {
     }
 
     private void loadPersistedConfig(String name) {
+        if (accountUuid == null) {
+            log.info("loadPersistedConfig({}): no accountUuid set, using field defaults", name);
+            return;
+        }
         try {
             List<ConfigField> fields = script.getConfigFields();
             if (fields != null && !fields.isEmpty()) {
-                ScriptConfig config = ScriptConfigStore.load(name, fields);
+                ScriptConfig config = ScriptConfigStore.load(name, accountUuid, fields);
                 currentConfig.set(config);
                 script.onConfigUpdate(config);
             }

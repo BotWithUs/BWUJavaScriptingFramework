@@ -15,7 +15,6 @@ module com.botwithus.bot.api {
     exports com.botwithus.bot.api.constants;
     exports com.botwithus.bot.api.diag;
     exports com.botwithus.bot.api.log;
-    exports com.botwithus.bot.api.launcher;
     exports com.botwithus.bot.api.script;
     exports com.botwithus.bot.api.ui;
     exports com.botwithus.bot.api.runtime;

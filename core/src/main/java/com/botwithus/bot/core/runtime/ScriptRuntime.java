@@ -25,6 +25,7 @@ public class ScriptRuntime {
     private final Consumer<GameEvent> eventSink;
     private final List<ScriptRunner> runners = new CopyOnWriteArrayList<>();
     private String connectionName;
+    private String accountUuid;
     private Runnable onStateChange;
     private Function<String, ScriptContextPublisher> publisherFactory;
 
@@ -63,6 +64,26 @@ public class ScriptRuntime {
 
     public String getConnectionName() {
         return connectionName;
+    }
+
+    /**
+     * Sets the stable {@code account_uuid} this runtime is bound to. Propagated
+     * to every {@link ScriptRunner} created via {@link #registerScript} so
+     * persisted per-script config lands in the right per-account bucket
+     * (see {@link com.botwithus.bot.core.config.ScriptConfigStore}). Already-
+     * registered runners are updated in place so a uuid that arrives after the
+     * runners (e.g. account-info resolves after auto-start registers scripts)
+     * still reaches them.
+     */
+    public void setAccountUuid(String accountUuid) {
+        this.accountUuid = accountUuid;
+        for (ScriptRunner runner : runners) {
+            runner.setAccountUuid(accountUuid);
+        }
+    }
+
+    public String getAccountUuid() {
+        return accountUuid;
     }
 
     public void setOnStateChange(Runnable callback) {
@@ -106,6 +127,9 @@ public class ScriptRuntime {
                 connectionCleaner, eventSink, publisher);
         if (connectionName != null) {
             runner.setConnectionName(connectionName);
+        }
+        if (accountUuid != null) {
+            runner.setAccountUuid(accountUuid);
         }
         runners.add(runner);
         return runner;

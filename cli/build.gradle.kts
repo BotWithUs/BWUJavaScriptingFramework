@@ -92,30 +92,6 @@ tasks.named<JavaExec>("run") {
         ?.let { jvmArgs("-Dworldwalker.dll=$it") }
     project.localProperty("worldwalker.artifact", "WORLDWALKER_ARTIFACT")
         ?.let { jvmArgs("-Dworldwalker.artifact=$it") }
-
-    // Optional: LOCAL_TEST heartbeat redirect. Forwarded to the loader at
-    // startup via BwuClient.setHeartbeatEndpoint (debug bwu.dll only — the
-    // export is compiled out in Release). See RUN-LOCAL.md.
-    project.localProperty("bwu.heartbeat.host", "BWU_HEARTBEAT_HOST")
-        ?.let { jvmArgs("-Dbwu.heartbeat.host=$it") }
-    project.localProperty("bwu.heartbeat.port", "BWU_HEARTBEAT_PORT")
-        ?.let { jvmArgs("-Dbwu.heartbeat.port=$it") }
-    project.localProperty("bwu.heartbeat.skipCertPin", "BWU_HEARTBEAT_SKIP_CERT_PIN")
-        ?.let { jvmArgs("-Dbwu.heartbeat.skipCertPin=$it") }
-
-    // Optional: agent license pubkey override. Picked up by NXTLibrary.dll
-    // (debug build) via the BWU_DEV_LICENSE_PUBKEY env var. We set it on
-    // *this* JVM, and bwu.dll's CreateProcessW for the game client inherits
-    // the env block by default — so the agent sees it when it loads.
-    val devPubKeyHex = project.localProperty("bwu.license.devPubKeyHex", "BWU_DEV_LICENSE_PUBKEY")
-    val devPubKeyFile = project.localProperty("bwu.license.devPubKeyHexFile", "BWU_DEV_LICENSE_PUBKEY_FILE")
-    val resolvedDevPubKey = devPubKeyFile
-        ?.let { path ->
-            val f = file(path)
-            if (f.isFile) f.readText().trim() else null
-        }
-        ?: devPubKeyHex
-    resolvedDevPubKey?.let { environment("BWU_DEV_LICENSE_PUBKEY", it) }
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink
@@ -148,8 +124,8 @@ jlink {
         name = "jbot"
         jvmArgs = listOf(
             // FFM downcalls in com.botwithus.bot.core (NXTCache, Kernel32 shm
-            // bindings, Panama bridge to bwu.dll) hit the restricted Linker
-            // API. Future JDKs will refuse without opt-in.
+            // bindings, WorldWalker) hit the restricted Linker API. Future
+            // JDKs will refuse without opt-in.
             //
             // forceMerge("lwjgl") relocates LWJGL into the synthetic
             // com.botwithus.merged.module — LWJGL's System.load() trips the
@@ -292,133 +268,3 @@ val renameMsi by tasks.registering {
 }
 
 tasks.named("jpackage").configure { finalizedBy(renameMsi) }
-
-// ── bundle a freshly-built release bwu.dll (optional overlay) ──────────────
-// The app resolves bwu.dll at runtime via BwuClient.resolve():
-//   1) BWU_DLL_PATH env var  (the dev / debug override),
-//   2) ./bwu.dll next to the executable,
-//   3) the bundled /native/bwu.dll resource.
-// This module is the one whose /native/bwu.dll the app actually reads
-// (BwuClient.resolve(getClass()) anchors on a cli class, and modular
-// resource lookup is module-local).
-//
-// A committed baseline lives at src/main/resources/native/bwu.dll, so an
-// open-source checkout always ships *some* loader and `./gradlew build`
-// never fails. When a freshly-built release DLL is available — bwu.loaderDll
-// in local.properties, or the default sibling-repo path — this task overlays
-// it on top of that baseline (the overlay wins; see processResources below).
-// When it is absent the overlay is emptied and the committed baseline ships:
-// a missing DLL never breaks the build. The dev inner loop normally just sets
-// BWU_DLL_PATH and skips bundling entirely.
-val loaderDllPath = localProperty("bwu.loaderDll")
-    ?: "${rootDir}/../BotWithUs-Loader/cmake-build-release/bwu.dll"
-val loaderDllSource = file(loaderDllPath)
-val loaderOverlayDir = layout.buildDirectory.dir("generated/loader-resource")
-
-val bundleLoaderDll by tasks.registering(Sync::class) {
-    description = "Overlay a freshly-built release bwu.dll onto the bundled /native/bwu.dll"
-    group = "build"
-    // Sync empties the destination first, so a DLL bundled by an earlier
-    // build is dropped once the source path stops resolving — no stale overlay.
-    into(loaderOverlayDir.map { it.dir("native") })
-    if (loaderDllSource.isFile) {
-        from(loaderDllSource)
-    }
-    doFirst {
-        if (!loaderDllSource.isFile) {
-            logger.lifecycle(
-                "Release bwu.dll not found at {} — cli JAR ships the committed " +
-                    "baseline /native/bwu.dll. Set bwu.loaderDll in local.properties " +
-                    "to bundle your build, or use BWU_DLL_PATH at runtime.",
-                loaderDllSource,
-            )
-        }
-    }
-}
-
-sourceSets["main"].resources.srcDir(loaderOverlayDir)
-
-// ── bwu.dll release-hygiene gate ───────────────────────────────────────────
-// bwu.dll is the auth bootstrap shipped inside the CLI jar. Because this repo
-// is open source and the DLL is a committed binary blob, this gate fails the
-// build if a *debug* build, or one carrying *symbols / a PDB path*, is ever
-// committed in its place:
-//   - debug build  → links the debug CRT (vcruntime###d.dll / ucrtbased.dll /
-//                    msvcr###d.dll …). A release links the non-debug CRT.
-//   - symbols leak → a CodeView record ("RSDS") and/or an embedded *.pdb path
-//                    that reveals the developer's local build directory.
-// It is a pure byte scan (no PE parser, no external toolchain) so it runs on
-// any OS that builds the jar. The shipped release DLL imports only
-// KERNEL32.dll + VCRUNTIME140.dll and embeds no PDB path, so it passes.
-val bwuDll = layout.projectDirectory.file("src/main/resources/native/bwu.dll")
-
-val verifyBwuDll by tasks.registering {
-    description = "Fails the build if the bundled bwu.dll is a debug build or carries symbols/PDB info."
-    group = "verification"
-    val dllFile = bwuDll.asFile
-    onlyIf { dllFile.exists() }
-    inputs.file(bwuDll).optional()
-    val marker = layout.buildDirectory.file("bwu-dll-verified.txt")
-    outputs.file(marker)
-    doLast {
-        val bytes = dllFile.readBytes()
-        // ISO-8859-1 is a 1:1 byte→char map, so raw byte patterns survive intact.
-        val text = String(bytes, Charsets.ISO_8859_1)
-
-        // Debug CRT import names — present only in a Debug build. The trailing
-        // `d` before `.dll` is what distinguishes them from the release CRT
-        // (vcruntime140d.dll vs vcruntime140.dll; ucrtbased.dll vs ucrtbase.dll).
-        val debugCrt = Regex(
-            "((vcruntime|msvcr|msvcp|concrt|vccorlib)\\d+d|ucrtbased)\\.dll",
-            RegexOption.IGNORE_CASE,
-        ).findAll(text).map { it.value.lowercase() }.distinct().sorted().toList()
-
-        // Embedded PDB path(s) — a maximal printable run ending in ".pdb".
-        val pdbPaths = Regex("[ -~]+\\.pdb", RegexOption.IGNORE_CASE)
-            .findAll(text).map { it.value }.distinct().toList()
-        val hasCodeView = text.contains("RSDS")
-
-        val problems = buildList {
-            if (debugCrt.isNotEmpty()) {
-                add("debug CRT imports → debug build: ${debugCrt.joinToString()}")
-            }
-            if (pdbPaths.isNotEmpty()) {
-                add("embedded PDB path → symbols leak: ${pdbPaths.joinToString()}")
-            } else if (hasCodeView) {
-                add("CodeView debug record (\"RSDS\") present → symbols leak")
-            }
-        }
-
-        if (problems.isNotEmpty()) {
-            throw GradleException(
-                "bwu.dll failed the release-hygiene gate ($dllFile):\n" +
-                    problems.joinToString("\n") { "  - $it" } +
-                    "\nReplace it with a Release build linked against the non-debug CRT and " +
-                    "stripped of debug info (e.g. link with /DEBUG:NONE, or strip the PDB " +
-                    "reference post-link). See BotWithUs-Loader for the build."
-            )
-        }
-        val out = marker.get().asFile
-        out.parentFile.mkdirs()
-        out.writeText("bwu.dll passed release-hygiene gate (${bytes.size} bytes)\n")
-        logger.lifecycle(
-            "bwu.dll release-hygiene gate passed: ${bytes.size} bytes, no debug CRT, no PDB path."
-        )
-    }
-}
-
-// Gate the DLL before it is bundled into the jar/image, and on `check` (so
-// `build`, which depends on both, always runs it). processResources is the
-// task that copies src/main/resources — including bwu.dll — into the output.
-// The gate scans the *committed* baseline only; the optional overlay is a
-// developer's local, uncommitted build.
-tasks.named<Copy>("processResources").configure {
-    dependsOn(verifyBwuDll, bundleLoaderDll)
-    // Both the committed baseline (src/main/resources/native/bwu.dll) and the
-    // overlay (generated/loader-resource, populated by bundleLoaderDll only
-    // when a freshly-built release DLL is found) contribute native/bwu.dll.
-    // The overlay srcDir is registered last, so INCLUDE lets the freshly-built
-    // release DLL win; when the overlay is empty the committed baseline ships.
-    duplicatesStrategy = DuplicatesStrategy.INCLUDE
-}
-tasks.named("check").configure { dependsOn(verifyBwuDll) }
