@@ -76,7 +76,7 @@ public class ScriptsPanel implements GuiPanel {
         var connections = new ArrayList<>(ctx.getConnections());
         if (connections.isEmpty()) {
             ImGui.spacing();
-            GuiHelpers.textMuted("No active connections. Connect first via the Connections tab.");
+            GuiHelpers.textSecondary("No active connections. Connect first via the Connections tab.");
             return;
         }
         renderConnectionSelector(connections);
@@ -88,7 +88,7 @@ public class ScriptsPanel implements GuiPanel {
         if (runners.isEmpty()) {
             ImGui.spacing();
             ImGui.spacing();
-            GuiHelpers.textMuted("No scripts loaded. Click 'Reload' to discover scripts.");
+            GuiHelpers.textSecondary("No scripts loaded. Click 'Reload' to discover scripts.");
             return;
         }
 

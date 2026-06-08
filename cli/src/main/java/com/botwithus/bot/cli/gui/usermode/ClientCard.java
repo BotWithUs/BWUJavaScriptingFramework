@@ -214,7 +214,7 @@ public class ClientCard {
         GuiHelpers.subtleSeparator();
         ImGui.spacing();
 
-        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.85f,
+        ImGui.textColored(ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.95f,
                 Icons.STOP + "  Pick a script to run");
         ImGui.dummy(0f, ImGui.getStyle().getItemSpacingY() * 0.5f);
 
