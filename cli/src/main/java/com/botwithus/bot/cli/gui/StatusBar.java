@@ -67,17 +67,13 @@ public class StatusBar {
     }
 
     private static void renderConnectionCountChip(int connCount, float gap) {
-        ImGui.sameLine(0, gap);
-        GuiHelpers.inlineDotSep();
-        ImGui.sameLine(0, gap * 0.5f);
+        ImGui.sameLine(0, gap * 1.5f);
         GuiHelpers.metricChip("conn", String.valueOf(connCount),
                 ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B);
     }
 
     private static void renderRunningScriptsChip(int runningScripts, float gap) {
-        ImGui.sameLine(0, gap);
-        GuiHelpers.inlineDotSep();
-        ImGui.sameLine(0, gap * 0.5f);
+        ImGui.sameLine(0, gap * 1.5f);
         if (runningScripts > 0) {
             GuiHelpers.metricChip(runningScripts == 1 ? "script" : "scripts",
                     String.valueOf(runningScripts),
@@ -88,17 +84,13 @@ public class StatusBar {
     }
 
     private static void renderMountedBadge(String mountedName, float gap) {
-        ImGui.sameLine(0, gap);
-        GuiHelpers.inlineDotSep();
-        ImGui.sameLine(0, gap * 0.5f);
+        ImGui.sameLine(0, gap * 1.5f);
         GuiHelpers.statusBadge("mounted · " + mountedName,
                 ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B);
     }
 
     private static void renderWatcherBadge(float gap) {
-        ImGui.sameLine(0, gap);
-        GuiHelpers.inlineDotSep();
-        ImGui.sameLine(0, gap * 0.5f);
+        ImGui.sameLine(0, gap * 1.5f);
         GuiHelpers.statusBadge("watching",
                 ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B);
     }

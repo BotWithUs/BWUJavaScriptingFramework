@@ -6,6 +6,7 @@ import com.botwithus.bot.cli.gui.CategoryStyle;
 import com.botwithus.bot.cli.gui.GuiHelpers;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
+import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImDrawList;
@@ -150,6 +151,10 @@ public class ClientCard {
             action = renderDisconnected(connection, cardIndex);
         } else if (activeRunner != null) {
             action = renderRunning(connection, activeRunner, cardIndex);
+        } else if (connection.getAccountName() == null) {
+            // Pipe is open but the get_account_info reply hasn't landed yet —
+            // briefly shimmer in place so the card never reads as "broken".
+            action = renderWarming(connection, cardIndex);
         } else {
             action = renderIdle(connection, cardIndex);
         }
@@ -205,6 +210,42 @@ public class ClientCard {
                 ImGui.getContentRegionAvailX(), ImGui.getFrameHeight())) {
             return new CardAction(CardAction.Type.RECONNECT, connection, null);
         }
+        return null;
+    }
+
+    private CardAction renderWarming(Connection connection, int cardIndex) {
+        renderHeader(connection, true, false);
+        ImGui.spacing();
+        GuiHelpers.subtleSeparator();
+        ImGui.spacing();
+
+        // Shimmer alpha breathes 0.10..0.20 over ~1.6s so the bar reads
+        // as "loading" without flickering.
+        float pulse = Motion.pulse(0.6);
+        int shimmer = ImGuiTheme.imCol32(
+                ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B,
+                0.10f + pulse * 0.10f);
+        ImDrawList draw = ImGui.getWindowDrawList();
+
+        // Script-row placeholder bar
+        float lineH = ImGui.getTextLineHeight();
+        float barW = ImGui.getContentRegionAvailX() * 0.65f;
+        float bx0 = ImGui.getCursorScreenPosX();
+        float by0 = ImGui.getCursorScreenPosY();
+        draw.addRectFilled(bx0, by0, bx0 + barW, by0 + lineH, shimmer, lineH * 0.25f);
+        ImGui.dummy(barW, lineH);
+
+        ImGui.dummy(0f, ImGui.getStyle().getItemSpacingY() * 0.5f);
+
+        // Button-row placeholder — reserve the same footprint as idle/running
+        // so the card doesn't reflow when accountName lands and we flip state.
+        float btnH = ImGui.getFrameHeight();
+        float availW = ImGui.getContentRegionAvailX();
+        float btx = ImGui.getCursorScreenPosX();
+        float bty = ImGui.getCursorScreenPosY();
+        draw.addRectFilled(btx, bty, btx + availW, bty + btnH, shimmer, btnH * 0.18f);
+        ImGui.dummy(availW, btnH);
+
         return null;
     }
 
