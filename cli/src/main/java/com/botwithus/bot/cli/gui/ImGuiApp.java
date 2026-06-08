@@ -26,9 +26,7 @@ import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
 import com.botwithus.bot.cli.config.CliConfig;
-import com.botwithus.bot.cli.gui.loader.LoaderScreen;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
-import com.botwithus.bot.cli.gui.usermode.UserAccountsRenderer;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
@@ -36,7 +34,6 @@ import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
-import com.botwithus.bot.core.loader.BwuClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImFontAtlas;
@@ -135,13 +132,9 @@ public class ImGuiApp extends Application {
     private long glfwWindow;
 
     // Mode switching
-    private AppMode currentMode = AppMode.LAUNCHER;
+    private AppMode currentMode = AppMode.NORMAL;
     private TopBar topBar;
     private UserModeRenderer userModeRenderer;
-    private UserAccountsRenderer launcherRenderer;
-
-    // Loader screen (shown before main app)
-    private LoaderScreen loaderScreen;
 
     @Override
     protected void configure(Configuration config) {
@@ -175,12 +168,11 @@ public class ImGuiApp extends Application {
         wireDisplayHooks();
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
 
-        BwuClient bwu = resolveBwuClient();
-        ctx.initManagementRuntime(bwu);
+        ctx.initManagementRuntime();
         autoStartManager.start();
 
-        buildPanels(bwu);
-        setupStatusBar(bwu);
+        buildPanels();
+        setupStatusBar();
         captureGlfwHandle();
     }
 
@@ -328,53 +320,7 @@ public class ImGuiApp extends Application {
         });
     }
 
-    /**
-     * Load bwu.dll once (or return null when unavailable) so the same client
-     * instance is shared between LoaderScreen and the management runtime.
-     */
-    private BwuClient resolveBwuClient() {
-        BwuClient bwu = null;
-        var dllPath = BwuClient.resolve(getClass());
-        if (dllPath != null) {
-            bwu = BwuClient.load(dllPath).orElse(null);
-        }
-        if (bwu != null) {
-            applyDevHeartbeatOverride(bwu);
-            bwu.init();
-        }
-        return bwu;
-    }
-
-    /**
-     * Forward the LOCAL_TEST heartbeat overrides from system properties (set by
-     * cli/build.gradle.kts from local.properties keys
-     * {@code bwu.heartbeat.host/port/skipCertPin}) into the loader. No-ops when
-     * none of the three properties is set — production stays untouched. Called
-     * <em>before</em> {@link BwuClient#init} so the override is in place when
-     * the subsequent login triggers a TLS connect. See RUN-LOCAL.md.
-     */
-    private void applyDevHeartbeatOverride(BwuClient bwu) {
-        String host = System.getProperty("bwu.heartbeat.host");
-        String portStr = System.getProperty("bwu.heartbeat.port");
-        String skipStr = System.getProperty("bwu.heartbeat.skipCertPin");
-        if (host == null && portStr == null && skipStr == null) {
-            return;
-        }
-        int port = 0;
-        if (portStr != null && !portStr.isBlank()) {
-            try {
-                port = Integer.parseInt(portStr.trim());
-            } catch (NumberFormatException e) {
-                log.warn("Ignoring non-numeric bwu.heartbeat.port='{}'", portStr);
-            }
-        }
-        boolean skipPin = "true".equalsIgnoreCase(skipStr) || "1".equals(skipStr);
-        bwu.setHeartbeatEndpoint(host, port, skipPin);
-    }
-
-    private void buildPanels(BwuClient bwu) {
-        loaderScreen = new LoaderScreen(bwu);
-
+    private void buildPanels() {
         topBar = new TopBar();
 
         // Floating windows (created before opener wiring so the lambdas can capture them).
@@ -383,11 +329,6 @@ public class ImGuiApp extends Application {
 
         userModeRenderer = new UserModeRenderer();
         userModeRenderer.setConfigPanelOpener(this::openScriptConfig);
-
-        // Launcher mode (account management)
-        launcherRenderer = new UserAccountsRenderer();
-        launcherRenderer.setBwuClient(bwu);
-        launcherRenderer.setExecutor(executor);
 
         ctx.setConfigPanelOpener(this::openScriptConfig);
         managementConfigPanel = new ManagementConfigPanel();
@@ -403,7 +344,6 @@ public class ImGuiApp extends Application {
 
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
         panels.add(new ConnectionsPanel(executor, registry));
-        panels.add(new AccountsPanel(bwu, executor));
         panels.add(new ScriptsPanel(executor));
         ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
         mgmtPanel.setConfigOpener(runner -> managementConfigPanel.open(runner));
@@ -415,8 +355,8 @@ public class ImGuiApp extends Application {
         panels.add(new SettingsPanel());
     }
 
-    private void setupStatusBar(BwuClient bwu) {
-        statusBar = new StatusBar(bwu);
+    private void setupStatusBar() {
+        statusBar = new StatusBar();
     }
 
     /**
@@ -450,26 +390,11 @@ public class ImGuiApp extends Application {
         // Execute queued GL operations (texture create/delete)
         textureManager.processPending();
 
-        // --- Loader screen (shown before main app) ---
-        if (loaderScreen != null && !loaderScreen.isComplete()) {
-            var viewport = ImGui.getMainViewport();
-            ImGui.setNextWindowPos(viewport.getPosX(), viewport.getPosY(), ImGuiCond.Always);
-            ImGui.setNextWindowSize(viewport.getSizeX(), viewport.getSizeY(), ImGuiCond.Always);
-
-            int loaderFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove
-                    | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoBringToFrontOnFocus;
-            ImGui.begin("##loader", loaderFlags);
-            loaderScreen.render();
-            ImGui.end();
-            return;
-        }
-
-        // Cycle app mode with F12: Launcher → Normal → Advanced → Launcher
+        // Toggle app mode with F12: Normal ↔ Advanced
         if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F12)) {
             currentMode = switch (currentMode) {
-                case LAUNCHER -> AppMode.NORMAL;
                 case NORMAL -> AppMode.ADVANCED;
-                case ADVANCED -> AppMode.LAUNCHER;
+                case ADVANCED -> AppMode.NORMAL;
             };
         }
 
@@ -489,7 +414,6 @@ public class ImGuiApp extends Application {
         }
 
         switch (currentMode) {
-            case LAUNCHER -> renderLauncherMode();
             case NORMAL -> renderUserMode();
             case ADVANCED -> renderDeveloperMode();
         }
@@ -519,16 +443,6 @@ public class ImGuiApp extends Application {
 
         // Update window title based on connection state
         updateTitle();
-    }
-
-    /**
-     * Render the Launcher tab — account management (add/launch game accounts).
-     */
-    private void renderLauncherMode() {
-        float availHeight = ImGui.getContentRegionAvailY();
-        ImGui.beginChild("##launcher", 0, availHeight, false);
-        launcherRenderer.render();
-        ImGui.endChild();
     }
 
     /**
@@ -577,22 +491,21 @@ public class ImGuiApp extends Application {
     // Sidebar navigation section definitions
     private static final String[] NAV_SECTION_LABELS = {"CORE", "EXTENSIONS", "SYSTEM"};
     private static final int[][] NAV_SECTION_PANELS = {
-        {0, 1, 2, 3},   // Console, Connections, Accounts, Scripts
-        {4, 5, 7},      // Management, Script UI, Groups
-        {6, 8, 9}       // Logs, Diagnostics, Settings
+        {0, 1, 2},      // Console, Connections, Scripts
+        {3, 4, 6},      // Management, Script UI, Groups
+        {5, 7, 8}       // Logs, Diagnostics, Settings
     };
     // Font Awesome icons for each panel (matching panel order in the panels list)
     private static final String[] NAV_ICONS = {
         Icons.TERMINAL,     // 0 Console
         Icons.PLUG,         // 1 Connections
-        Icons.USERS,        // 2 Accounts
-        Icons.CODE,         // 3 Scripts
-        Icons.ROBOT,        // 4 Management
-        Icons.WINDOW,       // 5 Script UI
-        Icons.LIST,         // 6 Logs
-        Icons.LAYER_GROUP,  // 7 Groups
-        Icons.CHART,        // 8 Diagnostics
-        Icons.GEAR,         // 9 Settings
+        Icons.CODE,         // 2 Scripts
+        Icons.ROBOT,        // 3 Management
+        Icons.WINDOW,       // 4 Script UI
+        Icons.LIST,         // 5 Logs
+        Icons.LAYER_GROUP,  // 6 Groups
+        Icons.CHART,        // 7 Diagnostics
+        Icons.GEAR,         // 8 Settings
     };
 
     private void renderSidebar() {

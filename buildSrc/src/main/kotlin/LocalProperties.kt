@@ -13,8 +13,8 @@ import java.util.Properties
  *  4. `null` when nothing provides the key.
  *
  * `local.properties` is the recommended home for paths that differ between
- * machines (where `bwu.dll` / `NXTCache.dll` were built, a jlink JDK home, …)
- * so none of those paths get committed. Use forward slashes in that file — a
+ * machines (where `NXTCache.dll` / `worldwalker.dll` were built, a jlink JDK
+ * home, …) so none of those paths get committed. Use forward slashes — a
  * backslash starts an escape sequence in a `.properties` file, so `C:\foo`
  * is silently read as `C:foo`.
  */

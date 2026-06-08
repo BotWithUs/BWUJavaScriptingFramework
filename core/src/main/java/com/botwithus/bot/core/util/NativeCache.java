@@ -1,4 +1,4 @@
-package com.botwithus.bot.core.loader;
+package com.botwithus.bot.core.util;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -18,8 +18,10 @@ import java.util.Optional;
  * creating the directory; callers that intend to write into it should
  * call {@link #ensureExists()} first.</p>
  *
- * <p>Cache population is handled by the loader DLL, not Java — this
- * class only provides the path convention.</p>
+ * <p>The cache directory is populated by a separate loader, out-of-band
+ * from the host process. The host only consumes — for dev work, point
+ * the matching {@code -D…} override at a build directory to bypass the
+ * cache entry entirely.</p>
  */
 public final class NativeCache {
 
@@ -72,9 +74,8 @@ public final class NativeCache {
      * Locate {@code NXTCache.dll} on disk without loading it, using the same
      * precedence as {@code core.cache.NXTCache} at link time: the
      * {@code -Dnxtcache.dll} override first (when it points at an existing
-     * file), then the downloaded native-cache entry under the default cache
-     * root. Returns empty when neither is present yet — e.g. while the
-     * loader's native-artifacts download is still in flight.
+     * file), then the cache entry under the default cache root. Returns empty
+     * when neither is present.
      *
      * <p>Unlike {@code NXTCache}'s own resolver this neither links the DLL nor
      * throws when it is absent, so UI code can poll it as a readiness gate
@@ -95,8 +96,8 @@ public final class NativeCache {
     /**
      * Locate {@code worldwalker.dll} on disk without loading it. Same precedence
      * as {@link #locateNxtCacheDll()}: the {@code -Dworldwalker.dll} override
-     * first (when it points at an existing file), then the downloaded
-     * native-cache entry. Returns empty when neither is present.
+     * first (when it points at an existing file), then the cache entry under
+     * the default cache root. Returns empty when neither is present.
      */
     public static Optional<Path> locateWorldWalkerDll() {
         String override = System.getProperty("worldwalker.dll");
@@ -114,8 +115,8 @@ public final class NativeCache {
      * Locate the WorldWalker baked artifact on disk without loading it. Same
      * precedence as {@link #locateWorldWalkerDll()}: the
      * {@code -Dworldwalker.artifact} override first (when it points at an
-     * existing file), then the downloaded native-cache entry. Returns empty
-     * when neither is present.
+     * existing file), then the cache entry under the default cache root.
+     * Returns empty when neither is present.
      */
     public static Optional<Path> locateWorldWalkerArtifact() {
         String override = System.getProperty("worldwalker.artifact");

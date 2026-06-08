@@ -28,7 +28,7 @@ Five Gradle subprojects with strict dependency layering:
 api                 (slf4j-api)                — Public interfaces, models, snapshot view, query builders
   ↑ required by
 core                (api + msgpack + logback   — Pipe + SHM transport, RPC client, script runtime,
-                     + bouncycastle + panama)    Maven resolver, loader DLL bridge
+                     + bouncycastle + panama)    Maven resolver, cache + pathfinder bridges
   ↑ required by                                ↑
 cli                 (api + core + imgui)       test-support  (api)
                                                — Mocks for downstream script projects
@@ -65,7 +65,6 @@ Key features:
 - **Error isolation** — Per-phase error handling in `ScriptRunner` (onStart/onLoop/onStop)
 - **Structured logging** — SLF4J + Logback with MDC-based context tagging (`script.name`, `connection.name`)
 - **GUI log bridge** — Custom `LogBufferAppender` feeds Logback events into the in-memory `LogBuffer` for the GUI log panel
-- **Loader bridge** — Project Panama FFI binding to `bwu.dll` (`loader/BwuClient`) for auth, accounts, and agent injection; native artifacts auto-download to `~/.botwithus/native`
 - **Maven resolver** — `resolver/` pipeline (drivers via `RepositoryDriver` SPI, BouncyCastle PGP verification, SHA-1/SHA-256 sidecar validation) for `scripts install` (see [Script Repositories](#script-repositories))
 
 ### cli
@@ -525,9 +524,7 @@ Javadoc is generated for the API module and published to GitHub Pages. Build loc
 
 ## Troubleshooting
 
-**Pipe not found.** Connect fails with "no pipe matching `\\.\pipe\BotWithUs_*` found". The agent DLL (`BotWithUsDll.dll`) hasn't injected, or it injected into a different client PID. Check that the game client is running, that the loader actually injected (loader console will show the injection result), and that the PID matches. `PipeClient.firstAvailableOrThrow` walks `\\.\pipe\` and picks the first match — if multiple game clients are running, pass an explicit pipe name to `connect`.
-
-**Agent not injected.** The game client launched but no `\\.\pipe\BotWithUs_<pid>` ever appears. Two common causes: (1) the loader's `phantom_load` was blocked by an antivirus / EDR; (2) the agent DLL panicked during DllMain (look for `bwu_agent.log` next to the loader). The agent writes a startup line on success — its absence is the signal.
+**Pipe not found.** Connect fails with "no pipe matching `\\.\pipe\BotWithUs_*` found". The agent DLL hasn't injected, or it injected into a different client PID. Confirm the game client is running, the agent loaded successfully, and the PID matches. `PipeClient.firstAvailableOrThrow` walks `\\.\pipe\` and picks the first match — if multiple game clients are running, pass an explicit pipe name to `connect`.
 
 **Protocol-version mismatch.** Connect succeeds but reads fail immediately with "shared region protocol version X, expected Y" — the consumer (`Layout.PROTOCOL_VERSION`) and the producer (`kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h`) drifted. Rebuild both sides from matching commits; `SharedRegion.open()` refuses to map a region whose version byte doesn't match.
 

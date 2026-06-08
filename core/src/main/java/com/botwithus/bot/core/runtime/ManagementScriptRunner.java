@@ -24,6 +24,15 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ManagementScriptRunner implements Runnable {
 
     private static final Logger log = LoggerFactory.getLogger(ManagementScriptRunner.class);
+
+    /**
+     * Synthetic bucket name passed to {@link ScriptConfigStore} for management
+     * scripts. Management scripts are cross-client by design, so they don't
+     * belong to any real account uuid; the leading underscore is preserved by
+     * the store's sanitizer and segregates the directory from real accounts.
+     */
+    static final String MANAGEMENT_BUCKET = "__management";
+
     private final ManagementScript script;
     private final ManagementContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -113,7 +122,7 @@ public class ManagementScriptRunner implements Runnable {
     public void applyConfig(ScriptConfig config) {
         currentConfig.set(config);
         String name = getScriptName();
-        Thread.startVirtualThread(() -> ScriptConfigStore.save(name, config));
+        Thread.startVirtualThread(() -> ScriptConfigStore.save(name, MANAGEMENT_BUCKET, config));
         try {
             script.onConfigUpdate(config);
         } catch (Exception e) {
@@ -157,7 +166,7 @@ public class ManagementScriptRunner implements Runnable {
         try {
             List<ConfigField> fields = script.getConfigFields();
             if (fields != null && !fields.isEmpty()) {
-                ScriptConfig config = ScriptConfigStore.load(name, fields);
+                ScriptConfig config = ScriptConfigStore.load(name, MANAGEMENT_BUCKET, fields);
                 currentConfig.set(config);
                 script.onConfigUpdate(config);
             }

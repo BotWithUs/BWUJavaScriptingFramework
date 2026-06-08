@@ -17,36 +17,50 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Properties;
 
 /**
- * Persists script configuration as JSON files using Gson
- * in {@code ~/.botwithus/config/}.
+ * Persists script configuration as JSON files in
+ * {@code ~/.botwithus/config/<accountUuid>/<scriptName>.json}.
+ *
+ * <p>Per-account bucketing means two characters running the same script no
+ * longer share one settings file. Management scripts (cross-client by design)
+ * pass the literal {@code "__management"} as the {@code accountUuid} so they
+ * land in a dedicated subdirectory.
  */
 public final class ScriptConfigStore {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptConfigStore.class);
-    private static final Path CONFIG_DIR = Path.of(System.getProperty("user.home"), ".botwithus", "config");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private static final Type MAP_TYPE = new TypeToken<Map<String, String>>() {}.getType();
 
     private ScriptConfigStore() {}
 
     /**
-     * Loads persisted config for a script, falling back to field defaults for missing keys.
+     * Resolved per call so tests can override {@code user.home} (the constant
+     * pattern would otherwise freeze the path at class-load time and route
+     * every test into the dev's real home directory).
+     */
+    private static Path configDir() {
+        return Path.of(System.getProperty("user.home"), ".botwithus", "config");
+    }
+
+    /**
+     * Loads persisted config for a script under the given account bucket,
+     * falling back to field defaults for missing keys.
      *
-     * @param scriptName the script name (used as filename)
-     * @param fields     the declared config fields with defaults
+     * @param scriptName   the script name (used as filename)
+     * @param accountUuid  the stable account-uuid bucket the config lives under
+     * @param fields       the declared config fields with defaults
      * @return the loaded config
      */
-    public static ScriptConfig load(String scriptName, List<ConfigField> fields) {
+    public static ScriptConfig load(String scriptName, String accountUuid, List<ConfigField> fields) {
         Map<String, String> values = new LinkedHashMap<>();
 
         for (ConfigField field : fields) {
             values.put(field.key(), field.defaultAsString());
         }
 
-        Path file = configFile(scriptName);
+        Path file = configFile(scriptName, accountUuid);
         if (Files.exists(file)) {
             try (Reader reader = Files.newBufferedReader(file)) {
                 Map<String, String> saved = GSON.fromJson(reader, MAP_TYPE);
@@ -58,29 +72,13 @@ public final class ScriptConfigStore {
             }
         }
 
-        // Migrate legacy .properties file if it exists and no JSON file was found
-        if (!Files.exists(file)) {
-            Path legacyFile = CONFIG_DIR.resolve(safeName(scriptName) + ".properties");
-            if (Files.exists(legacyFile)) {
-                var props = new Properties();
-                try (Reader reader = Files.newBufferedReader(legacyFile)) {
-                    props.load(reader);
-                    for (String key : props.stringPropertyNames()) {
-                        values.put(key, props.getProperty(key));
-                    }
-                } catch (IOException e) {
-                    log.debug("Legacy .properties migration failed for {}: {}", scriptName, e.getMessage());
-                }
-            }
-        }
-
         return new ScriptConfig(values);
     }
 
-    public static void save(String scriptName, ScriptConfig config) {
+    public static void save(String scriptName, String accountUuid, ScriptConfig config) {
         try {
-            Files.createDirectories(CONFIG_DIR);
-            Path file = configFile(scriptName);
+            Path file = configFile(scriptName, accountUuid);
+            Files.createDirectories(file.getParent());
             try (Writer writer = Files.newBufferedWriter(file)) {
                 GSON.toJson(config.asMap(), MAP_TYPE, writer);
             }
@@ -89,11 +87,12 @@ public final class ScriptConfigStore {
         }
     }
 
-    private static Path configFile(String scriptName) {
-        return CONFIG_DIR.resolve(safeName(scriptName) + ".json");
+    private static Path configFile(String scriptName, String accountUuid) {
+        return configDir().resolve(safeName(accountUuid))
+                .resolve(safeName(scriptName) + ".json");
     }
 
-    private static String safeName(String scriptName) {
-        return scriptName.replaceAll("[^a-zA-Z0-9_\\-]", "_");
+    private static String safeName(String name) {
+        return name.replaceAll("[^a-zA-Z0-9_\\-]", "_");
     }
 }

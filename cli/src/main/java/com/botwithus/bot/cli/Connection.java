@@ -33,6 +33,7 @@ public class Connection {
     private GameAPIImpl gameAPI;
     private ScriptContextChannel scriptContextChannel;
     private String accountName;
+    private String accountUuid;
     private Map<String, Object> accountInfo;
     private boolean lobbyLoginAttempted;
 
@@ -73,7 +74,24 @@ public class Connection {
     public void setAccountName(String accountName) { this.accountName = accountName; }
     public String getAccountName() { return accountName; }
 
-    public void setAccountInfo(Map<String, Object> accountInfo) { this.accountInfo = accountInfo; }
+    /**
+     * Stable per-account identifier sourced from the agent's {@code get_account_info}
+     * reply ({@code account_uuid} field, populated by the loader's {@code BotDetails}).
+     * Used as the storage key for AutoStart profiles and per-script configs so the
+     * keying survives in-game display-name changes. Returns {@code null} when the
+     * agent reply did not carry the field (older builds).
+     */
+    public String getAccountUuid() { return accountUuid; }
+
+    public void setAccountInfo(Map<String, Object> accountInfo) {
+        this.accountInfo = accountInfo;
+        if (accountInfo != null) {
+            Object uuid = accountInfo.get("account_uuid");
+            if (uuid != null) {
+                this.accountUuid = uuid.toString();
+            }
+        }
+    }
     public Map<String, Object> getAccountInfo() { return accountInfo; }
 
     /**
