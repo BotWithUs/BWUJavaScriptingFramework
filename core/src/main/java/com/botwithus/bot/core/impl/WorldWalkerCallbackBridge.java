@@ -5,8 +5,6 @@ import com.botwithus.bot.api.component.ComponentNode;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
-import com.botwithus.bot.api.model.Component;
-import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.VarbitValue;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -262,38 +260,15 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
 
     @Override
     public boolean isInterfaceOpen(int interfaceId) {
-        try {
-            // An interface stays in the component tree even while loaded-but-
-            // closed, so "tree non-empty" is a false positive — it reports open
-            // before the cape click has even run, defeating the wait_interface
-            // gate. An *open* interface lays out and un-hides its content, so
-            // require at least one explicitly-visible component (hidden == 0).
-            List<ComponentTreeNode> tree = api.getInterfaceTree(interfaceId, 0);
-            int visible = 0;
-            int hidden = 0;
-            int unknown = 0;
-            for (ComponentTreeNode node : tree) {
-                Component c = node.component();
-                if (c == null) {
-                    continue;
-                }
-                int h = c.hidden();
-                if (h == 0) {
-                    visible++;
-                } else if (h == 1) {
-                    hidden++;
-                } else {
-                    unknown++;
-                }
-            }
-            boolean open = visible > 0;
-            log.info("ww isInterfaceOpen({}) = {} (visible={} hidden={} unknown={} total={})",
-                    interfaceId, open, visible, hidden, unknown, tree.size());
-            return open;
-        } catch (RuntimeException e) {
-            log.info("ww isInterfaceOpen({}) failed: {}", interfaceId, e.toString());
+        // Backed by the v14 SHM open-subs snapshot — membership in the
+        // open-subs hashmap is the engine's canonical "this interface is
+        // open right now" signal. Sub-microsecond linear scan, no RPC.
+        // Returns false when the snapshot isn't available yet (pre-login).
+        GameSnapshot snap = snapshotSource.get();
+        if (snap == null) {
             return false;
         }
+        return snap.isInterfaceOpen(interfaceId);
     }
 
     @Override

@@ -78,7 +78,10 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_IS_ITEM_WORN =
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
 
-    /** {@code int32_t(*)(void *user, int32_t interfaceId)}. */
+    /** {@code int32_t(*)(void *user, int32_t interfaceId)} — non-zero when
+        the interface is mounted in the engine's open-subs hashmap. The
+        bridge implementation delegates to {@code GameSnapshot.isInterfaceOpen},
+        which is a sub-microsecond SHM linear scan (no RPC). */
     static final FunctionDescriptor FD_IS_INTERFACE_OPEN =
             FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
 

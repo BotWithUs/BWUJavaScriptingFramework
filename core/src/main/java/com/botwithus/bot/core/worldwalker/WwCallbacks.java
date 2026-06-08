@@ -97,7 +97,13 @@ public interface WwCallbacks {
      */
     boolean isItemWorn(int itemId);
 
-    /** Whether the given interface id is currently open. */
+    /**
+     * Whether {@code interfaceId} is currently mounted in the engine's
+     * open-subs hashmap — the canonical "this interface is open right now"
+     * signal. The chain executor polls this between a click that opens a
+     * dialog and the click inside that dialog so the inner click only fires
+     * once the dialog has actually appeared.
+     */
     boolean isInterfaceOpen(int interfaceId);
 
     // ── Actions ────────────────────────────────────────────────────────────
