@@ -7,7 +7,6 @@ import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.model.Component;
-import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
@@ -117,43 +116,29 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(0, bridge.readVarbit(99));
     }
 
-    // ComponentTreeNode whose component reports the given tri-state hidden flag
-    // (0 = visible, 1 = hidden, -1 = unsupported).
-    private static ComponentTreeNode node(int hidden) {
-        Component c = new Component(1234, 0, 0, 8, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                "", hidden, -1, -1, -1);
-        return new ComponentTreeNode(c, -1);
+    @Test
+    void isInterfaceOpenDelegatesToSnapshot() {
+        // Bridge reads the canonical "is this interface mounted" signal from
+        // the SHM-backed snapshot (no RPC); 1465 (minimap HUD) is always open
+        // while in-game, so it lights up as true.
+        when(snapshot.isInterfaceOpen(1465)).thenReturn(true);
+        assertTrue(bridge.isInterfaceOpen(1465));
     }
 
     @Test
-    void isInterfaceOpenReturnsTrueWhenAComponentIsVisible() {
-        // An open interface has at least one explicitly-visible (hidden==0)
-        // component.
-        when(api.getInterfaceTree(1234, 0))
-                .thenReturn(List.of(node(1), node(0), node(-1)));
-        assertTrue(bridge.isInterfaceOpen(1234));
+    void isInterfaceOpenReturnsFalseWhenSnapshotSaysClosed() {
+        // Pre-click probe of a dialog interface — not yet mounted in the
+        // engine's open-subs hashmap.
+        when(snapshot.isInterfaceOpen(1092)).thenReturn(false);
+        assertFalse(bridge.isInterfaceOpen(1092));
     }
 
     @Test
-    void isInterfaceOpenReturnsFalseWhenAllHiddenOrUnsupported() {
-        // Loaded-but-closed: present in the tree but nothing visible. This is the
-        // false positive the old "tree non-empty" check produced.
-        when(api.getInterfaceTree(1234, 0))
-                .thenReturn(List.of(node(1), node(-1), node(1)));
-        assertFalse(bridge.isInterfaceOpen(1234));
-    }
-
-    @Test
-    void isInterfaceOpenReturnsFalseWhenTreeEmpty() {
-        when(api.getInterfaceTree(1234, 0)).thenReturn(List.of());
-        assertFalse(bridge.isInterfaceOpen(1234));
-    }
-
-    @Test
-    void isInterfaceOpenReturnsFalseOnApiException() {
-        when(api.getInterfaceTree(1234, 0)).thenThrow(new RuntimeException("rpc down"));
-        assertFalse(bridge.isInterfaceOpen(1234));
+    void isInterfaceOpenReturnsFalseWhenSnapshotMissing() {
+        // No snapshot acquired yet (pre-login frames). Conservative: treat
+        // as closed so the executor waits rather than fires blind clicks.
+        bridge = new WorldWalkerCallbackBridge(api, () -> null, cancel, events::add, NO_GOAL);
+        assertFalse(bridge.isInterfaceOpen(1465));
     }
 
     // ============================== Actions ==============================
