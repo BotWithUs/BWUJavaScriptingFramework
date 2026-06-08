@@ -19,7 +19,7 @@ public final class ImGuiTheme {
     // Text hierarchy
     public static final float TEXT_R = 0xec / 255f, TEXT_G = 0xed / 255f, TEXT_B = 0xf0 / 255f;
     public static final float TEXT_SEC_R = 0x9c / 255f, TEXT_SEC_G = 0x9e / 255f, TEXT_SEC_B = 0xa8 / 255f;
-    public static final float DIM_TEXT_R = 0x5c / 255f, DIM_TEXT_G = 0x5f / 255f, DIM_TEXT_B = 0x6b / 255f;
+    public static final float DIM_TEXT_R = 0x7a / 255f, DIM_TEXT_G = 0x7d / 255f, DIM_TEXT_B = 0x88 / 255f;
 
     // Accent — refined emerald (#4ade80)
     public static final float ACCENT_R = 0x4a / 255f, ACCENT_G = 0xde / 255f, ACCENT_B = 0x80 / 255f;

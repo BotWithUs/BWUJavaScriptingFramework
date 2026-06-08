@@ -148,7 +148,7 @@ public class UserModeRenderer {
 
         ImGui.dummy(0f, lineH * 0.6f);
 
-        centerText(hint, windowWidth, () -> GuiHelpers.textMuted(hint));
+        centerText(hint, windowWidth, () -> GuiHelpers.textSecondary(hint));
     }
 
     private static void centerText(String text, float windowWidth, Runnable draw) {
