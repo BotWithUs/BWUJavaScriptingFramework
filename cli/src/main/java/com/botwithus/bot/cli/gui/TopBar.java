@@ -11,11 +11,11 @@ import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiStyleVar;
 
 /**
- * Top navigation bar with three mode tabs: Launcher, Normal, Advanced.
+ * Top navigation bar with two mode tabs: Normal, Advanced.
  *
  * Layout (left → right):
- *   [brand mark] [BWU text]           [ tab  tab  tab ]           [live session pill]
- *                                      │──underline──│
+ *   [brand mark] [BWU text]           [ tab  tab ]           [live session pill]
+ *                                      │─underline│
  *
  * All sizes derive from font size / frame height so the bar scales cleanly
  * across DPI settings. The sliding underline is lerped per-frame.
@@ -24,9 +24,9 @@ public class TopBar {
 
     public TopBar() {}
 
-    private static final String[] TAB_ICONS = {Icons.GAMEPAD, Icons.TH_LARGE, Icons.CODE};
-    private static final String[] TAB_LABELS = {"Launcher", "Normal", "Advanced"};
-    private static final AppMode[] TAB_MODES = {AppMode.LAUNCHER, AppMode.NORMAL, AppMode.ADVANCED};
+    private static final String[] TAB_ICONS = {Icons.TH_LARGE, Icons.CODE};
+    private static final String[] TAB_LABELS = {"Normal", "Advanced"};
+    private static final AppMode[] TAB_MODES = {AppMode.NORMAL, AppMode.ADVANCED};
 
     private static final float UNDERLINE_LERP_SPEED = 14f;
 

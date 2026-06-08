@@ -1,6 +1,6 @@
 package com.botwithus.bot.core.worldwalker;
 
-import com.botwithus.bot.core.loader.NativeCache;
+import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.util.Throwables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +36,7 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * <h2>Loading the DLL</h2>
  * The library is located via {@link NativeCache#locateWorldWalkerDll()}:
  * the {@code -Dworldwalker.dll=<absolute path>} override first, then the
- * downloaded {@code ~/.botwithus/native/worldwalker.dll} entry. There is no
+ * {@code ~/.botwithus/native/worldwalker.dll} cache entry. There is no
  * {@code System.loadLibrary} fallback — java-rules §Banned 2 (JNI) rules out
  * {@code loadLibrary} for project code; Panama is the supported path for FFI.
  *

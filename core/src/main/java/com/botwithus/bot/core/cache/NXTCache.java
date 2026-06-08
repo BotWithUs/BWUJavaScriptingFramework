@@ -8,7 +8,7 @@ import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitType;
-import com.botwithus.bot.core.loader.NativeCache;
+import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.util.Throwables;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -86,7 +86,7 @@ public final class NXTCache implements AutoCloseable {
     private static Path resolveDllPath() {
         return NativeCache.locateNxtCacheDll().orElseThrow(() -> new IllegalStateException(
                 "NXTCache binary not located. Set -Dnxtcache.dll=<path>, "
-                        + "or let the native bootstrap download it into "
+                        + "or let the loader populate "
                         + "~/.botwithus/native/" + NativeCache.NXTCACHE_DLL_NAME
                         + " (no System.loadLibrary fallback — see java-rules §Banned 2)."));
     }

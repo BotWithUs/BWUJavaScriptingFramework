@@ -17,7 +17,7 @@ import java.util.function.Function;
  * cast plus a hand-rolled type check, which is strictly worse.
  *
  * <p>This helper centralises that idiom so callers (Panama wrappers in
- * {@code BwuClient}, {@code NXTCache}, ...) supply only the
+ * {@code NXTCache}, {@code WorldWalker}, ...) supply only the
  * domain-specific wrapper for the "unknown {@code Throwable}" case.
  */
 public final class Throwables {

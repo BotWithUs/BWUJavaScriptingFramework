@@ -3,9 +3,6 @@ package com.botwithus.bot.api.script;
 import com.botwithus.bot.api.ClientProvider;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
-import com.botwithus.bot.api.launcher.GameLauncher;
-
-import java.util.Optional;
 
 /**
  * Context passed to {@link ManagementScript#onStart(ManagementContext)}.
@@ -39,12 +36,4 @@ public interface ManagementContext {
      * Returns the shared state store for cross-script data sharing.
      */
     SharedState getSharedState();
-
-    /**
-     * Returns the game launcher for managing accounts and launching clients.
-     * Empty when the native loader DLL is not available.
-     */
-    default Optional<GameLauncher> getLauncher() {
-        return Optional.empty();
-    }
 }

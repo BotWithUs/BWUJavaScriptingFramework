@@ -28,11 +28,6 @@ extraJavaModuleInfo {
     // module-info override here AND in :cli, plus jlink re-validation.
 }
 
-// Note: bwu.dll is bundled by the :cli module (the module whose
-// /native/bwu.dll the app actually reads — BwuClient.resolve(getClass())
-// is anchored on a cli class and modular resource lookup is module-local).
-// See cli/build.gradle.kts.
-
 tasks.register<JavaExec>("benchmark") {
     description = "Run RPC latency benchmark against a live game server"
     group = "verification"
