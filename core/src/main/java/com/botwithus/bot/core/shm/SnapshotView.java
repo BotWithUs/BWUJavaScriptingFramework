@@ -211,4 +211,30 @@ public final class SnapshotView {
         }
         return false;
     }
+
+    // ------------------------------------------------------------------
+    // Ground items (v15+)
+    //
+    // Mirrors the producer-side ObjStackList walk. Replaces the retired
+    // query_ground_items RPC — scripts read the immutable snapshot and
+    // apply their own spatial filters.
+    // ------------------------------------------------------------------
+
+    public int groundItemCount() {
+        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_GROUNDITEMCOUNT_OFFSET);
+        return n < 0 ? 0 : Math.min(n, Layout.GROUND_ITEM_CAP);
+    }
+
+    public GroundItemEntry groundItemAt(int i) {
+        if (i < 0 || i >= groundItemCount()) {
+            throw new IndexOutOfBoundsException(i);
+        }
+        long base = Layout.SNAP_GROUNDITEMS_OFFSET + (long) i * Layout.GROUND_ITEM_ENTRY_SIZE;
+        return new GroundItemEntry(
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.GROUND_ITEM_ITEMID_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.GROUND_ITEM_QUANTITY_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.GROUND_ITEM_TILEX_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.GROUND_ITEM_TILEY_OFFSET),
+                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.GROUND_ITEM_PLANE_OFFSET));
+    }
 }

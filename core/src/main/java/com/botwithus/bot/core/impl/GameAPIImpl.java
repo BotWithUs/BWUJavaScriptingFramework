@@ -16,10 +16,8 @@ import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
-import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.ResourceItem;
 import com.botwithus.bot.api.model.ResourceSection;
-import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.model.SkillRequirement;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldMapPlacement;
@@ -162,8 +160,8 @@ public class GameAPIImpl implements GameAPI {
 
     /**
      * Full ctor accepting a {@link StubGuard} for instrumented WARN-once
-     * reporting of producer stubs ({@link #queryLocations}, {@link #queryGroundItems},
-     * {@link #queryWorldMapElements}) and an {@code eventPublisher} for
+     * reporting of producer stubs ({@link #queryWorldMapElements}) and an
+     * {@code eventPublisher} for
      * surfacing terminal walk events from the WorldWalker executor. Production
      * wiring constructs one {@code StubGuard} per session in {@code CliContext}
      * and passes {@code eventBus::publish} as the publisher; shorter ctors
@@ -216,27 +214,6 @@ public class GameAPIImpl implements GameAPI {
     public GroundItems groundItems() { return groundItemsFacade; }
 
     @Override
-    public List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max) {
-        stubGuard.warnOnce("queryLocations");
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("tile_x", centerX);
-        params.put("tile_y", centerY);
-        params.put("radius", radius);
-        params.put("plane", plane);
-        params.put("max", max);
-        return rpc.callSyncList("query_locations", params).stream()
-                .map(m -> new SceneObjectInfo(
-                        getInt(m, "handle"),
-                        getInt(m, "type_id"),
-                        getInt(m, "tile_x"),
-                        getInt(m, "tile_y"),
-                        getInt(m, "plane"),
-                        getString(m, "name"),
-                        getStringList(m, "options")))
-                .toList();
-    }
-
-    @Override
     public WorldMapElements mapElements() { return mapElementsFacade; }
 
     @Override
@@ -285,26 +262,6 @@ public class GameAPIImpl implements GameAPI {
                                         getInt(pl, "tile_y"),
                                         getBool(pl, "members_only")))
                                 .toList()))
-                .toList();
-    }
-
-    @Override
-    public List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max) {
-        stubGuard.warnOnce("queryGroundItems");
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("tile_x", centerX);
-        params.put("tile_y", centerY);
-        params.put("radius", radius);
-        params.put("plane", plane);
-        params.put("max", max);
-        return rpc.callSyncList("query_ground_items", params).stream()
-                .map(m -> new GroundItemInfo(
-                        getInt(m, "handle"),
-                        getInt(m, "item_id"),
-                        getInt(m, "quantity"),
-                        getInt(m, "tile_x"),
-                        getInt(m, "tile_y"),
-                        getInt(m, "plane")))
                 .toList();
     }
 

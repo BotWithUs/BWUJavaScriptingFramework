@@ -2,39 +2,41 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.entities.GroundItem;
 import com.botwithus.bot.api.entities.SceneObject;
-import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.LocationType;
-import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.LocationFilter;
 import com.botwithus.bot.core.rpc.RpcClient;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
- * Slice-20 scene/ground query facade tests. Stubs the {@code query_locations}
- * and {@code query_ground_items} RPCs to return canned data so we can verify
- * the Java side wires up the rich wrappers, distance sort, definition cache,
- * and interaction params correctly. Real producer iteration lands later.
+ * Scene-object / ground-item query facade tests. The facades read from the
+ * SHM snapshot (v15+) — no RPC for entity queries — so each test seeds
+ * {@code snap.locs} / {@code snap.grounds} and exercises the
+ * {@link com.botwithus.bot.api.entities.SceneObjects} /
+ * {@link com.botwithus.bot.api.entities.GroundItems} wrappers, distance
+ * sort, definition cache, and interaction params.
  *
  * <p>rule-exception: {@code {rule:no-fqn}} — the stub snapshot references
- * {@code api.snapshot.Npc} / {@code api.snapshot.Location} fully qualified
- * because the wrappers are the API under test. Same convention as the
- * production wrapper classes in {@code api/.../entities/}.
+ * {@code api.snapshot.Npc} / {@code api.snapshot.Location} etc. fully
+ * qualified to avoid a name clash with the entity-package types. Same
+ * convention as the production wrappers in {@code api/.../entities/}.
  */
 class GameAPIImplSceneObjectsTest {
 
@@ -64,9 +66,9 @@ class GameAPIImplSceneObjectsTest {
     }
 
     @Test
-    void objectsQueryEmptyWhenRpcReturnsNothing() {
+    void objectsQueryEmptyWhenSnapshotHasNoLocations() {
         build();
-        when(rpc.callSyncList(eq("query_locations"), anyMap())).thenReturn(List.of());
+        // snap.locs default empty
         assertNull(api.objects().query().nearest());
         assertEquals(0, api.objects().query().count());
     }
@@ -75,11 +77,10 @@ class GameAPIImplSceneObjectsTest {
     void objectsQueryReturnsRichWrappers() {
         build();
         snap.self = makeSelf(100, 100, 0);
-        when(rpc.callSyncList(eq("query_locations"), anyMap())).thenReturn(List.of(
-                locReply(1, 50, 105, 100, 0, "Tree", List.of("Chop down")),
-                locReply(2, 50, 130, 100, 0, "Tree", List.of("Chop down")),
-                locReply(3, 50, 102, 100, 0, "Tree", List.of("Chop down"))
-        ));
+        snap.locs.add(directLoc(50, 105, 100, 0));
+        snap.locs.add(directLoc(50, 130, 100, 0));
+        snap.locs.add(directLoc(50, 102, 100, 0));
+        locTypes.put(50, makeLoc(50, "Tree", List.of("Chop down")));
 
         List<SceneObject> trees = api.objects().query().named("Tree").all();
         assertEquals(3, trees.size());
@@ -91,54 +92,70 @@ class GameAPIImplSceneObjectsTest {
     void objectsNearestSortsByDistance() {
         build();
         snap.self = makeSelf(0, 0, 0);
-        when(rpc.callSyncList(eq("query_locations"), anyMap())).thenReturn(List.of(
-                locReply(1, 50, 30, 0, 0, "Rift", List.of("Convert")),
-                locReply(2, 50, 5,  0, 0, "Rift", List.of("Convert")),
-                locReply(3, 50, 10, 0, 0, "Rift", List.of("Convert"))
-        ));
+        snap.locs.add(directLoc(50, 30, 0, 0));   // far
+        snap.locs.add(directLoc(50,  5, 0, 0));   // nearest
+        snap.locs.add(directLoc(50, 10, 0, 0));   // middle
+        locTypes.put(50, makeLoc(50, "Rift", List.of("Convert")));
 
         SceneObject nearest = api.objects().query().named("Rift").nearest();
         assertNotNull(nearest);
-        assertEquals(2, nearest.handle(), "expected the handle=2 (5 tiles away) one");
+        assertEquals(5, nearest.tileX(), "expected the (5,0) tile (closest to origin)");
     }
 
     @Test
-    void objectsHasOptionUsesPreResolvedRawOptions() {
+    void objectsSurfacesBothDirectAndCombinedSections() {
         build();
-        when(rpc.callSyncList(eq("query_locations"), anyMap())).thenReturn(List.of(
-                locReply(7, 50, 0, 0, 0, "Rift", List.of("Convert", "Examine"))
-        ));
+        // Direct LOCATION: loc id rides in interactId.
+        snap.locs.add(directLoc(50, 5, 5, 0));
+        // Combined section: loc id rides in typeId (interactId is -1 by
+        // construction). Most trees / rocks / posts appear here.
+        snap.locs.add(combinedSectionLoc(38782, 6, 6, 0));
+        locTypes.put(50, makeLoc(50, "Door", List.of("Open")));
+        locTypes.put(38782, makeLoc(38782, "Tree", List.of("Chop down")));
+
+        List<SceneObject> all = api.objects().query().all();
+        assertEquals(2, all.size());
+        // Each row exposes the right loc id regardless of which field the
+        // producer stored it in.
+        assertTrue(all.stream().anyMatch(o -> o.typeId() == 50 && "Door".equals(o.name())));
+        assertTrue(all.stream().anyMatch(o -> o.typeId() == 38782 && "Tree".equals(o.name())));
+    }
+
+    @Test
+    void objectsDropsRowsWithNoUsableLocId() {
+        build();
+        // Direct LOC with interactId=-1 (malformed) and section with
+        // typeId=-1 (malformed): both must be dropped.
+        snap.locs.add(new com.botwithus.bot.api.snapshot.Location(
+                5, -1, -1, 0, 0, 0, 10, 0, 0));
+        snap.locs.add(new com.botwithus.bot.api.snapshot.Location(
+                -1, -1, -1, 0, 0, 0, 10, 0,
+                com.botwithus.bot.core.shm.Layout.LOC_FLAG_COMBINED_SECTION));
+
+        assertEquals(0, api.objects().query().count());
+    }
+
+    @Test
+    void objectsHasOptionUsesLocationType() {
+        build();
+        snap.locs.add(directLoc(50, 0, 0, 0));
+        locTypes.put(50, makeLoc(50, "Rift", List.of("Convert", "Examine")));
 
         SceneObject obj = api.objects().query().first();
         assertTrue(obj.hasOption("Convert"));
         assertTrue(obj.hasOption("convert"));
         assertFalse(obj.hasOption("Attack"));
-        // No LocationType lookup needed since raw.options was non-empty
-        assertEquals(0, api.objects().definitionCacheSize());
-    }
-
-    @Test
-    void objectsHasOptionFallsBackToLocationTypeWhenRawEmpty() {
-        build();
-        when(rpc.callSyncList(eq("query_locations"), anyMap())).thenReturn(List.of(
-                locReply(7, 50, 0, 0, 0, "Rift", List.of()) // empty options on the wire
-        ));
-        locTypes.put(50, makeLoc(50, "Rift", List.of("Convert")));
-
-        SceneObject obj = api.objects().query().first();
-        assertTrue(obj.hasOption("Convert"));
     }
 
     @Test
     void objectsInteractByOptionResolvesIndex() {
         build();
-        when(rpc.callSyncList(eq("query_locations"), anyMap())).thenReturn(List.of(
-                locReply(7, 50, 0, 0, 0, "Rift", List.of("Convert", "Examine"))
-        ));
+        snap.locs.add(directLoc(7, 0, 0, 0));
+        locTypes.put(7, makeLoc(7, "Rift", List.of("Convert", "Examine")));
 
         SceneObject obj = api.objects().query().first();
         assertTrue(obj.interact("Examine"));
-        // Examine = option 2 → ActionTypes.OBJECT2 = 4, target = handle
+        // Examine = option 2 → ActionTypes.OBJECT2 = 4, target = handle (== interactId == 7)
         verify(rpc).callSync(eq("queue_action"),
                 eq(Map.of("action_id", 4, "param1", 7, "param2", 0, "param3", 0)));
     }
@@ -146,9 +163,8 @@ class GameAPIImplSceneObjectsTest {
     @Test
     void objectsInteractByMissingOptionReturnsFalse() {
         build();
-        when(rpc.callSyncList(eq("query_locations"), anyMap())).thenReturn(List.of(
-                locReply(7, 50, 0, 0, 0, "Rift", List.of("Convert"))
-        ));
+        snap.locs.add(directLoc(7, 0, 0, 0));
+        locTypes.put(7, makeLoc(7, "Rift", List.of("Convert")));
 
         SceneObject obj = api.objects().query().first();
         assertFalse(obj.interact("Talk-to"));
@@ -158,10 +174,9 @@ class GameAPIImplSceneObjectsTest {
     @Test
     void objectsLocationTypeCachedByTypeId() {
         build();
-        when(rpc.callSyncList(eq("query_locations"), anyMap())).thenReturn(List.of(
-                locReply(1, 50, 0, 0, 0, "", List.of()),
-                locReply(2, 50, 0, 0, 0, "", List.of())
-        ));
+        // Two rows with the same loc id (== interactId) — one type cache fetch.
+        snap.locs.add(directLoc(50, 0, 0, 0));
+        snap.locs.add(directLoc(50, 1, 0, 0));
         locTypes.put(50, makeLoc(50, "Rift", List.of("Convert")));
 
         api.objects().query().all().forEach(SceneObject::name);
@@ -174,9 +189,7 @@ class GameAPIImplSceneObjectsTest {
     void groundItemsQueryReturnsRichWrappers() {
         build();
         snap.self = makeSelf(0, 0, 0);
-        when(rpc.callSyncList(eq("query_ground_items"), anyMap())).thenReturn(List.of(
-                groundReply(1, 995, 1000, 5, 0, 0)
-        ));
+        snap.grounds.add(new com.botwithus.bot.api.snapshot.GroundItem(995, 1000, 5, 0, 0));
         itemTypes.put(995, makeItem(995, "Coins", List.of("Take")));
 
         GroundItem coins = api.groundItems().query().nearest();
@@ -188,10 +201,9 @@ class GameAPIImplSceneObjectsTest {
     @Test
     void groundItemsInteractByOption() {
         build();
-        when(rpc.callSyncList(eq("query_ground_items"), anyMap())).thenReturn(List.of(
-                groundReply(7, 995, 1, 0, 0, 0)
-        ));
-        itemTypes.put(995, makeItem(995, "Coins", List.of("Take", "Examine")));
+        // handle == itemId mirrors the producer's existing GROUND_ITEM_N action convention.
+        snap.grounds.add(new com.botwithus.bot.api.snapshot.GroundItem(7, 1, 0, 0, 0));
+        itemTypes.put(7, makeItem(7, "Coins", List.of("Take", "Examine")));
 
         GroundItem g = api.groundItems().query().first();
         assertTrue(g.interact("Take"));
@@ -205,29 +217,16 @@ class GameAPIImplSceneObjectsTest {
         return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, List.of());
     }
 
-    private static Map<String, Object> locReply(int handle, int typeId, int x, int y, int plane,
-                                                String name, List<String> options) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("handle", handle);
-        m.put("type_id", typeId);
-        m.put("tile_x", x);
-        m.put("tile_y", y);
-        m.put("plane", plane);
-        m.put("name", name);
-        m.put("options", options);
-        return m;
+    /** Direct LOCATION row — typeId is irrelevant (entity classifier); the
+     *  loc id rides in {@code interactId}. The resolveLocHandle filter keeps it. */
+    private static Location directLoc(int locId, int tileX, int tileY, int plane) {
+        return new Location(locId, locId, -1, tileX, tileY, plane, 10, 0, 0);
     }
 
-    private static Map<String, Object> groundReply(int handle, int itemId, int qty,
-                                                    int x, int y, int plane) {
-        Map<String, Object> m = new HashMap<>();
-        m.put("handle", handle);
-        m.put("item_id", itemId);
-        m.put("quantity", qty);
-        m.put("tile_x", x);
-        m.put("tile_y", y);
-        m.put("plane", plane);
-        return m;
+    /** Combined-section row — interactId always -1, flag bit set. Filter drops it. */
+    private static Location combinedSectionLoc(int modelTypeId, int tileX, int tileY, int plane) {
+        return new Location(modelTypeId, -1, -1, tileX, tileY, plane, 10, 0,
+                com.botwithus.bot.core.shm.Layout.LOC_FLAG_COMBINED_SECTION);
     }
 
     private static LocationType makeLoc(int id, String name, List<String> options) {
@@ -242,6 +241,8 @@ class GameAPIImplSceneObjectsTest {
 
     private static final class StubSnapshot implements GameSnapshot {
         LocalPlayer self;
+        final List<Location> locs = new ArrayList<>();
+        final List<com.botwithus.bot.api.snapshot.GroundItem> grounds = new ArrayList<>();
 
         @Override public long tickId() { return 0; }
         @Override public int gameState() { return 30; }
@@ -268,10 +269,12 @@ class GameAPIImplSceneObjectsTest {
         }
         @Override public Locations locations() {
             return new Locations() {
-                @Override public int count() { return 0; }
-                @Override public com.botwithus.bot.api.snapshot.Location at(int i) { throw new IndexOutOfBoundsException(); }
-                @Override public List<com.botwithus.bot.api.snapshot.Location> filter(com.botwithus.bot.api.snapshot.LocationFilter f) { return List.of(); }
-                @Override public Stream<com.botwithus.bot.api.snapshot.Location> stream() { return Stream.empty(); }
+                @Override public int count() { return locs.size(); }
+                @Override public Location at(int i) { return locs.get(i); }
+                @Override public List<Location> filter(LocationFilter f) {
+                    return locs.stream().filter(f).toList();
+                }
+                @Override public Stream<Location> stream() { return locs.stream(); }
             };
         }
         @Override public Inventories inventories() {
@@ -280,6 +283,16 @@ class GameAPIImplSceneObjectsTest {
                 @Override public com.botwithus.bot.api.snapshot.Inventory at(int i) { throw new IndexOutOfBoundsException(); }
                 @Override public Optional<com.botwithus.bot.api.snapshot.Inventory> byInvId(int id) { return Optional.empty(); }
                 @Override public Stream<com.botwithus.bot.api.snapshot.Inventory> stream() { return Stream.empty(); }
+            };
+        }
+        @Override public GroundItems groundItems() {
+            return new GroundItems() {
+                @Override public int count() { return grounds.size(); }
+                @Override public com.botwithus.bot.api.snapshot.GroundItem at(int i) { return grounds.get(i); }
+                @Override public List<com.botwithus.bot.api.snapshot.GroundItem> filter(com.botwithus.bot.api.snapshot.GroundItemFilter f) {
+                    return grounds.stream().filter(f).toList();
+                }
+                @Override public Stream<com.botwithus.bot.api.snapshot.GroundItem> stream() { return grounds.stream(); }
             };
         }
         @Override public int sceneVersion() { return 0; }

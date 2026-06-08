@@ -1,6 +1,8 @@
 package com.botwithus.bot.test;
 
 import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.GroundItem;
+import com.botwithus.bot.api.snapshot.GroundItemFilter;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
@@ -37,6 +39,7 @@ public record CannedSnapshot(
         Players players,
         Locations locations,
         Inventories inventories,
+        GroundItems groundItems,
         int sceneVersion
 ) implements GameSnapshot {
 
@@ -57,6 +60,7 @@ public record CannedSnapshot(
     private static final Players EMPTY_PLAYERS = new Players(List.of());
     private static final Locations EMPTY_LOCATIONS = new Locations(List.of());
     private static final Inventories EMPTY_INVENTORIES = new Inventories(List.of());
+    private static final GroundItems EMPTY_GROUND_ITEMS = new GroundItems(List.of());
 
     /** Snapshot with no in-game player, no NPCs, no other players, no inventories. */
     public static CannedSnapshot empty() {
@@ -69,6 +73,7 @@ public record CannedSnapshot(
                 EMPTY_PLAYERS,
                 EMPTY_LOCATIONS,
                 EMPTY_INVENTORIES,
+                EMPTY_GROUND_ITEMS,
                 DEFAULT_SCENE_VERSION);
     }
 
@@ -86,13 +91,14 @@ public record CannedSnapshot(
                 EMPTY_PLAYERS,
                 EMPTY_LOCATIONS,
                 EMPTY_INVENTORIES,
+                EMPTY_GROUND_ITEMS,
                 DEFAULT_SCENE_VERSION);
     }
 
     /** Returns a copy with a different {@link #tickId()} for advancing time in tests. */
     public CannedSnapshot withTickId(long newTickId) {
         return new CannedSnapshot(newTickId, gameState, ownIndex, self,
-                                  npcs, players, locations, inventories, sceneVersion);
+                                  npcs, players, locations, inventories, groundItems, sceneVersion);
     }
 
     public record Npcs(List<Npc> all) implements GameSnapshot.Npcs {
@@ -205,6 +211,32 @@ public record CannedSnapshot(
 
         @Override
         public Stream<Inventory> stream() {
+            return all.stream();
+        }
+    }
+
+    public record GroundItems(List<GroundItem> all) implements GameSnapshot.GroundItems {
+        public GroundItems {
+            all = List.copyOf(all);
+        }
+
+        @Override
+        public int count() {
+            return all.size();
+        }
+
+        @Override
+        public GroundItem at(int index) {
+            return index >= 0 && index < all.size() ? all.get(index) : null;
+        }
+
+        @Override
+        public List<GroundItem> filter(GroundItemFilter filter) {
+            return all.stream().filter(filter::test).toList();
+        }
+
+        @Override
+        public Stream<GroundItem> stream() {
             return all.stream();
         }
     }

@@ -16,7 +16,6 @@ import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
-import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.LoginState;
@@ -24,7 +23,6 @@ import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.PathResult;
 import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
-import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
@@ -258,16 +256,6 @@ final class MockGameAPI implements GameAPI {
     @Override
     public WorldMapElements mapElements() {
         throw notStubbed("mapElements");
-    }
-
-    @Override
-    public List<SceneObjectInfo> queryLocations(int centerX, int centerY, int radius, int plane, int max) {
-        throw notStubbed("queryLocations");
-    }
-
-    @Override
-    public List<GroundItemInfo> queryGroundItems(int centerX, int centerY, int radius, int plane, int max) {
-        throw notStubbed("queryGroundItems");
     }
 
     @Override
