@@ -1,5 +1,6 @@
 dependencies {
     implementation(project(":api"))
+    implementation(project(":quest-core"))
     compileOnly(libs.imgui.java.binding)
     testImplementation(libs.imgui.java.binding)
     testImplementation(project(":test-support"))

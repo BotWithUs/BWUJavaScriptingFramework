@@ -55,7 +55,7 @@ public class ManagementScriptsPanel implements GuiPanel {
         runners.sort(Comparator.comparing(ManagementScriptRunner::getScriptName, String.CASE_INSENSITIVE_ORDER));
 
         if (runners.isEmpty()) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+            ImGui.textColored(ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 1f,
                     "No management scripts loaded. Click 'Load Scripts' to discover scripts from scripts/management/.");
             return;
         }

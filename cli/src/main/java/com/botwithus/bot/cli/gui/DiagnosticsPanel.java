@@ -50,7 +50,7 @@ public class DiagnosticsPanel implements GuiPanel {
 
         Connection conn = ctx.getActiveConnection();
         if (conn == null) {
-            GuiHelpers.textMuted("No active connection — RPC metrics are empty.");
+            GuiHelpers.textSecondary("No active connection — RPC metrics are empty.");
             return;
         }
 
@@ -60,7 +60,7 @@ public class DiagnosticsPanel implements GuiPanel {
         renderResetRow(Icons.ROTATE + "  Reset RPC", metrics::reset);
 
         if (snapshot.isEmpty()) {
-            GuiHelpers.textMuted("Awaiting RPC traffic — call statistics will appear here once requests run.");
+            GuiHelpers.textSecondary("Awaiting RPC traffic — call statistics will appear here once requests run.");
             return;
         }
 
@@ -126,7 +126,7 @@ public class DiagnosticsPanel implements GuiPanel {
 
         List<ScriptRunner> runners = collectAllRunners(ctx);
         if (runners.isEmpty()) {
-            GuiHelpers.textMuted("No scripts registered on any active connection.");
+            GuiHelpers.textSecondary("No scripts registered on any active connection.");
             return;
         }
 

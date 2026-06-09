@@ -199,7 +199,7 @@ public class ConnectionsPanel implements GuiPanel {
     private void renderConnectionsTable(CliContext ctx) {
         var connections = ctx.getConnections();
         if (connections.isEmpty()) {
-            GuiHelpers.textMuted("No active connections. Use Scan or Quick Connect above.");
+            GuiHelpers.textSecondary("No active connections. Use Scan or Quick Connect above.");
             return;
         }
 

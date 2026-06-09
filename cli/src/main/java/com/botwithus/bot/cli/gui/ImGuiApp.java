@@ -243,7 +243,7 @@ public class ImGuiApp extends Application {
     }
 
     private void setupTheme() {
-        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable);
+        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable | ImGuiConfigFlags.NavEnableKeyboard);
         ImGuiTheme.apply(dpiScale);
     }
 
@@ -396,6 +396,9 @@ public class ImGuiApp extends Application {
                 case NORMAL -> AppMode.ADVANCED;
                 case ADVANCED -> AppMode.NORMAL;
             };
+            // Keyboard users can immediately Tab into the new screen instead of
+            // hunting for focus with the mouse.
+            ImGui.setKeyboardFocusHere(0);
         }
 
         // Full-window imgui window — use main viewport pos for correct placement with viewports enabled
@@ -637,7 +640,7 @@ public class ImGuiApp extends Application {
             ImGui.dummy(0f, fontH * 0.25f);
             ImGui.setCursorPosX(ImGui.getCursorPosX() + indent);
             ImGui.textColored(
-                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.55f,
+                    ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.85f,
                     Icons.DIAGRAM + "  Blueprint");
             ImGui.sameLine(0, ImGui.getStyle().getItemSpacingX());
             GuiHelpers.kbdHint("F2");
