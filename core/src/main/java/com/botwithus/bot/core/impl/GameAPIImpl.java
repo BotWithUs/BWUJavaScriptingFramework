@@ -440,6 +440,13 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
+    public Component findComponentAt(int screenX, int screenY) {
+        Map<String, Object> r = rpc.callSync("find_component_at",
+                Map.of("screen_x", screenX, "screen_y", screenY));
+        return decodeComponent(r);
+    }
+
+    @Override
     public List<ComponentTreeNode> getInterfaceTree(int interfaceId, int componentId) {
         Map<String, Object> r = rpc.callSync("get_interface_tree",
                 Map.of("iface", interfaceId, "comp", componentId));
