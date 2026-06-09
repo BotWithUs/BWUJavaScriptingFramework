@@ -33,3 +33,9 @@
 # Directory of nav-graph data to bundle into the packaged JRE zip. Also
 # settable via the NAV_DATA_DIR environment variable.
 # navDataDir=C:/path/to/nav_data
+
+# Quest research dir holding `merged_quests.json` + `action_chains_sample.json`.
+# Consumed at configure-time by `:quest-core:generateQuestRegistry` to emit
+# `Quests.java` (a `QuestId` constant per F2P quest). When the directory is
+# missing the codegen emits an empty stub and the module still compiles.
+# quest.research.dir=C:/path/to/Quest Research
