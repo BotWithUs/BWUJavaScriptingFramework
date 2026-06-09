@@ -163,6 +163,16 @@ class LiveComponentApiSmokeTest {
     }
 
     @Test
+    void pickAtFarOffscreenReturnsNull() {
+        // No on-screen geometry guess required — we just exercise the
+        // wire roundtrip and the iface == -1 sentinel decode. Any HWND
+        // would (-32000, -32000) below its client rect, so the producer
+        // walks every open iface, finds no hit, and returns iface = -1.
+        ComponentNode miss = api.components().pickAt(-32000, -32000);
+        assertNull(miss, "pickAt far off-screen must decode the producer's iface=-1 sentinel as null");
+    }
+
+    @Test
     void lowLevelTreeMatchesFacade() {
         List<ComponentTreeNode> raw = api.getInterfaceTree(BACKPACK, 0);
         assertEquals(tree.nodes().size(), raw.size(), "facade tree size matches the raw primitive");

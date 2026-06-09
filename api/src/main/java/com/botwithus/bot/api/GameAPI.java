@@ -307,6 +307,20 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      */
     List<ComponentTreeNode> getInterfaceTree(int interfaceId, int componentId);
 
+    /**
+     * Locate the deepest visible component under a screen-space coordinate, or
+     * {@code null} when nothing is there. Coordinates are raw screen pixels
+     * (the value of Win32 {@code GetCursorPos}); the producer runs inside the
+     * game process and converts to client-window space itself.
+     *
+     * <p>The producer walks every open sub-interface on the game thread and
+     * picks the component with the greatest tree depth whose post-layout AABB
+     * contains the point — ties broken by the smaller AABB. Hidden components
+     * are excluded. Useful for debugger "pick on screen" tools and for
+     * scripters who know a feature's location but not its component id.</p>
+     */
+    Component findComponentAt(int screenX, int screenY);
+
     // ---------------------------------------------------------------- Config-type lookups (slice 5: stubs)
 
     /**

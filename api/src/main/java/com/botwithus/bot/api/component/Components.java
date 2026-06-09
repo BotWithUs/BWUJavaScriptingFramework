@@ -73,4 +73,19 @@ public final class Components {
     public ComponentNode find(int interfaceId, Predicate<ComponentNode> predicate) {
         return in(interfaceId).filter(predicate).first();
     }
+
+    /**
+     * Detached node for the component under a screen-space coordinate, or
+     * {@code null} when nothing is there. Coordinates are raw screen pixels
+     * (the value of Win32 {@code GetCursorPos}); the producer converts to
+     * client-window space internally.
+     *
+     * <p>Returns the deepest visible component whose AABB contains the point,
+     * across every open interface. The node is detached — {@code parent()} is
+     * {@code null} and {@code children()} fetches the subtree on demand.</p>
+     */
+    public ComponentNode pickAt(int screenX, int screenY) {
+        Component data = api.findComponentAt(screenX, screenY);
+        return data == null ? null : new ComponentNode(api, data, null, DETACHED_INDEX);
+    }
 }
