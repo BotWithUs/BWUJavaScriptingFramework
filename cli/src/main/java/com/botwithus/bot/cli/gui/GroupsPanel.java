@@ -37,7 +37,7 @@ public class GroupsPanel implements GuiPanel {
         Map<String, ConnectionGroup> groups = ctx.getGroups();
         if (groups.isEmpty()) {
             ImGui.spacing();
-            GuiHelpers.textMuted("No groups created. Use the form above to create one.");
+            GuiHelpers.textSecondary("No groups created. Use the form above to create one.");
             return;
         }
 

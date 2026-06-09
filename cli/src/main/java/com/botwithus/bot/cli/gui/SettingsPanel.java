@@ -131,7 +131,7 @@ public class SettingsPanel implements GuiPanel {
 
         ScriptProfileStore store = ctx.getProfileStore();
         if (store == null) {
-            GuiHelpers.textMuted("Profile store not available.");
+            GuiHelpers.textSecondary("Profile store not available.");
             endSectionCard();
             return;
         }
@@ -156,7 +156,7 @@ public class SettingsPanel implements GuiPanel {
         ImGui.textColored(
                 ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f,
                 "Auto-connect on startup");
-        GuiHelpers.textMuted("Opens saved pipe connections automatically when the CLI launches.");
+        GuiHelpers.textSecondary("Opens saved pipe connections automatically when the CLI launches.");
         ImGui.endGroup();
 
         // Jump the toggle to the top-right of the row
