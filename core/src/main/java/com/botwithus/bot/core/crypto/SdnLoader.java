@@ -104,6 +104,31 @@ public final class SdnLoader {
     }
 
     /**
+     * Returns the JVM's ephemeral X25519 public key (the SDN client public key)
+     * for callers that drive the key exchange directly — i.e. fetch the signed
+     * key envelope from a key-distribution server themselves rather than via the
+     * Agent's {@code get_script_bundle} RPC. The matching private key never
+     * leaves the JVM's native memory.
+     */
+    public static byte[] clientPublicKey() {
+        return getClientPublicKey();
+    }
+
+    /**
+     * Constructs an {@link SdnClassLoader} directly from an already-fetched
+     * encrypted bundle and server-signed key envelope, bypassing the Agent RPC.
+     * Used by the direct key-distribution path (and its end-to-end test); the
+     * native side verifies + unwraps the envelope and decrypts each class.
+     *
+     * @param encryptedJar the encrypted script bundle (STORED zip, per-class AEAD)
+     * @param envelope     the 168-byte server-signed key envelope
+     * @param parent       the parent loader resolving the script API/runtime types
+     */
+    public static ClassLoader defineLoader(byte[] encryptedJar, byte[] envelope, ClassLoader parent) {
+        return createSdnClassLoader(encryptedJar, envelope, parent);
+    }
+
+    /**
      * Calls {@code SdnClassLoader.lockdown0()} to enforce code integrity
      * (MicrosoftSignedOnly DLL policy). Must be called after all scripts
      * and native libraries are loaded — no more unsigned DLLs can load after this.
