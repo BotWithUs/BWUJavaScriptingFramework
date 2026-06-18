@@ -66,8 +66,11 @@ public final class JBotApplication {
             clientProvider.putClient(pipeName,
                     new ClientImpl(pipeName, gameAPI, eventBus, pipe::isOpen, pump.region()));
 
-            // Discover scripts from scripts/ directory (drop JARs there)
-            List<BotScript> scripts = SDNScriptLoader.loadScripts();
+            // Local scripts (drop JARs in scripts/) plus, when the launcher has
+            // enabled it (-Dbotwithus.sdn.disk=true), the SDN bundle delivered to
+            // disk by the launcher's file-courier. rpc is null here: the agent-RPC
+            // SDN path is a separate delivery design and is not used.
+            List<BotScript> scripts = SDNScriptLoader.loadAllScripts(null);
             log.info("Discovered {} script(s)", scripts.size());
 
             // Propagate the per-thread connection tag through ConnectionContext so
