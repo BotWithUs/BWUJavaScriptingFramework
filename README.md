@@ -28,7 +28,7 @@ Five Gradle subprojects with strict dependency layering:
 api                 (slf4j-api)                — Public interfaces, models, snapshot view, query builders
   ↑ required by
 core                (api + msgpack + logback   — Pipe + SHM transport, RPC client, script runtime,
-                     + bouncycastle + panama)    Maven resolver, cache + pathfinder bridges
+                     + panama)                   cache + pathfinder bridges
   ↑ required by                                ↑
 cli                 (api + core + imgui)       test-support  (api)
                                                — Mocks for downstream script projects
@@ -65,7 +65,6 @@ Key features:
 - **Error isolation** — Per-phase error handling in `ScriptRunner` (onStart/onLoop/onStop)
 - **Structured logging** — SLF4J + Logback with MDC-based context tagging (`script.name`, `connection.name`)
 - **GUI log bridge** — Custom `LogBufferAppender` feeds Logback events into the in-memory `LogBuffer` for the GUI log panel
-- **Maven resolver** — `resolver/` pipeline (drivers via `RepositoryDriver` SPI, BouncyCastle PGP verification, SHA-1/SHA-256 sidecar validation) for `scripts install` (see [Script Repositories](#script-repositories))
 
 ### cli
 
@@ -77,7 +76,7 @@ Commands:
 |---------|---------|-------------|
 | `connect` | | Connect to a game server pipe |
 | `disconnect` | | Disconnect from a pipe |
-| `scripts` | | List / start / stop scripts, plus `install` / `update` / `uninstall` / `search` / `adopt` / `repo` / `trust` subcommands (see [Script Repositories](#script-repositories)) |
+| `scripts` | `s` | List / start / stop / restart scripts, view info / config / status |
 | `mgmt` | `management`, `m` | Manage management scripts (list, start, stop, restart, reload, info) |
 | `client` | `cm`, `clients` | Manage clients, groups, and cross-client script operations |
 | `stream` | `sv` | Start/stop live game video streaming with quality/fps/resolution options |
@@ -169,124 +168,6 @@ module my.script {
 ```
 
 Place the compiled JAR in the `scripts/` directory. The runtime discovers and loads it automatically.
-
-## Script Repositories
-
-Beyond manually dropping JARs into `scripts/`, the CLI can install scripts from any Maven-layout repository — Maven Central, Sonatype Nexus, JFrog Artifactory, JitPack, or a local file repo. Artifacts are fetched by Maven coordinate, validated against `.sha1` / `.sha256` sidecars, optionally verified against a PGP trust ring, and dropped into the same `scripts/` directory the runtime watches.
-
-All state lives under `~/.botwithus/`:
-
-```
-~/.botwithus/
-├── repositories.json          # configured repos (id, url, driver, snapshots, requireSignature, ...)
-├── credentials.json           # per-repo Basic-auth credentials, keyed by repo id
-├── installed-scripts.json     # resolver-managed install index (coord → jar/version/repo)
-└── trusted-keys/              # imported PGP public keys
-```
-
-### Adding a repository
-
-Repository URLs are the **content root** of a specific hosted repo. For Nexus, that's `https://<host>/repository/<repo-name>/`, not the Nexus root URL.
-
-```text
-# public Maven repo
-scripts repo add central https://repo1.maven.org/maven2/
-
-# Nexus release repo
-scripts repo add my-nexus https://nexus.example.com/repository/scripts-releases/
-
-# Nexus snapshots
-scripts repo add my-nexus-snap https://nexus.example.com/repository/scripts-snapshots/ --type=snapshot
-
-# require every artifact to carry a valid PGP signature
-scripts repo add my-nexus https://nexus.example.com/repository/scripts-releases/ --require-signature
-```
-
-The default driver is `maven` — the standard `groupId/artifactId/version/artifactId-version.jar` layout. Other drivers can be plugged in via the `RepositoryDriver` ServiceLoader SPI; pass `--driver=<id>` to select one.
-
-| Flag | Meaning |
-|------|---------|
-| `--type=snapshot` | Repo serves `-SNAPSHOT` versions (release-only repos refuse them) |
-| `--require-signature` | Refuse any artifact without a valid `.jar.asc` signed by a trusted key |
-| `--driver=<id>` | Override the default `maven` driver |
-
-`scripts repo list` shows everything configured; `scripts repo remove <id>` drops one.
-
-### Private repositories (credentials)
-
-```text
-scripts repo login my-nexus --user deploy-reader --password <token>
-scripts repo logout my-nexus
-```
-
-Credentials are persisted in `~/.botwithus/credentials.json`, keyed by repo id, and sent as HTTP Basic auth by the HTTP transport. Plain-HTTP URLs trigger a yellow warning at `repo add` time — credentials and artifacts ride in the clear.
-
-### PGP trust (signed repositories)
-
-When a repo is added with `--require-signature`, the installer fetches the `.jar.asc` sidecar alongside each artifact and refuses to install unless the signature verifies against an imported public key. Export the publisher's key with `gpg --export --armor <keyid> > publisher.asc`, then:
-
-```text
-scripts trust add publisher.asc      # imports every public key in the file
-scripts trust list                   # show trusted keys (id, user id, added timestamp)
-scripts trust remove <keyId>         # revoke trust
-```
-
-Verification is handled by `BouncyCastlePgpVerifier`. Unsigned artifacts, signatures from unknown keys, and tampered JARs all fail with `SignatureInvalid` and abort the install.
-
-### Installing and managing scripts
-
-```text
-# install the latest release
-scripts install com.example:woodcutter
-
-# install a pinned version
-scripts install com.example:woodcutter:1.4.2
-
-# restrict resolution to one repo
-scripts install com.example:woodcutter --repo=my-nexus
-
-# list resolver-managed installs
-scripts list --installed
-scripts list --installed --outdated
-
-# update one or all
-scripts update com.example:woodcutter
-scripts update --all
-
-# remove
-scripts uninstall com.example:woodcutter
-
-# take ownership of a JAR you copied in manually
-scripts adopt some-old-script.jar
-```
-
-The install pipeline reads `maven-metadata.xml` to discover versions, downloads the JAR plus `.sha1` / `.sha256` (and `.asc` if signing is required), verifies, writes the JAR to `scripts/`, and records the install in `installed-scripts.json`. The runtime picks up the new module on next `reload` (or automatically if `reload --watch` is active).
-
-### Searching
-
-```text
-scripts search woodcutter
-scripts search woodcutter --repo=my-nexus --limit=20
-```
-
-Search returns hits per repo using each repo's native dialect — Solr for Maven Central (`search.maven.org`), the REST v1 API for Nexus. **Search requires the repo entry to carry a `searchEndpoint` URL**, and `scripts repo add` does not yet expose a flag for it. To enable search against a Nexus instance, hand-edit `~/.botwithus/repositories.json` and add:
-
-```json
-"searchEndpoint": "https://nexus.example.com/service/rest/v1/search"
-```
-
-to the repo entry. Without it, the CLI reports `search not supported` for that repo. Browsing and direct installs still work — only the search dialect is gated.
-
-### End-to-end example
-
-```text
-scripts repo add bwu https://nexus.botwithus.dev/repository/scripts/
-scripts repo login bwu --user me --password <token>
-scripts trust add publisher.asc            # only if --require-signature was used
-scripts install com.botwithus.scripts:woodcutter
-reload
-scripts                                    # the new script is now listed and runnable
-```
 
 ## Management Scripts
 
