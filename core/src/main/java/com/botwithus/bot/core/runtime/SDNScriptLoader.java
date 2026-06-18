@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.core.crypto.SdnDiskBundleSource;
 import com.botwithus.bot.core.crypto.SdnLoader;
 import com.botwithus.bot.core.rpc.RpcClient;
 import org.slf4j.Logger;
@@ -9,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.ServiceLoader;
 
 /**
@@ -42,6 +44,7 @@ public final class SDNScriptLoader {
         if (rpc != null) {
             allScripts.addAll(loadSdnScripts(rpc));
         }
+        allScripts.addAll(loadSdnScriptsFromDisk());
 
         enforceLockdown(allScripts);
         return allScripts;
@@ -101,6 +104,44 @@ public final class SDNScriptLoader {
             return scripts;
         } catch (Exception e) {
             log.error("SDN script loading failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
+     * Loads scripts from an SDN bundle delivered to disk by the launcher's
+     * file-courier (see {@link SdnDiskBundleSource}). Returns empty unless
+     * {@code -Dbotwithus.sdn.disk=true}; on timeout/error it returns empty so the
+     * host falls back to local scripts.
+     *
+     * @return list of BotScript implementations from the disk-delivered bundle
+     */
+    public static List<BotScript> loadSdnScriptsFromDisk() {
+        if (!SdnDiskBundleSource.isEnabled()) {
+            return List.of();
+        }
+        try {
+            Optional<ClassLoader> loaderOpt =
+                    SdnDiskBundleSource.awaitBundle(SDNScriptLoader.class.getClassLoader());
+            if (loaderOpt.isEmpty()) {
+                return List.of();
+            }
+
+            List<BotScript> scripts = new ArrayList<>();
+            ServiceLoader<BotScript> loader = ServiceLoader.load(BotScript.class, loaderOpt.get());
+            for (BotScript script : loader) {
+                scripts.add(script);
+                log.info("SDN (disk) loaded: {}", script.getClass().getName());
+            }
+
+            if (scripts.isEmpty()) {
+                log.info("No BotScript providers found in SDN disk bundle.");
+            } else {
+                log.info("Loaded {} script(s) from SDN disk bundle.", scripts.size());
+            }
+            return scripts;
+        } catch (Exception e) {
+            log.error("SDN disk script loading failed: {}", e.getMessage());
             return List.of();
         }
     }
