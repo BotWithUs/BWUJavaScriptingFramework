@@ -15,6 +15,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 public class ManagementScriptRuntime {
 
     private static final Logger log = LoggerFactory.getLogger(ManagementScriptRuntime.class);
+    /** How long to wait for a management-script thread to drain before abandoning it. */
+    private static final long STOP_AWAIT_MS = 2000L;
     private final ManagementContext context;
     private final List<ManagementScriptRunner> runners = new CopyOnWriteArrayList<>();
     private Runnable onStateChange;
@@ -91,6 +93,14 @@ public class ManagementScriptRuntime {
         for (ManagementScriptRunner runner : runners) {
             runner.dispose();
             log.info("Stopped: {}", runner.getScriptName());
+        }
+        // Drain threads before clearing references / any subsequent reload —
+        // dispose() only interrupts cooperatively. Best-effort with a timeout.
+        for (ManagementScriptRunner runner : runners) {
+            if (!runner.awaitStop(STOP_AWAIT_MS)) {
+                log.warn("Management script {} did not stop within {} ms; abandoning its thread",
+                        runner.getScriptName(), STOP_AWAIT_MS);
+            }
         }
         runners.clear();
         fireStateChange();

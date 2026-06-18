@@ -1,5 +1,9 @@
 package com.botwithus.bot.core.util;
 
+import com.botwithus.bot.core.resolver.metadata.ChecksumDigest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -27,6 +31,12 @@ public final class NativeCache {
 
     private static final String CONFIG_DIR_NAME = ".botwithus";
     private static final String NATIVE_SUBDIR = "native";
+
+    private static final Logger log = LoggerFactory.getLogger(NativeCache.class);
+    /** Integrity-verification mode property: {@code warn} (default) logs, {@code enforce} throws. */
+    private static final String VERIFY_PROP = "botwithus.native.verify";
+    private static final String VERIFY_ENFORCE = "enforce";
+    private static final String SHA256_SIDECAR_SUFFIX = ".sha256";
 
     /** File name of the NXT cache decoder library within the native cache. */
     public static final String NXTCACHE_DLL_NAME = "NXTCache.dll";
@@ -147,5 +157,66 @@ public final class NativeCache {
             }
         }
         return new NativeCache().cacheDir();
+    }
+
+    /**
+     * Best-effort integrity gate, called immediately before a native DLL is
+     * mapped and executed. The native dir is populated out-of-band by the
+     * launcher; this canonicalizes the resolved path (resolving symlinks) and,
+     * when the launcher has published a {@code <name>.sha256} sidecar next to
+     * the DLL, verifies the file's SHA-256 against it. Mode via
+     * {@code -Dbotwithus.native.verify}: {@code warn} (default) logs a
+     * mismatch/absence and proceeds — a phased rollout that stays warn-only
+     * until the launcher ships digests; {@code enforce} throws on a mismatch,
+     * an unreadable path, or a missing digest.
+     *
+     * <p>Returns the canonicalized path to load. This is NOT full DLL-hijack
+     * protection: once loaded, Windows resolves the DLL's own dependent imports
+     * via the standard search order — constraining that is a launcher/native
+     * concern.</p>
+     */
+    public static Path verifyIntegrity(Path dll) {
+        boolean enforce = VERIFY_ENFORCE.equalsIgnoreCase(System.getProperty(VERIFY_PROP, ""));
+        Path canonical;
+        try {
+            canonical = dll.toRealPath();
+        } catch (IOException e) {
+            return failOrWarn(enforce, dll, "cannot canonicalize native library path", e, dll);
+        }
+        Path sidecar = canonical.resolveSibling(canonical.getFileName() + SHA256_SIDECAR_SUFFIX);
+        if (!Files.isRegularFile(sidecar)) {
+            if (enforce) {
+                throw new IllegalStateException("no integrity digest " + sidecar + " for " + canonical
+                        + " (required by -D" + VERIFY_PROP + "=enforce)");
+            }
+            log.debug("native library {} has no integrity digest; set -D{}=enforce to require one",
+                    canonical, VERIFY_PROP);
+            return canonical;
+        }
+        try {
+            String hex = Files.readString(sidecar).trim();
+            int sp = hex.indexOf(' ');
+            Optional<ChecksumDigest> expected = ChecksumDigest.parseHex(sp < 0 ? hex : hex.substring(0, sp));
+            if (expected.isPresent() && expected.get().matches(ChecksumDigest.of(canonical))) {
+                log.debug("native library {} passed SHA-256 integrity check", canonical);
+                return canonical;
+            }
+            return failOrWarn(enforce, canonical, "SHA-256 integrity check failed for", null, canonical);
+        } catch (IOException e) {
+            return failOrWarn(enforce, canonical, "integrity check error for", e, canonical);
+        }
+    }
+
+    private static Path failOrWarn(boolean enforce, Path subject, String what, IOException cause, Path result) {
+        if (enforce) {
+            throw new IllegalStateException(what + " " + subject, cause);
+        }
+        if (cause != null) {
+            log.warn("{} {}: {} (continuing — -D{}=enforce to block)",
+                    what, subject, cause.getMessage(), VERIFY_PROP);
+        } else {
+            log.warn("{} {} (continuing — -D{}=enforce to block)", what, subject, VERIFY_PROP);
+        }
+        return result;
     }
 }

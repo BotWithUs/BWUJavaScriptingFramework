@@ -320,10 +320,14 @@ public class ScriptRunner implements Runnable {
             if (delay < 0) {
                 break;
             }
-            if (delay > 0) {
-                delay = adjustDelay(delay, gameAPI);
-                Thread.sleep(delay);
-            }
+            // Always sleep at least 1 ms so interruption is observed every
+            // iteration; a tight onLoop()==0 loop that swallows InterruptedException
+            // would otherwise be unstoppable. Stop stays best-effort — a script
+            // blocking *inside* onLoop() still cannot be force-killed (no safe
+            // Thread.stop in modern Java). A future onLoop watchdog could flag
+            // (not terminate) an unresponsive runner via loopStart + healthRef.
+            delay = adjustDelay(delay, gameAPI);
+            Thread.sleep(Math.max(1, delay));
         }
     }
 

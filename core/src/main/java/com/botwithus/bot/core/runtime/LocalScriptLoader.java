@@ -78,12 +78,23 @@ public final class LocalScriptLoader {
     static Path resolveScriptsDir() {
         String override = System.getProperty(SCRIPTS_DIR_PROPERTY);
         if (override != null) {
-            return Path.of(override);
+            Path overridePath = Path.of(override);
+            // Security note: every JAR in the resolved dir is loaded with no
+            // signature / allow-list check. Surface a non-default source so a
+            // repointed script dir is visible in the log.
+            log.warn("Scripts dir taken from -D{} override: {}",
+                    SCRIPTS_DIR_PROPERTY, overridePath.toAbsolutePath());
+            return overridePath;
         }
         Path dir = Path.of("").toAbsolutePath();
         for (int i = 0; i < 3; i++) {
             Path candidate = dir.resolve(SCRIPTS_DIR_NAME);
             if (Files.isDirectory(candidate)) {
+                if (i > 0) {
+                    log.warn("Scripts dir resolved by walking {} parent(s) up to {} "
+                            + "(loaded without signature/allow-list check)",
+                            i, candidate.toAbsolutePath());
+                }
                 return candidate;
             }
             dir = dir.getParent();

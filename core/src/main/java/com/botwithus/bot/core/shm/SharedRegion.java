@@ -156,23 +156,28 @@ public final class SharedRegion implements AutoCloseable {
         }
         MemorySegment hdrSlice = headerView.reinterpret(Layout.HEADER_SIZE);
 
+        RegionLayout layout;
         try {
             validateMagicAndVersion(hdrSlice);
             validateTargetPid(hdrSlice, pid);
+
+            long snapshotSize = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTSIZE_OFFSET));
+            long snapshotOff0 = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTOFF0_OFFSET));
+            long snapshotOff1 = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTOFF1_OFFSET));
+            long ringOff      = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGOFF_OFFSET));
+            long ringSize     = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGSIZE_OFFSET));
+            long totalSize    = ringOff + ringSize;
+
+            validateGeometry(snapshotSize, snapshotOff0, snapshotOff1, ringOff, ringSize, totalSize);
+            layout = new RegionLayout(snapshotOff0, snapshotOff1, snapshotSize, ringOff, ringSize, totalSize);
         } catch (RuntimeException ex) {
             Kernel32.unmapViewOfFile(headerView);
             Kernel32.closeHandle(mapping);
             throw ex;
         }
 
-        long snapshotSize = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTSIZE_OFFSET));
-        long snapshotOff0 = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTOFF0_OFFSET));
-        long snapshotOff1 = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTOFF1_OFFSET));
-        long ringOff      = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGOFF_OFFSET));
-        long ringSize     = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGSIZE_OFFSET));
-
         Kernel32.unmapViewOfFile(headerView);
-        return new RegionLayout(snapshotOff0, snapshotOff1, snapshotSize, ringOff, ringSize, ringOff + ringSize);
+        return layout;
     }
 
     private static MemorySegment mapFullRegion(MemorySegment mapping, long totalSize) {
@@ -192,6 +197,57 @@ public final class SharedRegion implements AutoCloseable {
         r.snapshot0 = fullSlice.asSlice(layout.snapshotOff0(), layout.snapshotSize());
         r.snapshot1 = fullSlice.asSlice(layout.snapshotOff1(), layout.snapshotSize());
         r.ring      = fullSlice.asSlice(layout.ringOff(),      layout.ringSize());
+    }
+
+    /** Upper bound on a plausible total mapping size (guards a bogus huge ringOff+ringSize). */
+    private static final long MAX_REGION_BYTES = 64L * 1024 * 1024;
+
+    /**
+     * Rejects a mapping whose producer-published geometry is inconsistent with
+     * the layout this host was compiled against. The header passed magic /
+     * version / pid, but a buggy or hostile producer can still publish offsets
+     * and sizes that would make the per-tick {@code asSlice} reads run off the
+     * mapping. Panama bounds-checks each slice, so the failure mode is a thrown
+     * exception (a DoS), not a foreign-memory read — but we surface it loudly at
+     * bind time rather than on every snapshot read. Snapshot sizes use
+     * {@code >=} because the producer pads each snapshot up to a 64-byte stride,
+     * so the published size is at least the host's compiled {@code SNAPSHOT_SIZE}.
+     */
+    // Package-private (not private) so SharedRegionGeometryTest can exercise it
+    // directly with crafted values, mirroring validateTargetPid.
+    static void validateGeometry(long snapshotSize, long snapshotOff0,
+            long snapshotOff1, long ringOff, long ringSize, long totalSize) {
+        if (totalSize <= 0 || totalSize > MAX_REGION_BYTES) {
+            throw new SharedMemoryException(
+                    "Implausible region size: " + totalSize + " bytes (cap " + MAX_REGION_BYTES + ")");
+        }
+        if (snapshotSize < Layout.SNAPSHOT_SIZE) {
+            throw new SharedMemoryException(
+                    "Snapshot too small: producer=" + snapshotSize
+                            + " consumer needs >=" + Layout.SNAPSHOT_SIZE);
+        }
+        long minRing = Layout.RING_SLOTS_OFFSET
+                + (long) Layout.EVENT_RING_SLOTS * Layout.EVENT_SLOT_SIZE;
+        if (ringSize < minRing) {
+            throw new SharedMemoryException(
+                    "Ring too small: producer=" + ringSize + " consumer needs >=" + minRing);
+        }
+        if (snapshotOff0 + snapshotSize > totalSize || snapshotOff1 + snapshotSize > totalSize) {
+            throw new SharedMemoryException(
+                    "Snapshot slice out of bounds: off0=" + snapshotOff0 + " off1=" + snapshotOff1
+                            + " snapSize=" + snapshotSize + " total=" + totalSize);
+        }
+        if (overlaps(snapshotOff0, snapshotSize, snapshotOff1, snapshotSize)
+                || overlaps(snapshotOff0, snapshotSize, ringOff, ringSize)
+                || overlaps(snapshotOff1, snapshotSize, ringOff, ringSize)) {
+            throw new SharedMemoryException(
+                    "Overlapping regions: off0=" + snapshotOff0 + " off1=" + snapshotOff1
+                            + " ringOff=" + ringOff);
+        }
+    }
+
+    private static boolean overlaps(long aOff, long aLen, long bOff, long bLen) {
+        return aOff < bOff + bLen && bOff < aOff + aLen;
     }
 
     private static void validateMagicAndVersion(MemorySegment header) {

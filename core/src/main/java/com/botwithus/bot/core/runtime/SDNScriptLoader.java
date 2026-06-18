@@ -170,7 +170,12 @@ public final class SDNScriptLoader {
      * Enforces process lockdown after scripts are loaded to prevent unsigned DLL loading.
      */
     private static void enforceLockdown(List<BotScript> scripts) {
-        if (!scripts.isEmpty() && !lockdownCalled) {
+        // Lock down unconditionally once the initial load decision is made — NOT
+        // gated on scripts being present. The previous `!scripts.isEmpty()` guard
+        // meant an empty-scripts session never armed the lockdown, leaving
+        // unsigned-DLL loading open for the whole session. `scripts` is kept for
+        // call-site signature stability but no longer gates the call.
+        if (!lockdownCalled) {
             try {
                 SdnLoader.lockdown();
                 lockdownCalled = true;

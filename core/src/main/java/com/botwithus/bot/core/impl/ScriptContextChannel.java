@@ -90,10 +90,15 @@ public class ScriptContextChannel implements AutoCloseable {
         if (!running.get()) {
             return;
         }
-        if (!queue.offerLast(data)) {
-            queue.pollFirst();
-            queue.offerLast(data);
-            dropped.incrementAndGet();
+        // Evict-and-retry under contention: with several script vthreads
+        // publishing and one worker draining, a single pollFirst+offerLast is
+        // racy (the freed slot can be refilled before our offer, silently
+        // dropping data without accounting, or two publishers can both evict).
+        // Loop until our payload lands, counting each eviction.
+        while (!queue.offerLast(data)) {
+            if (queue.pollFirst() != null) {
+                dropped.incrementAndGet();
+            }
         }
     }
 

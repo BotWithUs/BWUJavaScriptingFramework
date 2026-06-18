@@ -260,13 +260,19 @@ public final class Resolver {
             return jarTransportToOutcome(coord, repository, STAGE_JAR, jarFetch);
         }
 
+        PgpSignaturePolicy policy = pgpPolicyLookup.policyFor(repository);
+        boolean signatureRequired = switch (policy) {
+            case PgpSignaturePolicy.Required req -> true;
+            case PgpSignaturePolicy.NotRequired nr -> false;
+        };
+
         ResolveOutcome checksumOutcome = verifyChecksum(driver, coord, version, repository, credentials,
-                stagingDir, jarPath);
+                stagingDir, jarPath, signatureRequired);
         if (checksumOutcome != null) {
             return checksumOutcome;
         }
 
-        return switch (pgpPolicyLookup.policyFor(repository)) {
+        return switch (policy) {
             case PgpSignaturePolicy.Required req ->
                     resolveWithSignature(driver, coord, version, repository, credentials, stagingDir, jarPath,
                             req.keyRing());
@@ -292,17 +298,17 @@ public final class Resolver {
 
     private ResolveOutcome verifyChecksum(RepositoryDriver driver, MavenCoord coord, String version,
                                           Repository repository, Optional<Credentials> credentials,
-                                          Path stagingDir, Path jarFile) {
+                                          Path stagingDir, Path jarFile, boolean signatureRequired) {
         ArtifactLocation shaLoc = driver.locateChecksum(repository, coord, version);
         URI shaUri = urlOrNull(shaLoc);
         if (shaUri == null) {
-            return verifyChecksumLegacyFallback(driver, coord, version, repository, credentials, stagingDir, jarFile);
+            return verifyChecksumLegacyFallback(driver, coord, version, repository, credentials, stagingDir, jarFile, signatureRequired);
         }
         Path shaStaging = stagingDir.resolve(coord.jarFileName(version) + SHA256_SUFFIX);
         TransportResult shaFetch = transport.fetch(shaUri, shaStaging, credentials).join();
         return switch (shaFetch) {
             case TransportResult.NotFound nf ->
-                    verifyChecksumLegacyFallback(driver, coord, version, repository, credentials, stagingDir, jarFile);
+                    verifyChecksumLegacyFallback(driver, coord, version, repository, credentials, stagingDir, jarFile, signatureRequired);
             case TransportResult.HttpError he -> jarTransportToOutcome(coord, repository, STAGE_SHA256, shaFetch);
             case TransportResult.Network n -> jarTransportToOutcome(coord, repository, STAGE_SHA256, shaFetch);
             case TransportResult.Ok ok -> verifySha256Against(coord, repository, jarFile, ok.localPath());
@@ -331,14 +337,24 @@ public final class Resolver {
     }
 
     /**
-     * Falls back to the legacy checksum sidecar (SHA-1 for the Maven
-     * driver) when the primary SHA-256 isn't published or 404s. SHA-1 is
-     * acceptable for transit integrity; adversarial protection is the
-     * PGP signature.
+     * Falls back to the legacy checksum sidecar (SHA-1 for the Maven driver)
+     * when the primary SHA-256 isn't published or 404s. SHA-1 is collision-
+     * broken, so it is acceptable only as a transit check *behind* a required
+     * PGP signature ({@code signatureRequired}); with no signature required a
+     * SHA-1-only artifact has no adversarial backstop and is refused.
      */
     private ResolveOutcome verifyChecksumLegacyFallback(RepositoryDriver driver, MavenCoord coord, String version,
                                                         Repository repository, Optional<Credentials> credentials,
-                                                        Path stagingDir, Path jarFile) {
+                                                        Path stagingDir, Path jarFile, boolean signatureRequired) {
+        if (!signatureRequired) {
+            // A malicious mirror can swap the jar and its SHA-1 together, and
+            // SHA-1 is collision-broken regardless. Without a required signature
+            // there is nothing stronger to fall back on — refuse rather than
+            // resolve on SHA-1 alone.
+            return new ResolveOutcome.NotFound(coord,
+                    repository.id() + " published only a SHA-1 checksum for " + coord + ":" + version
+                            + "; require SHA-256 or enable requireSignature for this repository");
+        }
         ArtifactLocation legacy = driver.locateLegacyChecksum(repository, coord, version);
         URI uri = urlOrNull(legacy);
         if (uri == null) {

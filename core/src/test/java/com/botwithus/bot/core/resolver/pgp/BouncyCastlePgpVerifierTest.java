@@ -88,6 +88,35 @@ class BouncyCastlePgpVerifierTest {
     }
 
     @Test
+    void revokedKeyRejected() throws Exception {
+        PgpTestFixture.signDetached(secret, jarFile, sigFile);
+        // Re-export the public key WITH a revocation certificate. The signature
+        // still crypto-verifies, but a revoked signing key must be refused (H2).
+        String revokedKeyId = PgpTestFixture.writeRevokedPublicKeyRing(secret, keyringFile);
+        KeyRing keyRing = new KeyRing(keyringFile, Set.of(revokedKeyId));
+
+        SignatureResult result = verifier.verify(jarFile, sigFile, keyRing);
+        SignatureResult.InvalidSignature inv =
+                assertInstanceOf(SignatureResult.InvalidSignature.class, result);
+        assertTrue(inv.reason().toLowerCase().contains("revoked"));
+    }
+
+    @Test
+    void expiredKeyRejected() throws Exception {
+        // A separate, already-expired key. The signature verifies, but the key
+        // is past its validity window and must be refused (H2).
+        PGPSecretKeyRing expired = PgpTestFixture.generateExpiredKeyRing("Expired <old@example.invalid>");
+        String expiredKeyId = PgpTestFixture.writePublicKeyRing(expired, keyringFile);
+        PgpTestFixture.signDetached(expired, jarFile, sigFile);
+        KeyRing keyRing = new KeyRing(keyringFile, Set.of(expiredKeyId));
+
+        SignatureResult result = verifier.verify(jarFile, sigFile, keyRing);
+        SignatureResult.InvalidSignature inv =
+                assertInstanceOf(SignatureResult.InvalidSignature.class, result);
+        assertTrue(inv.reason().toLowerCase().contains("expired"));
+    }
+
+    @Test
     void invalidSignatureWhenKeyringFileMissing() throws Exception {
         PgpTestFixture.signDetached(secret, jarFile, sigFile);
         Path nonexistentKeyring = tempDir.resolve("does-not-exist.gpg");

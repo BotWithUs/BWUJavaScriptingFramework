@@ -63,8 +63,29 @@ public final class EventRingReader {
      *                 when the reader attaches mid-session.
      */
     public EventRingReader(SharedRegion region, boolean fromHead) {
-        this.ring = region.ring();
+        this(region.ring(), fromHead);
+    }
+
+    // Package-private seam so EventRingGeometryTest can supply a fabricated ring
+    // segment with crafted slotCount/slotMask/head without a live mapping.
+    EventRingReader(MemorySegment ring, boolean fromHead) {
+        this.ring = ring;
+        int slotCount = ring.get(ValueLayout.JAVA_INT, Layout.RING_SLOTCOUNT_OFFSET);
         int sm = ring.get(ValueLayout.JAVA_INT, Layout.RING_SLOTMASK_OFFSET);
+        // Validate the producer-published ring geometry against the constants
+        // this host was compiled with. An out-of-range mask would drive the
+        // slot offset in poll() outside the ring slice (Panama bounds-checks
+        // and throws every poll → permanently dead event stream), or — if
+        // crafted to stay in bounds — read the wrong slot. The mask must be a
+        // full power-of-two-minus-one matching the compiled ring size. Fail
+        // loud at bind time rather than on every poll. (See also the slotCount-1
+        // overflow this avoids in the fromHead=false branch below.)
+        if (slotCount != Layout.EVENT_RING_SLOTS || sm != slotCount - 1 || sm <= 0) {
+            throw new SharedMemoryException(
+                    "Bad event-ring geometry: slotCount=" + slotCount + " slotMask=" + sm
+                            + " (consumer expects slotCount=" + Layout.EVENT_RING_SLOTS
+                            + ", slotMask=" + (Layout.EVENT_RING_SLOTS - 1) + ")");
+        }
         this.slotMask = sm;
         long head = ring.get(ValueLayout.JAVA_LONG, Layout.RING_HEAD_OFFSET);
         if (fromHead) {
@@ -72,7 +93,6 @@ public final class EventRingReader {
         } else {
             // The writer wraps every slotCount events; the oldest still-
             // readable event is at head - slotCount (clamped to 0).
-            int slotCount = sm + 1;
             this.nextSeq = Math.max(0L, head - slotCount);
         }
     }
@@ -98,6 +118,17 @@ public final class EventRingReader {
         // Acquire-load via volatile read of head — Panama JAVA_LONG load on
         // an aligned 8-byte address is sequentially consistent on x64.
         long head = ring.get(ValueLayout.JAVA_LONG, Layout.RING_HEAD_OFFSET);
+
+        // Bound the drain per call: no more than slotCount un-dropped events
+        // can be visible at once, so anything past [nextSeq, nextSeq+slots) was
+        // already overwritten. This stops a producer that marches head far
+        // ahead of us from pinning this thread (CPU DoS); count the skipped
+        // span as drops. (slotMask was validated == slots-1 in the ctor.)
+        long maxHead = nextSeq + Layout.EVENT_RING_SLOTS;
+        if (head > maxHead) {
+            droppedCount += head - maxHead;
+            head = maxHead;
+        }
 
         int delivered = 0;
         long seq = nextSeq;

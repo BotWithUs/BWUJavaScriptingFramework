@@ -99,6 +99,20 @@ class RepositoryConfigStoreTest {
     }
 
     @Test
+    void missingRequireSignatureFieldDefaultsToRequired() throws IOException {
+        Path file = tempDir.resolve("repositories.json");
+        // M1: a hand-edited / older entry that omits `requireSignature` must
+        // fail closed — read as `true`, not the previous fail-open `false`.
+        Files.writeString(file, """
+                [{"id":"legacy","url":"https://example/repo/"}]
+                """);
+        RepositoryConfigStore store = new RepositoryConfigStore(file);
+        store.load();
+        Repository got = store.find("legacy").orElseThrow();
+        assertTrue(got.requireSignature());
+    }
+
+    @Test
     void legacyTypeFieldIsTranslated() throws IOException {
         Path file = tempDir.resolve("repositories.json");
         // Pre-12.1b on-disk shape: an entry with `type: SNAPSHOT` instead of

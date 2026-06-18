@@ -73,11 +73,16 @@ public final class NXTCache implements AutoCloseable {
     private static final Gson GSON = new Gson();
     private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
 
+    /** Upper bound on a single native-returned blob; guards a garbage length from SIGSEGV-ing the JVM. */
+    private static final long MAX_NATIVE_BLOB_BYTES = 256L * 1024 * 1024;
+    /** Cap on the thread-local last-error C string scan (truncates a non-terminated buffer instead of faulting). */
+    private static final long MAX_LAST_ERROR_BYTES = 4096;
+
     private static final Linker LINKER = Linker.nativeLinker();
     private static final SymbolLookup LIB = locateLibrary();
 
     private static SymbolLookup locateLibrary() {
-        Path resolved = resolveDllPath();
+        Path resolved = NativeCache.verifyIntegrity(resolveDllPath());
         log.debug("Loading {} from {}", NativeCache.NXTCACHE_DLL_NAME, resolved);
         Arena scope = Arena.ofShared();
         return SymbolLookup.libraryLookup(resolved, scope);
@@ -354,7 +359,17 @@ public final class NXTCache implements AutoCloseable {
             }
             MemorySegment buf = outPtr.get(ADDRESS, 0);
             long len = outLen.get(JAVA_LONG, 0);
+            // Defensive (mirrors WorldWalker.decodePath): a misbehaving native
+            // side returning NXT_OK with a null buffer or garbage length would
+            // SIGSEGV inside reinterpret-and-read and take the JVM down. Surface
+            // a typed exception. buf is non-null past here so the finally frees it.
+            if (buf.address() == 0L) {
+                throw new NXTCacheException("read_file_raw returned NXT_OK with null buffer (len=" + len + ")");
+            }
             try {
+                if (len < 0 || len > MAX_NATIVE_BLOB_BYTES) {
+                    throw new NXTCacheException("read_file_raw returned implausible length: " + len);
+                }
                 return buf.reinterpret(len).toArray(JAVA_BYTE);
             } finally {
                 MH_FREE.invokeExact(buf);
@@ -387,7 +402,13 @@ public final class NXTCache implements AutoCloseable {
     private static String readAndFree(MemorySegment outPtr, MemorySegment outLen) throws Throwable {
         MemorySegment buf = outPtr.get(ADDRESS, 0);
         long len = outLen.get(JAVA_LONG, 0);
+        if (buf.address() == 0L) {
+            throw new NXTCacheException("native read returned NXT_OK with null buffer (len=" + len + ")");
+        }
         try {
+            if (len < 0 || len > MAX_NATIVE_BLOB_BYTES) {
+                throw new NXTCacheException("native read returned implausible length: " + len);
+            }
             byte[] bytes = buf.reinterpret(len).toArray(JAVA_BYTE);
             return new String(bytes, StandardCharsets.UTF_8);
         } finally {
@@ -411,7 +432,7 @@ public final class NXTCache implements AutoCloseable {
             if (p.address() == 0) {
                 return "";
             }
-            return p.reinterpret(Long.MAX_VALUE).getString(0);
+            return p.reinterpret(MAX_LAST_ERROR_BYTES).getString(0);
         } catch (Throwable t) {
             return "<lastError unavailable: " + t + ">";
         }
