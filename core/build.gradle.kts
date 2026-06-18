@@ -7,25 +7,10 @@ dependencies {
     implementation(libs.msgpack.core)
     implementation(libs.gson)
     implementation(libs.logback.classic)
-    // BouncyCastle: only referenced by BouncyCastlePgpVerifier (12.3).
-    // Classes are loaded lazily — never touched if no repository in the
-    // session has `requireSignature: true`.
-    implementation(libs.bcpg.jdk18on)
-    implementation(libs.bcprov.jdk18on)
 }
 
 extraJavaModuleInfo {
     automaticModule("org.msgpack:msgpack-core", "msgpack.core")
-    // BouncyCastle 1.78+ ships proper module-info entries, but the auto-
-    // derived module names are stable: org.bouncycastle.pg (bcpg) and
-    // org.bouncycastle.provider (bcprov). No overrides required as of 1.78.
-    //
-    // NOTE: do not bump BC to 1.80 without re-deriving these module
-    // descriptors. bcpg 1.80's PGPUtil static init references
-    // org.bouncycastle.asn1.cryptlib in bcprov, which BC's own module-info
-    // doesn't export across the module boundary -> NoClassDefFoundError on
-    // the module path (and jlink image). The upgrade needs a working
-    // module-info override here AND in :cli, plus jlink re-validation.
 }
 
 tasks.register<JavaExec>("benchmark") {
@@ -62,18 +47,6 @@ tasks.register<JavaExec>("eventPumpProbe") {
     group = "verification"
     classpath = sourceSets["main"].runtimeClasspath
     mainClass = "com.botwithus.bot.core.shm.EventPumpProbe"
-}
-
-tasks.register<Test>("smokeTest") {
-    description = "Maven Central / resolver smoke test (requires network)"
-    group = "verification"
-    useJUnitPlatform()
-    systemProperty("botwithus.smoke.network", "true")
-    testClassesDirs = sourceSets["test"].output.classesDirs
-    classpath = sourceSets["test"].runtimeClasspath
-    filter {
-        includeTestsMatching("com.botwithus.bot.core.resolver.pipeline.MavenCentralSmokeTest")
-    }
 }
 
 tasks.register<Test>("worldwalkerE2ETest") {

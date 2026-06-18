@@ -1,12 +1,14 @@
 package com.botwithus.bot.core.util;
 
-import com.botwithus.bot.core.resolver.metadata.ChecksumDigest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -196,14 +198,24 @@ public final class NativeCache {
         try {
             String hex = Files.readString(sidecar).trim();
             int sp = hex.indexOf(' ');
-            Optional<ChecksumDigest> expected = ChecksumDigest.parseHex(sp < 0 ? hex : hex.substring(0, sp));
-            if (expected.isPresent() && expected.get().matches(ChecksumDigest.of(canonical))) {
+            byte[] expected = HexFormat.of().parseHex(sp < 0 ? hex : hex.substring(0, sp));
+            if (MessageDigest.isEqual(expected, sha256(canonical))) {
                 log.debug("native library {} passed SHA-256 integrity check", canonical);
                 return canonical;
             }
             return failOrWarn(enforce, canonical, "SHA-256 integrity check failed for", null, canonical);
         } catch (IOException e) {
             return failOrWarn(enforce, canonical, "integrity check error for", e, canonical);
+        } catch (IllegalArgumentException e) {
+            return failOrWarn(enforce, canonical, "malformed integrity digest for", null, canonical);
+        }
+    }
+
+    private static byte[] sha256(Path file) throws IOException {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e); // mandatory in every JRE
         }
     }
 

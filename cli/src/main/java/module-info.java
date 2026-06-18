@@ -15,7 +15,6 @@ module com.botwithus.bot.cli {
     requires org.lwjgl;
     requires org.lwjgl.glfw;
     requires org.lwjgl.opengl;
-    requires java.net.http;
 
     uses com.botwithus.bot.api.BotScript;
     uses com.botwithus.bot.api.script.ManagementScript;
