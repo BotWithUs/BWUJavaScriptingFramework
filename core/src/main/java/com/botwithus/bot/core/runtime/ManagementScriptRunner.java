@@ -181,9 +181,10 @@ public class ManagementScriptRunner implements Runnable {
             if (delay < 0) {
                 break;
             }
-            if (delay > 0) {
-                Thread.sleep(delay);
-            }
+            // Always sleep >=1 ms so interruption is observed each iteration;
+            // an onLoop()==0 loop that swallows interruption is otherwise
+            // unstoppable. Best-effort — blocking inside onLoop() can't be killed.
+            Thread.sleep(Math.max(1, delay));
         }
     }
 

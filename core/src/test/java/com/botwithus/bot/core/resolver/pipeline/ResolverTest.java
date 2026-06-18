@@ -86,12 +86,15 @@ class ResolverTest {
     }
 
     @Test
-    void fallsBackToSha1WhenSha256Absent() throws IOException {
+    void sha1OnlyRejectedWhenSignatureNotRequired() throws IOException {
+        // M2: SHA-1 is collision-broken; on a repo that does not require a PGP
+        // signature there is no adversarial backstop, so a SHA-1-only artifact
+        // must be refused rather than resolved. (`repo` is requireSignature=false.)
         byte[] jarBytes = TestRepoFixture.buildJar("com.example", "legacy", "1.0.0");
         fixture.publishSha1Only("com.example", "legacy", "1.0.0", jarBytes);
 
         ResolveOutcome outcome = resolver.resolve(MavenCoord.of("com.example", "legacy"));
-        assertInstanceOf(ResolveOutcome.Resolved.class, outcome);
+        assertInstanceOf(ResolveOutcome.NotFound.class, outcome);
     }
 
     @Test

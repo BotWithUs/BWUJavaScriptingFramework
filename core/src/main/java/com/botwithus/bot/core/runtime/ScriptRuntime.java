@@ -19,6 +19,8 @@ import java.util.function.Function;
 public class ScriptRuntime {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptRuntime.class);
+    /** How long to wait for a script thread to drain before abandoning it (matches restart paths). */
+    private static final long STOP_AWAIT_MS = 2000L;
     private final ScriptContext context;
     private final Consumer<String> connectionTagger;
     private final Runnable connectionCleaner;
@@ -183,6 +185,19 @@ public class ScriptRuntime {
         for (ScriptRunner runner : runners) {
             runner.dispose();
             log.info("Stopped script: {}", runner.getScriptName());
+        }
+        // Wait for each runner's thread to actually drain before the caller
+        // proceeds to reload (which closes the script ClassLoaders). dispose()
+        // only interrupts cooperatively; closing a loader out from under a
+        // still-running script thread risks NoClassDefFoundError and, on
+        // Windows, leaks the JAR file handle and wedges the next reload. This
+        // is best-effort: a script that ignores interruption is abandoned, not
+        // waited on forever.
+        for (ScriptRunner runner : runners) {
+            if (!runner.awaitStop(STOP_AWAIT_MS)) {
+                log.warn("Script {} did not stop within {} ms; abandoning its thread",
+                        runner.getScriptName(), STOP_AWAIT_MS);
+            }
         }
         runners.clear();
         fireStateChange();

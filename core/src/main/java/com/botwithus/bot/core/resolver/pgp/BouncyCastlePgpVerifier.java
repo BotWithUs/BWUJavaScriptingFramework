@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Iterator;
 import java.util.Objects;
 
@@ -103,6 +104,12 @@ public final class BouncyCastlePgpVerifier implements PgpVerifier {
                 continue;
             }
 
+            String keyProblem = keyUsability(publicKey, keyIdHex);
+            if (keyProblem != null) {
+                bestSoFar = preferBetter(bestSoFar, new SignatureResult.InvalidSignature(keyProblem));
+                continue;
+            }
+
             SignatureResult one = verifyAgainstKey(signature, publicKey, jar, keyIdHex);
             if (isVerified(one)) {
                 return one;
@@ -110,6 +117,28 @@ public final class BouncyCastlePgpVerifier implements PgpVerifier {
             bestSoFar = preferBetter(bestSoFar, one);
         }
         return bestSoFar;
+    }
+
+    /**
+     * Rejects a trusted key that has been revoked or has expired. BC verifies
+     * the signature math but does NOT consult key revocation/expiry — a stolen
+     * key, once revoked (or past its expiry), would otherwise stay trusted
+     * forever. Folded into the existing {@code InvalidSignature} reason so no
+     * new {@link SignatureResult} variant (and its exhaustive switches) is
+     * needed. Returns {@code null} when the key is usable, else a reason.
+     */
+    private static String keyUsability(PGPPublicKey publicKey, String keyIdHex) {
+        if (publicKey.hasRevocation()) {
+            return "signing key " + keyIdHex + " is revoked";
+        }
+        long validSeconds = publicKey.getValidSeconds();
+        if (validSeconds > 0) {
+            Instant expiry = publicKey.getCreationTime().toInstant().plusSeconds(validSeconds);
+            if (Instant.now().isAfter(expiry)) {
+                return "signing key " + keyIdHex + " expired at " + expiry;
+            }
+        }
+        return null;
     }
 
     private static boolean isVerified(SignatureResult result) {

@@ -160,7 +160,10 @@ public final class RepositoryConfigStore {
             URI url = null;
             String driverId = MavenRepositoryDriver.TYPE_ID;
             boolean snapshots = false;
-            boolean requireSignature = false;
+            // Fail-closed: a config entry that omits `requireSignature` must
+            // require a signature (matches seedDefaults). A missing field
+            // previously silently disabled signing for that repo.
+            boolean requireSignature = true;
             Optional<String> credentialsRef = Optional.empty();
             Optional<URI> searchEndpoint = Optional.empty();
             in.beginObject();

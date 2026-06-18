@@ -59,6 +59,9 @@ public final class WorldWalker implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(WorldWalker.class);
 
+    /** Cap on the thread-local last-error C string scan (truncates a non-terminated buffer instead of faulting). */
+    private static final long MAX_LAST_ERROR_BYTES = 4096;
+
     private static final SymbolLookup LIB = locateLibrary();
     private static final WorldWalkerNative N = new WorldWalkerNative(LIB);
 
@@ -68,6 +71,7 @@ public final class WorldWalker implements AutoCloseable {
                         + NativeCache.WORLDWALKER_DLL_NAME + " under "
                         + "~/.botwithus/native/ (no System.loadLibrary fallback — see "
                         + "java-rules §Banned 2)."));
+        resolved = NativeCache.verifyIntegrity(resolved);
         log.debug("Loading {} from {}", NativeCache.WORLDWALKER_DLL_NAME, resolved);
         Arena scope = Arena.ofShared();
         return SymbolLookup.libraryLookup(resolved, scope);
@@ -480,7 +484,7 @@ public final class WorldWalker implements AutoCloseable {
             if (p.address() == 0) {
                 return "";
             }
-            return p.reinterpret(Long.MAX_VALUE).getString(0);
+            return p.reinterpret(MAX_LAST_ERROR_BYTES).getString(0);
         } catch (Throwable t) {
             return "<lastError unavailable: " + t + ">";
         }

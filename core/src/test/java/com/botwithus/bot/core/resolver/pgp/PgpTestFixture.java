@@ -8,6 +8,7 @@ import org.bouncycastle.bcpg.sig.Features;
 import org.bouncycastle.bcpg.sig.KeyFlags;
 import org.bouncycastle.openpgp.PGPKeyPair;
 import org.bouncycastle.openpgp.PGPKeyRingGenerator;
+import org.bouncycastle.openpgp.PGPPrivateKey;
 import org.bouncycastle.openpgp.PGPPublicKey;
 import org.bouncycastle.openpgp.PGPSecretKey;
 import org.bouncycastle.openpgp.PGPSecretKeyRing;
@@ -28,6 +29,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Date;
 import java.util.Iterator;
 
@@ -49,22 +52,40 @@ final class PgpTestFixture {
     private static final char[] EMPTY_PASSPHRASE = new char[0];
     private static final int SIGN_BUFFER_BYTES = 8192;
     private static final int KEY_ID_HEX_DIGITS = 16;
+    private static final int KEY_AGE_DAYS = 2;
+    private static final int KEY_VALID_DAYS = 1;
 
     private PgpTestFixture() {}
 
     /** Generates an in-memory PGP key pair and returns the secret-key ring. */
     static PGPSecretKeyRing generateKeyRing(String userId) throws Exception {
+        return generate(userId, new Date(), 0L);
+    }
+
+    /**
+     * Generates a key created {@value #KEY_AGE_DAYS} days ago with a
+     * {@value #KEY_VALID_DAYS}-day validity — i.e. already expired. Used to
+     * exercise the H2 expiry rejection in {@link BouncyCastlePgpVerifier}.
+     */
+    static PGPSecretKeyRing generateExpiredKeyRing(String userId) throws Exception {
+        Date created = Date.from(Instant.now().minus(Duration.ofDays(KEY_AGE_DAYS)));
+        return generate(userId, created, Duration.ofDays(KEY_VALID_DAYS).toSeconds());
+    }
+
+    private static PGPSecretKeyRing generate(String userId, Date created, long validSeconds) throws Exception {
         KeyPairGenerator rsa = KeyPairGenerator.getInstance("RSA");
         rsa.initialize(RSA_KEY_BITS);
         KeyPair pair = rsa.generateKeyPair();
-        Date now = new Date();
 
-        PGPKeyPair pgpPair = new JcaPGPKeyPair(PublicKeyAlgorithmTags.RSA_GENERAL, pair, now);
+        PGPKeyPair pgpPair = new JcaPGPKeyPair(PublicKeyAlgorithmTags.RSA_GENERAL, pair, created);
 
         PGPSignatureSubpacketGenerator subpackets = new PGPSignatureSubpacketGenerator();
         subpackets.setKeyFlags(false, KeyFlags.SIGN_DATA);
         subpackets.setPreferredHashAlgorithms(false, new int[]{HashAlgorithmTags.SHA256});
         subpackets.setFeature(false, Features.FEATURE_MODIFICATION_DETECTION);
+        if (validSeconds > 0) {
+            subpackets.setKeyExpirationTime(false, validSeconds);
+        }
 
         BcPGPDigestCalculatorProvider digestProvider = new BcPGPDigestCalculatorProvider();
         PGPKeyRingGenerator gen = new PGPKeyRingGenerator(
@@ -122,6 +143,35 @@ final class PgpTestFixture {
             sig.encode(armored);
         }
         Files.write(sigDest, binaryOut.toByteArray());
+    }
+
+    /**
+     * Writes the public half of {@code ring} to {@code dest} with a key-
+     * revocation certificate attached to the master key, and returns its
+     * hex-uppercase key ID. {@code PGPPublicKey.hasRevocation()} is true once
+     * reloaded — exercises the H2 revocation rejection.
+     */
+    static String writeRevokedPublicKeyRing(PGPSecretKeyRing ring, Path dest) throws Exception {
+        PGPSecretKey masterSecret = ring.getSecretKey();
+        PGPPublicKey masterPublic = masterSecret.getPublicKey();
+        PGPPrivateKey priv = masterSecret.extractPrivateKey(
+                new BcPBESecretKeyDecryptorBuilder(new BcPGPDigestCalculatorProvider()).build(EMPTY_PASSPHRASE));
+
+        PGPSignatureGenerator sigGen = new PGPSignatureGenerator(
+                new BcPGPContentSignerBuilder(masterPublic.getAlgorithm(), HashAlgorithmTags.SHA256));
+        sigGen.init(PGPSignature.KEY_REVOCATION, priv);
+        PGPSignature revocation = sigGen.generateCertification(masterPublic);
+        PGPPublicKey revoked = PGPPublicKey.addCertification(masterPublic, revocation);
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(revoked.getEncoded());
+        Iterator<PGPPublicKey> keys = ring.getPublicKeys();
+        keys.next(); // master — replaced by the revoked copy above
+        while (keys.hasNext()) {
+            out.write(keys.next().getEncoded());
+        }
+        Files.write(dest, out.toByteArray());
+        return formatKeyId(masterPublic.getKeyID());
     }
 
     /** Writes a single-byte garbage "signature" file — exercises the InvalidSignature path. */
