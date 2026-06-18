@@ -347,6 +347,11 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public Component findComponentAt(int screenX, int screenY) {
+        throw notStubbed("findComponentAt");
+    }
+
+    @Override
     public List<Component> getComponents(List<ComponentRef> refs) {
         throw notStubbed("getComponents");
     }
