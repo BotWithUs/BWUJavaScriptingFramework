@@ -25,6 +25,11 @@ public final class ComponentNode {
     /** param3 for a plain component action: no inventory sub-slot. */
     private static final int NO_SUB_SLOT = -1;
 
+    /** Bit-position the producer unpacks the drag "from" sub-slot from in param3. */
+    private static final int FROM_SUB_SHIFT = 16;
+    /** Mask for the drag "to" sub-slot half packed into param3. */
+    private static final int TO_SUB_MASK = 0xFFFF;
+
     private final GameAPI api;
     private final Component data;
     /** Owning tree, or {@code null} for a detached node (from {@link Components#get}). */
@@ -116,6 +121,28 @@ public final class ComponentNode {
                 optionIndex,
                 NO_SUB_SLOT,
                 Interfaces.componentHash(interfaceId(), componentId())));
+    }
+
+    /**
+     * Queue a drag of this component onto {@code target}, reproducing a manual
+     * drag-and-release so the client sends its component-drag packet. Builds a
+     * {@link GameAction} with {@link ActionTypes#COMPONENT_DRAG}: this node's
+     * {@code (iface<<16)|comp} hash in {@code param1}, the target's in
+     * {@code param2}, and the two nodes' {@link #subId() sub-slot ids} packed
+     * into {@code param3} as {@code (fromSub<<16)|(toSub&0xFFFF)} — each
+     * {@code -1} when the node is a top-level component.
+     *
+     * <p>Because each node carries its own wire {@code subId}, dragging one
+     * inventory slot onto another — two sub-components of the same grid that
+     * differ only by sub-slot — works: obtain both slot nodes from the
+     * component tree, then {@code from.dragOnto(to)}.</p>
+     */
+    public void dragOnto(ComponentNode target) {
+        api.queueAction(new GameAction(
+                ActionTypes.COMPONENT_DRAG,
+                Interfaces.componentHash(interfaceId(), componentId()),
+                Interfaces.componentHash(target.interfaceId(), target.componentId()),
+                (subId() << FROM_SUB_SHIFT) | (target.subId() & TO_SUB_MASK)));
     }
 
     @Override
