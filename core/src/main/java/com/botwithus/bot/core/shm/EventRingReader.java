@@ -7,6 +7,7 @@ import com.botwithus.bot.api.event.ChatMessageEvent;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.KeyInputEvent;
 import com.botwithus.bot.api.event.LoginStateChangeEvent;
+import com.botwithus.bot.api.event.RadioGroupSelectEvent;
 import com.botwithus.bot.api.event.TickEvent;
 import com.botwithus.bot.api.event.VarChangeEvent;
 import com.botwithus.bot.api.event.VarbitChangeEvent;
@@ -192,6 +193,7 @@ public final class EventRingReader {
             case Layout.EVT_WALK_ARRIVED       -> decodeWalk(bodyOff, bodyLen, /*outcome*/0);
             case Layout.EVT_WALK_CANCELLED     -> decodeWalk(bodyOff, bodyLen, /*outcome*/1);
             case Layout.EVT_WALK_FAILED        -> decodeWalk(bodyOff, bodyLen, /*outcome*/2);
+            case Layout.EVT_RADIO_GROUP_SELECT -> decodeRadioGroupSelect(bodyOff, bodyLen);
             default -> null;       // forward-compat: skip unknowns
         };
     }
@@ -299,6 +301,19 @@ public final class EventRingReader {
         double fatigue = ring.get(ValueLayout.JAVA_DOUBLE, off + 8);
         double risk    = ring.get(ValueLayout.JAVA_DOUBLE, off + 16);
         return new BreakStartedEvent(duration, fatigue, risk);
+    }
+
+    private RadioGroupSelectEvent decodeRadioGroupSelect(long off, int len) {
+        // Body layout: i32 ifaceId, componentId, subId, value, opcode.
+        if (len < 20) {
+            return null;
+        }
+        int ifaceId = ring.get(ValueLayout.JAVA_INT, off);
+        int compId  = ring.get(ValueLayout.JAVA_INT, off + 4);
+        int subId   = ring.get(ValueLayout.JAVA_INT, off + 8);
+        int value   = ring.get(ValueLayout.JAVA_INT, off + 12);
+        int opcode  = ring.get(ValueLayout.JAVA_INT, off + 16);
+        return new RadioGroupSelectEvent(ifaceId, compId, subId, value, opcode);
     }
 
     private GameEvent decodeWalk(long off, int len, int outcome) {
