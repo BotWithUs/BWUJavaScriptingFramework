@@ -10,6 +10,7 @@ import com.botwithus.bot.api.event.ReconnectStateChangedEvent;
 import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
 import com.botwithus.bot.api.event.KeyInputEvent;
 import com.botwithus.bot.api.event.LoginStateChangeEvent;
+import com.botwithus.bot.api.event.RadioGroupSelectEvent;
 import com.botwithus.bot.api.event.ScriptCrashedEvent;
 import com.botwithus.bot.api.event.TickEvent;
 import com.botwithus.bot.api.event.VarChangeEvent;
@@ -145,6 +146,9 @@ public final class SnapshotProbe {
                     "tile=(" + e.targetX() + "," + e.targetY() + ")";
             case WalkFailedEvent e ->
                     "tile=(" + e.targetX() + "," + e.targetY() + ")";
+            case RadioGroupSelectEvent e ->
+                    "iface=" + e.interfaceId() + " comp=" + e.componentId()
+                            + " sub=" + e.subId() + " value=" + e.value() + " op=" + e.opcode();
             case ScriptCrashedEvent e ->
                     "script=" + e.scriptName() + " phase=" + e.crash().phase()
                             + " cause=" + e.crash().cause().getClass().getSimpleName();

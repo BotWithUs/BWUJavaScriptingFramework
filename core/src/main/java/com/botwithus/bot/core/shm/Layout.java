@@ -346,4 +346,5 @@ public final class Layout {
     public static final int EVT_HITMARK             = 70;
     public static final int EVT_HEADBAR             = 71;
     public static final int EVT_SPOT_ANIM           = 72;
+    public static final int EVT_RADIO_GROUP_SELECT  = 80;
 }
