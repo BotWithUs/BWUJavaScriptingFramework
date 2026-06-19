@@ -9,5 +9,7 @@ module com.botwithus.bot.scripts.example {
              com.botwithus.bot.scripts.example.WalkToFlagScript,
              com.botwithus.bot.scripts.example.DivinationScript,
              com.botwithus.bot.scripts.example.LocationProbeScript,
-             com.botwithus.bot.scripts.example.CooksAssistantScript;
+             com.botwithus.bot.scripts.example.CooksAssistantScript,
+             com.botwithus.bot.scripts.example.RestlessGhostScript,
+             com.botwithus.bot.scripts.example.WitchsPotionScript;
 }

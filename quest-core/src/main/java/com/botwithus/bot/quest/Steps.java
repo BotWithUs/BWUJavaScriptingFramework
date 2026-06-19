@@ -1,6 +1,8 @@
 package com.botwithus.bot.quest;
 
+import com.botwithus.bot.quest.steps.AcceptQuestStep;
 import com.botwithus.bot.quest.steps.DispatchStep;
+import com.botwithus.bot.quest.steps.EquipItemStep;
 import com.botwithus.bot.quest.steps.KillNpcStep;
 import com.botwithus.bot.quest.steps.NoopStep;
 import com.botwithus.bot.quest.steps.ObjectInteractStep;
@@ -110,5 +112,23 @@ public final class Steps {
     /** Kill an NPC by name (stub — interacts "Attack"; success on NPC dead). */
     public static KillNpcStep killNpc(String npcName) {
         return new KillNpcStep(npcName);
+    }
+
+    /**
+     * Click "Accept" on a quest offer (chat option or offer scroll). Pair in a
+     * sequence with {@code waitForVar(progressVar, 1).orGreater()} to confirm.
+     */
+    public static AcceptQuestStep acceptQuest() {
+        return new AcceptQuestStep();
+    }
+
+    /** Wear/wield a backpack item by id; success once it shows in equipment. */
+    public static EquipItemStep equip(int itemId) {
+        return new EquipItemStep(itemId, null);
+    }
+
+    /** Wear/wield a backpack item by name (best-effort; relies on getItemType). */
+    public static EquipItemStep equip(String itemName) {
+        return new EquipItemStep(-1, itemName);
     }
 }
