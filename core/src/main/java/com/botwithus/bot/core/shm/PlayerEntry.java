@@ -12,6 +12,7 @@ package com.botwithus.bot.core.shm;
  * @param animationId    current animation, or -1
  * @param stanceId       current stance
  * @param combatLevel    combat level, or 0 if not computed
+ * @param spotAnimId     first active spot anim (graphic) id, or -1 if none
  */
 public record PlayerEntry(
         int serverIndex,
@@ -22,7 +23,8 @@ public record PlayerEntry(
         int followingIndex,
         int animationId,
         int stanceId,
-        int combatLevel
+        int combatLevel,
+        int spotAnimId
 ) {
     public boolean isMoving() {
         return (flags & Layout.FLAG_MOVING) != 0;

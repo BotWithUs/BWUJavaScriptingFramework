@@ -23,6 +23,11 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v16 added a per-entity {@code spotAnimId} field to NpcEntry / PlayerEntry / LocalPlayer —
+     *  the first active spot animation (graphic) playing on that entity this tick, or -1. Entities
+     *  can carry several concurrent spot anims; this field surfaces only the first, while the
+     *  {@code EVT_SPOT_ANIM} event reports every newly-started one. Growing the three records
+     *  shifted every downstream snapshot offset (hard version bump).
      *  v15 added the {@code groundItems[]} tail block — per-tick snapshot of every alive
      *  ground-item stack within the loaded-scene tile bounds. Pairs with the host-side
      *  rewire of GroundItems and SceneObjects facades onto the SHM snapshot (parity with
@@ -33,7 +38,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 15;
+    public static final int PROTOCOL_VERSION = 16;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -89,10 +94,10 @@ public final class Layout {
     public static final int HEADER_TARGETPID_OFFSET    = 40;   // u64
 
     // ------------------------------------------------------------------
-    // NpcEntry  (32 bytes)
+    // NpcEntry  (36 bytes)
     // ------------------------------------------------------------------
 
-    public static final int NPC_ENTRY_SIZE = 32;
+    public static final int NPC_ENTRY_SIZE = 36;
 
     public static final int NPC_SERVERINDEX_OFFSET    = 0;    // i32
     public static final int NPC_TYPEID_OFFSET         = 4;    // i32
@@ -105,6 +110,7 @@ public final class Layout {
     public static final int NPC_STANCEID_OFFSET       = 20;   // i32
     public static final int NPC_HP_OFFSET             = 24;   // i32
     public static final int NPC_MAXHP_OFFSET          = 28;   // i32
+    public static final int NPC_SPOTANIMID_OFFSET     = 32;   // i32  first active spot anim id; -1 if none
 
     // ------------------------------------------------------------------
     // LocationEntry (20 bytes) — mirrors ipc::LocationEntry in SharedLayout.h.
@@ -141,10 +147,10 @@ public final class Layout {
     // bytes 13..15 are trailing pad; not accessed
 
     // ------------------------------------------------------------------
-    // PlayerEntry (24 bytes)
+    // PlayerEntry (28 bytes)
     // ------------------------------------------------------------------
 
-    public static final int PLAYER_ENTRY_SIZE = 24;
+    public static final int PLAYER_ENTRY_SIZE = 28;
 
     public static final int PLAYER_SERVERINDEX_OFFSET    = 0;    // i32
     public static final int PLAYER_TILEX_OFFSET          = 4;    // i16
@@ -155,6 +161,7 @@ public final class Layout {
     public static final int PLAYER_ANIMATIONID_OFFSET    = 12;   // i32
     public static final int PLAYER_STANCEID_OFFSET       = 16;   // i32
     public static final int PLAYER_COMBATLEVEL_OFFSET    = 20;   // i32
+    public static final int PLAYER_SPOTANIMID_OFFSET     = 24;   // i32  first active spot anim id; -1 if none
 
     // ------------------------------------------------------------------
     // SkillEntry (16 bytes)
@@ -168,10 +175,10 @@ public final class Layout {
     public static final int SKILL_BOOSTEDLEVEL_OFFSET = 12;
 
     // ------------------------------------------------------------------
-    // LocalPlayer (32 + 32*16 = 544 bytes)
+    // LocalPlayer (40 + 32*16 = 552 bytes)
     // ------------------------------------------------------------------
 
-    public static final int LOCAL_PLAYER_SIZE = 544;
+    public static final int LOCAL_PLAYER_SIZE = 552;
 
     public static final int LP_SERVERINDEX_OFFSET     = 0;
     public static final int LP_COMBATLEVEL_OFFSET     = 4;
@@ -185,8 +192,12 @@ public final class Layout {
     public static final int LP_TARGETINDEX_OFFSET     = 24;
     public static final int LP_TARGETTYPE_OFFSET      = 26;
     public static final int LP_ISMEMBER_OFFSET        = 27;
-    public static final int LP_SKILLCOUNT_OFFSET      = 28;
-    public static final int LP_SKILLS_OFFSET          = 32;
+    public static final int LP_SPOTANIMID_OFFSET      = 28;   // i32  first active spot anim id; -1 if none
+    // Slot at +32 is _pad0 (u32) — keeps sizeof(LocalPlayer) a multiple of 8 so
+    // the producer block downstream stays 8-aligned. Not accessed; see
+    // SharedLayout.h LocalPlayer::_pad0 for rationale.
+    public static final int LP_SKILLCOUNT_OFFSET      = 36;
+    public static final int LP_SKILLS_OFFSET          = 40;
 
     // ------------------------------------------------------------------
     // InventoryItem (8) and InventoryHeader (8)

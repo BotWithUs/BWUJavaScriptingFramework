@@ -94,6 +94,7 @@ class ExampleScriptDryRunTest {
                 -1,
                 0,
                 false,
+                -1,
                 List.of());
     }
 }

@@ -8,6 +8,7 @@ import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.KeyInputEvent;
 import com.botwithus.bot.api.event.LoginStateChangeEvent;
 import com.botwithus.bot.api.event.RadioGroupSelectEvent;
+import com.botwithus.bot.api.event.SpotAnimEvent;
 import com.botwithus.bot.api.event.TickEvent;
 import com.botwithus.bot.api.event.VarChangeEvent;
 import com.botwithus.bot.api.event.VarbitChangeEvent;
@@ -194,6 +195,7 @@ public final class EventRingReader {
             case Layout.EVT_WALK_CANCELLED     -> decodeWalk(bodyOff, bodyLen, /*outcome*/1);
             case Layout.EVT_WALK_FAILED        -> decodeWalk(bodyOff, bodyLen, /*outcome*/2);
             case Layout.EVT_RADIO_GROUP_SELECT -> decodeRadioGroupSelect(bodyOff, bodyLen);
+            case Layout.EVT_SPOT_ANIM          -> decodeSpotAnim(bodyOff, bodyLen);
             default -> null;       // forward-compat: skip unknowns
         };
     }
@@ -314,6 +316,22 @@ public final class EventRingReader {
         int value   = ring.get(ValueLayout.JAVA_INT, off + 12);
         int opcode  = ring.get(ValueLayout.JAVA_INT, off + 16);
         return new RadioGroupSelectEvent(ifaceId, compId, subId, value, opcode);
+    }
+
+    private SpotAnimEvent decodeSpotAnim(long off, int len) {
+        // Body layout (SpotAnimBody): i32 targetServerIndex, i8 targetType,
+        // u8[3] pad, i32 spotAnimId, i16 tileX, i16 tileY, i8 plane, u8[3] pad.
+        if (len < 17) {
+            return null;
+        }
+        int targetServerIndex = ring.get(ValueLayout.JAVA_INT,   off);
+        int targetType        = ring.get(ValueLayout.JAVA_BYTE,  off + 4);
+        int spotAnimId        = ring.get(ValueLayout.JAVA_INT,   off + 8);
+        int tileX             = ring.get(ValueLayout.JAVA_SHORT, off + 12);
+        int tileY             = ring.get(ValueLayout.JAVA_SHORT, off + 14);
+        int plane             = ring.get(ValueLayout.JAVA_BYTE,  off + 16);
+        return new SpotAnimEvent(targetServerIndex, targetType, spotAnimId,
+                tileX, tileY, plane);
     }
 
     private GameEvent decodeWalk(long off, int len, int outcome) {

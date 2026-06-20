@@ -100,6 +100,7 @@ class GameSnapshotImplTest {
             writeLpShort(seg, Layout.LP_TARGETINDEX_OFFSET, (short) 42);
             writeLpByte(seg, Layout.LP_TARGETTYPE_OFFSET, (byte) 1);
             writeLpByte(seg, Layout.LP_ISMEMBER_OFFSET, (byte) 1);
+            writeLpInt(seg, Layout.LP_SPOTANIMID_OFFSET, 7777);
             writeLpInt(seg, Layout.LP_SKILLCOUNT_OFFSET, 2);
             writeSkill(seg, 0, 1, 13_034_431, 99, 105);
             writeSkill(seg, 1, 4, 100_000, 50, 50);
@@ -108,6 +109,7 @@ class GameSnapshotImplTest {
 
             assertNotNull(self);
             assertEquals(7, self.serverIndex());
+            assertEquals(7777, self.spotAnimId());
             assertEquals(138, self.combatLevel());
             assertEquals(3200, self.tileX());
             assertEquals(3201, self.tileY());
@@ -151,10 +153,14 @@ class GameSnapshotImplTest {
                     /* plane */ (byte) 1, /* flags */ (byte) 1,
                     /* followingIndex */ (short) -1, /* animationId */ 7,
                     /* stanceId */ 0, /* hp */ 800, /* maxHp */ 1000);
+            // spotAnimId isn't a writeNpc param; set it directly at its offset.
+            seg.set(ValueLayout.JAVA_INT,
+                    Layout.SNAP_NPCS_OFFSET + Layout.NPC_SPOTANIMID_OFFSET, 5544);
 
             Npc npc = build(seg).npcs().at(0);
 
             assertEquals(42, npc.serverIndex());
+            assertEquals(5544, npc.spotAnimId());
             assertEquals(1234, npc.typeId());
             assertEquals(3300, npc.tileX());
             assertEquals(3400, npc.tileY());
@@ -252,6 +258,10 @@ class GameSnapshotImplTest {
             writePlayer(seg, 1, 2,
                     (short) 101, (short) 200, (byte) 0, (byte) 0,
                     (short) -1, 5, 0, 75);
+            // spotAnimId isn't a writePlayer param; set it directly for index 1.
+            seg.set(ValueLayout.JAVA_INT,
+                    Layout.SNAP_PLAYERS_OFFSET + Layout.PLAYER_ENTRY_SIZE
+                            + Layout.PLAYER_SPOTANIMID_OFFSET, 333);
             writePlayer(seg, 2, 3,
                     (short) 102, (short) 200, (byte) 1, (byte) 0,
                     (short) -1, 5, 0, 138);
@@ -263,6 +273,7 @@ class GameSnapshotImplTest {
             assertEquals(2, at1.serverIndex());
             assertEquals(101, at1.tileX());
             assertEquals(75, at1.combatLevel());
+            assertEquals(333, at1.spotAnimId());
             assertFalse(at1.isMoving());
 
             assertTrue(players.byServerIndex(3).isPresent());

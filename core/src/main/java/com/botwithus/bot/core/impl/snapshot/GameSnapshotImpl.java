@@ -90,6 +90,7 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 lpv.targetIndex(),
                 lpv.targetType(),
                 lpv.isMember(),
+                lpv.spotAnimId(),
                 skills);
     }
 
@@ -140,7 +141,8 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.animationId(),
                 e.stanceId(),
                 e.hp(),
-                e.maxHp());
+                e.maxHp(),
+                e.spotAnimId());
     }
 
     private static Player toPlayer(PlayerEntry e) {
@@ -153,7 +155,8 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.followingIndex(),
                 e.animationId(),
                 e.stanceId(),
-                e.combatLevel());
+                e.combatLevel(),
+                e.spotAnimId());
     }
 
     private static GroundItem toGroundItem(GroundItemEntry e) {

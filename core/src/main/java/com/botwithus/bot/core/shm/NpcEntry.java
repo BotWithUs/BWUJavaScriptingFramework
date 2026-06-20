@@ -15,6 +15,7 @@ package com.botwithus.bot.core.shm;
  * @param stanceId       current stance
  * @param hp             current HP (NPC stats[3])
  * @param maxHp          max HP
+ * @param spotAnimId     first active spot anim (graphic) id, or -1 if none
  */
 public record NpcEntry(
         int serverIndex,
@@ -27,7 +28,8 @@ public record NpcEntry(
         int animationId,
         int stanceId,
         int hp,
-        int maxHp
+        int maxHp,
+        int spotAnimId
 ) {
     public boolean isMoving() {
         return (flags & Layout.FLAG_MOVING) != 0;

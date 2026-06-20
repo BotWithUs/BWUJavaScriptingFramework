@@ -86,6 +86,7 @@ class CannedSnapshotTest {
                 -1,
                 0,
                 true,
+                -1,
                 List.of());
     }
 }
