@@ -12,6 +12,7 @@ package com.botwithus.bot.api.snapshot;
  * @param animationId    current animation id, or {@code -1}
  * @param stanceId       current stance id
  * @param combatLevel    combat level, or {@code 0} if not computed
+ * @param spotAnimId     first active spot anim (graphic) id, or {@code -1} if none
  */
 public record Player(
         int serverIndex,
@@ -22,7 +23,8 @@ public record Player(
         int followingIndex,
         int animationId,
         int stanceId,
-        int combatLevel
+        int combatLevel,
+        int spotAnimId
 ) {
 
     private static final int FLAG_MOVING = 1;

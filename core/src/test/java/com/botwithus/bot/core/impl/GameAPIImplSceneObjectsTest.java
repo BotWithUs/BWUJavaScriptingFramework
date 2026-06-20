@@ -214,7 +214,7 @@ class GameAPIImplSceneObjectsTest {
     // ---------------------------------------------------------------- helpers
 
     private static LocalPlayer makeSelf(int x, int y, int plane) {
-        return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, List.of());
+        return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, -1, List.of());
     }
 
     /** Direct LOCATION row — typeId is irrelevant (entity classifier); the

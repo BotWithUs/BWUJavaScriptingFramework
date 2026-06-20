@@ -33,6 +33,7 @@ public final class LocalPlayerView {
     public int  targetIndex()    { return seg.get(ValueLayout.JAVA_SHORT, Layout.LP_TARGETINDEX_OFFSET); }
     public int  targetType()     { return seg.get(ValueLayout.JAVA_BYTE,  Layout.LP_TARGETTYPE_OFFSET); }
     public boolean isMember()    { return seg.get(ValueLayout.JAVA_BYTE,  Layout.LP_ISMEMBER_OFFSET) != 0; }
+    public int  spotAnimId()     { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_SPOTANIMID_OFFSET); }
 
     public boolean isMoving()    { return (flags() & Layout.FLAG_MOVING) != 0; }
 

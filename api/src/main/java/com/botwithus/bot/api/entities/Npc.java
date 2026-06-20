@@ -66,6 +66,10 @@ public final class Npc implements EntityContext {
     public int hp()                { return raw.hp(); }
     public int maxHp()             { return raw.maxHp(); }
     public boolean isAlive()       { return raw.hp() > 0; }
+    /** First active spot anim (graphic) id playing on this NPC, or {@code -1} if none.
+     *  Only the first concurrent spot anim is surfaced here — subscribe to
+     *  {@code SpotAnimEvent} for every newly-started one. */
+    public int spotAnimId()        { return raw.spotAnimId(); }
 
     // ---------------- Definition ----------------
 

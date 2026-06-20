@@ -63,7 +63,8 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_ANIMATIONID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_STANCEID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_HP_OFFSET),
-                seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_MAXHP_OFFSET));
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_MAXHP_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_SPOTANIMID_OFFSET));
     }
 
     // ------------------------------------------------------------------
@@ -89,7 +90,8 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_SHORT, base + Layout.PLAYER_FOLLOWINGINDEX_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_ANIMATIONID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_STANCEID_OFFSET),
-                seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_COMBATLEVEL_OFFSET));
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_COMBATLEVEL_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_SPOTANIMID_OFFSET));
     }
 
     // ------------------------------------------------------------------

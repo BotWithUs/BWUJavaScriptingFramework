@@ -14,6 +14,7 @@ package com.botwithus.bot.api.snapshot;
  * @param stanceId       current stance id
  * @param hp             current HP
  * @param maxHp          max HP
+ * @param spotAnimId     first active spot anim (graphic) id, or {@code -1} if none
  */
 public record Npc(
         int serverIndex,
@@ -26,7 +27,8 @@ public record Npc(
         int animationId,
         int stanceId,
         int hp,
-        int maxHp
+        int maxHp,
+        int spotAnimId
 ) {
 
     /** Bit 0 of {@link #flags()}; mirrors {@code FLAG_MOVING} on the wire. */

@@ -254,15 +254,15 @@ class GameAPIImplEntitiesTest {
     // ---------------------------------------------------------------- helpers
 
     private static LocalPlayer makeSelf(int x, int y, int plane, List<Skill> skills) {
-        return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, skills);
+        return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, -1, skills);
     }
 
     private static com.botwithus.bot.api.snapshot.Npc makeNpc(int idx, int typeId, int x, int y) {
-        return new com.botwithus.bot.api.snapshot.Npc(idx, typeId, x, y, 0, 0, -1, -1, 0, 100, 100);
+        return new com.botwithus.bot.api.snapshot.Npc(idx, typeId, x, y, 0, 0, -1, -1, 0, 100, 100, -1);
     }
 
     private static com.botwithus.bot.api.snapshot.Player makePlayer(int idx, int x, int y) {
-        return new com.botwithus.bot.api.snapshot.Player(idx, x, y, 0, 0, -1, -1, 0, 138);
+        return new com.botwithus.bot.api.snapshot.Player(idx, x, y, 0, 0, -1, -1, 0, 138, -1);
     }
 
     private static NpcType makeType(int id, String name, String... options) {

@@ -24,6 +24,7 @@ public sealed interface GameEvent
                 ReconnectStateChangedEvent,
                 ScriptCrashedEvent,
                 ScriptLoadFailedEvent,
+                SpotAnimEvent,
                 TickEvent,
                 VarChangeEvent,
                 VarbitChangeEvent,

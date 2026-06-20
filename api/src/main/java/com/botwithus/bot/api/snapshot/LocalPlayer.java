@@ -19,6 +19,7 @@ import java.util.List;
  * @param targetIndex    server index of the current target, or {@code -1}
  * @param targetType     target type discriminator, or {@code 0} for none
  * @param isMember       member-status flag from the producer
+ * @param spotAnimId     first active spot anim (graphic) id, or {@code -1} if none
  * @param skills         live skills array; defensive copy taken on construction
  */
 public record LocalPlayer(
@@ -34,6 +35,7 @@ public record LocalPlayer(
         int targetIndex,
         int targetType,
         boolean isMember,
+        int spotAnimId,
         List<Skill> skills
 ) {
 

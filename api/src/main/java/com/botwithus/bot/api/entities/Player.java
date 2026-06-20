@@ -37,6 +37,10 @@ public final class Player implements EntityContext {
     public int animationId()    { return raw.animationId(); }
     public int stanceId()       { return raw.stanceId(); }
     public boolean isMoving()   { return raw.isMoving(); }
+    /** First active spot anim (graphic) id playing on this player, or {@code -1} if none.
+     *  Only the first concurrent spot anim is surfaced — subscribe to
+     *  {@code SpotAnimEvent} for every newly-started one. */
+    public int spotAnimId()     { return raw.spotAnimId(); }
 
     @Override public int tileX() { return raw.tileX(); }
     @Override public int tileY() { return raw.tileY(); }
