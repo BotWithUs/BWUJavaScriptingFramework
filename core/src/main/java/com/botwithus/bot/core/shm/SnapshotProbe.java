@@ -14,6 +14,7 @@ import com.botwithus.bot.api.event.RadioGroupSelectEvent;
 import com.botwithus.bot.api.event.ScriptCrashedEvent;
 import com.botwithus.bot.api.event.SpotAnimEvent;
 import com.botwithus.bot.api.event.TickEvent;
+import com.botwithus.bot.api.event.ObjVarChangeEvent;
 import com.botwithus.bot.api.event.VarChangeEvent;
 import com.botwithus.bot.api.event.VarbitChangeEvent;
 import com.botwithus.bot.api.event.VarcChangeEvent;
@@ -129,6 +130,9 @@ public final class SnapshotProbe {
                     "id=" + e.varId() + " " + e.oldValue() + "->" + e.newValue();
             case VarbitChangeEvent e ->
                     "id=" + e.varId() + " " + e.oldValue() + "->" + e.newValue();
+            case ObjVarChangeEvent e ->
+                    "inv=" + e.invId() + " slot=" + e.slot() + " id=" + e.varId()
+                            + " " + e.oldValue() + "->" + e.newValue();
             case ChatMessageEvent e ->
                     "type=" + e.message().messageType()
                             + " from=" + e.message().playerName()
