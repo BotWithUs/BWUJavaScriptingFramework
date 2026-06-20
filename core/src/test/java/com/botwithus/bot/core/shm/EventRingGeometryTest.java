@@ -12,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -99,6 +100,44 @@ class EventRingGeometryTest {
             assertEquals(3200, e.tileX());
             assertEquals(3300, e.tileY());
             assertEquals(2, e.plane());
+            assertFalse(e.isWorldAnchored());
+        }
+    }
+
+    @Test
+    void worldSpotAnimEventDecodes() {
+        try (Arena arena = Arena.ofConfined()) {
+            // World/static spot anim: targetServerIndex -1, targetType 2. The
+            // signed i32/i8 decode must round-trip -1, and isWorldAnchored() must
+            // distinguish it from the entity-attached variant above.
+            MemorySegment ring = ring(arena, Layout.EVENT_RING_SLOTS, Layout.EVENT_RING_SLOTS - 1, 0);
+            EventRingReader reader = new EventRingReader(ring, true);
+
+            long slot = Layout.RING_SLOTS_OFFSET;   // seq 0 maps to slot 0
+            ring.set(ValueLayout.JAVA_INT, slot + Layout.SLOT_TYPE_OFFSET, Layout.EVT_SPOT_ANIM);
+            ring.set(ValueLayout.JAVA_INT, slot + Layout.SLOT_BODYLEN_OFFSET, 20);
+            long body = slot + Layout.SLOT_BODY_OFFSET;
+            ring.set(ValueLayout.JAVA_INT,   body,      -1);           // targetServerIndex (world)
+            ring.set(ValueLayout.JAVA_BYTE,  body + 4,  (byte) 2);     // targetType = world
+            ring.set(ValueLayout.JAVA_INT,   body + 8,  7164);         // spotAnimId
+            ring.set(ValueLayout.JAVA_SHORT, body + 12, (short) 3183); // tileX
+            ring.set(ValueLayout.JAVA_SHORT, body + 14, (short) 3373); // tileY
+            ring.set(ValueLayout.JAVA_BYTE,  body + 16, (byte) 0);     // plane
+            ring.set(ValueLayout.JAVA_LONG,  slot + Layout.SLOT_SEQ_OFFSET, 0L);  // commit
+            ring.set(ValueLayout.JAVA_LONG,  Layout.RING_HEAD_OFFSET, 1L);        // publish
+
+            List<GameEvent> out = new ArrayList<>();
+            reader.poll(out::add);
+
+            assertEquals(1, out.size());
+            SpotAnimEvent e = assertInstanceOf(SpotAnimEvent.class, out.get(0));
+            assertEquals(-1, e.targetServerIndex());
+            assertEquals(2, e.targetType());
+            assertEquals(7164, e.spotAnimId());
+            assertEquals(3183, e.tileX());
+            assertEquals(3373, e.tileY());
+            assertEquals(0, e.plane());
+            assertTrue(e.isWorldAnchored());
         }
     }
 
