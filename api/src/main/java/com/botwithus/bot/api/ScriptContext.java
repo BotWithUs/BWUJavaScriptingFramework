@@ -65,4 +65,24 @@ public interface ScriptContext {
     default ScriptContextPublisher getScriptContext() {
         return ScriptContextPublisher.NOOP;
     }
+
+    /**
+     * Request that this script terminate. Idempotent. The runner will let the
+     * current {@link BotScript#onLoop} iteration finish, then transition through
+     * {@link BotScript#onStop} as usual — same lifecycle a {@code -1} return from
+     * {@code onLoop} produces, but reachable from any depth in the script.
+     *
+     * <p>Use this for self-stop conditions detected in deep call sites
+     * (controllers, sub-tasks) where bubbling {@code -1} back up to the top-level
+     * loop is awkward. It does <b>not</b> grant peer-stop capability — a
+     * BotScript still cannot terminate other scripts on the same Client. For
+     * cross-script control use {@link com.botwithus.bot.api.script.ManagementContext}
+     * from a {@link com.botwithus.bot.api.script.ManagementScript}.</p>
+     *
+     * <p>The default implementation is a no-op so unit tests instantiating their
+     * own {@code ScriptContext} don't have to wire the stop pathway. The real
+     * runtime overrides this.</p>
+     */
+    default void stopSelf() {
+    }
 }
