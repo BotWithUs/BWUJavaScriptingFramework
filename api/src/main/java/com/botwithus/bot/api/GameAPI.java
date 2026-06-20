@@ -223,7 +223,29 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     /** Releases a script handle. */
     void destroyScriptHandle(long handle);
 
-    /** Fires a key-input trigger on an interface component. */
+    /**
+     * Fires a component's CS2 event trigger (click / key / ...) by event type,
+     * reproducing the engine's own component-event path. Enqueued on the action
+     * queue and run on the game thread; a component that carries no trigger of
+     * the requested type is a silent no-op.
+     *
+     * @param interfaceId owning interface id
+     * @param componentId component id
+     * @param subId       sub-component id, or {@code -1} for the top-level component
+     * @param triggerType event type — {@code 9} = click, {@code 10} = key
+     *                    (see {@code ActionTypes.TRIGGER_TYPE_*})
+     * @param arg         type-dependent argument: key code for key triggers;
+     *                    packed {@code (x << 16) | y} component-relative press
+     *                    coordinates for click triggers; {@code 0} if unused
+     */
+    void fireComponentTrigger(int interfaceId, int componentId, int subId, int triggerType, int arg);
+
+    /**
+     * Fires a key (type-10) CS2 trigger on a component once per character of
+     * {@code input}, submitted as a single batched action-queue request (one RPC
+     * round-trip). Characters dispatch one per game tick. Convenience over
+     * {@link #fireComponentTrigger} for the common "type into a component" case.
+     */
     void fireKeyTrigger(int interfaceId, int componentId, String input);
 
     // ---------------------------------------------------------------- Interface components
