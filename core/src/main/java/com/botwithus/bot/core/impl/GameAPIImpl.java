@@ -24,6 +24,7 @@ import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldMapPlacement;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.ComponentRef;
+import com.botwithus.bot.api.model.ComponentTrigger;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
@@ -524,7 +525,10 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "hidden"),
                 getInt(r, "sprite_id"),
                 getInt(r, "item_id"),
-                getInt(r, "item_amount"));
+                getInt(r, "item_amount"),
+                getMapList(r, "triggers").stream()
+                        .map(t -> new ComponentTrigger(getInt(t, "type"), getInt(t, "script_id")))
+                        .toList());
     }
 
     @Override
