@@ -13,6 +13,7 @@ import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.core.config.ScriptConfigStore;
+import com.botwithus.bot.core.impl.ScriptContextImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -91,7 +92,9 @@ public class ScriptRunner implements Runnable {
                         Consumer<GameEvent> eventSink,
                         ScriptContextPublisher scriptCtxPublisher) {
         this.script = script;
-        this.context = context;
+        this.context = (context instanceof ScriptContextImpl impl)
+                ? impl.withStopCallback(this::stop)
+                : context;
         this.connectionTagger = connectionTagger;
         this.connectionCleaner = connectionCleaner;
         this.eventSink = eventSink;
