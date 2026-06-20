@@ -1,5 +1,7 @@
 package com.botwithus.bot.api.model;
 
+import java.util.List;
+
 /**
  * Snapshot of an interface component at the moment the producer answered
  * an RPC. Phase 1 starter set — fields cover identity and base-Component
@@ -81,6 +83,13 @@ package com.botwithus.bot.api.model;
  * @param itemAmount    paired with {@code itemId}: quantity for inventory
  *                      slots, animation_id for model viewers. {@code -1}
  *                      for non-ModelComponents.
+ * @param triggers      CS2 event triggers bound to this component — the
+ *                      discovery side of trigger firing. Each {@link ComponentTrigger}
+ *                      is a (type, scriptId) the engine would run on that input
+ *                      event; pass its {@code type} to
+ *                      {@link com.botwithus.bot.api.GameAPI#fireComponentTrigger}.
+ *                      Empty for the vast majority of components, which carry no
+ *                      trigger array. Never null.
  * @see com.botwithus.bot.api.GameAPI#getComponent
  */
 public record Component(
@@ -106,7 +115,8 @@ public record Component(
         int hidden,
         int spriteId,
         int itemId,
-        int itemAmount) {
+        int itemAmount,
+        List<ComponentTrigger> triggers) {
 
     /** True iff the producer reported this component is hidden ({@code hidden == 1}). */
     public boolean isHidden() { return hidden == 1; }
