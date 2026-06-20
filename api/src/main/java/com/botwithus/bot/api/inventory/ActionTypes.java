@@ -75,7 +75,16 @@ public final class ActionTypes {
     public static final int COMPONENT_KEY = 5000;
     public static final int COMPONENT_DRAG = 5001;
     public static final int RADIO_GROUP_SELECT = 5002;
+    // Fire a component's CS2 event trigger (click/key/...) by event type.
+    //   param1 = compHash    = (ifaceId << 16) | componentId
+    //   param2 = (triggerType << 16) | (subId & 0xFFFF)   // subId i16, 0xFFFF = top-level
+    //   param3 = arg0        = key code for keys; packed (x << 16) | y for clicks; 0 if unused
+    public static final int COMPONENT_TRIGGER = 5003;
     public static final int COMPONENT_SPECIAL = 1007;
+
+    // CS2 component trigger event-type ids (mirror offsets::component_trigger_type).
+    public static final int TRIGGER_TYPE_CLICK = 9;
+    public static final int TRIGGER_TYPE_KEY = 10;
 
     // ---------------- Misc ----------------
     public static final int SELECT_TILE = 59;

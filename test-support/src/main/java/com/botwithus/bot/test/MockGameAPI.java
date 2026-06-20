@@ -335,6 +335,12 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public void fireComponentTrigger(int interfaceId, int componentId, int subId,
+                                     int triggerType, int arg) {
+        throw notStubbed("fireComponentTrigger");
+    }
+
+    @Override
     public void fireKeyTrigger(int interfaceId, int componentId, String input) {
         throw notStubbed("fireKeyTrigger");
     }

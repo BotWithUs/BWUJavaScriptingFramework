@@ -12,6 +12,7 @@ import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
+import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
@@ -415,10 +416,38 @@ public class GameAPIImpl implements GameAPI {
         rpc.callSync("destroy_script_handle", Map.of("handle", handle));
     }
 
+    // Builds a ComponentTrigger GameAction with the packed param convention the
+    // producer's DispatchComponentTrigger expects:
+    //   param1 = compHash = (iface << 16) | comp
+    //   param2 = (triggerType << 16) | (sub & 0xFFFF)
+    //   param3 = arg (key code, or packed (x << 16) | y press coords, or 0)
+    private static GameAction triggerAction(int interfaceId, int componentId,
+                                            int subId, int triggerType, int arg) {
+        int compHash = (interfaceId << 16) | (componentId & 0xFFFF);
+        int param2 = (triggerType << 16) | (subId & 0xFFFF);
+        return new GameAction(ActionTypes.COMPONENT_TRIGGER, compHash, param2, arg);
+    }
+
+    @Override
+    public void fireComponentTrigger(int interfaceId, int componentId, int subId,
+                                     int triggerType, int arg) {
+        queueAction(triggerAction(interfaceId, componentId, subId, triggerType, arg));
+    }
+
     @Override
     public void fireKeyTrigger(int interfaceId, int componentId, String input) {
-        rpc.callSync("fire_key_trigger", Map.of(
-                "interface_id", interfaceId, "component_id", componentId, "input", input));
+        if (input == null || input.isEmpty()) {
+            return;
+        }
+        // One key (type-10) trigger per character, submitted as a single batched
+        // request so a multi-char string costs one RPC round-trip, not N. The
+        // producer drains the queue one action per tick (human-like cadence).
+        List<GameAction> batch = new ArrayList<>(input.length());
+        for (int i = 0; i < input.length(); i++) {
+            batch.add(triggerAction(interfaceId, componentId, -1,
+                    ActionTypes.TRIGGER_TYPE_KEY, input.charAt(i)));
+        }
+        queueActions(batch);
     }
 
     // ---------------------------------------------------------------- Interface tree walk
