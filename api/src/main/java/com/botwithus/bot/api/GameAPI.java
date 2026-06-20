@@ -100,6 +100,27 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     /** Worn equipment facade. Singleton per {@link GameAPI}. */
     Equipment equipment();
 
+    /**
+     * Per-item obj vars for every filled slot of a container — the per-instance
+     * variables an item carries in its slot's {@code ObjVarDomain}
+     * (augmentation XP, charges, etc.), distinct from the global player/client
+     * var domains. Read on demand over the RPC pipe (the obj-var hashmaps are
+     * walked on the game thread). Returns {@code slot -> (varId -> value)}; an
+     * empty map when nothing in the container carries obj vars.
+     *
+     * @param invId container id (e.g. 93 = backpack, 94 = equipment)
+     */
+    Map<Integer, Map<Integer, Integer>> getObjVars(int invId);
+
+    /**
+     * Per-item obj vars for a single container slot. Returns {@code varId ->
+     * value}, or an empty map when the slot is empty or carries no obj vars.
+     *
+     * @param invId container id
+     * @param slot  0-based slot index
+     */
+    Map<Integer, Integer> getObjVars(int invId, int slot);
+
     // ---------------------------------------------------------------- Scene queries
 
     /** Scene-object query facade. Singleton per {@link GameAPI}. */
