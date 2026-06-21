@@ -1059,4 +1059,35 @@ public class GameAPIImpl implements GameAPI {
         return (base >>> def.lsb()) & mask;
     }
 
+    // ---------------------------------------------------------------- Obj vars
+
+    @Override
+    public Map<Integer, Map<Integer, Integer>> getObjVars(int invId) {
+        Map<String, Object> r = rpc.callSync("get_obj_vars", Map.of("inv_id", invId));
+        return parseObjVarSlots(r);
+    }
+
+    @Override
+    public Map<Integer, Integer> getObjVars(int invId, int slot) {
+        Map<String, Object> r = rpc.callSync("get_obj_vars",
+                Map.of("inv_id", invId, "slot", slot));
+        return parseObjVarSlots(r).getOrDefault(slot, Map.of());
+    }
+
+    // Decodes { slots:[ { slot, vars:[ { id, value } ] } ] } into
+    // slot -> (varId -> value). Insertion-ordered for stable iteration.
+    private static Map<Integer, Map<Integer, Integer>> parseObjVarSlots(Map<String, Object> r) {
+        List<Map<String, Object>> slots = getMapList(r, "slots");
+        Map<Integer, Map<Integer, Integer>> out = new LinkedHashMap<>(slots.size());
+        for (Map<String, Object> s : slots) {
+            List<Map<String, Object>> vars = getMapList(s, "vars");
+            Map<Integer, Integer> byId = new LinkedHashMap<>(vars.size());
+            for (Map<String, Object> v : vars) {
+                byId.put(getInt(v, "id"), getInt(v, "value"));
+            }
+            out.put(getInt(s, "slot"), byId);
+        }
+        return out;
+    }
+
 }

@@ -447,6 +447,16 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public Map<Integer, Map<Integer, Integer>> getObjVars(int invId) {
+        throw notStubbed("getObjVars");
+    }
+
+    @Override
+    public Map<Integer, Integer> getObjVars(int invId, int slot) {
+        throw notStubbed("getObjVars");
+    }
+
+    @Override
     public List<Integer> getVarps(List<Integer> varIds) {
         throw notStubbed("getVarps");
     }
