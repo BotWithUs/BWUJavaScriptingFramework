@@ -79,6 +79,41 @@ tasks.register<Test>("worldwalkerE2ETest") {
     }
 }
 
+tasks.register<Test>("liveDialogSelectTest") {
+    description = "Live dialog-option selection by text (MUTATES the game — picks an option in the open 1188 dialog)"
+    group = "verification"
+    useJUnitPlatform()
+    // Own opt-in, separate from liveSmokeTest: this one fires a real click.
+    systemProperty("botwithus.smoke.dialog", "true")
+    // Choose the option to click: -Dbotwithus.dialog.option="What's wrong?" (unset -> first option).
+    System.getProperty("botwithus.dialog.option")?.let { systemProperty("botwithus.dialog.option", it) }
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.impl.LiveDialogSelectTest")
+    }
+}
+
+tasks.register<Test>("liveDialogContinueTest") {
+    description = "Live NPC-chat continue (MUTATES the game — advances the open 1184 'click to continue' page)"
+    group = "verification"
+    useJUnitPlatform()
+    systemProperty("botwithus.smoke.dialog", "true")
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.impl.LiveDialogContinueTest")
+    }
+}
+
 tasks.register<Test>("liveSmokeTest") {
     description = "Live-producer smoke tests (requires NXTLibrary DLL injected into a running game)"
     group = "verification"
