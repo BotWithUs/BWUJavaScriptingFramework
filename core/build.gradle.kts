@@ -4,6 +4,14 @@ plugins {
 
 dependencies {
     implementation(project(":api"))
+    // quest-core is not referenced by core's code. It is pulled onto the
+    // runtime module path (and required in module-info) purely so that it
+    // becomes a member of the boot ModuleLayer's configuration — the same
+    // configuration LocalScriptLoader resolves each script's child layer
+    // against. Quest scripts declare `requires com.botwithus.bot.quest`, so
+    // without this the child-layer resolve throws FindException. This mirrors
+    // how `api` reaches the boot layer for scripts to consume.
+    implementation(project(":quest-core"))
     implementation(libs.msgpack.core)
     implementation(libs.gson)
     implementation(libs.logback.classic)

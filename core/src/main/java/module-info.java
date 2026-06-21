@@ -5,6 +5,12 @@ module com.botwithus.bot.core {
     // reference api types in their public signatures. Re-exporting api avoids
     // 160+ -Xlint [exports] warnings about consumers needing both modules.
     requires transitive com.botwithus.bot.api;
+    // Not used by core's code. Required so quest-core joins the boot
+    // ModuleLayer's configuration, letting LocalScriptLoader resolve quest
+    // scripts' `requires com.botwithus.bot.quest` against the parent layer
+    // (same mechanism by which scripts see api). Non-transitive: core's own
+    // exported API never references quest types, so it must not leak to cli.
+    requires com.botwithus.bot.quest;
     requires msgpack.core;
     requires com.google.gson;
     requires ch.qos.logback.classic;
