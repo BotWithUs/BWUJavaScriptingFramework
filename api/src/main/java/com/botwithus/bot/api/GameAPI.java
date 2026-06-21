@@ -76,6 +76,16 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      */
     GameSnapshot snapshot();
 
+    /**
+     * Convenience shim — delegates to {@code snapshot().isInterfaceOpen(ifaceId)}.
+     * Kept so call sites that pre-date the rewrite ({@code api.isInterfaceOpen(...)})
+     * keep compiling. New code should go through {@link GameSnapshot} directly.
+     */
+    default boolean isInterfaceOpen(int ifaceId) {
+        GameSnapshot s = snapshot();
+        return s != null && s.isInterfaceOpen(ifaceId);
+    }
+
     // ---------------------------------------------------------------- Entity queries
 
     /**
