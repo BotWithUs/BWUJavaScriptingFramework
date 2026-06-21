@@ -150,6 +150,27 @@ public class InventoryContainer {
     public boolean isFull()     { return slotCount() > 0 && freeSlots() == 0; }
     public boolean isNotFull()  { return !isFull(); }
 
+    // ---------------------------------------------------------------- Obj vars
+
+    /**
+     * Per-item obj vars for one slot — the per-instance variables the item in
+     * that slot carries inside its {@code ObjVarDomain} (augmentation XP,
+     * charges, etc.). Returns {@code varId -> value}, empty when the slot is
+     * empty or carries no obj vars. On-demand RPC read (not snapshot-backed).
+     */
+    public Map<Integer, Integer> getSlotVars(int slot) {
+        return api.getObjVars(invId, slot);
+    }
+
+    /**
+     * Per-item obj vars for every filled slot in this container. Returns
+     * {@code slot -> (varId -> value)}, empty when nothing here carries obj
+     * vars. On-demand RPC read (not snapshot-backed).
+     */
+    public Map<Integer, Map<Integer, Integer>> getAllSlotVars() {
+        return api.getObjVars(invId);
+    }
+
     // ---------------------------------------------------------------- Containment
 
     public boolean contains(int itemId) {

@@ -7,6 +7,7 @@ import com.botwithus.bot.api.event.ChatMessageEvent;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.KeyInputEvent;
 import com.botwithus.bot.api.event.LoginStateChangeEvent;
+import com.botwithus.bot.api.event.ObjVarChangeEvent;
 import com.botwithus.bot.api.event.RadioGroupSelectEvent;
 import com.botwithus.bot.api.event.SpotAnimEvent;
 import com.botwithus.bot.api.event.TickEvent;
@@ -186,6 +187,7 @@ public final class EventRingReader {
             case Layout.EVT_VAR_CHANGE         -> decodeVarChange(bodyOff, bodyLen);
             case Layout.EVT_VARBIT_CHANGE      -> decodeVarbitChange(bodyOff, bodyLen);
             case Layout.EVT_VARC_CHANGE        -> decodeVarcChange(bodyOff, bodyLen);
+            case Layout.EVT_OBJ_VAR_CHANGE     -> decodeObjVarChange(bodyOff, bodyLen);
             case Layout.EVT_CHAT_MESSAGE       -> decodeChatMessage(bodyOff, bodyLen);
             case Layout.EVT_KEY_INPUT          -> decodeKeyInput(bodyOff, bodyLen);
             case Layout.EVT_ACTION_EXECUTED    -> decodeActionExecuted(bodyOff, bodyLen);
@@ -245,6 +247,19 @@ public final class EventRingReader {
         int oldV  = ring.get(ValueLayout.JAVA_INT, off + 4);
         int newV  = ring.get(ValueLayout.JAVA_INT, off + 8);
         return new VarbitChangeEvent(id, oldV, newV);
+    }
+
+    private ObjVarChangeEvent decodeObjVarChange(long off, int len) {
+        // Body layout (ObjVarChangeBody): i32 invId, slot, varId, oldValue, newValue.
+        if (len < 20) {
+            return null;
+        }
+        int invId = ring.get(ValueLayout.JAVA_INT, off);
+        int slot  = ring.get(ValueLayout.JAVA_INT, off + 4);
+        int varId = ring.get(ValueLayout.JAVA_INT, off + 8);
+        int oldV  = ring.get(ValueLayout.JAVA_INT, off + 12);
+        int newV  = ring.get(ValueLayout.JAVA_INT, off + 16);
+        return new ObjVarChangeEvent(invId, slot, varId, oldV, newV);
     }
 
     private ChatMessageEvent decodeChatMessage(long off, int len) {

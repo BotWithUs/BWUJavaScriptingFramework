@@ -346,6 +346,7 @@ public final class Layout {
     public static final int EVT_VAR_CHANGE          = 10;
     public static final int EVT_VARBIT_CHANGE       = 11;
     public static final int EVT_VARC_CHANGE         = 12;
+    public static final int EVT_OBJ_VAR_CHANGE      = 13;
     public static final int EVT_CHAT_MESSAGE        = 20;
     public static final int EVT_KEY_INPUT           = 30;
     public static final int EVT_ACTION_EXECUTED     = 40;

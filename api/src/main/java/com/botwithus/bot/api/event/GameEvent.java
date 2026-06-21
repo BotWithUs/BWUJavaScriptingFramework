@@ -20,6 +20,7 @@ public sealed interface GameEvent
                 ConnectionLostEvent,
                 KeyInputEvent,
                 LoginStateChangeEvent,
+                ObjVarChangeEvent,
                 RadioGroupSelectEvent,
                 ReconnectStateChangedEvent,
                 ScriptCrashedEvent,

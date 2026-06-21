@@ -32,8 +32,11 @@ import java.util.List;
  *                      Prefer this over {@code type} — the raw {@code type}
  *                      byte drifts between game builds. {@code 0} (Unknown)
  *                      when read from a producer that predates this field.
- * @param x             post-layout screen-space x (pixels)
- * @param y             post-layout screen-space y
+ * @param x             absolute client-space x (pixels) — the producer resolves
+ *                      the parent-component chain and the sub-interface mount
+ *                      offset, so this is where the component actually sits in
+ *                      the game's client area, not a parent-relative offset
+ * @param y             absolute client-space y (pixels); see {@code x}
  * @param width         post-layout computed width
  * @param height        post-layout computed height
  * @param rawX          pre-layout raw config x — what the cache stored before
