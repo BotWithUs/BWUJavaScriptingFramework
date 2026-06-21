@@ -46,6 +46,16 @@ public final class Player implements EntityContext {
     @Override public int tileY() { return raw.tileY(); }
     @Override public int plane() { return raw.plane(); }
 
+    // ---------------- Convenience shims (kept for scripts that pre-date the rewrite) ----------------
+
+    /** Snapshot does not carry the player display name; returns {@code null}. */
+    public String name() { return null; }
+    /** Chebyshev distance to the local player tile, or {@code MAX_VALUE} if the local player isn't loaded. */
+    public int distanceToPlayer() {
+        var lp = api.getLocalPlayer();
+        return lp == null ? Integer.MAX_VALUE : distanceTo(lp.tileX(), lp.tileY());
+    }
+
     /**
      * Queue an action against this player by 1-based option index.
      *

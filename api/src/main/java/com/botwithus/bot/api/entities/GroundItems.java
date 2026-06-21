@@ -102,5 +102,8 @@ public final class GroundItems {
          */
         @Override protected int rawTypeId(GroundItem t) { return t.itemId(); }
         @Override protected String nameOf(GroundItem t) { return t.name(); }
+
+        /** Convenience alias for {@link EntityQuery#withId(int) withId}. */
+        public Query withItemId(int itemId) { return withId(itemId); }
     }
 }
