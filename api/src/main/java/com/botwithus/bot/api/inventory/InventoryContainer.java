@@ -288,8 +288,8 @@ public class InventoryContainer {
     /**
      * Click the given slot with the given 1-based right-click option index.
      * Builds a {@link GameAction} with action id {@link ActionTypes#COMPONENT}
-     * (57), option in {@code param1}, packed {@code (iface<<16)|comp} of the
-     * slot grid in {@code param2}, and the slot index in {@code param3}.
+     * (57), option in {@code param1}, the slot index in {@code param2}, and the
+     * packed {@code (iface<<16)|comp} of the slot grid in {@code param3}.
      *
      * @return {@code true} when a queue_action was sent (slot is in range);
      *         {@code false} when the slot index is out of range
