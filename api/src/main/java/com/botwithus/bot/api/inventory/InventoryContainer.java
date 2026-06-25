@@ -301,8 +301,8 @@ public class InventoryContainer {
         api.queueAction(new GameAction(
                 ActionTypes.COMPONENT,
                 optionIndex,
-                Interfaces.componentHash(interfaceId, componentId),
-                slot));
+                slot,
+                Interfaces.componentHash(interfaceId, componentId)));
         return true;
     }
 

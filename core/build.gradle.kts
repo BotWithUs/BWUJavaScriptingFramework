@@ -12,6 +12,9 @@ dependencies {
     // without this the child-layer resolve throws FindException. This mirrors
     // how `api` reaches the boot layer for scripts to consume.
     implementation(project(":quest-core"))
+    // Pulls skilling-core (+ its sqlite-jdbc/gson) onto the runtime module path
+    // so it joins the boot ModuleLayer — see the matching requires in module-info.
+    implementation(project(":skilling-core"))
     implementation(libs.msgpack.core)
     implementation(libs.gson)
     implementation(libs.logback.classic)

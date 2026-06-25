@@ -9,6 +9,7 @@ import com.botwithus.bot.api.config.ConfigField.IntField;
 import com.botwithus.bot.api.config.ConfigField.ItemIdField;
 import com.botwithus.bot.api.config.ConfigField.StringField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImDrawList;
@@ -257,12 +258,38 @@ public class ScriptConfigPanel {
         } else {
             renderFields(cs);
         }
+        renderCustomUi();
 
         ImGui.endChild();
         ImGui.popStyleColor();
         ImGui.popStyleVar(2);
 
         renderActionBar();
+    }
+
+    /**
+     * Render the script's custom {@link ScriptUI} below the config fields, when it
+     * provides one — so a script that exposes both settings and a live status/control
+     * tab shows them together in this one window (the config button no longer has to
+     * choose one or the other).
+     */
+    private void renderCustomUi() {
+        ScriptUI ui = runner.getScript().getUI();
+        if (ui == null) {
+            return;
+        }
+        float fontH = ImGui.getFontSize();
+        if (fields != null && !fields.isEmpty()) {
+            ImGui.dummy(0f, fontH * 0.7f);
+        }
+        GuiHelpers.sectionHeader("Live");
+        ImGui.dummy(0f, fontH * 0.2f);
+        try {
+            ui.render();
+        } catch (Exception e) {
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f,
+                    "UI error: " + e.getMessage());
+        }
     }
 
     private void renderEmptyState() {

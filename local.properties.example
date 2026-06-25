@@ -26,6 +26,12 @@
 # ~/.botwithus/native/worldwalker.wwa when unset.
 # worldwalker.artifact=C:/path/to/worldwalker.wwa
 
+# Baked Atlas data layer (resolved.sqlite, built by the RuneScape Data Analyzer)
+# that skilling scripts read for gather/bank coordinates + recipe closures.
+# Forwarded as -Dbotwithus.atlas. Falls back to ~/.botwithus/native/resolved.sqlite
+# when unset. Also settable via the BOTWITHUS_ATLAS environment variable.
+# botwithus.atlas=C:/path/to/resolved.sqlite
+
 # JDK home for jlink/jpackage, when the auto-provisioned Java toolchain can
 # not be discovered. Also settable via the JLINK_JAVA_HOME environment var.
 # jlink.javaHome=C:/path/to/jdk-25

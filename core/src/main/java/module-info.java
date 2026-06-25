@@ -11,6 +11,12 @@ module com.botwithus.bot.core {
     // (same mechanism by which scripts see api). Non-transitive: core's own
     // exported API never references quest types, so it must not leak to cli.
     requires com.botwithus.bot.quest;
+    // Same boot-layer trick as quest above: skilling scripts declare
+    // `requires com.botwithus.bot.skilling`, so skilling-core must join the boot
+    // ModuleLayer's configuration (and pull sqlite-jdbc + gson with it) for
+    // LocalScriptLoader to resolve those child layers. Non-transitive: core's
+    // own exported API never references skilling types.
+    requires com.botwithus.bot.skilling;
     requires msgpack.core;
     requires com.google.gson;
     requires ch.qos.logback.classic;

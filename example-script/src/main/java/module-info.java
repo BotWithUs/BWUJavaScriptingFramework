@@ -5,11 +5,11 @@ module com.botwithus.bot.scripts.example {
 
     provides com.botwithus.bot.api.BotScript
         with com.botwithus.bot.scripts.example.ExampleScript,
-             com.botwithus.bot.scripts.example.WoodcuttingFletcherScript,
-             com.botwithus.bot.scripts.example.WalkToFlagScript,
-             com.botwithus.bot.scripts.example.DivinationScript,
-             com.botwithus.bot.scripts.example.LocationProbeScript,
-             com.botwithus.bot.scripts.example.CooksAssistantScript,
-             com.botwithus.bot.scripts.example.RestlessGhostScript,
-             com.botwithus.bot.scripts.example.WitchsPotionScript;
+             //com.botwithus.bot.scripts.example.WoodcuttingFletcherScript,
+             com.botwithus.bot.scripts.example.WalkToFlagScript;
+             //com.botwithus.bot.scripts.example.DivinationScript,
+             //com.botwithus.bot.scripts.example.LocationProbeScript,
+             //com.botwithus.bot.scripts.example.CooksAssistantScript,
+             //com.botwithus.bot.scripts.example.RestlessGhostScript,
+             //com.botwithus.bot.scripts.example.WitchsPotionScript;
 }
