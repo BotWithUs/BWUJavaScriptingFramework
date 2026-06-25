@@ -73,7 +73,9 @@ tasks.named<JavaExec>("run") {
         "-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}",
         // FFM downcalls in com.botwithus.bot.core.cache.NXTCache hit the
         // restricted Linker API; J22+ requires explicit native-access opt-in.
-        "--enable-native-access=com.botwithus.bot.core",
+        // sqlite-jdbc (org.xerial.sqlitejdbc) System.load()s its native lib when
+        // a skilling script opens the Atlas — opt it in too so the read is clean.
+        "--enable-native-access=com.botwithus.bot.core,org.xerial.sqlitejdbc",
     )
     // Optional: point at the NXTCache DLL + cache directory to enable
     // cache-backed config-type lookups (item/npc/loc/quest/etc.). Set these
@@ -92,6 +94,11 @@ tasks.named<JavaExec>("run") {
         ?.let { jvmArgs("-Dworldwalker.dll=$it") }
     project.localProperty("worldwalker.artifact", "WORLDWALKER_ARTIFACT")
         ?.let { jvmArgs("-Dworldwalker.artifact=$it") }
+    // Optional: dev override for the baked Atlas (resolved.sqlite), read by
+    // skilling-core's AtlasPaths. When unset, skilling scripts fall back to
+    // ~/.botwithus/native/resolved.sqlite.
+    project.localProperty("botwithus.atlas", "BOTWITHUS_ATLAS")
+        ?.let { jvmArgs("-Dbotwithus.atlas=$it") }
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink

@@ -370,10 +370,16 @@ public class ImGuiApp extends Application {
         if (runner == null) {
             return;
         }
-        if (runner.getScript().getUI() != null) {
-            scriptUIWindow.open(runner);
-        } else {
+        var fields = runner.getConfigFields();
+        boolean hasFields = fields != null && !fields.isEmpty();
+        if (hasFields) {
+            // The config panel renders the ConfigFields (with Apply/persist) AND,
+            // below them, the script's custom getUI() if it has one — so a script
+            // that provides both shows both here instead of the custom UI hiding the
+            // settings. UI-only scripts (no fields) still get the dedicated window.
             scriptConfigPanel.open(runner);
+        } else if (runner.getScript().getUI() != null) {
+            scriptUIWindow.open(runner);
         }
     }
 
