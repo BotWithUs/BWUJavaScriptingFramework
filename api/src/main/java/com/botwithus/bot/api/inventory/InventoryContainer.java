@@ -27,9 +27,10 @@ import java.util.function.IntFunction;
  *
  * <p>Slot interactions build a {@link GameAction} with action id
  * {@link ActionTypes#COMPONENT}, the right-click option index in
- * {@code param1}, the packed {@code (iface<<16)|comp} of the slot grid in
- * {@code param2}, and the slot index in {@code param3}. The packing matches
- * what {@code ApplyDeferredUpdate} uses on the producer side.</p>
+ * {@code param1}, the slot index (sub-component id) in {@code param2}, and
+ * the packed {@code (iface<<16)|comp} of the slot grid in {@code param3}.
+ * The packing matches what {@code ApplyDeferredUpdate} uses on the producer
+ * side.</p>
  *
  * <p>Subclasses ({@link Backpack}, {@link Bank}, {@link Equipment}) bind
  * the inventory id and the slot-grid component coordinates; this class

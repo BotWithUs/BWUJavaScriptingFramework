@@ -160,7 +160,7 @@ class GameAPIImplInventoryTest {
 
         int packed = Interfaces.componentHash(Backpack.INTERFACE_ID, Backpack.COMPONENT_ID);
         verify(rpc).callSync(eq("queue_action"),
-                eq(Map.of("action_id", 57, "param1", 1, "param2", packed, "param3", 0)));
+                eq(Map.of("action_id", 57, "param1", 1, "param2", 0, "param3", packed)));
     }
 
     @Test
@@ -185,11 +185,11 @@ class GameAPIImplInventoryTest {
         Backpack bp = api.backpack();
         assertTrue(bp.interactFirst(1511, "Drop"));
 
-        // Drop is option 2 (index 2 in 1-based); param2 packs iface/comp,
-        // param3 is the slot index (0).
+        // Drop is option 2 (index 2 in 1-based); param2 is the slot index (0),
+        // param3 packs iface/comp.
         int packed = Interfaces.componentHash(Backpack.INTERFACE_ID, Backpack.COMPONENT_ID);
         verify(rpc).callSync(eq("queue_action"),
-                eq(Map.of("action_id", 57, "param1", 2, "param2", packed, "param3", 0)));
+                eq(Map.of("action_id", 57, "param1", 2, "param2", 0, "param3", packed)));
     }
 
     @Test
