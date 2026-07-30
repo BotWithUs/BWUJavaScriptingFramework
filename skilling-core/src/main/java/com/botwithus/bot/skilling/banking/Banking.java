@@ -37,7 +37,7 @@ import java.util.Optional;
  *       {@code param2 = -1} (no sub-slot), {@code param3 = compHash}. Matches
  *       {@code ComponentNode#interact}.</li>
  *   <li><b>Item-slot grid</b> (withdraw a banked item, deposit a carried item):
- *       {@code param1 = op}, {@code param2 = compHash}, {@code param3 = slot}. Matches
+ *       {@code param1 = op}, {@code param2 = slot}, {@code param3 = compHash}. Matches
  *       {@code InventoryContainer#interact}.</li>
  * </ul>
  *
@@ -307,7 +307,7 @@ public final class Banking {
         }
         Resolved r = resolve(ITEMS_GAMEVAL, FALLBACK_ITEMS_COMPONENT, ITEMS_COMPONENT_PROPERTY);
         api.queueAction(new GameAction(ActionTypes.COMPONENT, op,
-                Interfaces.componentHash(r.interfaceId(), r.componentId()), it.slot()));
+                it.slot(), Interfaces.componentHash(r.interfaceId(), r.componentId())));
         return true;
     }
 
@@ -338,7 +338,7 @@ public final class Banking {
         }
         Resolved r = resolve(BACKPACK_ITEMS_GAMEVAL, FALLBACK_BACKPACK_COMPONENT, BACKPACK_COMPONENT_PROPERTY);
         api.queueAction(new GameAction(ActionTypes.COMPONENT, op,
-                Interfaces.componentHash(r.interfaceId(), r.componentId()), it.slot()));
+                it.slot(), Interfaces.componentHash(r.interfaceId(), r.componentId())));
         return true;
     }
 
