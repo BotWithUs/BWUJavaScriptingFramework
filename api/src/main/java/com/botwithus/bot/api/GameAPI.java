@@ -8,6 +8,7 @@ import com.botwithus.bot.api.domain.VariableAPI;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.inventory.Backpack;
@@ -128,6 +129,15 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
 
     /** Ground-item query facade. Singleton per {@link GameAPI}. */
     GroundItems groundItems();
+
+    /**
+     * In-flight projectile query facade (v17+). Singleton per {@link GameAPI}.
+     *
+     * <p>Read-only: projectiles carry no menu actions and no cache definition,
+     * so the entities this yields have no {@code interact()} and no
+     * {@code name()}. See {@link com.botwithus.bot.api.entities.Projectile}.</p>
+     */
+    Projectiles projectiles();
 
     // Scene entity queries are SHM-backed as of v15 — read them via the
     // {@link #objects()} / {@link #groundItems()} facades, which in turn

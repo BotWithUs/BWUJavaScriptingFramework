@@ -5,6 +5,7 @@ import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.inventory.Backpack;
@@ -251,6 +252,11 @@ final class MockGameAPI implements GameAPI {
     @Override
     public GroundItems groundItems() {
         throw notStubbed("groundItems");
+    }
+
+    @Override
+    public Projectiles projectiles() {
+        throw notStubbed("projectiles");
     }
 
     @Override

@@ -53,6 +53,9 @@ public interface GameSnapshot {
     /** Ground items table accessor (v15+). */
     GroundItems groundItems();
 
+    /** In-flight projectiles table accessor (v17+). */
+    Projectiles projectiles();
+
     /**
      * Producer-side scene-shape version. Bumps whenever the streamed
      * {@code loaded_map_squares} identity changes — region crossings, login,
@@ -134,5 +137,15 @@ public interface GameSnapshot {
         List<GroundItem> filter(GroundItemFilter filter);
 
         Stream<GroundItem> stream();
+    }
+
+    interface Projectiles {
+        int count();
+
+        Projectile at(int index);
+
+        List<Projectile> filter(ProjectileFilter filter);
+
+        Stream<Projectile> stream();
     }
 }

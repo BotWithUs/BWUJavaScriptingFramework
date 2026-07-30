@@ -11,6 +11,8 @@ import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
+import com.botwithus.bot.api.snapshot.Projectile;
+import com.botwithus.bot.api.snapshot.ProjectileFilter;
 
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +42,7 @@ public record CannedSnapshot(
         Locations locations,
         Inventories inventories,
         GroundItems groundItems,
+        Projectiles projectiles,
         int sceneVersion
 ) implements GameSnapshot {
 
@@ -61,6 +64,7 @@ public record CannedSnapshot(
     private static final Locations EMPTY_LOCATIONS = new Locations(List.of());
     private static final Inventories EMPTY_INVENTORIES = new Inventories(List.of());
     private static final GroundItems EMPTY_GROUND_ITEMS = new GroundItems(List.of());
+    private static final Projectiles EMPTY_PROJECTILES = new Projectiles(List.of());
 
     /** Snapshot with no in-game player, no NPCs, no other players, no inventories. */
     public static CannedSnapshot empty() {
@@ -74,6 +78,7 @@ public record CannedSnapshot(
                 EMPTY_LOCATIONS,
                 EMPTY_INVENTORIES,
                 EMPTY_GROUND_ITEMS,
+                EMPTY_PROJECTILES,
                 DEFAULT_SCENE_VERSION);
     }
 
@@ -92,13 +97,40 @@ public record CannedSnapshot(
                 EMPTY_LOCATIONS,
                 EMPTY_INVENTORIES,
                 EMPTY_GROUND_ITEMS,
+                EMPTY_PROJECTILES,
                 DEFAULT_SCENE_VERSION);
     }
 
     /** Returns a copy with a different {@link #tickId()} for advancing time in tests. */
     public CannedSnapshot withTickId(long newTickId) {
         return new CannedSnapshot(newTickId, gameState, ownIndex, self,
-                                  npcs, players, locations, inventories, groundItems, sceneVersion);
+                                  npcs, players, locations, inventories, groundItems,
+                                  projectiles, sceneVersion);
+    }
+
+    /**
+     * Returns a copy carrying the supplied in-flight projectiles. Chains off
+     * {@link #withSelf(LocalPlayer)} so a test can build an in-game snapshot
+     * with projectiles in one expression.
+     */
+    public CannedSnapshot withProjectiles(List<Projectile> rows) {
+        return new CannedSnapshot(tickId, gameState, ownIndex, self,
+                                  npcs, players, locations, inventories, groundItems,
+                                  new Projectiles(rows), sceneVersion);
+    }
+
+    /** Returns a copy carrying the supplied NPCs. Chains like {@link #withProjectiles(List)}. */
+    public CannedSnapshot withNpcs(List<Npc> rows) {
+        return new CannedSnapshot(tickId, gameState, ownIndex, self,
+                                  new Npcs(rows), players, locations, inventories,
+                                  groundItems, projectiles, sceneVersion);
+    }
+
+    /** Returns a copy carrying the supplied players. Chains like {@link #withProjectiles(List)}. */
+    public CannedSnapshot withPlayers(List<Player> rows) {
+        return new CannedSnapshot(tickId, gameState, ownIndex, self,
+                                  npcs, new Players(rows), locations, inventories,
+                                  groundItems, projectiles, sceneVersion);
     }
 
     public record Npcs(List<Npc> all) implements GameSnapshot.Npcs {
@@ -237,6 +269,32 @@ public record CannedSnapshot(
 
         @Override
         public Stream<GroundItem> stream() {
+            return all.stream();
+        }
+    }
+
+    public record Projectiles(List<Projectile> all) implements GameSnapshot.Projectiles {
+        public Projectiles {
+            all = List.copyOf(all);
+        }
+
+        @Override
+        public int count() {
+            return all.size();
+        }
+
+        @Override
+        public Projectile at(int index) {
+            return index >= 0 && index < all.size() ? all.get(index) : null;
+        }
+
+        @Override
+        public List<Projectile> filter(ProjectileFilter filter) {
+            return all.stream().filter(filter::test).toList();
+        }
+
+        @Override
+        public Stream<Projectile> stream() {
             return all.stream();
         }
     }

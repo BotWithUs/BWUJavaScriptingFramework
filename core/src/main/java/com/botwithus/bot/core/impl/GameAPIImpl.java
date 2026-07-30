@@ -10,6 +10,7 @@ import com.botwithus.bot.api.event.WalkFailedEvent;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.inventory.ActionTypes;
@@ -107,6 +108,7 @@ public class GameAPIImpl implements GameAPI {
     private final Equipment equipmentFacade = new Equipment(this);
     private final SceneObjects objectsFacade = new SceneObjects(this);
     private final GroundItems groundItemsFacade = new GroundItems(this);
+    private final Projectiles projectilesFacade = new Projectiles(this);
     private final WorldMapElements mapElementsFacade = new WorldMapElements(this);
     private final Components componentsFacade = new Components(this);
 
@@ -214,6 +216,9 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public GroundItems groundItems() { return groundItemsFacade; }
+
+    @Override
+    public Projectiles projectiles() { return projectilesFacade; }
 
     @Override
     public WorldMapElements mapElements() { return mapElementsFacade; }

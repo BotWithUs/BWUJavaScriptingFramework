@@ -239,4 +239,37 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_SHORT, base + Layout.GROUND_ITEM_TILEY_OFFSET),
                 seg.get(ValueLayout.JAVA_BYTE,  base + Layout.GROUND_ITEM_PLANE_OFFSET));
     }
+
+    // ------------------------------------------------------------------
+    // Projectiles (v17+)
+    //
+    // Mirrors the producer-side projectile-list walk. One row per in-flight
+    // projectile; scripts read the immutable snapshot and apply their own
+    // source/target/spatial filters.
+    // ------------------------------------------------------------------
+
+    public int projectileCount() {
+        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET);
+        return n < 0 ? 0 : Math.min(n, Layout.PROJECTILE_CAP);
+    }
+
+    public ProjectileEntry projectileAt(int i) {
+        if (i < 0 || i >= projectileCount()) {
+            throw new IndexOutOfBoundsException(i);
+        }
+        long base = Layout.SNAP_PROJECTILES_OFFSET + (long) i * Layout.PROJECTILE_ENTRY_SIZE;
+        return new ProjectileEntry(
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_ID_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_STARTCYCLE_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_ENDCYCLE_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_SOURCEINDEX_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_SOURCETYPE_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_TARGETINDEX_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_TARGETTYPE_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_STARTTILEX_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_STARTTILEY_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_ENDTILEX_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_ENDTILEY_OFFSET),
+                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.PROJECTILE_PLANE_OFFSET));
+    }
 }
