@@ -113,8 +113,8 @@ public final class ComponentNode {
     /**
      * Queue a click on this component with the given 1-based right-click option
      * index. Builds a {@link GameAction} with {@link ActionTypes#COMPONENT}, the
-     * option in {@code param1}, the packed {@code (iface<<16)|comp} in
-     * {@code param2}, and {@code -1} (no sub-slot) in {@code param3} — the same
+     * option in {@code param1}, {@code -1} (no sub-slot) in {@code param2}, and
+     * the packed {@code (iface<<16)|comp} in {@code param3} — the same
      * shape inventory slot clicks use, minus the slot. For inventory grids use
      * the {@code Backpack}/{@code Bank} facades, which supply the slot.
      */
