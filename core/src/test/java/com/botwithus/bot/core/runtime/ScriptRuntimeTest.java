@@ -35,6 +35,21 @@ class ScriptRuntimeTest {
     }
 
     @Test
+    void registerScript_isIdempotentByName() {
+        ScriptContext ctx = mock(ScriptContext.class);
+        ScriptRuntime runtime = new ScriptRuntime(ctx);
+
+        // Two distinct instances of the same-named script — e.g. a manual reload
+        // followed by the auto-start probe re-registering the full set without a
+        // preceding stopAll(). The list must not hold both.
+        ScriptRunner first = runtime.registerScript(new TestScript());
+        ScriptRunner second = runtime.registerScript(new TestScript());
+
+        assertSame(first, second);
+        assertEquals(1, runtime.getRunners().size());
+    }
+
+    @Test
     void findRunner() {
         ScriptContext ctx = mock(ScriptContext.class);
         ScriptRuntime runtime = new ScriptRuntime(ctx);

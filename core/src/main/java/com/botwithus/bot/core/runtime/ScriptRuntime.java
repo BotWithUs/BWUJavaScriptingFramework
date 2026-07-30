@@ -26,6 +26,9 @@ public class ScriptRuntime {
     private final Runnable connectionCleaner;
     private final Consumer<GameEvent> eventSink;
     private final List<ScriptRunner> runners = new CopyOnWriteArrayList<>();
+    /** Guards the check-then-add in {@link #registerScript} so two concurrent
+     *  registrations of the same script name can't both append a runner. */
+    private final Object registrationLock = new Object();
     private String connectionName;
     private String accountUuid;
     private Runnable onStateChange;
@@ -121,20 +124,36 @@ public class ScriptRuntime {
 
     /**
      * Registers a script without starting it. Use {@link ScriptRunner#start()} to start later.
+     *
+     * <p>Idempotent by script name: if a runner with the same name is already
+     * registered, the existing runner is returned and no duplicate is added.
+     * Reload paths clear the list ({@link #stopAll}) before re-registering, but
+     * the auto-start probe registers the full set <em>without</em> a preceding
+     * clear; without this guard a refresh that races the probe duplicates the
+     * whole script list. The name is the key every consumer ({@link #findRunner},
+     * {@link #stopScript}) already uses, so two same-named runners were never
+     * addressable anyway.</p>
      */
     public ScriptRunner registerScript(BotScript script) {
-        ScriptContext perScriptContext = perScriptContextFor(script);
-        ScriptContextPublisher publisher = perScriptContext.getScriptContext();
-        ScriptRunner runner = new ScriptRunner(script, perScriptContext, connectionTagger,
-                connectionCleaner, eventSink, publisher);
-        if (connectionName != null) {
-            runner.setConnectionName(connectionName);
+        String name = resolveScriptName(script);
+        synchronized (registrationLock) {
+            ScriptRunner existing = findRunner(name);
+            if (existing != null) {
+                return existing;
+            }
+            ScriptContext perScriptContext = perScriptContextFor(script);
+            ScriptContextPublisher publisher = perScriptContext.getScriptContext();
+            ScriptRunner runner = new ScriptRunner(script, perScriptContext, connectionTagger,
+                    connectionCleaner, eventSink, publisher);
+            if (connectionName != null) {
+                runner.setConnectionName(connectionName);
+            }
+            if (accountUuid != null) {
+                runner.setAccountUuid(accountUuid);
+            }
+            runners.add(runner);
+            return runner;
         }
-        if (accountUuid != null) {
-            runner.setAccountUuid(accountUuid);
-        }
-        runners.add(runner);
-        return runner;
     }
 
     /**
