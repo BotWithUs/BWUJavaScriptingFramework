@@ -23,6 +23,12 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v17 added the {@code projectiles[]} tail block — per-tick snapshot of every in-flight
+     *  projectile (thrown spell/arrow graphic travelling source→target), walked from the producer's
+     *  projectile list. Each row carries the graphic id, the launch/land game-cycle stamps, the
+     *  source/target entity server index + type tag (index -1 when that end is a fixed tile), and the
+     *  start/end world tiles. Snapshot-array only — no projectile event on the ring. Appending the
+     *  block shifted the total snapshot size (hard version bump).
      *  v16 added a per-entity {@code spotAnimId} field to NpcEntry / PlayerEntry / LocalPlayer —
      *  the first active spot animation (graphic) playing on that entity this tick, or -1. Entities
      *  can carry several concurrent spot anims; this field surfaces only the first, while the
@@ -38,7 +44,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 16;
+    public static final int PROTOCOL_VERSION = 17;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -60,6 +66,11 @@ public final class Layout {
      *  ground-item array; matches {@link #NPC_CAP} for symmetry, costs 16 KB
      *  per buffer at {@link #GROUND_ITEM_ENTRY_SIZE} per row. */
     public static final int GROUND_ITEM_CAP    = 1024;
+    /** Mirrors {@code kProjectileCap} in SharedLayout.h. Cap on the per-tick
+     *  in-flight projectile array; live counts are sparse (a barrage volley tops
+     *  out around a dozen), costs 8 KB per buffer at {@link #PROJECTILE_ENTRY_SIZE}
+     *  per row. */
+    public static final int PROJECTILE_CAP     = 256;
 
     /** Bit flag shared between NpcEntry and PlayerEntry. */
     public static final int FLAG_MOVING = 1;
@@ -145,6 +156,31 @@ public final class Layout {
     public static final int GROUND_ITEM_TILEY_OFFSET    = 10;   // i16
     public static final int GROUND_ITEM_PLANE_OFFSET    = 12;   // i8
     // bytes 13..15 are trailing pad; not accessed
+
+    // ------------------------------------------------------------------
+    // ProjectileEntry (32 bytes) — mirrors ipc::ProjectileEntry in
+    // SharedLayout.h. One row per in-flight projectile (v17+). sourceIndex /
+    // targetIndex are the server indices of the entity at each end, -1 when that
+    // end is a fixed tile; sourceType / targetType are the engine's raw
+    // entity-type tags. startCycle / endCycle are the game-cycle stamps
+    // bracketing the flight. Tile coords are absolute world tiles.
+    // ------------------------------------------------------------------
+
+    public static final int PROJECTILE_ENTRY_SIZE = 32;
+
+    public static final int PROJECTILE_ID_OFFSET          = 0;    // i32  graphic id
+    public static final int PROJECTILE_STARTCYCLE_OFFSET  = 4;    // i32
+    public static final int PROJECTILE_ENDCYCLE_OFFSET     = 8;    // i32
+    public static final int PROJECTILE_SOURCEINDEX_OFFSET = 12;   // i16  -1 if tile-anchored
+    public static final int PROJECTILE_SOURCETYPE_OFFSET  = 14;   // i16
+    public static final int PROJECTILE_TARGETINDEX_OFFSET = 16;   // i16  -1 if tile target
+    public static final int PROJECTILE_TARGETTYPE_OFFSET  = 18;   // i16
+    public static final int PROJECTILE_STARTTILEX_OFFSET  = 20;   // i16
+    public static final int PROJECTILE_STARTTILEY_OFFSET  = 22;   // i16
+    public static final int PROJECTILE_ENDTILEX_OFFSET    = 24;   // i16
+    public static final int PROJECTILE_ENDTILEY_OFFSET    = 26;   // i16
+    public static final int PROJECTILE_PLANE_OFFSET       = 28;   // i8
+    // bytes 29..31 are trailing pad; not accessed
 
     // ------------------------------------------------------------------
     // PlayerEntry (28 bytes)
@@ -295,11 +331,26 @@ public final class Layout {
                                                         + OPEN_IFACE_CAP * 4;
     public static final int SNAP_GROUNDITEMS_OFFSET     = SNAP_GROUNDITEMCOUNT_OFFSET + 4;
 
-    // No trailing pad: openIfaces ended at offset 4 mod 8; adding
-    // groundItemCount(4) + groundItems[1024]*16 = 16388 brings the
-    // running offset to 0 mod 8, matching Snapshot's alignof-8 anchor.
-    public static final int SNAPSHOT_SIZE = SNAP_GROUNDITEMS_OFFSET
-                                          + GROUND_ITEM_CAP * GROUND_ITEM_ENTRY_SIZE;
+    // ------------------------------------------------------------------
+    // Projectiles tail (v17+)
+    //
+    // Per-tick snapshot of every in-flight projectile, walked from the
+    // producer's projectile list. Membership in this array is the canonical
+    // "what's flying right now" signal — host facades scan it locally instead
+    // of paying a per-tick RPC round-trip.
+    // ------------------------------------------------------------------
+
+    public static final int SNAP_PROJECTILECOUNT_OFFSET = SNAP_GROUNDITEMS_OFFSET
+                                                        + GROUND_ITEM_CAP * GROUND_ITEM_ENTRY_SIZE;
+    public static final int SNAP_PROJECTILES_OFFSET     = SNAP_PROJECTILECOUNT_OFFSET + 4;
+
+    // Trailing pad: groundItems ended at offset 0 mod 8; adding
+    // projectileCount(4) + projectiles[256]*32 lands at 4 mod 8, so a 4-byte
+    // _padAfterProjectiles restores Snapshot's alignof-8 size. Mirrors
+    // Snapshot::_padAfterProjectiles in SharedLayout.h.
+    public static final int SNAPSHOT_SIZE = SNAP_PROJECTILES_OFFSET
+                                          + PROJECTILE_CAP * PROJECTILE_ENTRY_SIZE
+                                          + 4;
 
     // ------------------------------------------------------------------
     // Event ring

@@ -221,6 +221,12 @@ class GameAPIImplWorldMapTest {
             @Override public List<com.botwithus.bot.api.snapshot.GroundItem> filter(com.botwithus.bot.api.snapshot.GroundItemFilter f) { return List.of(); }
             @Override public Stream<com.botwithus.bot.api.snapshot.GroundItem> stream() { return Stream.empty(); }
         }; }
+        @Override public Projectiles projectiles() { return new Projectiles() {
+            @Override public int count() { return 0; }
+            @Override public com.botwithus.bot.api.snapshot.Projectile at(int i) { throw new IndexOutOfBoundsException(); }
+            @Override public List<com.botwithus.bot.api.snapshot.Projectile> filter(com.botwithus.bot.api.snapshot.ProjectileFilter f) { return List.of(); }
+            @Override public Stream<com.botwithus.bot.api.snapshot.Projectile> stream() { return Stream.empty(); }
+        }; }
         @Override public int sceneVersion() { return 0; }
     }
 }

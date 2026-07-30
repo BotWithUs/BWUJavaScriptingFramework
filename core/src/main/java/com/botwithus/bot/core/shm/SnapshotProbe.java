@@ -98,7 +98,7 @@ public final class SnapshotProbe {
     private static void printSnapshot(GameSnapshot snap, EventRingReader events, long nowMs) {
         LocalPlayer self = snap.self();
         System.out.printf(
-                "[t=%d] tick=%d state=%d ownIdx=%d npcs=%d players=%d locs=%d gItems=%d invs=%d skills=%d (drops: writer=%d reader=%d)%n",
+                "[t=%d] tick=%d state=%d ownIdx=%d npcs=%d players=%d locs=%d gItems=%d projs=%d invs=%d skills=%d (drops: writer=%d reader=%d)%n",
                 nowMs / MS_PER_SECOND,
                 snap.tickId(),
                 snap.gameState(),
@@ -107,6 +107,7 @@ public final class SnapshotProbe {
                 snap.players().count(),
                 snap.locations().count(),
                 snap.groundItems().count(),
+                snap.projectiles().count(),
                 snap.inventories().count(),
                 self == null ? 0 : self.skills().size(),
                 events.writerSideDroppedCount(),

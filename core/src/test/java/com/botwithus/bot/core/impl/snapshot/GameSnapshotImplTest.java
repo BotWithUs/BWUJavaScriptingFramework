@@ -10,6 +10,8 @@ import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
+import com.botwithus.bot.api.snapshot.Projectile;
+import com.botwithus.bot.api.snapshot.ProjectileFilter;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.shm.Layout;
 import com.botwithus.bot.core.shm.SnapshotView;
@@ -461,6 +463,131 @@ class GameSnapshotImplTest {
     }
 
     // ------------------------------------------------------------------
+    // Projectiles (v17+)
+    // ------------------------------------------------------------------
+
+    @Test
+    void projectilesEmptyByDefault() {
+        try (Arena arena = Arena.ofConfined()) {
+            GameSnapshot snap = build(allocSnapshot(arena));
+            assertEquals(0, snap.projectiles().count());
+            assertTrue(snap.projectiles().filter(p -> true).isEmpty());
+            assertEquals(0L, snap.projectiles().stream().count());
+        }
+    }
+
+    /**
+     * Byte-level round-trip for one projectile row. This is the test that
+     * catches a drifted {@code SNAP_PROJECTILES_OFFSET} or a wrong entry
+     * stride — every field is given a distinct value so a shifted read shows
+     * up as a specific mismatch rather than a plausible-looking number.
+     */
+    @Test
+    void projectilesAtBuildsRecord() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET, 1);
+            writeProjectile(seg, 0,
+                    2468,            // graphic id
+                    900_100, 900_140, // start / end cycle
+                    (short) 7, (short) 1,     // source index / type
+                    (short) 42, (short) 2,    // target index / type
+                    (short) 3200, (short) 3201, // start tile
+                    (short) 3210, (short) 3222, // end tile
+                    (byte) 1);
+
+            Projectile p = build(seg).projectiles().at(0);
+            assertNotNull(p);
+            assertEquals(2468, p.projectileId());
+            assertEquals(900_100, p.startCycle());
+            assertEquals(900_140, p.endCycle());
+            assertEquals(7, p.sourceIndex());
+            assertEquals(1, p.sourceType());
+            assertEquals(42, p.targetIndex());
+            assertEquals(2, p.targetType());
+            assertEquals(3200, p.startTileX());
+            assertEquals(3201, p.startTileY());
+            assertEquals(3210, p.endTileX());
+            assertEquals(3222, p.endTileY());
+            assertEquals(1, p.plane());
+        }
+    }
+
+    @Test
+    void projectilesTileAnchoredEndpointsReadAsNegativeOne() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET, 1);
+            writeProjectile(seg, 0, 11, 5, 10,
+                    (short) -1, (short) 0,
+                    (short) -1, (short) 0,
+                    (short) 3000, (short) 3000,
+                    (short) 3005, (short) 3005,
+                    (byte) 0);
+
+            Projectile p = build(seg).projectiles().at(0);
+            assertEquals(-1, p.sourceIndex(), "tile-anchored source");
+            assertEquals(-1, p.targetIndex(), "tile-anchored target");
+        }
+    }
+
+    @Test
+    void projectilesStrideSeparatesAdjacentRows() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET, 3);
+            for (int i = 0; i < 3; i++) {
+                writeProjectile(seg, i, 100 + i, 10 + i, 20 + i,
+                        (short) i, (short) 0,
+                        (short) (50 + i), (short) 0,
+                        (short) (3000 + i), (short) (3100 + i),
+                        (short) (3200 + i), (short) (3300 + i),
+                        (byte) 0);
+            }
+
+            GameSnapshot snap = build(seg);
+            assertEquals(3, snap.projectiles().count());
+            for (int i = 0; i < 3; i++) {
+                Projectile p = snap.projectiles().at(i);
+                assertEquals(100 + i, p.projectileId(), "row " + i + " id");
+                assertEquals(3200 + i, p.endTileX(), "row " + i + " endTileX");
+            }
+        }
+    }
+
+    @Test
+    void projectilesFilterAndStream() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET, 3);
+            writeProjectile(seg, 0, 55, 0, 10, (short) 1, (short) 0, (short) 9, (short) 0,
+                    (short) 3000, (short) 3000, (short) 3001, (short) 3001, (byte) 0);
+            writeProjectile(seg, 1, 66, 0, 10, (short) 2, (short) 0, (short) 9, (short) 0,
+                    (short) 3000, (short) 3000, (short) 3001, (short) 3001, (byte) 1);
+            writeProjectile(seg, 2, 55, 0, 10, (short) 3, (short) 0, (short) 8, (short) 0,
+                    (short) 3000, (short) 3000, (short) 3001, (short) 3001, (byte) 0);
+
+            GameSnapshot snap = build(seg);
+            assertEquals(2, snap.projectiles().filter(ProjectileFilter.id(55)).size());
+            assertEquals(1, snap.projectiles().filter(ProjectileFilter.onPlane(1)).size());
+            assertEquals(2, snap.projectiles().filter(ProjectileFilter.toTarget(9)).size());
+            assertEquals(1, snap.projectiles().filter(ProjectileFilter.fromSource(3)).size());
+            assertEquals(3L, snap.projectiles().stream().count());
+        }
+    }
+
+    @Test
+    void projectilesCountClampedToCap() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET,
+                    Layout.PROJECTILE_CAP + 500);
+
+            assertEquals(Layout.PROJECTILE_CAP, build(seg).projectiles().count());
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
@@ -558,6 +685,28 @@ class GameSnapshotImplTest {
         long base = Layout.SNAP_INVITEMS_OFFSET + (long) flatIndex * Layout.INV_ITEM_SIZE;
         seg.set(ValueLayout.JAVA_INT, base + Layout.INV_ITEM_ITEMID_OFFSET,   itemId);
         seg.set(ValueLayout.JAVA_INT, base + Layout.INV_ITEM_QUANTITY_OFFSET, qty);
+    }
+
+    private static void writeProjectile(MemorySegment seg, int index,
+                                        int projectileId, int startCycle, int endCycle,
+                                        short sourceIndex, short sourceType,
+                                        short targetIndex, short targetType,
+                                        short startTileX, short startTileY,
+                                        short endTileX, short endTileY,
+                                        byte plane) {
+        long base = Layout.SNAP_PROJECTILES_OFFSET + (long) index * Layout.PROJECTILE_ENTRY_SIZE;
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_ID_OFFSET,          projectileId);
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_STARTCYCLE_OFFSET,  startCycle);
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_ENDCYCLE_OFFSET,    endCycle);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_SOURCEINDEX_OFFSET, sourceIndex);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_SOURCETYPE_OFFSET,  sourceType);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_TARGETINDEX_OFFSET, targetIndex);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_TARGETTYPE_OFFSET,  targetType);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_STARTTILEX_OFFSET,  startTileX);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_STARTTILEY_OFFSET,  startTileY);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_ENDTILEX_OFFSET,    endTileX);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_ENDTILEY_OFFSET,    endTileY);
+        seg.set(ValueLayout.JAVA_BYTE,  base + Layout.PROJECTILE_PLANE_OFFSET,       plane);
     }
 
     private static void assertArrayEqualsBoxed(int[] expected, int[] actual) {

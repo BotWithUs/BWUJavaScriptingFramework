@@ -12,12 +12,15 @@ import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
+import com.botwithus.bot.api.snapshot.Projectile;
+import com.botwithus.bot.api.snapshot.ProjectileFilter;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.shm.GroundItemEntry;
 import com.botwithus.bot.core.shm.LocalPlayerView;
 import com.botwithus.bot.core.shm.LocationEntry;
 import com.botwithus.bot.core.shm.NpcEntry;
 import com.botwithus.bot.core.shm.PlayerEntry;
+import com.botwithus.bot.core.shm.ProjectileEntry;
 import com.botwithus.bot.core.shm.SkillEntry;
 import com.botwithus.bot.core.shm.SnapshotView;
 
@@ -120,6 +123,11 @@ public final class GameSnapshotImpl implements GameSnapshot {
     }
 
     @Override
+    public Projectiles projectiles() {
+        return new ProjectilesImpl();
+    }
+
+    @Override
     public int sceneVersion() {
         return view.sceneVersion();
     }
@@ -165,6 +173,22 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.quantity(),
                 e.tileX(),
                 e.tileY(),
+                e.plane());
+    }
+
+    private static Projectile toProjectile(ProjectileEntry e) {
+        return new Projectile(
+                e.projectileId(),
+                e.startCycle(),
+                e.endCycle(),
+                e.sourceIndex(),
+                e.sourceType(),
+                e.targetIndex(),
+                e.targetType(),
+                e.startTileX(),
+                e.startTileY(),
+                e.endTileX(),
+                e.endTileY(),
                 e.plane());
     }
 
@@ -326,6 +350,37 @@ public final class GameSnapshotImpl implements GameSnapshot {
         @Override
         public Stream<GroundItem> stream() {
             return IntStream.range(0, view.groundItemCount()).mapToObj(this::at);
+        }
+    }
+
+    private final class ProjectilesImpl implements Projectiles {
+
+        @Override
+        public int count() {
+            return view.projectileCount();
+        }
+
+        @Override
+        public Projectile at(int index) {
+            return toProjectile(view.projectileAt(index));
+        }
+
+        @Override
+        public List<Projectile> filter(ProjectileFilter filter) {
+            int n = view.projectileCount();
+            List<Projectile> out = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                Projectile rec = toProjectile(view.projectileAt(i));
+                if (filter.test(rec)) {
+                    out.add(rec);
+                }
+            }
+            return out;
+        }
+
+        @Override
+        public Stream<Projectile> stream() {
+            return IntStream.range(0, view.projectileCount()).mapToObj(this::at);
         }
     }
 
