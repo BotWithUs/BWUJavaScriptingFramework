@@ -28,8 +28,14 @@ public final class ScriptRevokedException extends RuntimeException {
     private final String scriptName;
 
     public ScriptRevokedException(String scriptName) {
+        // No stack trace: a revoked script that swallows this retries in a
+        // loop, and capturing a trace each time dominated the cost (profiling a
+        // live zombie showed almost all of a burned core inside
+        // fillInStackTrace). The trace carries nothing anyway — it is always
+        // the same gate on the RPC path, and the message names the script.
         super("Script '" + scriptName + "' was revoked after it ignored a stop request; "
-                + "its access to the game has been withdrawn");
+                + "its access to the game has been withdrawn",
+                null, false, false);
         this.scriptName = scriptName;
     }
 

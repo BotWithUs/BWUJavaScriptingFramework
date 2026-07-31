@@ -60,13 +60,40 @@ public final class ScriptGate {
     }
 
     /**
+     * How long a revoked caller is parked before its call is rejected.
+     *
+     * <p>Not politeness — throttling. A revoked script that swallows the
+     * exception retries immediately, and the most common script shape,
+     * {@code try { api.doThing(); sleep(n); } catch (Exception e) {}}, never
+     * reaches its own sleep because the throw happens first. Without a brake
+     * here that becomes an unbounded retry loop: measured at a full core burned
+     * continuously, almost all of it in {@code fillInStackTrace}. Parking the
+     * caller bounds a revoked script to a few rejected calls per second no
+     * matter how it handles (or ignores) the exception. A script that lets the
+     * exception propagate is unaffected — it is exiting anyway.</p>
+     */
+    private static final long REVOKED_THROTTLE_MS = 250L;
+
+    /**
      * Throws if the calling thread belongs to a revoked script. Called on the
      * RPC path; host threads (no tag) always pass.
+     *
+     * <p>Parks a revoked caller briefly before throwing — see
+     * {@link #REVOKED_THROTTLE_MS}. Safe to block here: this runs before the
+     * pipe lock is taken, so a revoked script cannot delay a healthy one.</p>
      */
     public void checkCaller() {
         String script = currentScript.get();
-        if (script != null && revoked.contains(script)) {
-            throw new ScriptRevokedException(script);
+        if (script == null || !revoked.contains(script)) {
+            return;
         }
+        try {
+            Thread.sleep(REVOKED_THROTTLE_MS);
+        } catch (InterruptedException e) {
+            // Preserve the flag for whatever the script does next; the
+            // revocation still stands and is thrown below either way.
+            Thread.currentThread().interrupt();
+        }
+        throw new ScriptRevokedException(script);
     }
 }

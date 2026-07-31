@@ -26,7 +26,7 @@ public class ManagementScriptRuntime {
     /** Runners whose threads refused to drain; kept visible rather than dropped. */
     private final List<ManagementScriptRunner> quarantined = new CopyOnWriteArrayList<>();
     private final LivenessWatchdog watchdog =
-            new LivenessWatchdog("mgmt-script-watchdog", this::watchdogSubjects);
+            new LivenessWatchdog(() -> "mgmt-script-watchdog", this::watchdogSubjects);
     private Runnable onStateChange;
 
     public ManagementScriptRuntime(ManagementContext context) {

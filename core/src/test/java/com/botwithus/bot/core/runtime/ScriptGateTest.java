@@ -4,6 +4,7 @@ import com.botwithus.bot.api.runtime.ScriptRevokedException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -47,6 +48,29 @@ class ScriptGateTest {
 
         ScriptRevokedException thrown = assertThrows(ScriptRevokedException.class, gate::checkCaller);
         assertEquals("Miner", thrown.scriptName());
+    }
+
+    @Test
+    @DisplayName("a revoked caller is throttled, so a swallowing retry loop can't spin")
+    void revokedCallerIsThrottled() {
+        // Found live: a revoked script that catches the exception retries at
+        // once, and the common `try { api.call(); sleep(n); } catch (...) {}`
+        // shape never reaches its own sleep because the throw comes first. That
+        // burned a full core indefinitely. The gate has to supply the brake,
+        // since it is the only place that knows the caller is revoked.
+        ScriptGate gate = new ScriptGate();
+        gate.enter("Miner");
+        gate.revoke("Miner");
+
+        long startNanos = System.nanoTime();
+        for (int i = 0; i < 3; i++) {
+            assertThrows(ScriptRevokedException.class, gate::checkCaller);
+        }
+        long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+
+        assertTrue(elapsedMs >= 300L,
+                "three rejected calls returned in " + elapsedMs + "ms — the gate is not "
+                        + "throttling, so a script that swallows the exception will spin");
     }
 
     @Test

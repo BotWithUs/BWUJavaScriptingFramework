@@ -78,12 +78,17 @@ final class LivenessWatchdog implements AutoCloseable {
         void onLivenessChanged(Liveness to);
     }
 
-    private final String threadName;
+    /**
+     * Resolved when the watchdog arms, not at construction: a runtime's
+     * connection name is set after it is built, and the thread name is how you
+     * tell one client's watchdog from another's in a dump.
+     */
+    private final Supplier<String> threadName;
     private final Supplier<Iterable<? extends Subject>> subjects;
     private final Object lock = new Object();
     private ScheduledExecutorService executor;
 
-    LivenessWatchdog(String threadName, Supplier<Iterable<? extends Subject>> subjects) {
+    LivenessWatchdog(Supplier<String> threadName, Supplier<Iterable<? extends Subject>> subjects) {
         this.threadName = threadName;
         this.subjects = subjects;
     }
@@ -102,8 +107,9 @@ final class LivenessWatchdog implements AutoCloseable {
             if (executor != null) {
                 return;
             }
+            String name = threadName.get();
             executor = Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, threadName);
+                Thread t = new Thread(r, name);
                 t.setDaemon(true);
                 return t;
             });

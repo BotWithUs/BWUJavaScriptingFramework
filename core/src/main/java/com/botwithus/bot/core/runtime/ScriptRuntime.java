@@ -41,7 +41,7 @@ public class ScriptRuntime {
      *  registrations of the same script name can't both append a runner. */
     private final Object registrationLock = new Object();
     private final LivenessWatchdog watchdog =
-            new LivenessWatchdog("script-watchdog", this::watchdogSubjects);
+            new LivenessWatchdog(this::watchdogThreadName, this::watchdogSubjects);
     private String connectionName;
     private String accountUuid;
     private Runnable onStateChange;
@@ -263,6 +263,11 @@ public class ScriptRuntime {
      */
     private void ensureWatchdog() {
         watchdog.arm();
+    }
+
+    /** Tagged with the connection so one client's watchdog is tellable from another's. */
+    private String watchdogThreadName() {
+        return "script-watchdog" + (connectionName != null ? "-" + connectionName : "");
     }
 
     /** Active runners followed by quarantined ones — everything the watchdog sweeps. */
