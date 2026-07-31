@@ -42,6 +42,19 @@ public final class LocalScriptLoader {
     private LocalScriptLoader() {}
 
     /**
+     * Pins the classloader that defined {@code script} so no later reload
+     * closes it. Called by {@link ScriptRuntime} when a runner is abandoned:
+     * the script's thread is still alive and can't be killed, so its loader
+     * must outlive it. The script instance is its own provenance — no separate
+     * runner-to-loader bookkeeping is needed.
+     */
+    static void pinLoaderOf(BotScript script) {
+        if (script != null) {
+            previousLoaders.pin(script.getClass().getClassLoader());
+        }
+    }
+
+    /**
      * Loads all BotScript providers from JARs in the default {@code scripts/} directory.
      * Failures are dropped silently — use {@link #loadReport()} if you need
      * visibility into per-JAR errors.

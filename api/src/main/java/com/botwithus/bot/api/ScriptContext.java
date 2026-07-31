@@ -65,4 +65,39 @@ public interface ScriptContext {
     default ScriptContextPublisher getScriptContext() {
         return ScriptContextPublisher.NOOP;
     }
+
+    /**
+     * Whether the user (or the host) has asked this script to stop.
+     *
+     * <p>Poll this inside any loop or wait that could run for more than a
+     * moment, and return from {@code onLoop} when it goes true. The runtime
+     * also interrupts the script thread, but interruption is only observed
+     * between loops — a script that waits <em>inside</em> {@code onLoop} won't
+     * see it:</p>
+     *
+     * <pre>{@code
+     * @Override
+     * public int onLoop() {
+     *     while (!bank.isOpen()) {
+     *         if (ctx.isStopRequested()) {
+     *             return -1;          // clean exit
+     *         }
+     *         Thread.sleep(100);
+     *     }
+     *     ...
+     * }
+     * }</pre>
+     *
+     * <p>Ignoring this is not fatal but is not free either: a script that won't
+     * exit is eventually revoked — every subsequent game call throws
+     * {@link com.botwithus.bot.api.runtime.ScriptRevokedException} — and then
+     * quarantined, which keeps its thread alive and its classloader pinned for
+     * the rest of the session.</p>
+     *
+     * <p>Defaults to {@code false} for contexts that aren't runtime-backed
+     * (test mocks), so a script polling it in a unit test simply never stops.</p>
+     */
+    default boolean isStopRequested() {
+        return false;
+    }
 }

@@ -49,6 +49,7 @@ import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
 import com.botwithus.bot.core.worldwalker.WwGoal;
@@ -132,6 +133,22 @@ public class GameAPIImpl implements GameAPI {
     private volatile String currentWalkState = "idle";
     private volatile int currentWalkTargetX;
     private volatile int currentWalkTargetY;
+    /**
+     * Script that started the in-flight walk, or {@code null} when it was
+     * started by a host thread. Lets {@link #walkCancel()} cancel only the
+     * caller's own walk, so one script stopping doesn't strand another mid-path.
+     */
+    private volatile String currentWalkOwner;
+    private volatile ScriptGate scriptGate;
+
+    /**
+     * Installs the per-connection gate used to attribute walks to the script
+     * that started them. Unset in tests, where every caller owns every walk
+     * (the pre-existing behaviour).
+     */
+    public void setScriptGate(ScriptGate scriptGate) {
+        this.scriptGate = scriptGate;
+    }
 
     /** Legacy constructor used by tests; config-type lookups will throw. */
     public GameAPIImpl(RpcClient rpc) {
@@ -648,11 +665,24 @@ public class GameAPIImpl implements GameAPI {
         if (config != null && config != WorldPathConfig.DEFAULT) {
             log.debug("walkWorldPathAsync: WorldPathConfig overrides are ignored — artifact is pre-baked");
         }
+        ScriptGate gate = this.scriptGate;
+        String caller = gate != null ? gate.current() : null;
+        String previousOwner = currentWalkOwner;
+        if (previousOwner != null && caller != null && !previousOwner.equals(caller)
+                && "walking".equals(currentWalkState)) {
+            // Known limitation: walk state is per-connection, so there is only
+            // one in-flight walk per client and starting a new one preempts
+            // whoever was walking. Logged rather than silently stolen; the fix
+            // is per-script walk state (tracked separately on the board).
+            log.warn("Script {} is starting a walk while {} is still walking; preempting it",
+                    caller, previousOwner);
+        }
         cancelInFlightWalk();
         WorldWalker w = lazyWorldWalker();
         WwGoal goal = new WwGoal(x, y, plane, exactDestTile ? 0 : 1);
         AtomicBoolean cancel = new AtomicBoolean(false);
         currentWalkCancel = cancel;
+        currentWalkOwner = caller;
         currentWalkTargetX = x;
         currentWalkTargetY = y;
         currentWalkState = "walking";
@@ -691,6 +721,7 @@ public class GameAPIImpl implements GameAPI {
             }
             if (walkThread == Thread.currentThread()) {
                 walkThread = null;
+                currentWalkOwner = null;
             }
             switch (status) {
                 case ARRIVED   -> publisher.accept(new WalkArrivedEvent(x, y));
@@ -702,10 +733,35 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void walkCancel() {
-        AtomicBoolean c = currentWalkCancel;
-        if (c != null) {
-            c.set(true);
+        if (!callerOwnsWalk()) {
+            log.debug("walkCancel ignored: in-flight walk belongs to {}", currentWalkOwner);
+            return;
         }
+        // Cancel *and* join. The flag alone only asks the executor to stop at
+        // its next poll, and it can be parked in sleepTicks or an in-flight RPC
+        // for seconds — during which it keeps queueing actions. Since this is
+        // what a stopping script calls via Navigation.cleanup(), returning
+        // before the executor has quiesced is what let a "stopped" bot carry on
+        // walking and interacting.
+        cancelInFlightWalk();
+    }
+
+    /**
+     * Whether the calling thread may cancel the in-flight walk. A script may
+     * only cancel a walk it started; a host thread (no script tag) has
+     * authority over any walk, as does any caller when no gate is wired.
+     */
+    private boolean callerOwnsWalk() {
+        ScriptGate gate = this.scriptGate;
+        if (gate == null) {
+            return true;
+        }
+        String caller = gate.current();
+        if (caller == null) {
+            return true;
+        }
+        String owner = currentWalkOwner;
+        return owner == null || owner.equals(caller);
     }
 
     @Override

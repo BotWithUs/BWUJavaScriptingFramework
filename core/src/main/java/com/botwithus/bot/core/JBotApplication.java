@@ -15,6 +15,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
+import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
@@ -78,6 +79,13 @@ public final class JBotApplication {
             ScriptRuntime runtime = new ScriptRuntime(context,
                     ConnectionContext::set, ConnectionContext::clear);
             runtime.setPublisherFactory(scriptCtxChannel::publisherFor);
+
+            // One gate per connection, shared by the runtime (which tags script
+            // threads and revokes) and the RPC client (which enforces).
+            ScriptGate scriptGate = new ScriptGate();
+            runtime.setScriptGate(scriptGate);
+            rpc.setScriptGate(scriptGate);
+            gameAPI.setScriptGate(scriptGate);
 
             ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
 

@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import com.botwithus.bot.core.runtime.ConnectionContext;
+import com.botwithus.bot.core.runtime.ScriptGate;
 
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -53,6 +54,7 @@ public class RpcClient implements AutoCloseable {
     private Consumer<Throwable> disconnectHandler;
     private volatile boolean running;
     private String connectionName;
+    private volatile ScriptGate scriptGate;
 
     /** Default per-call deadline before doCall gives up and throws RpcException. */
     private static final long DEFAULT_TIMEOUT_MS = 10_000L;
@@ -105,6 +107,18 @@ public class RpcClient implements AutoCloseable {
     }
 
     /**
+     * Installs the per-connection {@link ScriptGate} consulted before every RPC.
+     * When unset (tests, headless seams) no revocation check happens and every
+     * caller is allowed through.
+     *
+     * <p>Must be the same instance the connection's {@code ScriptRuntime} was
+     * given, or revocations raised by the watchdog won't be seen here.</p>
+     */
+    public void setScriptGate(ScriptGate scriptGate) {
+        this.scriptGate = scriptGate;
+    }
+
+    /**
      * Swaps the underlying pipe transport to point at {@code pipeName} and
      * restarts the reader loop. Used by {@code ReconnectController} after the
      * remote agent comes back. Acquires {@link #pipeLock} for the duration of
@@ -132,7 +146,13 @@ public class RpcClient implements AutoCloseable {
         }
         running = true;
         String connName = this.connectionName;
-        Thread.ofVirtual().name("rpc-reader").start(() -> {
+        // Platform, not virtual: this is the thread every RPC response arrives
+        // on, so it must never be starved by whatever else is running. A
+        // virtual reader shares its carrier pool with script threads, and a
+        // CPU-bound script (which is never preempted off a carrier) would
+        // otherwise stall RPC for every connected client. See ScriptRunner's
+        // rule-exception note and CLAUDE.md "Java rules exceptions".
+        Thread.ofPlatform().name("rpc-reader").daemon(true).start(() -> {
             if (connName != null) {
                 ConnectionContext.set(connName);
             }
@@ -370,6 +390,15 @@ public class RpcClient implements AutoCloseable {
     }
 
     private Map<String, Object> doCallWithRetry(String method, Map<String, Object> params) {
+        // Single gate for the whole game-facing surface: all three callSync*
+        // methods funnel through here. Checked before the retry loop and before
+        // pipeLock, so a revoked script neither retries (it can never succeed)
+        // nor contends for the pipe with live scripts. ScriptRevokedException
+        // is not an RpcException, so the catch arms below don't swallow it.
+        ScriptGate gate = this.scriptGate;
+        if (gate != null) {
+            gate.checkCaller();
+        }
         RpcException lastException = null;
         int attempts = 1 + retryPolicy.maxRetries();
         for (int i = 0; i < attempts; i++) {

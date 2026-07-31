@@ -31,6 +31,17 @@ public final class ManagementScriptLoader {
     private static final String MANAGEMENT_DIR = "management";
     private static final PreviousLoaderTracker previousLoaders = new PreviousLoaderTracker();
 
+    /**
+     * Pins the classloader that defined {@code script} so no later reload closes
+     * it. See {@link LocalScriptLoader#pinLoaderOf} — same contract, separate
+     * tracker, because each loader owns its own.
+     */
+    static void pinLoaderOf(ManagementScript script) {
+        if (script != null) {
+            previousLoaders.pin(script.getClass().getClassLoader());
+        }
+    }
+
     private ManagementScriptLoader() {}
 
     /**

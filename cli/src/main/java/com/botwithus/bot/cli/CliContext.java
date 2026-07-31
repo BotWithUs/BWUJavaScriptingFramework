@@ -27,6 +27,7 @@ import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
 import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.LoadReport;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
+import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.shm.SharedRegion;
@@ -208,6 +209,14 @@ public class CliContext {
                     ConnectionContext::set, ConnectionContext::clear, eventBus::publish);
             runtime.setConnectionName(resolvedName);
             runtime.setPublisherFactory(scriptCtxChannel::publisherFor);
+
+            // One gate per connection, shared by the runtime (which tags script
+            // threads and revokes) and the RPC client (which enforces). Both
+            // sides must see the same instance or revocation is a no-op.
+            ScriptGate scriptGate = new ScriptGate();
+            runtime.setScriptGate(scriptGate);
+            rpc.setScriptGate(scriptGate);
+            gameAPI.setScriptGate(scriptGate);
 
             ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
 
