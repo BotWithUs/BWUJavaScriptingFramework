@@ -143,3 +143,49 @@ tasks.register<Test>("liveSmokeTest") {
         includeTestsMatching("com.botwithus.bot.core.impl.LiveVariableApiSmokeTest")
     }
 }
+
+tasks.register<Test>("sdnValidationTest") {
+    description = "SDN encrypted-script validation against the custom JDK (requires the " +
+            "patched jdk25u image; SdnEndToEndIT additionally needs the LOCAL_TEST heartbeat)"
+    group = "verification"
+    useJUnitPlatform()
+
+    // The root toolchain pins language version 25, and the patched jdk25u is
+    // ALSO 25 — so Gradle is free to resolve some other JDK 25 and the tests
+    // would skip on the assumeTrue(sdnClassLoaderPresent()) gate while looking
+    // like they ran. Pin the JVM explicitly instead of trusting resolution.
+    val sdnJdk = project.localProperty("sdn.jdk", "SDN_JDK")
+    if (sdnJdk != null) {
+        val exe = if (System.getProperty("os.name").startsWith("Windows")) ".exe" else ""
+        executable = "$sdnJdk/bin/java$exe"
+    }
+
+    // Optional overrides for the LOCAL_TEST rig (defaults live in the test).
+    listOf("sdn.hb.host", "sdn.hb.port", "sdn.bundle.url").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+
+    doFirst {
+        if (sdnJdk == null) {
+            logger.warn("sdnValidationTest: no `sdn.jdk` set — falling back to the Gradle " +
+                    "toolchain JVM, which is probably NOT the patched JDK. Every test will " +
+                    "skip. Set -Psdn.jdk=<path to build/*/images/jdk> or add sdn.jdk to " +
+                    "local.properties.")
+        } else {
+            logger.lifecycle("sdnValidationTest: using JVM at $sdnJdk")
+        }
+    }
+
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.crypto.SdnEndToEndIT")
+        includeTestsMatching("com.botwithus.bot.core.crypto.SdnForgedEnvelopeTest")
+    }
+}
