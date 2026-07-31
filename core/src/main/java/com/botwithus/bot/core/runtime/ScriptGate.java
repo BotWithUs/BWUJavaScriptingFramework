@@ -59,12 +59,6 @@ public final class ScriptGate {
         revoked.add(scriptName);
     }
 
-    /** {@code true} if the calling thread belongs to a revoked script. */
-    public boolean isCallerRevoked() {
-        String script = currentScript.get();
-        return script != null && revoked.contains(script);
-    }
-
     /**
      * Throws if the calling thread belongs to a revoked script. Called on the
      * RPC path; host threads (no tag) always pass.

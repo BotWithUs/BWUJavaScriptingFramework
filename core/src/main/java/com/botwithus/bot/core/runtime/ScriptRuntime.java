@@ -4,20 +4,18 @@ import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.GameEvent;
-import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.core.impl.ScopedEventBus;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 /**
  * Manages multiple ScriptRunners and their lifecycles.
@@ -27,27 +25,6 @@ public class ScriptRuntime {
     private static final Logger log = LoggerFactory.getLogger(ScriptRuntime.class);
     /** How long to wait for a script thread to drain before abandoning it (matches restart paths). */
     private static final long STOP_AWAIT_MS = 2000L;
-
-    /** Watchdog sweep cadence. Fine enough to escalate promptly, coarse enough to be free. */
-    private static final long SWEEP_INTERVAL_MS = 250L;
-
-    /**
-     * Time inside a single {@code onLoop} with no stop pending before the runner
-     * is flagged {@link Liveness#STALLED}. Deliberately generous: a blocking
-     * walk legitimately parks inside {@code onLoop} for up to {@code Walker}'s
-     * 300s timeout, so a shorter threshold would flag healthy scripts. Advisory
-     * only — the runner recovers as soon as a loop completes.
-     */
-    private static final long IDLE_STALL_MS = 600_000L;
-
-    /** After a stop request, how long the thread may stay in {@code onLoop} before STALLED. */
-    static final long STOP_STALL_MS = STOP_AWAIT_MS;
-
-    /** After a stop request, how long before the runner is cut off from the game. */
-    static final long REVOKE_GRACE_MS = 5_000L;
-
-    /** After revocation, how long before the thread is written off and quarantined. */
-    static final long ABANDON_GRACE_MS = 15_000L;
     private final ScriptContext context;
     private final Consumer<String> connectionTagger;
     private final Runnable connectionCleaner;
@@ -63,9 +40,8 @@ public class ScriptRuntime {
     /** Guards the check-then-add in {@link #registerScript} so two concurrent
      *  registrations of the same script name can't both append a runner. */
     private final Object registrationLock = new Object();
-    /** Guards the lazily-created watchdog executor. */
-    private final Object watchdogLock = new Object();
-    private ScheduledExecutorService watchdog;
+    private final LivenessWatchdog watchdog =
+            new LivenessWatchdog("script-watchdog", this::watchdogSubjects);
     private String connectionName;
     private String accountUuid;
     private Runnable onStateChange;
@@ -195,11 +171,15 @@ public class ScriptRuntime {
             if (existing != null) {
                 return existing;
             }
-            ScopedContext scoped = perScriptContextFor(script);
+            // Built before the context so the script's isStopRequested() signal
+            // can bind straight to it; the context is then a constructor
+            // argument to the runner that owns the same state object.
+            RunnerLiveness liveness = new RunnerLiveness();
+            ScopedContext scoped = perScriptContextFor(script, liveness);
             ScriptContext perScriptContext = scoped.context();
             ScriptContextPublisher publisher = perScriptContext.getScriptContext();
             ScriptRunner runner = new ScriptRunner(script, perScriptContext, connectionTagger,
-                    connectionCleaner, eventSink, publisher);
+                    connectionCleaner, eventSink, publisher, liveness);
             if (scoped.bus() != null) {
                 runner.setEventUnsubscriber(scoped.bus()::unsubscribeAll);
             }
@@ -232,7 +212,7 @@ public class ScriptRuntime {
      * installed. Falls back to the shared context unchanged when it isn't a
      * {@link ScriptContextImpl} we can clone.
      */
-    private ScopedContext perScriptContextFor(BotScript script) {
+    private ScopedContext perScriptContextFor(BotScript script, RunnerLiveness liveness) {
         // rule-exception: {rule:no-instanceof} — runtime-shape boundary. ScriptContext
         // is an interface so callers can substitute mocks (see test-support); only the
         // production ScriptContextImpl carries the with-publisher / with-bus hooks.
@@ -244,10 +224,12 @@ public class ScriptRuntime {
         // listeners outlive it keeps acting on the game after Stop.
         ScopedEventBus bus = new ScopedEventBus(impl.getEventBus());
         String name = resolveScriptName(script);
-        // Resolved by name at call time rather than bound to the runner, which
-        // doesn't exist yet — the context is a constructor argument to it.
+        // Bound straight to the runner's own liveness state, which is created
+        // here and handed to the runner below. isStopRequested() is documented
+        // as something scripts poll inside long loops, so it must not cost a
+        // by-name scan of the runner lists on every call.
         ScriptContextImpl scoped = impl.withEventBus(bus)
-                .withStopSignal(() -> stopRequestedFor(name));
+                .withStopSignal(liveness::isStopRequested);
         Function<String, ScriptContextPublisher> factory = this.publisherFactory;
         if (factory == null) {
             return new ScopedContext(scoped, bus);
@@ -257,12 +239,6 @@ public class ScriptRuntime {
             return new ScopedContext(scoped, bus);
         }
         return new ScopedContext(scoped.withScriptContext(publisher), bus);
-    }
-
-    /** Backs {@code ScriptContext.isStopRequested()} for the named script. */
-    private boolean stopRequestedFor(String name) {
-        ScriptRunner runner = findRunner(name);
-        return runner != null && runner.isStopRequested();
     }
 
     private static String resolveScriptName(BotScript script) {
@@ -279,118 +255,28 @@ public class ScriptRuntime {
     }
 
     /**
-     * Starts the watchdog on first use. Lazy so that the many test seams which
-     * build a {@link ScriptRuntime} without ever starting a script don't each
-     * spawn a thread.
-     *
-     * <p>Armed from {@link ScriptRunner#start()} via the injected armer, not
-     * from {@link #startScript}: the CLI and GUI start scripts by resolving a
-     * runner and calling {@code start()} on it, so arming here only would leave
-     * the watchdog dead for every user-initiated start.</p>
+     * Starts the watchdog on first use. Armed from {@link ScriptRunner#start()}
+     * via the injected armer, not from {@link #startScript}: the CLI and GUI
+     * start scripts by resolving a runner and calling {@code start()} on it, so
+     * arming here only would leave the watchdog dead for every user-initiated
+     * start.
      */
     private void ensureWatchdog() {
-        synchronized (watchdogLock) {
-            if (watchdog != null) {
-                return;
-            }
-            String suffix = connectionName != null ? "-" + connectionName : "";
-            watchdog = Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "script-watchdog" + suffix);
-                t.setDaemon(true);
-                return t;
-            });
-            watchdog.scheduleWithFixedDelay(this::sweepNow,
-                    SWEEP_INTERVAL_MS, SWEEP_INTERVAL_MS, TimeUnit.MILLISECONDS);
-        }
+        watchdog.arm();
     }
 
-    private void stopWatchdog() {
-        synchronized (watchdogLock) {
-            if (watchdog != null) {
-                watchdog.shutdownNow();
-                watchdog = null;
-            }
-        }
-    }
-
-    private void sweepNow() {
-        try {
-            sweep(System.nanoTime());
-        } catch (Exception e) {
-            // A watchdog that dies on one bad runner stops protecting the rest,
-            // so swallow and keep sweeping.
-            log.error("Watchdog sweep failed: {}", e.getMessage());
-        }
+    /** Active runners followed by quarantined ones — everything the watchdog sweeps. */
+    private Iterable<ScriptRunner> watchdogSubjects() {
+        return () -> Stream.concat(runners.stream(), quarantined.stream()).iterator();
     }
 
     /**
-     * One watchdog pass over the registered runners. Package-private and
-     * time-parameterised so tests can drive the escalation deterministically
-     * rather than sleeping through the real grace windows.
+     * One watchdog pass. Package-private and time-parameterised so tests can
+     * drive the escalation deterministically rather than sleeping through the
+     * real grace windows.
      */
     void sweep(long nowNanos) {
-        for (ScriptRunner runner : runners) {
-            sweepRunner(runner, nowNanos);
-        }
-        for (ScriptRunner runner : quarantined) {
-            sweepRunner(runner, nowNanos);
-        }
-    }
-
-    /**
-     * Escalates a single runner. With no stop pending this only ever raises the
-     * advisory stall flag; once a stop is pending the runner walks
-     * STALLED → REVOKED → ABANDONED as each grace window elapses.
-     */
-    private void sweepRunner(ScriptRunner runner, long nowNanos) {
-        if (runner.liveness() == Liveness.ABANDONED) {
-            return;
-        }
-        long sinceStopMs = runner.millisSinceStopRequested(nowNanos);
-        if (sinceStopMs < 0L) {
-            flagIdleStall(runner, nowNanos);
-            return;
-        }
-        if (!runner.isThreadAlive()) {
-            return;
-        }
-        if (sinceStopMs >= ABANDON_GRACE_MS) {
-            abandon(runner);
-        } else if (sinceStopMs >= REVOKE_GRACE_MS) {
-            revoke(runner);
-        } else if (sinceStopMs >= STOP_STALL_MS && runner.markStalled()) {
-            log.warn("Script {} has not stopped after {} ms; still inside onLoop()",
-                    runner.getScriptName(), sinceStopMs);
-        }
-    }
-
-    /** Advisory only: nobody asked this script to stop, it's just been in one loop a long time. */
-    private void flagIdleStall(ScriptRunner runner, long nowNanos) {
-        long inLoopMs = runner.millisInLoop(nowNanos);
-        if (inLoopMs >= IDLE_STALL_MS && runner.markStalled()) {
-            log.warn("Script {} has been inside a single onLoop() for {} ms",
-                    runner.getScriptName(), inLoopMs);
-        }
-    }
-
-    private void revoke(ScriptRunner runner) {
-        if (runner.markRevoked()) {
-            log.warn("Script {} ignored stop; revoking its access to the game",
-                    runner.getScriptName());
-        }
-    }
-
-    private void abandon(ScriptRunner runner) {
-        if (!runner.markAbandoned()) {
-            return;
-        }
-        // The thread is unkillable, so its classes must stay loaded for as long
-        // as it runs. Pinning leaks the loader deliberately; closing it would
-        // give the live thread NoClassDefFoundError and, on Windows, wedge
-        // every later reload behind a JAR handle it can't release anyway.
-        LocalScriptLoader.pinLoaderOf(runner.getScript());
-        log.error("Script {} survived revocation; quarantining its thread and pinning its classloader",
-                runner.getScriptName());
+        watchdog.sweep(nowNanos);
     }
 
     public void startAll(List<BotScript> scripts) {
@@ -423,7 +309,7 @@ public class ScriptRuntime {
         }
         runners.clear();
         if (quarantined.isEmpty()) {
-            stopWatchdog();
+            watchdog.close();
         }
         fireStateChange();
     }
@@ -474,11 +360,16 @@ public class ScriptRuntime {
         return true;
     }
 
-    /** Every runner this runtime knows about — active first, then quarantined zombies. */
+    /**
+     * Every runner this runtime knows about — active first, then quarantined
+     * zombies. Read per-frame by several GUI panels, so it builds one list
+     * rather than copying twice; {@code all} never escapes except wrapped.
+     */
     public List<ScriptRunner> getRunners() {
-        List<ScriptRunner> all = new ArrayList<>(runners);
+        List<ScriptRunner> all = new ArrayList<>(runners.size() + quarantined.size());
+        all.addAll(runners);
         all.addAll(quarantined);
-        return List.copyOf(all);
+        return Collections.unmodifiableList(all);
     }
 
     /**

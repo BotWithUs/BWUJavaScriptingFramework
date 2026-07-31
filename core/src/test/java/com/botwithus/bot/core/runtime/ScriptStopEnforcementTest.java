@@ -145,15 +145,15 @@ class ScriptStopEnforcementTest {
         // Probe just past each production threshold rather than at hardcoded
         // times, so retuning a window can't leave this silently testing a
         // boundary that no longer exists.
-        runtime.sweep(stopped + justPast(ScriptRuntime.STOP_STALL_MS));
+        runtime.sweep(stopped + justPast(LivenessWatchdog.STOP_STALL_MS));
         assertEquals(Liveness.STALLED, runner.liveness(),
                 "past the stop-stall window the runner should be flagged unresponsive");
 
-        runtime.sweep(stopped + justPast(ScriptRuntime.REVOKE_GRACE_MS));
+        runtime.sweep(stopped + justPast(LivenessWatchdog.REVOKE_GRACE_MS));
         assertEquals(Liveness.REVOKED, runner.liveness(),
                 "past the revoke grace the runner should lose access to the game");
 
-        runtime.sweep(stopped + justPast(ScriptRuntime.ABANDON_GRACE_MS));
+        runtime.sweep(stopped + justPast(LivenessWatchdog.ABANDON_GRACE_MS));
         assertEquals(Liveness.ABANDONED, runner.liveness(),
                 "past the abandon grace the runner should be written off");
     }
@@ -178,7 +178,7 @@ class ScriptStopEnforcementTest {
         runner.stop();
 
         assertTrue(hasWatchdogThread(), "no script-watchdog thread after a direct runner start");
-        runtime.sweep(System.nanoTime() + justPast(ScriptRuntime.ABANDON_GRACE_MS));
+        runtime.sweep(System.nanoTime() + justPast(LivenessWatchdog.ABANDON_GRACE_MS));
         assertEquals(Liveness.ABANDONED, runner.liveness());
     }
 
@@ -208,7 +208,7 @@ class ScriptStopEnforcementTest {
         runner.start();
 
         assertFalse(runner.isStopRequested(), "a restarted run must not inherit the old stop");
-        runtime.sweep(System.nanoTime() + justPast(ScriptRuntime.ABANDON_GRACE_MS));
+        runtime.sweep(System.nanoTime() + justPast(LivenessWatchdog.ABANDON_GRACE_MS));
         assertEquals(Liveness.LIVE, runner.liveness(),
                 "a healthy restarted script must not be quarantined");
         runner.stop();

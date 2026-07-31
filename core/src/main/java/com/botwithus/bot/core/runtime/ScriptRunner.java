@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -32,7 +31,7 @@ import java.util.function.Consumer;
  * why it isn't a virtual one).
  * Lifecycle: onStart -> loop(onLoop + sleep) -> onStop
  */
-public class ScriptRunner implements Runnable {
+public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptRunner.class);
 
@@ -52,14 +51,6 @@ public class ScriptRunner implements Runnable {
      */
     static final int SCRIPT_THREAD_PRIORITY = Thread.NORM_PRIORITY - 1;
 
-    /**
-     * Sentinel for "no stop pending" / "not inside onLoop". Not {@code 0}:
-     * {@code System.nanoTime()}'s origin is arbitrary, so zero is a value it can
-     * legitimately return — which would permanently disable the watchdog for
-     * that runner.
-     */
-    private static final long UNSET_NANOS = Long.MIN_VALUE;
-
     private final BotScript script;
     private final ScriptContext context;
     private final Consumer<String> connectionTagger;
@@ -71,16 +62,7 @@ public class ScriptRunner implements Runnable {
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
     private final AtomicReference<ScriptHealth> healthRef =
             new AtomicReference<>(ScriptHealth.HEALTHY);
-    private final AtomicReference<Liveness> livenessRef =
-            new AtomicReference<>(Liveness.LIVE);
-    /** When the current onLoop() began, or {@link #UNSET_NANOS} outside onLoop(). */
-    private volatile long loopStartNanos = UNSET_NANOS;
-    /**
-     * When {@link #stop()} was first requested, or {@link #UNSET_NANOS} while no
-     * stop is pending. Atomic so concurrent stops (GUI Stop racing
-     * {@code stopAll}) can't both claim to be the first.
-     */
-    private final AtomicLong stopRequestedNanos = new AtomicLong(UNSET_NANOS);
+    private final RunnerLiveness livenessState;
     private volatile CountDownLatch stopLatch;
     private volatile Thread thread;
     private String connectionName;
@@ -143,87 +125,55 @@ public class ScriptRunner implements Runnable {
     }
 
     /**
-     * Returns how responsive this runner is, as judged by
-     * {@link ScriptRuntime}'s watchdog. Never {@code null}.
+     * Returns how responsive this runner is, as judged by the watchdog. Never
+     * {@code null}.
      */
     public Liveness liveness() {
-        return livenessRef.get();
+        return livenessState.get();
+    }
+
+    /** The mutable liveness state the watchdog drives. */
+    @Override
+    public RunnerLiveness livenessState() {
+        return livenessState;
     }
 
     /** {@code true} once {@link #stop()} has been called on the current run. */
     public boolean isStopRequested() {
-        return stopRequestedNanos.get() != UNSET_NANOS;
+        return livenessState.isStopRequested();
     }
 
     /** {@code true} while the script thread exists and has not yet terminated. */
+    @Override
     public boolean isThreadAlive() {
         Thread t = this.thread;
         return t != null && t.isAlive();
     }
 
-    /**
-     * Milliseconds the thread has been inside the current {@code onLoop} call,
-     * or {@code -1} when it is not inside one.
-     */
-    long millisInLoop(long nowNanos) {
-        long started = loopStartNanos;
-        return started == UNSET_NANOS ? -1L : TimeUnit.NANOSECONDS.toMillis(nowNanos - started);
-    }
-
-    /**
-     * Milliseconds since {@link #stop()} was first requested, or {@code -1}
-     * when no stop is pending.
-     */
-    long millisSinceStopRequested(long nowNanos) {
-        long requested = stopRequestedNanos.get();
-        return requested == UNSET_NANOS ? -1L : TimeUnit.NANOSECONDS.toMillis(nowNanos - requested);
-    }
-
-    /**
-     * Flags the runner as unresponsive. Recoverable — a completed loop clears
-     * it. No-op once the runner has reached a terminal state.
-     *
-     * @return {@code true} if this call performed the transition
-     */
-    boolean markStalled() {
-        if (!livenessRef.compareAndSet(Liveness.LIVE, Liveness.STALLED)) {
-            return false;
-        }
-        publishState(STATE_STALLED, "unresponsive inside onLoop()");
-        return true;
-    }
-
-    /**
-     * Marks the runner as cut off from the game. Terminal; never downgrades an
-     * already-{@link Liveness#ABANDONED} runner.
-     *
-     * @return {@code true} if this call performed the transition
-     */
-    boolean markRevoked() {
-        Liveness previous = livenessRef.getAndUpdate(
-                l -> l == Liveness.ABANDONED ? l : Liveness.REVOKED);
-        if (previous == Liveness.REVOKED || previous == Liveness.ABANDONED) {
-            return false;
-        }
+    /** Cuts this script off from the game; every later RPC from it throws. */
+    @Override
+    public void revokeAccess() {
         ScriptGate gate = this.scriptGate;
         if (gate != null) {
             gate.revoke(getScriptName());
         }
-        publishState(STATE_REVOKED, "did not stop; cut off from the game");
-        return true;
     }
 
-    /**
-     * Marks the runner as written off — revoked and still alive. Terminal.
-     *
-     * @return {@code true} if this call performed the transition
-     */
-    boolean markAbandoned() {
-        if (livenessRef.getAndSet(Liveness.ABANDONED) == Liveness.ABANDONED) {
-            return false;
+    /** Keeps this script's classes loaded for as long as its thread runs. */
+    @Override
+    public void pinClassLoader() {
+        LocalScriptLoader.pinLoaderOf(script);
+    }
+
+    /** Mirrors each watchdog transition onto the {@code script.context} topic. */
+    @Override
+    public void onLivenessChanged(Liveness to) {
+        switch (to) {
+            case STALLED   -> publishState(STATE_STALLED, "unresponsive inside onLoop()");
+            case REVOKED   -> publishState(STATE_REVOKED, "did not stop; cut off from the game");
+            case ABANDONED -> publishState(STATE_ABANDONED, "thread survived revocation; quarantined");
+            case LIVE      -> { }
         }
-        publishState(STATE_ABANDONED, "thread survived revocation; quarantined");
-        return true;
     }
 
     /**
@@ -245,6 +195,22 @@ public class ScriptRunner implements Runnable {
                         Consumer<String> connectionTagger, Runnable connectionCleaner,
                         Consumer<GameEvent> eventSink,
                         ScriptContextPublisher scriptCtxPublisher) {
+        this(script, context, connectionTagger, connectionCleaner, eventSink,
+                scriptCtxPublisher, new RunnerLiveness());
+    }
+
+    /**
+     * Canonical constructor, taking the {@link RunnerLiveness} the caller has
+     * already created. {@link ScriptRuntime#registerScript} uses this so the
+     * script's {@code isStopRequested()} signal can be bound straight to the
+     * state object — the context is a constructor argument to this runner, so
+     * it cannot reference the runner itself.
+     */
+    public ScriptRunner(BotScript script, ScriptContext context,
+                        Consumer<String> connectionTagger, Runnable connectionCleaner,
+                        Consumer<GameEvent> eventSink,
+                        ScriptContextPublisher scriptCtxPublisher,
+                        RunnerLiveness livenessState) {
         this.script = script;
         this.context = context;
         this.connectionTagger = connectionTagger;
@@ -252,6 +218,7 @@ public class ScriptRunner implements Runnable {
         this.eventSink = eventSink;
         this.scriptCtxPublisher = scriptCtxPublisher != null
                 ? scriptCtxPublisher : ScriptContextPublisher.NOOP;
+        this.livenessState = livenessState != null ? livenessState : new RunnerLiveness();
     }
 
     /**
@@ -291,7 +258,7 @@ public class ScriptRunner implements Runnable {
     }
 
     public void start() {
-        Liveness current = livenessRef.get();
+        Liveness current = livenessState.get();
         if (current.isTerminal()) {
             // The previous run's thread is still alive and can't be killed.
             // Starting a second one would put two copies of the script on the
@@ -308,9 +275,7 @@ public class ScriptRunner implements Runnable {
             // happened minutes ago, revoke the freshly-started script and
             // quarantine it — and would make isStopRequested() true on its very
             // first loop. Safe to force LIVE here: terminal states returned above.
-            stopRequestedNanos.set(UNSET_NANOS);
-            loopStartNanos = UNSET_NANOS;
-            livenessRef.set(Liveness.LIVE);
+            livenessState.resetForRestart();
             stopLatch = new CountDownLatch(1);
             String name = getScriptName();
             // rule-exception: {rule:prefer-virtual-threads} — see CLAUDE.md
@@ -341,7 +306,7 @@ public class ScriptRunner implements Runnable {
 
     public void stop() {
         running.set(false);
-        stopRequestedNanos.compareAndSet(UNSET_NANOS, System.nanoTime());
+        livenessState.requestStop();
         Thread t = this.thread;
         if (t != null) {
             t.interrupt();
@@ -520,17 +485,15 @@ public class ScriptRunner implements Runnable {
         GameAPI gameAPI = context.getGameAPI();
         while (running.get() && !Thread.currentThread().isInterrupted()) {
             long loopStart = System.nanoTime();
-            loopStartNanos = loopStart;
+            livenessState.enterLoop();
             int delay;
             try {
                 delay = script.onLoop();
             } finally {
-                loopStartNanos = UNSET_NANOS;
+                // Also clears an advisory stall; terminal states stick.
+                livenessState.exitLoop();
             }
             profiler.recordLoop(System.nanoTime() - loopStart);
-            // Completing a loop clears an advisory stall. Terminal states stick:
-            // once revoked or abandoned, a runner never returns to LIVE.
-            livenessRef.compareAndSet(Liveness.STALLED, Liveness.LIVE);
             if (delay < 0) {
                 break;
             }

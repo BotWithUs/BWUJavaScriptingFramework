@@ -14,13 +14,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ScriptGateTest {
 
+    /**
+     * Whether the gate rejects the calling thread. Used where the check happens
+     * on a thread the test doesn't own, so JUnit's assertions can't run there.
+     */
+    private static boolean threwOnCheck(ScriptGate gate) {
+        try {
+            gate.checkCaller();
+            return false;
+        } catch (ScriptRevokedException e) {
+            return true;
+        }
+    }
+
     @Test
     @DisplayName("an untagged host thread is never revoked")
     void hostThreadsAlwaysPass() {
         ScriptGate gate = new ScriptGate();
         gate.revoke("Miner");
 
-        assertFalse(gate.isCallerRevoked());
         assertDoesNotThrow(gate::checkCaller);
     }
 
@@ -63,7 +75,7 @@ class ScriptGateTest {
             Thread spawned = new Thread(() -> {
                 seenByChild.set(gate.current());
                 gate.revoke("Miner");
-                childRevoked.set(gate.isCallerRevoked());
+                childRevoked.set(threwOnCheck(gate));
             });
             spawned.start();
             try {
@@ -87,6 +99,6 @@ class ScriptGateTest {
         gate.exit();
         gate.revoke("Miner");
 
-        assertFalse(gate.isCallerRevoked());
+        assertDoesNotThrow(gate::checkCaller);
     }
 }
