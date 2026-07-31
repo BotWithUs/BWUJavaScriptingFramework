@@ -32,7 +32,10 @@ public interface GameSnapshot {
      * iteration, roughly 30 per {@link #serverTick()}.
      * <p>This is the unit {@link Projectile#startCycle()} and
      * {@link Projectile#endCycle()} are stamped in, so it is what
-     * {@link ProjectileFilter#inFlightAt(int)} expects. Returns {@code 0} before login.
+     * {@link ProjectileFilter#inFlightAt(int)} expects. Reads {@code 0} only until the
+     * client populates its transmission manager — it is already counting in the lobby,
+     * so {@code 0} does not mean "not in a world"; {@link #serverTick()} {@code == -1}
+     * is that signal.
      */
     int gameCycle();
 

@@ -360,7 +360,10 @@ public final class Layout {
 
     /** The client's own game-cycle counter (i32, ~20ms) — the number the projectiles block
      *  above is stamped in, so diff {@code startCycle}/{@code endCycle} against this for flight
-     *  progress. {@code 0} before login. Distinct from {@link #SNAP_PUBLISHSEQ_OFFSET}, which
+     *  progress. Reads {@code 0} only until the client populates its transmission manager —
+     *  it is already counting in the lobby, so {@code 0} does not mean "not in a world"
+     *  ({@link #SNAP_SERVERTICK_OFFSET} {@code == -1} is that signal). Distinct from
+     *  {@link #SNAP_PUBLISHSEQ_OFFSET}, which
      *  shares the cadence but not the number space. Occupies the 4-byte tail slot that was the
      *  anonymous {@code _padAfterProjectiles} through v17: groundItems ended at 0 mod 8 and
      *  projectileCount(4) + projectiles[256]*32 lands at 4 mod 8, so the slot is needed to
