@@ -79,15 +79,18 @@ public final class SnapshotProbe {
 
     private static void pollLoop(SharedRegion region, EventRingReader events) throws InterruptedException {
         long lastSnapshotPrint = 0;
-        long lastTick = -1;
+        // Gate on publishSeq, not serverTick: this is a "did the producer
+        // republish" liveness probe, and publishSeq is the field that moves
+        // every republish. The printed line shows both clocks.
+        long lastPublishSeq = -1;
         while (!Thread.currentThread().isInterrupted()) {
             events.poll(SnapshotProbe::printEvent);
             long now = System.currentTimeMillis();
             if (now - lastSnapshotPrint >= PRINT_INTERVAL_MS) {
                 GameSnapshot snap = new GameSnapshotImpl(region.snapshot());
-                if (snap.tickId() != lastTick) {
+                if (snap.publishSeq() != lastPublishSeq) {
                     printSnapshot(snap, events, now);
-                    lastTick = snap.tickId();
+                    lastPublishSeq = snap.publishSeq();
                 }
                 lastSnapshotPrint = now;
             }
@@ -98,9 +101,11 @@ public final class SnapshotProbe {
     private static void printSnapshot(GameSnapshot snap, EventRingReader events, long nowMs) {
         LocalPlayer self = snap.self();
         System.out.printf(
-                "[t=%d] tick=%d state=%d ownIdx=%d npcs=%d players=%d locs=%d gItems=%d projs=%d invs=%d skills=%d (drops: writer=%d reader=%d)%n",
+                "[t=%d] seq=%d tick=%d cycle=%d state=%d ownIdx=%d npcs=%d players=%d locs=%d gItems=%d projs=%d invs=%d skills=%d (drops: writer=%d reader=%d)%n",
                 nowMs / MS_PER_SECOND,
-                snap.tickId(),
+                snap.publishSeq(),
+                snap.serverTick(),
+                snap.gameCycle(),
                 snap.gameState(),
                 snap.ownIndex(),
                 snap.npcs().count(),

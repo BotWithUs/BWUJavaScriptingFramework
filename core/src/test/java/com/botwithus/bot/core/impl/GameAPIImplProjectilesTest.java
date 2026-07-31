@@ -264,7 +264,9 @@ class GameAPIImplProjectilesTest {
         final List<com.botwithus.bot.api.snapshot.Npc> npcs = new ArrayList<>();
         final List<com.botwithus.bot.api.snapshot.Player> players = new ArrayList<>();
 
-        @Override public long tickId() { return 0; }
+        @Override public int serverTick() { return 0; }
+        @Override public int gameCycle() { return 0; }
+        @Override public long publishSeq() { return 0; }
         @Override public int gameState() { return 30; }
         @Override public int ownIndex() { return ownIndex; }
         @Override public LocalPlayer self() { return self; }

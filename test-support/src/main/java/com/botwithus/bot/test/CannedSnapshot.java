@@ -33,7 +33,9 @@ import java.util.stream.Stream;
  * Npcs/Players/Inventories table records are reusable singletons.</p>
  */
 public record CannedSnapshot(
-        long tickId,
+        int serverTick,
+        int gameCycle,
+        long publishSeq,
         int gameState,
         int ownIndex,
         LocalPlayer self,
@@ -55,7 +57,11 @@ public record CannedSnapshot(
     /** Game state code returned when the client is in-game. */
     public static final int GAME_STATE_IN_GAME = 30;
 
-    private static final long DEFAULT_TICK_ID = 0L;
+    /** Matches the producer's "no server tick observed yet" sentinel. */
+    private static final int DEFAULT_SERVER_TICK = -1;
+    /** Matches the producer's pre-login game cycle. */
+    private static final int DEFAULT_GAME_CYCLE = 0;
+    private static final long DEFAULT_PUBLISH_SEQ = 0L;
     private static final int NO_LOCAL_PLAYER_INDEX = -1;
     private static final int DEFAULT_SCENE_VERSION = 0;
 
@@ -69,7 +75,9 @@ public record CannedSnapshot(
     /** Snapshot with no in-game player, no NPCs, no other players, no inventories. */
     public static CannedSnapshot empty() {
         return new CannedSnapshot(
-                DEFAULT_TICK_ID,
+                DEFAULT_SERVER_TICK,
+                DEFAULT_GAME_CYCLE,
+                DEFAULT_PUBLISH_SEQ,
                 GAME_STATE_LOGIN,
                 NO_LOCAL_PLAYER_INDEX,
                 null,
@@ -88,7 +96,9 @@ public record CannedSnapshot(
             throw new IllegalArgumentException("self");
         }
         return new CannedSnapshot(
-                DEFAULT_TICK_ID,
+                DEFAULT_SERVER_TICK,
+                DEFAULT_GAME_CYCLE,
+                DEFAULT_PUBLISH_SEQ,
                 GAME_STATE_IN_GAME,
                 self.serverIndex(),
                 self,
@@ -101,9 +111,21 @@ public record CannedSnapshot(
                 DEFAULT_SCENE_VERSION);
     }
 
-    /** Returns a copy with a different {@link #tickId()} for advancing time in tests. */
-    public CannedSnapshot withTickId(long newTickId) {
-        return new CannedSnapshot(newTickId, gameState, ownIndex, self,
+    /** Returns a copy with a different {@link #serverTick()} for advancing time in tests. */
+    public CannedSnapshot withServerTick(int newServerTick) {
+        return new CannedSnapshot(newServerTick, gameCycle, publishSeq, gameState, ownIndex, self,
+                                  npcs, players, locations, inventories, groundItems,
+                                  projectiles, sceneVersion);
+    }
+
+    /**
+     * Returns a copy with a different {@link #gameCycle()}. Use this rather than
+     * {@link #withServerTick(int)} when the code under test compares against
+     * {@link com.botwithus.bot.api.snapshot.Projectile} launch/land stamps, which
+     * are denominated in game cycles.
+     */
+    public CannedSnapshot withGameCycle(int newGameCycle) {
+        return new CannedSnapshot(serverTick, newGameCycle, publishSeq, gameState, ownIndex, self,
                                   npcs, players, locations, inventories, groundItems,
                                   projectiles, sceneVersion);
     }
@@ -114,21 +136,21 @@ public record CannedSnapshot(
      * with projectiles in one expression.
      */
     public CannedSnapshot withProjectiles(List<Projectile> rows) {
-        return new CannedSnapshot(tickId, gameState, ownIndex, self,
+        return new CannedSnapshot(serverTick, gameCycle, publishSeq, gameState, ownIndex, self,
                                   npcs, players, locations, inventories, groundItems,
                                   new Projectiles(rows), sceneVersion);
     }
 
     /** Returns a copy carrying the supplied NPCs. Chains like {@link #withProjectiles(List)}. */
     public CannedSnapshot withNpcs(List<Npc> rows) {
-        return new CannedSnapshot(tickId, gameState, ownIndex, self,
+        return new CannedSnapshot(serverTick, gameCycle, publishSeq, gameState, ownIndex, self,
                                   new Npcs(rows), players, locations, inventories,
                                   groundItems, projectiles, sceneVersion);
     }
 
     /** Returns a copy carrying the supplied players. Chains like {@link #withProjectiles(List)}. */
     public CannedSnapshot withPlayers(List<Player> rows) {
-        return new CannedSnapshot(tickId, gameState, ownIndex, self,
+        return new CannedSnapshot(serverTick, gameCycle, publishSeq, gameState, ownIndex, self,
                                   npcs, new Players(rows), locations, inventories,
                                   groundItems, projectiles, sceneVersion);
     }

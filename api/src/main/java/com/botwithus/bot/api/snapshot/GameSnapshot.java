@@ -19,8 +19,33 @@ import java.util.stream.Stream;
  */
 public interface GameSnapshot {
 
-    /** Monotonically increasing producer tick id. */
-    long tickId();
+    /**
+     * The server-tick counter: the 0.6-second game-logic step the server runs on.
+     * <p><b>This is the clock to pace a script against.</b> Respawn timers,
+     * cooldowns and drop cadence are all denominated in these ticks.
+     * Returns {@code -1} until the producer has observed one (not yet in a world).
+     */
+    int serverTick();
+
+    /**
+     * The client's own game-cycle counter: one per ~20 ms client main-loop
+     * iteration, roughly 30 per {@link #serverTick()}.
+     * <p>This is the unit {@link Projectile#startCycle()} and
+     * {@link Projectile#endCycle()} are stamped in, so it is what
+     * {@link ProjectileFilter#inFlightAt(int)} expects. Returns {@code 0} before login.
+     */
+    int gameCycle();
+
+    /**
+     * The producer's snapshot publish counter, incremented once per ~20 ms
+     * republish starting from 1 when the agent attached.
+     * <p>Useful only for answering "has the snapshot advanced since I last
+     * looked". It shares {@link #gameCycle()}'s cadence but not its number
+     * space, so the two must never be compared or subtracted, and it is
+     * <b>not</b> a tick — pacing off it runs ~30x fast. It was misnamed
+     * {@code tickId()} before wire protocol v18, which is exactly that bug.
+     */
+    long publishSeq();
 
     /**
      * Game client state. {@code 10 = login}, {@code 20 = lobby},

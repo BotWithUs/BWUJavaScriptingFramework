@@ -47,15 +47,36 @@ class GameSnapshotImplTest {
     void tickMetadataPassesThrough() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment seg = allocSnapshot(arena);
-            seg.set(ValueLayout.JAVA_LONG, Layout.SNAP_TICKID_OFFSET, 12_345L);
+            seg.set(ValueLayout.JAVA_LONG, Layout.SNAP_PUBLISHSEQ_OFFSET, 12_345L);
             seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMESTATE_OFFSET, 30);
             seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OWNINDEX_OFFSET, 7);
 
             GameSnapshot snap = build(seg);
 
-            assertEquals(12_345L, snap.tickId());
+            assertEquals(12_345L, snap.publishSeq());
             assertEquals(30, snap.gameState());
             assertEquals(7, snap.ownIndex());
+        }
+    }
+
+    /**
+     * The three clocks live at three different offsets and must not alias — this is
+     * the regression guard for the v18 rename, where serverTick and gameCycle took
+     * over slots that were previously anonymous padding.
+     */
+    @Test
+    void threeClocksReadIndependentSlots() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_LONG, Layout.SNAP_PUBLISHSEQ_OFFSET, 900L);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_SERVERTICK_OFFSET, 30);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMECYCLE_OFFSET, 901);
+
+            GameSnapshot snap = build(seg);
+
+            assertEquals(900L, snap.publishSeq());
+            assertEquals(30, snap.serverTick());
+            assertEquals(901, snap.gameCycle());
         }
     }
 

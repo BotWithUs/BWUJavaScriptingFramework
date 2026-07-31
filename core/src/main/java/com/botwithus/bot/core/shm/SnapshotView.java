@@ -11,7 +11,7 @@ import java.lang.foreign.ValueLayout;
  * standard pattern is:
  * <pre>{@code
  *   SnapshotView s = region.snapshot();   // read frontIdx, slice that buffer
- *   long tick = s.tickId();
+ *   int tick = s.serverTick();
  *   // ...iterate s.npcAt() etc within one tick worth of work...
  * }</pre>
  * Don't cache a {@link SnapshotView} across ticks.</p>
@@ -29,7 +29,9 @@ public final class SnapshotView {
         this.seg = seg;
     }
 
-    public long tickId()      { return seg.get(ValueLayout.JAVA_LONG, Layout.SNAP_TICKID_OFFSET); }
+    public long publishSeq()  { return seg.get(ValueLayout.JAVA_LONG, Layout.SNAP_PUBLISHSEQ_OFFSET); }
+    public int  serverTick()  { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_SERVERTICK_OFFSET); }
+    public int  gameCycle()   { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_GAMECYCLE_OFFSET); }
     public int  gameState()   { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_GAMESTATE_OFFSET); }
     public int  ownIndex()    { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_OWNINDEX_OFFSET); }
     public int  rootIfaceId() { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_ROOTIFACEID_OFFSET); }

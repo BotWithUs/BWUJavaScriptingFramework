@@ -23,6 +23,15 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v18 made the snapshot's three time bases separately readable and honestly named. The u64 at
+     *  offset 0 was {@code tickId} but is neither a tick nor the client's cycle counter — it is the
+     *  producer's own publish counter, so it is now {@code publishSeq}. Alongside it the snapshot
+     *  gained {@code serverTick} (the 600ms clock scripts pace against) and {@code gameCycle} (the
+     *  client's 20ms counter, which is what {@code ProjectileEntry.startCycle/endCycle} are stamped
+     *  in — previously unavailable without a {@code get_game_cycle} RPC per tick). Both new fields
+     *  reuse slots that were already reserved padding, so {@link #SNAPSHOT_SIZE} and every
+     *  downstream offset are unchanged from v17 — but a v17 reader would decode the new fields as
+     *  the pad it was told to ignore, so it is still a hard version bump.
      *  v17 added the {@code projectiles[]} tail block — per-tick snapshot of every in-flight
      *  projectile (thrown spell/arrow graphic travelling source→target), walked from the producer's
      *  projectile list. Each row carries the graphic id, the launch/land game-cycle stamps, the
@@ -44,7 +53,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 17;
+    public static final int PROTOCOL_VERSION = 18;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -254,14 +263,19 @@ public final class Layout {
     // them, so a layout audit can read the formulae directly.
     // ------------------------------------------------------------------
 
-    public static final int SNAP_TICKID_OFFSET       = 0;     // u64
+    /** Producer's publish counter (u64), +1 per ~20ms client main-loop iteration. A liveness
+     *  signal only — not a tick, and not comparable to {@link #SNAP_GAMECYCLE_OFFSET}. Named
+     *  {@code tickId} through v17, which is why anything pacing off it ran ~30x fast. */
+    public static final int SNAP_PUBLISHSEQ_OFFSET   = 0;     // u64
     public static final int SNAP_GAMESTATE_OFFSET    = 8;     // i32
     public static final int SNAP_OWNINDEX_OFFSET     = 12;    // i32
     /** Active root interface id (e.g. 1477 in resizable HUD mode); -1 when no root mounted. */
     public static final int SNAP_ROOTIFACEID_OFFSET  = 16;    // i32
-    // Slot at +20 is _reserved0 (i32) — pad to keep the producer block 8-aligned;
-    // not accessed from Java but the offset must be reserved here so SNAP_SELF_OFFSET
-    // matches the C++ side. See SharedLayout.h Snapshot::_reserved0 for rationale.
+    /** Server-tick counter (i32, 600ms cadence) — the clock scripts should pace against.
+     *  {@code -1} until the producer observes one. Occupies what was {@code _reserved0}
+     *  through v17: the slot exists either way to keep the producer block 8-aligned, and
+     *  v18 gave the padding a job. See SharedLayout.h {@code Snapshot::serverTick}. */
+    public static final int SNAP_SERVERTICK_OFFSET   = 20;    // i32
     public static final int SNAP_SELF_OFFSET         = 24;    // LocalPlayer
 
     public static final int SNAP_NPCCOUNT_OFFSET   = SNAP_SELF_OFFSET + LOCAL_PLAYER_SIZE;
@@ -344,13 +358,17 @@ public final class Layout {
                                                         + GROUND_ITEM_CAP * GROUND_ITEM_ENTRY_SIZE;
     public static final int SNAP_PROJECTILES_OFFSET     = SNAP_PROJECTILECOUNT_OFFSET + 4;
 
-    // Trailing pad: groundItems ended at offset 0 mod 8; adding
-    // projectileCount(4) + projectiles[256]*32 lands at 4 mod 8, so a 4-byte
-    // _padAfterProjectiles restores Snapshot's alignof-8 size. Mirrors
-    // Snapshot::_padAfterProjectiles in SharedLayout.h.
-    public static final int SNAPSHOT_SIZE = SNAP_PROJECTILES_OFFSET
-                                          + PROJECTILE_CAP * PROJECTILE_ENTRY_SIZE
-                                          + 4;
+    /** The client's own game-cycle counter (i32, ~20ms) — the number the projectiles block
+     *  above is stamped in, so diff {@code startCycle}/{@code endCycle} against this for flight
+     *  progress. {@code 0} before login. Distinct from {@link #SNAP_PUBLISHSEQ_OFFSET}, which
+     *  shares the cadence but not the number space. Occupies the 4-byte tail slot that was the
+     *  anonymous {@code _padAfterProjectiles} through v17: groundItems ended at 0 mod 8 and
+     *  projectileCount(4) + projectiles[256]*32 lands at 4 mod 8, so the slot is needed to
+     *  restore Snapshot's alignof-8 size either way — v18 just named it. */
+    public static final int SNAP_GAMECYCLE_OFFSET = SNAP_PROJECTILES_OFFSET
+                                                  + PROJECTILE_CAP * PROJECTILE_ENTRY_SIZE;
+
+    public static final int SNAPSHOT_SIZE = SNAP_GAMECYCLE_OFFSET + 4;
 
     // ------------------------------------------------------------------
     // Event ring

@@ -70,7 +70,8 @@ public class PlayerCommand implements Command {
     private void printPlayer(PrintStream out, GameSnapshot snap, LocalPlayer self) {
         out.println("Local Player");
         out.println(String.format("  Game state: %d (%s)", snap.gameState(), gameStateLabel(snap.gameState())));
-        out.println(String.format("  Tick: %d", snap.tickId()));
+        out.println(String.format("  Server tick: %d", snap.serverTick()));
+        out.println(String.format("  Game cycle: %d", snap.gameCycle()));
         out.println(String.format("  Server index: %d", self.serverIndex()));
         out.println(String.format("  Position: %d, %d (plane %d)", self.tileX(), self.tileY(), self.plane()));
         out.println(String.format("  Combat level: %d", self.combatLevel()));

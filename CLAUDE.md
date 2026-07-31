@@ -14,7 +14,8 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 
 - **Pipe name**: producer publishes `\\.\pipe\BotWithUs_<pid>`. Java side: `core/.../pipe/PipeClient.java` (`NAME_PREFIX`, `firstAvailableOrThrow`), all `new PipeClient(...)` callers.
 - **SHM mapping**: producer publishes `Local\nxt_snapshot_<pid>`. Java side: `core/.../shm/Layout.java` (`MAPPING_NAME_PREFIX`), `SharedRegion`.
-- **Wire protocol version**: `Layout.PROTOCOL_VERSION` (currently `17`) must equal `kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h` (and the `static_assert(nxt::ipc::kProtocolVersion == 17, ...)` in `NXTDebugger/src/attach/Session.h`). `SharedRegion.open()` validates and refuses mismatched versions.
+- **Wire protocol version**: `Layout.PROTOCOL_VERSION` (currently `18`) must equal `kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h` (and the `static_assert(nxt::ipc::kProtocolVersion == 18, ...)` in `NXTDebugger/src/attach/Session.h`). `SharedRegion.open()` validates and refuses mismatched versions.
+- **The snapshot's three clocks** (v18): `GameSnapshot.serverTick()` is the 600ms server tick and the one scripts should pace against; `gameCycle()` is the client's ~20ms counter and the unit `Projectile.startCycle()`/`endCycle()` use; `publishSeq()` is the producer's republish counter — same cadence as `gameCycle()` but a different number space, so never compare them. `publishSeq()` was called `tickId()` through v17, and pacing off it ran ~30x fast.
 - **Event-type discriminators**: `Layout.EVT_*` mirrors `kEvent*` enum in `NXTLibrary/src/ipc/Events.h`. Decoder switch arms in `EventRingReader` must cover every type the producer emits.
 - **Wire body shapes**: each `api/.../event/*Event.java` constructor mirrors a POD struct in `NXTLibrary/src/ipc/Events.h`. Field order is load-bearing for the byte-offset decoders.
 - **Snapshot field offsets**: `Layout.SNAP_*` / `LP_*` / `NPC_*` / `PLAYER_*` / `LOC_*` mirror `NXTLibrary/src/ipc/SharedLayout.h`. Static_asserts on the C++ side will catch divergent strides at compile time, but the Java side is untyped — keep the offset constants in lockstep.
@@ -65,7 +66,7 @@ Pure interface module (sole runtime dependency: `slf4j-api`, exposed transitivel
   - `NavigationAPI` — walker, pathfinder, nav-graph CRUD, teleport registry
 
   Plus mutations, login/break controls, client-script execution, interface tree walks, and slice-5 cache-type stubs. **Reads of live game state (local player, NPCs, players, locations, inventories, components) are NOT here** — they go through `GameSnapshot` (obtained from `Client.snapshot()` or `GameAPI.snapshot()`) or via the `EventBus`.
-- **`snapshot/GameSnapshot`** — Tick-scoped read view backed by the SHM mapping. Exposes `self()`, `npcs()`, `players()`, `locations()`, `inventories()`, `tickId()`, `gameState()`, `sceneVersion()`. Not safe to cache across ticks.
+- **`snapshot/GameSnapshot`** — Tick-scoped read view backed by the SHM mapping. Exposes `self()`, `npcs()`, `players()`, `locations()`, `inventories()`, `serverTick()`, `gameCycle()`, `publishSeq()`, `gameState()`, `sceneVersion()`. Not safe to cache across ticks.
 - **`entities/`** — Fluent query facades (`Npcs`, `Players`, `SceneObjects`, `GroundItems`, `WorldMapElements`) that wrap the snapshot tables with chainable filters.
 - **`inventory/`** — `Backpack`, `Bank`, `Equipment` facades.
 - **`event/`** — `EventBus` (game-event push from the producer) and event types.

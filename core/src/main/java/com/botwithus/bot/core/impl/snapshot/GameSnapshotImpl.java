@@ -51,8 +51,18 @@ public final class GameSnapshotImpl implements GameSnapshot {
     }
 
     @Override
-    public long tickId() {
-        return view.tickId();
+    public int serverTick() {
+        return view.serverTick();
+    }
+
+    @Override
+    public int gameCycle() {
+        return view.gameCycle();
+    }
+
+    @Override
+    public long publishSeq() {
+        return view.publishSeq();
     }
 
     @Override

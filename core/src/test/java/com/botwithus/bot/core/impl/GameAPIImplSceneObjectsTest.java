@@ -244,7 +244,9 @@ class GameAPIImplSceneObjectsTest {
         final List<Location> locs = new ArrayList<>();
         final List<com.botwithus.bot.api.snapshot.GroundItem> grounds = new ArrayList<>();
 
-        @Override public long tickId() { return 0; }
+        @Override public int serverTick() { return 0; }
+        @Override public int gameCycle() { return 0; }
+        @Override public long publishSeq() { return 0; }
         @Override public int gameState() { return 30; }
         @Override public int ownIndex() { return 0; }
         @Override public LocalPlayer self() { return self; }

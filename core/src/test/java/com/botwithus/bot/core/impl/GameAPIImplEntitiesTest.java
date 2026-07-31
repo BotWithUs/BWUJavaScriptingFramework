@@ -274,14 +274,16 @@ class GameAPIImplEntitiesTest {
 
     /** Mutable stub snapshot so individual tests can populate just the fields they need. */
     private static final class StubSnapshot implements GameSnapshot {
-        long tickId = 0;
+        int serverTick = 0;
         int gameState = 30;
         int ownIndex = 0;
         LocalPlayer self;
         List<com.botwithus.bot.api.snapshot.Npc> npcs = List.of();
         List<com.botwithus.bot.api.snapshot.Player> players = List.of();
 
-        @Override public long tickId() { return tickId; }
+        @Override public int serverTick() { return serverTick; }
+        @Override public int gameCycle() { return 0; }
+        @Override public long publishSeq() { return 0; }
         @Override public int gameState() { return gameState; }
         @Override public int ownIndex() { return ownIndex; }
         @Override public LocalPlayer self() { return self; }

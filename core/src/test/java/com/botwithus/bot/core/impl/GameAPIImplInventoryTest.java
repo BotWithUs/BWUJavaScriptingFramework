@@ -253,7 +253,9 @@ class GameAPIImplInventoryTest {
             invMap.put(invId, new Inventory(invId, slotCount, items));
         }
 
-        @Override public long tickId() { return 0; }
+        @Override public int serverTick() { return 0; }
+        @Override public int gameCycle() { return 0; }
+        @Override public long publishSeq() { return 0; }
         @Override public int gameState() { return 30; }
         @Override public int ownIndex() { return 0; }
         @Override public com.botwithus.bot.api.snapshot.LocalPlayer self() { return null; }

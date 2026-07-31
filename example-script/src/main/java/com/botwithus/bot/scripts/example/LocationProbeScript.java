@@ -86,7 +86,7 @@ public class LocationProbeScript implements BotScript {
         }
 
         log.info("loop={} tick={} self={} locations.count={} sceneVer={}",
-                loopCount, snap.tickId(), where, count, sceneVer);
+                loopCount, snap.serverTick(), where, count, sceneVer);
 
         if (count == 0) {
             return LOOP_DELAY_MS;

@@ -52,13 +52,24 @@ class CannedSnapshotTest {
     }
 
     @Test
-    void withTickId_preservesEverythingElse() {
-        CannedSnapshot snapshot = CannedSnapshot.withSelf(sampleLocalPlayer()).withTickId(42L);
+    void withServerTick_preservesEverythingElse() {
+        CannedSnapshot snapshot = CannedSnapshot.withSelf(sampleLocalPlayer()).withServerTick(42);
 
         assertAll(
-                () -> assertEquals(42L, snapshot.tickId()),
+                () -> assertEquals(42, snapshot.serverTick()),
                 () -> assertEquals(SAMPLE_SERVER_INDEX, snapshot.ownIndex()),
                 () -> assertEquals(CannedSnapshot.GAME_STATE_IN_GAME, snapshot.gameState()));
+    }
+
+    @Test
+    void withGameCycle_leavesServerTickAlone() {
+        CannedSnapshot snapshot = CannedSnapshot.withSelf(sampleLocalPlayer())
+                .withServerTick(42)
+                .withGameCycle(1_260);
+
+        assertAll(
+                () -> assertEquals(42, snapshot.serverTick()),
+                () -> assertEquals(1_260, snapshot.gameCycle()));
     }
 
     @Test
