@@ -52,6 +52,28 @@ public final class SceneObject implements EntityContext {
     @Override public int tileY() { return raw.tileY(); }
     @Override public int plane() { return raw.plane(); }
 
+    // ---------------- Convenience shims (kept for scripts that pre-date the rewrite) ----------------
+
+    /** The snapshot only carries visible objects; this stub always returns {@code false}. */
+    public boolean isHidden() { return false; }
+    /** Chebyshev distance to the local player tile, or {@code MAX_VALUE} if the player isn't loaded. */
+    public int distanceToPlayer() {
+        var lp = api.getLocalPlayer();
+        return lp == null ? Integer.MAX_VALUE : distanceTo(lp.tileX(), lp.tileY());
+    }
+    /**
+     * The producer now resolves morphvarp transforms server-side before
+     * publishing the snapshot, so the script-side transform-resolution call is
+     * a no-op identity. Kept so pre-rewrite scripts compile unchanged.
+     */
+    public SceneObject resolveTransform() { return this; }
+    /**
+     * Two-arg variant kept for pre-rewrite scripts. The second {@code _ignored}
+     * parameter (sub-option) was dropped — the option index encodes everything
+     * the action queue needs. Delegates to {@link #interact(int)}.
+     */
+    public void interact(int optionIndex, int _ignored) { interact(optionIndex); }
+
     /** Cached LocationType for this object's typeId. {@code null} if lookup fails. */
     public LocationType getType() {
         if (cachedType == null) {

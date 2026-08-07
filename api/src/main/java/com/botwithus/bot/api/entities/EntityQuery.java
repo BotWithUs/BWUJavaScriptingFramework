@@ -94,6 +94,16 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
     }
 
     /**
+     * Convenience shim — the snapshot only carries visible entities, so this
+     * method is a no-op chain. Kept so call sites that pre-date the rewrite
+     * (e.g. {@code new SceneObjects(api).query().withId(id).visible().all()})
+     * keep compiling.
+     */
+    public Q visible() {
+        return self();
+    }
+
+    /**
      * Filter to entities within {@code radius} tiles (Chebyshev) of the
      * given world tile.
      */

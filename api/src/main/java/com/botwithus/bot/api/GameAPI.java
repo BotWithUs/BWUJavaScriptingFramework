@@ -77,6 +77,16 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      */
     GameSnapshot snapshot();
 
+    /**
+     * Convenience shim — delegates to {@code snapshot().isInterfaceOpen(ifaceId)}.
+     * Kept so call sites that pre-date the rewrite ({@code api.isInterfaceOpen(...)})
+     * keep compiling. New code should go through {@link GameSnapshot} directly.
+     */
+    default boolean isInterfaceOpen(int ifaceId) {
+        GameSnapshot s = snapshot();
+        return s != null && s.isInterfaceOpen(ifaceId);
+    }
+
     // ---------------------------------------------------------------- Entity queries
 
     /**
@@ -155,6 +165,24 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * lands.
      */
     List<WorldMapElement> queryWorldMapElements(Map<String, Object> filter);
+
+    /**
+     * Single world-map element by {@link WorldMapElement#id() id}, or
+     * {@code null} when not found. Default implementation scans the
+     * {@link #queryWorldMapElements unfiltered query} result client-side, so
+     * it inherits the producer-side stub-empty behaviour — once cache
+     * iteration lands, this returns real data without a code change.
+     *
+     * <p>Convenience for callers that already know the id (e.g. resolving a
+     * named-location catalog entry). For map searches with filters use
+     * {@link #mapElements()}.</p>
+     */
+    default WorldMapElement getWorldMapElement(int id) {
+        for (WorldMapElement e : queryWorldMapElements(Map.of())) {
+            if (e.id() == id) return e;
+        }
+        return null;
+    }
 
     // ---------------------------------------------------------------- Local player & skills
 

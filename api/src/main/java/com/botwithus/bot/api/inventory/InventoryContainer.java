@@ -71,6 +71,16 @@ public class InventoryContainer {
         this.itemTypeLookup = cachedItemTypeLookup(api, defCache);
     }
 
+    /**
+     * Read-only construction for ad-hoc inventories (shops, generic containers)
+     * where the script only needs item-list reads. Interface/component IDs are
+     * unset, so {@code interact} calls will fail — use {@link Backpack},
+     * {@link Bank}, or {@link Equipment} for any inventory with click targets.
+     */
+    public InventoryContainer(GameAPI api, int invId) {
+        this(api, invId, -1, -1);
+    }
+
     public int invId()        { return invId; }
     public int interfaceId()  { return interfaceId; }
     public int componentId()  { return componentId; }
@@ -340,6 +350,11 @@ public class InventoryContainer {
             return false;
         }
         return interact(it.slot(), idx);
+    }
+
+    /** Alias for {@link #interactFirst(int, String)}. */
+    public boolean interact(int itemId, String option) {
+        return interactFirst(itemId, option);
     }
 
     private static int findOptionIndex(List<String> options, String wanted) {
