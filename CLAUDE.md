@@ -8,9 +8,34 @@ JBotWithUsV2 is a modular Java game scripting framework. It binds to a library-l
 
 Group: `com.botwithus` | Gradle 9.5 (Kotlin DSL) | Java 25 toolchain (auto-provisioned by Gradle) | JUnit 5
 
+## This repository is public
+
+`BotWithUs/BWUJavaScriptingFramework` is a **public** GitHub repo, and it is the
+only public repo in the workspace — every sibling project (`NXTLibrary`,
+`BotWithUs-Launcher`, `BotWithUs-Heartbeat`, the runtime forks) is private.
+Anything committed here is world-readable and stays reachable in history even
+after deletion. Before adding a file, check it is none of the following:
+
+- **Security audits, threat models, or vulnerability writeups.** A finding with
+  a `file:line` and a repro is an exploitation roadmap. This includes
+  regression-test javadoc that explains *how* a fixed flaw worked.
+- **Protocol specifications for anything but the game wire.** The pipe + SHM
+  contract below is a deliberate public API and belongs here. The heartbeat
+  auth framing, the SDN envelope/bundle layout, and the licensing path do not —
+  document those on the private side and keep public javadoc to the *contract*
+  (what a method promises), never the *format* (byte layouts, opcodes).
+- **Absolute paths** (`E:\...`), which expose the workspace layout, and
+  **internal tracker URLs** (`trello.com/c/...`).
+- **Planning docs and scratch notes.** These belong in the private
+  `JBotWithUsV2-internal/` tree, which `.gitignore` covers alongside
+  `claudedocs/`.
+
+Naming a private sibling project is fine — that's how the cross-repo lockstep
+below is documented. Describing its internals is not.
+
 ## Producer-side coupling
 
-This repo is the **consumer** half of a tightly-coupled pair. The producer-side DLL lives at `E:\BotWithUsv2.5\NXTLibrary` (C++, freestanding, loaded into the game via our LoadLibrary). When changing anything that crosses the process boundary, grep both repos and update matching call sites in the same logical change:
+This repo is the **consumer** half of a tightly-coupled pair. The producer-side DLL is the `NXTLibrary` project, checked out as a sibling of this one in the same workspace (C++, freestanding, loaded into the game via our LoadLibrary). When changing anything that crosses the process boundary, grep both repos and update matching call sites in the same logical change:
 
 - **Pipe name**: producer publishes `\\.\pipe\BotWithUs_<pid>`. Java side: `core/.../pipe/PipeClient.java` (`NAME_PREFIX`, `firstAvailableOrThrow`), all `new PipeClient(...)` callers.
 - **SHM mapping**: producer publishes `Local\nxt_snapshot_<pid>`. Java side: `core/.../shm/Layout.java` (`MAPPING_NAME_PREFIX`), `SharedRegion`.
@@ -112,7 +137,7 @@ Published mocks for downstream script projects: `MockGameAPI`, `MockScriptContex
 
 **Script installation**: drop JARs in `scripts/` at the project root, **or** install by Maven coordinate via the `scripts install` CLI command (see the README's "Script Repositories" section for the resolver pipeline).
 
-**Scripts directory discovery**: `LocalScriptLoader.resolveScriptsDir()` checks `-Dbotwithus.scripts.dir` first, then walks up to three parents looking for an existing `scripts/`, then falls back to creating `./scripts` in the CWD. If a script JAR isn't being picked up, the loader writes the resolved path to the log — check there before guessing.
+**Scripts directory discovery**: `LocalScriptLoader.resolveScriptsDir()` checks `-Dbotwithus.scripts.dir` first, then `scripts/` in the working directory, then falls back to `~/.botwithus/scripts`. If a script JAR isn't being picked up, the loader writes the resolved path to the log — check there before guessing. It deliberately does **not** search parent directories: every JAR found is loaded as fully-trusted code with no signature check, so a parent-walk let anyone able to create a directory in an ancestor of the CWD replace the entire script set. Running from a subdirectory means passing `-Dbotwithus.scripts.dir` explicitly.
 
 **Logging**: use `private static final Logger log = LoggerFactory.getLogger(ClassName.class);` (from `org.slf4j`). Never use `System.out/err.println` for logging. Scripts get SLF4J transitively from the API module. The MDC keys `script.name` and `connection.name` are set automatically by `ScriptRunner` / `RpcClient`.
 

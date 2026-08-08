@@ -83,37 +83,33 @@ public final class LocalScriptLoader {
     /**
      * Resolves the scripts directory. Checks (in order):
      * 1. System property {@code botwithus.scripts.dir}
-     * 2. {@code scripts/} found by walking up from the working directory
-     *    (handles dev runs from a submodule subdirectory)
+     * 2. {@code scripts/} in the working directory (the build installs the
+     *    example scripts there, so this is the normal dev path)
      * 3. Fallback: {@code ~/.botwithus/scripts}, so an installed app whose
      *    install folder may be read-only still has a writable drop point.
+     *
+     * <p>Every JAR in the resolved directory is loaded as fully-trusted code
+     * with no signature or allow-list check, so the set of places this will
+     * look is deliberately small. It used to walk up to three parent
+     * directories looking for a {@code scripts/}, which meant anyone able to
+     * create a directory in <em>any</em> ancestor of the working directory
+     * could substitute the entire script source. That walk is gone; a dev
+     * running from a subdirectory should pass {@code -D}{@value
+     * #SCRIPTS_DIR_PROPERTY} explicitly.</p>
      */
     static Path resolveScriptsDir() {
         String override = System.getProperty(SCRIPTS_DIR_PROPERTY);
         if (override != null) {
             Path overridePath = Path.of(override);
-            // Security note: every JAR in the resolved dir is loaded with no
-            // signature / allow-list check. Surface a non-default source so a
-            // repointed script dir is visible in the log.
+            // Surface a non-default source so a repointed script dir is
+            // visible in the log.
             log.warn("Scripts dir taken from -D{} override: {}",
                     SCRIPTS_DIR_PROPERTY, overridePath.toAbsolutePath());
             return overridePath;
         }
-        Path dir = Path.of("").toAbsolutePath();
-        for (int i = 0; i < 3; i++) {
-            Path candidate = dir.resolve(SCRIPTS_DIR_NAME);
-            if (Files.isDirectory(candidate)) {
-                if (i > 0) {
-                    log.warn("Scripts dir resolved by walking {} parent(s) up to {} "
-                            + "(loaded without signature/allow-list check)",
-                            i, candidate.toAbsolutePath());
-                }
-                return candidate;
-            }
-            dir = dir.getParent();
-            if (dir == null) {
-                break;
-            }
+        Path candidate = Path.of("").toAbsolutePath().resolve(SCRIPTS_DIR_NAME);
+        if (Files.isDirectory(candidate)) {
+            return candidate;
         }
         return Path.of(System.getProperty("user.home"), USER_CONFIG_DIR_NAME, SCRIPTS_DIR_NAME);
     }

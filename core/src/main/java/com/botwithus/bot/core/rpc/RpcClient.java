@@ -42,6 +42,14 @@ public class RpcClient implements AutoCloseable {
     private static final Logger log = LoggerFactory.getLogger(RpcClient.class);
     private final PipeClient pipe;
     private final AtomicInteger idCounter = new AtomicInteger(1);
+
+    /**
+     * Gap burned in the request-id space on every reconnect, so ids issued
+     * before and after a transport swap cannot collide. Large enough that no
+     * realistic in-flight backlog spans it, small enough that the 32-bit
+     * counter tolerates far more reconnects than a session will ever see.
+     */
+    private static final int ID_RECONNECT_STRIDE = 1_000_000;
     private final ReentrantLock pipeLock = new ReentrantLock();
     private final Condition dataAvailable = pipeLock.newCondition();
     private final ScheduledExecutorService watchdog =
@@ -131,6 +139,13 @@ public class RpcClient implements AutoCloseable {
         pipeLock.lock();
         try {
             pipe.reconnect(pipeName);
+            // Move the id space forward across the reconnect so a response the
+            // old connection owed us can never satisfy matchesId() for a call
+            // issued on the new one. Calls are serialised under pipeLock, so
+            // only one id is ever outstanding; the residual risk this closes is
+            // a stale reply landing on a reused id, which the 32-bit counter
+            // makes reachable on a long-lived host.
+            idCounter.addAndGet(ID_RECONNECT_STRIDE);
         } finally {
             pipeLock.unlock();
         }

@@ -5,6 +5,12 @@ import java.util.function.Consumer;
 
 /**
  * Async pub/sub message bus for inter-script communication over named channels.
+ *
+ * <p><strong>On {@code sender}:</strong> the bus a running script receives is
+ * bound to that script's identity, and the runtime stamps it on every outbound
+ * message. The {@code sender} argument you pass is therefore advisory — what
+ * subscribers observe is the script's registered name, not the string supplied
+ * at the call site. Do not rely on being able to send under another name.</p>
  */
 public interface MessageBus {
 

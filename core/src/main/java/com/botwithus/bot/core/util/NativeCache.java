@@ -165,12 +165,19 @@ public final class NativeCache {
      * Best-effort integrity gate, called immediately before a native DLL is
      * mapped and executed. The native dir is populated out-of-band by the
      * launcher; this canonicalizes the resolved path (resolving symlinks) and,
-     * when the launcher has published a {@code <name>.sha256} sidecar next to
-     * the DLL, verifies the file's SHA-256 against it. Mode via
-     * {@code -Dbotwithus.native.verify}: {@code warn} (default) logs a
-     * mismatch/absence and proceeds — a phased rollout that stays warn-only
-     * until the launcher ships digests; {@code enforce} throws on a mismatch,
-     * an unreadable path, or a missing digest.
+     * when a {@code <name>.sha256} sidecar exists next to the DLL, verifies the
+     * file's SHA-256 against it. Mode via {@code -Dbotwithus.native.verify}:
+     * {@code warn} (default) logs a mismatch/absence and proceeds;
+     * {@code enforce} throws on a mismatch, an unreadable path, or a missing
+     * digest.
+     *
+     * <p><strong>The default is still {@code warn} because the launcher does
+     * not yet publish these sidecars.</strong> It verifies the downloaded
+     * <em>archive</em> against a server hash and records that hash in a
+     * {@code <name>.installed} marker, but writes no per-DLL digest — so
+     * {@code enforce} would currently fail every load. Flipping the default is
+     * blocked on the launcher emitting {@code <name>.sha256} beside each
+     * extracted DLL; until then a tampered DLL is logged, not refused.</p>
      *
      * <p>Returns the canonicalized path to load. This is NOT full DLL-hijack
      * protection: once loaded, Windows resolves the DLL's own dependent imports
@@ -191,8 +198,9 @@ public final class NativeCache {
                 throw new IllegalStateException("no integrity digest " + sidecar + " for " + canonical
                         + " (required by -D" + VERIFY_PROP + "=enforce)");
             }
-            log.debug("native library {} has no integrity digest; set -D{}=enforce to require one",
-                    canonical, VERIFY_PROP);
+            log.warn("native library {} is being loaded WITHOUT an integrity check "
+                            + "(no {} sidecar); set -D{}=enforce to refuse instead",
+                    canonical, SHA256_SIDECAR_SUFFIX, VERIFY_PROP);
             return canonical;
         }
         try {

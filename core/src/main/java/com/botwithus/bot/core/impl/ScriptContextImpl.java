@@ -80,6 +80,22 @@ public class ScriptContextImpl implements ScriptContext {
     }
 
     /**
+     * Returns a copy of this context whose {@link MessageBus} stamps
+     * {@code name} as the sender on every outbound message, so one script
+     * cannot publish, request or respond under another script's identity.
+     * Delivery and subscription semantics are unchanged. A null or blank name
+     * leaves the context as-is.
+     */
+    public ScriptContextImpl withSenderIdentity(String name) {
+        if (name == null || name.isBlank()) {
+            return this;
+        }
+        return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus,
+                new IdentifiedMessageBus(messageBus, name), sharedState,
+                navigation, scriptContext, stopRequested);
+    }
+
+    /**
      * Returns a copy of this context whose {@link #isStopRequested()} reads
      * {@code signal}. Bound by the runtime to the owning runner's stop flag so a
      * script can poll it from inside a long {@code onLoop} and exit cleanly.

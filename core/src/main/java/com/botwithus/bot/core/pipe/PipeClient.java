@@ -28,8 +28,18 @@ public class PipeClient implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(PipeClient.class);
 
-    /** Upper bound on a single length-prefixed message; messages above this are treated as framing corruption. */
-    private static final int MAX_MESSAGE_BYTES = 16 * 1024 * 1024;
+    /**
+     * Upper bound on a single length-prefixed message; anything larger is
+     * treated as framing corruption.
+     *
+     * <p>Matches {@code kMaxMsgSize} in {@code NXTLibrary/src/rpc/PipeServer.cpp}
+     * (and {@code kMaxFrameBytes} in {@code Broker.cpp}). This was 16 MiB — four
+     * times what the producer will ever emit — which let a hostile or
+     * malfunctioning producer force repeated 16 MiB allocations on the reader
+     * thread. Keep the two sides equal: raising this alone does nothing, and
+     * lowering it below the producer's cap would drop legitimate frames.</p>
+     */
+    private static final int MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
     static final String PIPE_PREFIX = "\\\\.\\pipe\\";
 
     /**

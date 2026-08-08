@@ -229,7 +229,8 @@ public class ScriptRuntime {
         // as something scripts poll inside long loops, so it must not cost a
         // by-name scan of the runner lists on every call.
         ScriptContextImpl scoped = impl.withEventBus(bus)
-                .withStopSignal(liveness::isStopRequested);
+                .withStopSignal(liveness::isStopRequested)
+                .withSenderIdentity(name);
         Function<String, ScriptContextPublisher> factory = this.publisherFactory;
         if (factory == null) {
             return new ScopedContext(scoped, bus);

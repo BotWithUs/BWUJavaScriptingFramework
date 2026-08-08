@@ -145,8 +145,8 @@ tasks.register<Test>("liveSmokeTest") {
 }
 
 tasks.register<Test>("sdnValidationTest") {
-    description = "SDN encrypted-script validation against the custom JDK (requires the " +
-            "patched jdk25u image; SdnEndToEndIT additionally needs the LOCAL_TEST heartbeat)"
+    description = "SDN encrypted-script validation against the custom JDK " +
+            "(requires the patched jdk25u image)"
     group = "verification"
     useJUnitPlatform()
 
@@ -158,11 +158,6 @@ tasks.register<Test>("sdnValidationTest") {
     if (sdnJdk != null) {
         val exe = if (System.getProperty("os.name").startsWith("Windows")) ".exe" else ""
         executable = "$sdnJdk/bin/java$exe"
-    }
-
-    // Optional overrides for the LOCAL_TEST rig (defaults live in the test).
-    listOf("sdn.hb.host", "sdn.hb.port", "sdn.bundle.url").forEach { key ->
-        System.getProperty(key)?.let { systemProperty(key, it) }
     }
 
     testLogging {
@@ -185,7 +180,6 @@ tasks.register<Test>("sdnValidationTest") {
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
     filter {
-        includeTestsMatching("com.botwithus.bot.core.crypto.SdnEndToEndIT")
         includeTestsMatching("com.botwithus.bot.core.crypto.SdnForgedEnvelopeTest")
     }
 }

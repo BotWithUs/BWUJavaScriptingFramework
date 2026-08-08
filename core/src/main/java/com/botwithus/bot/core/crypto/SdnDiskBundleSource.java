@@ -21,14 +21,10 @@ import java.util.Optional;
  * key, waits for the courier to deliver the bundle, and constructs the
  * {@code SdnClassLoader} from it. The host itself never touches the network.
  *
- * <p>File protocol in the shared directory, keyed by this JVM's pid:</p>
- * <ul>
- *   <li>{@code <pid>.pub} — written by the host: the 32-byte X25519 public key.</li>
- *   <li>{@code <pid>.sdn} — written by the courier:
- *       {@code [u32 BE jarLen][jar][envelope(168)]}.</li>
- * </ul>
- * Both are written atomically (temp file + atomic rename) so a reader never
- * observes a partial file.
+ * <p>The two files are keyed by this JVM's pid: the host writes {@code <pid>.pub}
+ * (its ephemeral public key) and the courier answers with {@code <pid>.sdn}
+ * (the bundle). Both are written atomically (temp file + atomic rename) so a
+ * reader never observes a partial file, and both are deleted once consumed.
  *
  * <p>Disabled unless {@code -Dbotwithus.sdn.disk=true} (the launcher sets it when
  * launching with SDN delivery active), so local-only startups pay nothing.</p>
