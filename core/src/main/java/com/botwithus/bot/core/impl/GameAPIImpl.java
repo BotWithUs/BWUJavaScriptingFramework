@@ -43,6 +43,7 @@ import com.botwithus.bot.api.model.VarbitType;
 import com.botwithus.bot.api.model.VarbitValue;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldPathConfig;
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Skill;
@@ -794,7 +795,7 @@ public class GameAPIImpl implements GameAPI {
         WwTile start = new WwTile(lp.tileX(), lp.tileY(), lp.plane());
         WwGoal goal = new WwGoal(x, y, lp.plane(), 0);
         try {
-            return lazyWorldWalker().query(start, goal, null) != null;
+            return lazyWorldWalker().query(start, goal, null, currentInstance()) != null;
         } catch (RuntimeException e) {
             log.debug("isReachable query failed: {}", e.toString());
             return false;
@@ -829,7 +830,7 @@ public class GameAPIImpl implements GameAPI {
         WwTile start = new WwTile(fromX, fromY, plane);
         WwGoal goal = new WwGoal(toX, toY, plane, 0);
         try {
-            WwPathResult result = lazyWorldWalker().query(start, goal, null);
+            WwPathResult result = lazyWorldWalker().query(start, goal, null, currentInstance());
             if (result == null) {
                 return notFoundPath();
             }
@@ -846,6 +847,43 @@ public class GameAPIImpl implements GameAPI {
 
     private static PathResult notFoundPath() {
         return new PathResult(false, 0, List.of());
+    }
+
+    /**
+     * The current scene's dynamic-region grid for a one-shot query, or
+     * {@code null} in an ordinary scene.
+     *
+     * <p>Uses {@code copyOfStable} for the same reason the executor's per-plan
+     * pull does. An earlier version skipped it on the theory that a torn read
+     * here only costs a wrong answer to one reachability question — but
+     * {@code findPath} hands its step list straight back to callers, so a script
+     * that walks those tiles turns a torn read into exactly the mis-walked route
+     * the stable copy exists to prevent. The copy costs microseconds against a
+     * graph search.</p>
+     *
+     * <p>Empty means the grid tore on every attempt; it explicitly does not mean
+     * "static", so the query is answered as unreachable rather than being
+     * silently planned against the overworld collision that shares this
+     * instance's coordinates.</p>
+     */
+    private DynamicRegion currentInstance() {
+        GameSnapshot snap = snapshot();
+        if (snap == null) {
+            return null;
+        }
+        DynamicRegion region = snap.dynamicRegion();
+        if (region == null || !region.isInstance()) {
+            return null;
+        }
+        if (region.isTruncated()) {
+            log.warn("query in an instance whose {}x{} chunk grid the producer dropped"
+                            + " (needed {} descriptors); answering unreachable",
+                    region.gridW(), region.gridH(), region.requiredChunks());
+            throw new WorldWalkerException("dynamic-region grid was truncated by the producer");
+        }
+        return DynamicRegion.copyOfStable(snap).orElseThrow(() ->
+                new WorldWalkerException("dynamic-region grid tore on all "
+                        + DynamicRegion.STABLE_COPY_ATTEMPTS + " copy attempts"));
     }
 
     @Override

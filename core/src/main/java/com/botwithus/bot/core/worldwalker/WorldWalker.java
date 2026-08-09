@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.worldwalker;
 
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.util.Throwables;
 import org.slf4j.Logger;
@@ -275,6 +276,26 @@ public final class WorldWalker implements AutoCloseable {
      * @throws IllegalStateException when this handle has been closed
      */
     public WwPathResult query(WwTile start, WwGoal goal, CapabilitySnapshot capabilities) {
+        return query(start, goal, capabilities, null);
+    }
+
+    /**
+     * {@link #query(WwTile, WwGoal, CapabilitySnapshot)} against a scene that
+     * may be a dynamic region (instance).
+     *
+     * <p>{@code instance} is the chunk-descriptor grid the planner resolves
+     * collision through; pass {@code null} (or a region that is not an
+     * instance) for an ordinary scene. Inside an instance the planner routes by
+     * walking only — the baked area graph, its transitions and the global
+     * teleports all describe the static world — and a query whose start and
+     * goal are not both inside the descriptor grid finds no route, because
+     * crossing an instance boundary needs an exit transition nothing bakes
+     * yet.</p>
+     *
+     * @return the assembled path, or {@code null} when no route exists
+     */
+    public WwPathResult query(WwTile start, WwGoal goal, CapabilitySnapshot capabilities,
+                              DynamicRegion instance) {
         Objects.requireNonNull(start, "start");
         Objects.requireNonNull(goal, "goal");
         enterCall();
@@ -286,9 +307,13 @@ public final class WorldWalker implements AutoCloseable {
                     : writeCapabilitySnapshot(tmp, capabilities);
             MemorySegment outPath  = tmp.allocate(WorldWalkerLayouts.WW_PATH);
 
+            MemorySegment instSeg = tmp.allocate(WorldWalkerLayouts.WW_INSTANCE_CHUNKS);
+            WorldWalkerLayouts.writeInstanceChunks(tmp, instSeg, instance);
+
             int rc;
             try {
-                rc = (int) N.wwQuery.invokeExact(artifact, pool, startSeg, goalSeg, capsSeg, outPath);
+                rc = (int) N.wwQueryEx.invokeExact(
+                        artifact, pool, startSeg, goalSeg, capsSeg, instSeg, outPath);
             } catch (Throwable t) {
                 throw rethrow(t);
             }
@@ -323,7 +348,7 @@ public final class WorldWalker implements AutoCloseable {
      * or stuck deadlines using the same artifact + context pool this handle
      * owns; the call returns only when a terminal state is reached.
      *
-     * <p>All ten {@link WwCallbacks} methods are invoked on the calling
+     * <p>Every {@link WwCallbacks} method is invoked on the calling
      * thread. If any callback throws, the executor is cancelled at the next
      * safe point and the original {@link Throwable} is rethrown from this
      * method (preserving {@link Error} and {@link RuntimeException} as-is;

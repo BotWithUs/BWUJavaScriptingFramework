@@ -1,6 +1,10 @@
 package com.botwithus.bot.core.worldwalker;
 
+import com.botwithus.bot.api.snapshot.DynamicRegion;
+
 import java.lang.foreign.MemoryLayout;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.SegmentAllocator;
 import java.lang.foreign.StructLayout;
 import java.lang.foreign.ValueLayout;
 
@@ -99,6 +103,32 @@ final class WorldWalkerLayouts {
             ValueLayout.JAVA_LONG.withName("varpCount")
     );
 
+    /**
+     * {@code WwInstanceChunks} — the dynamic-region descriptor grid handed down at
+     * every (re-)plan: two origin scalars, two grid dimensions, then a
+     * (ptr, count) run over the plane-major descriptor array. 32 bytes on 64-bit
+     * (four ints pack into 16, then the pointer aligns at 16).
+     *
+     * <p>UNITS TRAP: {@code originMapX}/{@code originMapY} are MAPSQUARES while
+     * {@code gridW}/{@code gridH} are CHUNKS — the same trap the wire spec and
+     * {@link com.botwithus.bot.api.snapshot.DynamicRegion} both call out.</p>
+     */
+    static final StructLayout WW_INSTANCE_CHUNKS = MemoryLayout.structLayout(
+            ValueLayout.JAVA_INT.withName("originMapX"),
+            ValueLayout.JAVA_INT.withName("originMapY"),
+            ValueLayout.JAVA_INT.withName("gridW"),
+            ValueLayout.JAVA_INT.withName("gridH"),
+            ValueLayout.ADDRESS.withName("descriptors"),
+            ValueLayout.JAVA_LONG.withName("descriptorCount")
+    );
+
+    static final long IC_ORIGIN_MAP_X_OFFSET      =  0;
+    static final long IC_ORIGIN_MAP_Y_OFFSET      =  4;
+    static final long IC_GRID_W_OFFSET            =  8;
+    static final long IC_GRID_H_OFFSET            = 12;
+    static final long IC_DESCRIPTORS_OFFSET       = 16;
+    static final long IC_DESCRIPTOR_COUNT_OFFSET  = 24;
+
     /** {@code WwEvent { i32 kind; i32 pad; i32 stepIndex; i32 transitionIndex; }} — 16 bytes. */
     static final StructLayout WW_EVENT = MemoryLayout.structLayout(
             ValueLayout.JAVA_INT.withName("kind"),
@@ -117,7 +147,7 @@ final class WorldWalkerLayouts {
             ValueLayout.ADDRESS.withName("user"),
             ValueLayout.ADDRESS.withName("readPosition"),
             ValueLayout.ADDRESS.withName("readCapability"),
-            ValueLayout.ADDRESS.withName("readVarbit"),
+            ValueLayout.ADDRESS.withName("readInstance"),
             ValueLayout.ADDRESS.withName("readItemCount"),
             ValueLayout.ADDRESS.withName("readVarbits"),
             ValueLayout.ADDRESS.withName("readItemCounts"),
@@ -135,7 +165,7 @@ final class WorldWalkerLayouts {
     static final long CB_USER_OFFSET              =   0;
     static final long CB_READ_POSITION_OFFSET     =   8;
     static final long CB_READ_CAPABILITY_OFFSET   =  16;
-    static final long CB_READ_VARBIT_OFFSET       =  24;
+    static final long CB_READ_INSTANCE_OFFSET     =  24;
     static final long CB_READ_ITEM_COUNT_OFFSET   =  32;
     static final long CB_READ_VARBITS_OFFSET      =  40;
     static final long CB_READ_ITEM_COUNTS_OFFSET  =  48;
@@ -158,7 +188,47 @@ final class WorldWalkerLayouts {
         assertSize(WW_CAPABILITY_ENTRY,     8, "WwCapabilityEntry");
         assertSize(WW_CAPABILITY_SNAPSHOT, 64, "WwCapabilitySnapshot");
         assertSize(WW_EVENT,               16, "WwEvent");
+        assertSize(WW_INSTANCE_CHUNKS,     32, "WwInstanceChunks");
         assertSize(WW_CALLBACKS,          120, "WwCallbacks");
+    }
+
+    /**
+     * Marshal a dynamic-region descriptor grid into a {@code WwInstanceChunks}
+     * at {@code view}, allocating the descriptor array from {@code allocator}.
+     *
+     * <p>The struct is zeroed first, so a null, static, truncated or empty
+     * region leaves the native side reading "not an instance" — the ordinary
+     * answer for an overworld scene.</p>
+     *
+     * <p>One implementation for both callers: the executor's {@code readInstance}
+     * upcall and the one-shot {@code ww_query_ex} downcall write the identical
+     * six fields, and a future field on the C struct must not be able to reach
+     * one and miss the other.</p>
+     *
+     * @return {@code true} when a grid was written, {@code false} when the
+     *         struct was left zeroed
+     */
+    static boolean writeInstanceChunks(SegmentAllocator allocator, MemorySegment view,
+                                       DynamicRegion instance) {
+        view.fill((byte) 0);
+        if (instance == null || !instance.isInstance() || instance.isTruncated()) {
+            return false;
+        }
+        int count = instance.chunkCount();
+        if (count <= 0) {
+            return false;
+        }
+        MemorySegment cells = allocator.allocate(ValueLayout.JAVA_INT, count);
+        for (int i = 0; i < count; i++) {
+            cells.setAtIndex(ValueLayout.JAVA_INT, i, instance.chunkAt(i));
+        }
+        view.set(ValueLayout.JAVA_INT,  IC_ORIGIN_MAP_X_OFFSET, instance.originMapX());
+        view.set(ValueLayout.JAVA_INT,  IC_ORIGIN_MAP_Y_OFFSET, instance.originMapY());
+        view.set(ValueLayout.JAVA_INT,  IC_GRID_W_OFFSET, instance.gridW());
+        view.set(ValueLayout.JAVA_INT,  IC_GRID_H_OFFSET, instance.gridH());
+        view.set(ValueLayout.ADDRESS,   IC_DESCRIPTORS_OFFSET, cells);
+        view.set(ValueLayout.JAVA_LONG, IC_DESCRIPTOR_COUNT_OFFSET, count);
+        return true;
     }
 
     private static void assertSize(MemoryLayout layout, long expected, String name) {

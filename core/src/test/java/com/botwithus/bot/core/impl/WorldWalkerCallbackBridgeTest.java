@@ -8,6 +8,7 @@ import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
@@ -18,6 +19,7 @@ import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
 import com.botwithus.bot.core.worldwalker.WwEvent;
 import com.botwithus.bot.core.worldwalker.WwEventKind;
+import com.botwithus.bot.core.worldwalker.WorldWalkerException;
 import com.botwithus.bot.core.worldwalker.WwGoal;
 import com.botwithus.bot.core.worldwalker.WwTile;
 import org.junit.jupiter.api.BeforeEach;
@@ -85,6 +87,74 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(0, pos.x());
         assertEquals(0, pos.y());
         assertEquals(0, pos.plane());
+    }
+
+    // readInstance decides, once per plan, whether the pathfinder resolves
+    // collision through the instance grid or against the static map. Every
+    // branch below is a case where answering "static" would produce a plausible
+    // wrong route rather than a visible failure, so each one is pinned.
+
+    @Test
+    void readInstanceReturnsNullForStaticScene() {
+        when(snapshot.dynamicRegion()).thenReturn(DynamicRegion.STATIC);
+
+        assertNull(bridge.readInstance());
+    }
+
+    @Test
+    void readInstanceReturnsNullWhenSnapshotAbsent() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> null, cancel, events::add, NO_GOAL);
+
+        assertNull(bridge.readInstance());
+    }
+
+    /** An unstubbed snapshot answers null; that must not NPE the walk. */
+    @Test
+    void readInstanceReturnsNullWhenRegionAbsent() {
+        when(snapshot.dynamicRegion()).thenReturn(null);
+
+        assertNull(bridge.readInstance());
+    }
+
+    /**
+     * A truncated grid means the producer dropped it for exceeding the wire cap,
+     * so the scene is an instance we cannot describe at all. Answering "static"
+     * would plan against the overworld collision sharing these coordinates.
+     */
+    @Test
+    void readInstanceThrowsWhenGridTruncated() {
+        DynamicRegion truncated = mock(DynamicRegion.class);
+        when(truncated.isInstance()).thenReturn(true);
+        when(truncated.isTruncated()).thenReturn(true);
+        when(snapshot.dynamicRegion()).thenReturn(truncated);
+
+        assertThrows(WorldWalkerException.class, () -> bridge.readInstance());
+    }
+
+    @Test
+    void readInstanceReturnsStableCopyOfLiveGrid() {
+        DynamicRegion live = mock(DynamicRegion.class);
+        when(live.isInstance()).thenReturn(true);
+        when(live.isTruncated()).thenReturn(false);
+        when(live.originMapX()).thenReturn(40);
+        when(live.originMapY()).thenReturn(50);
+        when(live.gridW()).thenReturn(8);
+        when(live.gridH()).thenReturn(8);
+        when(live.chunkCount()).thenReturn(1);
+        when(live.chunkAt(0)).thenReturn(0x1234);
+        when(snapshot.dynamicRegion()).thenReturn(live);
+
+        DynamicRegion result = bridge.readInstance();
+
+        assertNotNull(result);
+        // A detached copy, not the live flyweight — the whole point, since the
+        // native side reads the descriptors after this returns.
+        assertNotSame(live, result);
+        assertEquals(40, result.originMapX());
+        assertEquals(50, result.originMapY());
+        assertEquals(8, result.gridW());
+        assertEquals(1, result.chunkCount());
+        assertEquals(0x1234, result.chunkAt(0));
     }
 
     @Test

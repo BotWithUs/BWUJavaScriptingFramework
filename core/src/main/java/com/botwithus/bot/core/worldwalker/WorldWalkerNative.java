@@ -42,6 +42,7 @@ final class WorldWalkerNative {
     // ── Query ──────────────────────────────────────────────────────────────
 
     final MethodHandle wwQuery;              // (ptr, ptr, WwTile, WwGoal, ptr, ptr) -> int
+    final MethodHandle wwQueryEx;            // (ptr, ptr, WwTile, WwGoal, ptr, ptr, ptr) -> int
     final MethodHandle wwPathFree;           // (ptr) -> void
 
     // ── Executor ───────────────────────────────────────────────────────────
@@ -58,9 +59,9 @@ final class WorldWalkerNative {
     static final FunctionDescriptor FD_READ_CAPABILITY =
             FunctionDescriptor.ofVoid(ADDRESS, ADDRESS);
 
-    /** {@code int32_t(*)(void *user, int32_t id)}. */
-    static final FunctionDescriptor FD_READ_VARBIT =
-            FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT);
+    /** {@code void(*)(void *user, WwInstanceChunks *outChunks)}. */
+    static final FunctionDescriptor FD_READ_INSTANCE =
+            FunctionDescriptor.ofVoid(ADDRESS, ADDRESS);
 
     /** {@code int32_t(*)(void *user, int32_t itemId)}. */
     static final FunctionDescriptor FD_READ_ITEM_COUNT =
@@ -141,6 +142,19 @@ final class WorldWalkerNative {
                         WorldWalkerLayouts.WW_TILE,             // WwTile (by value)
                         WorldWalkerLayouts.WW_GOAL,             // WwGoal (by value)
                         ADDRESS,                                // const WwCapabilitySnapshot*
+                        ADDRESS));                              // WwPath* (out)
+        // Same call with the scene's dynamic-region grid attached, so a query
+        // issued inside a player-owned house or a Dungeoneering floor resolves
+        // collision through the chunk descriptors instead of reading the whole
+        // instance as unmapped (and therefore solid).
+        wwQueryEx = downcall(linker, lookup, "ww_query_ex",
+                FunctionDescriptor.of(JAVA_INT,
+                        ADDRESS,                                // ww_artifact*
+                        ADDRESS,                                // ww_context_pool*
+                        WorldWalkerLayouts.WW_TILE,             // WwTile (by value)
+                        WorldWalkerLayouts.WW_GOAL,             // WwGoal (by value)
+                        ADDRESS,                                // const WwCapabilitySnapshot*
+                        ADDRESS,                                // const WwInstanceChunks*
                         ADDRESS));                              // WwPath* (out)
         wwPathFree = downcall(linker, lookup, "ww_path_free",
                 FunctionDescriptor.ofVoid(ADDRESS));

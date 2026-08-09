@@ -1,9 +1,11 @@
 package com.botwithus.bot.core.worldwalker;
 
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.Arena;
+import java.lang.foreign.FunctionDescriptor;
 import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandle;
@@ -16,7 +18,7 @@ import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 
 /**
- * Wires {@link WwCallbacks} to ten C-ABI upcall stubs that match the
+ * Wires {@link WwCallbacks} to the fourteen C-ABI upcall stubs that match the
  * {@code WwCallbacks} vtable in {@code worldwalker_c.h}.
  *
  * <p>Each stub catches every {@link Throwable} the callback raises and stores
@@ -28,11 +30,13 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  *
  * <p>All upcall stubs and the {@code WwCallbacks} struct itself live in a
  * single {@link Arena} owned by {@code runExecutor} for the duration of the
- * call. {@code WwCapabilityEntry} arrays produced by repeated
- * {@code readCapability} invocations are allocated into the same arena and
- * accumulate there until {@code runExecutor} returns — bounded in practice
- * (≤ ~400 B per snapshot × a handful of replans) and well below worth the
- * complexity of a recycling arena.</p>
+ * call. Per-plan allocations accumulate there until {@code runExecutor}
+ * returns: {@code WwCapabilityEntry} arrays (≤ ~400 B per snapshot) plus the
+ * dynamic-region descriptor grid, which dominates at up to 64 KB per plan
+ * ({@code Layout.DYN_CHUNK_CAP} = 16384 ints). The native executor caps
+ * re-plans at 3, so the worst case is ~256 KB for one walk — still well below
+ * worth the complexity of a recycling arena, but no longer the negligible
+ * figure the original note quoted.</p>
  */
 final class UpcallStubs {
 
@@ -41,7 +45,7 @@ final class UpcallStubs {
 
     private static final MethodHandle MH_READ_POSITION;
     private static final MethodHandle MH_READ_CAPABILITY;
-    private static final MethodHandle MH_READ_VARBIT;
+    private static final MethodHandle MH_READ_INSTANCE;
     private static final MethodHandle MH_READ_ITEM_COUNT;
     private static final MethodHandle MH_READ_VARBITS;
     private static final MethodHandle MH_READ_ITEM_COUNTS;
@@ -60,8 +64,8 @@ final class UpcallStubs {
                     MethodType.methodType(void.class, Run.class, MemorySegment.class, MemorySegment.class));
             MH_READ_CAPABILITY = LOOKUP.findStatic(UpcallStubs.class, "readCapabilityImpl",
                     MethodType.methodType(void.class, Run.class, MemorySegment.class, MemorySegment.class));
-            MH_READ_VARBIT = LOOKUP.findStatic(UpcallStubs.class, "readVarbitImpl",
-                    MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class));
+            MH_READ_INSTANCE = LOOKUP.findStatic(UpcallStubs.class, "readInstanceImpl",
+                    MethodType.methodType(void.class, Run.class, MemorySegment.class, MemorySegment.class));
             MH_READ_ITEM_COUNT = LOOKUP.findStatic(UpcallStubs.class, "readItemCountImpl",
                     MethodType.methodType(int.class, Run.class, MemorySegment.class, int.class));
             MH_READ_VARBITS = LOOKUP.findStatic(UpcallStubs.class, "readVarbitsImpl",
@@ -99,7 +103,7 @@ final class UpcallStubs {
     private UpcallStubs() {}
 
     /**
-     * Per-{@code runExecutor} state shared across the ten upcall stubs.
+     * Per-{@code runExecutor} state shared across the upcall stubs.
      * Holds the callback instance, the run arena (used for
      * {@code WwCapabilityEntry} arrays), and the first-write-wins error sink.
      */
@@ -135,8 +139,8 @@ final class UpcallStubs {
 
     /**
      * Allocate a {@code WwCallbacks} struct into {@code arena}, populate its
-     * ten slots with upcall stubs that delegate to {@code callbacks}, and
-     * return the wrapping {@link Run}.
+     * function-pointer slots with upcall stubs that delegate to
+     * {@code callbacks}, and return the wrapping {@link Run}.
      *
      * @param linker     {@link Linker#nativeLinker()}
      * @param arena      arena owning the stubs + the struct + run-time
@@ -152,8 +156,8 @@ final class UpcallStubs {
                 stub(linker, arena, MH_READ_POSITION, run, WorldWalkerNative.FD_READ_POSITION));
         struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_CAPABILITY_OFFSET,
                 stub(linker, arena, MH_READ_CAPABILITY, run, WorldWalkerNative.FD_READ_CAPABILITY));
-        struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_VARBIT_OFFSET,
-                stub(linker, arena, MH_READ_VARBIT, run, WorldWalkerNative.FD_READ_VARBIT));
+        struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_INSTANCE_OFFSET,
+                stub(linker, arena, MH_READ_INSTANCE, run, WorldWalkerNative.FD_READ_INSTANCE));
         struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_ITEM_COUNT_OFFSET,
                 stub(linker, arena, MH_READ_ITEM_COUNT, run, WorldWalkerNative.FD_READ_ITEM_COUNT));
         struct.set(ADDRESS, WorldWalkerLayouts.CB_READ_VARBITS_OFFSET,
@@ -182,7 +186,7 @@ final class UpcallStubs {
     }
 
     private static MemorySegment stub(Linker linker, Arena arena, MethodHandle impl,
-                                      Run run, java.lang.foreign.FunctionDescriptor fd) {
+                                      Run run, FunctionDescriptor fd) {
         return linker.upcallStub(impl.bindTo(run), fd, arena);
     }
 
@@ -224,12 +228,42 @@ final class UpcallStubs {
         }
     }
 
-    static int readVarbitImpl(Run run, MemorySegment user, int id) {
+    /**
+     * Marshal the scene's dynamic-region descriptor grid, pulled at every
+     * (re-)plan. A static scene — the common case — is a zeroed struct.
+     *
+     * <p>The struct is zeroed <em>first</em> so every early return and every
+     * throw leaves the native side reading "not an instance" rather than a
+     * half-written grid. Resolving tiles through a partial grid would answer
+     * with plausible wrong tiles instead of failing, which is the worst outcome
+     * a pathfinder can have.</p>
+     *
+     * <p>Descriptors are copied into the run arena. The native side only borrows
+     * them for the duration of this call — it deep-copies into its own storage
+     * on the next statement — so the arena is more lifetime than strictly
+     * required. It is used anyway because it is already the allocator every
+     * other stub reaches for, and reusing a single buffer would need per-run
+     * state for a saving of at most a few hundred KB across a whole walk.</p>
+     */
+    static void readInstanceImpl(Run run, MemorySegment user, MemorySegment outChunks) {
+        MemorySegment view = outChunks.reinterpret(WorldWalkerLayouts.WW_INSTANCE_CHUNKS.byteSize());
+        view.fill((byte) 0);
         try {
-            return run.callbacks.readVarbit(id);
+            DynamicRegion region = run.callbacks.readInstance();
+            boolean written = WorldWalkerLayouts.writeInstanceChunks(run.arena, view, region);
+            if (!written && region != null && region.isInstance()) {
+                // The bridge throws for the cases it knows it cannot describe,
+                // so an instance that marshals to nothing means the region
+                // reported itself as one while carrying no usable grid. Planning
+                // would silently fall back to the static collision that shares
+                // these coordinates, so surface it rather than walk on it.
+                view.fill((byte) 0);
+                run.recordError(new WorldWalkerException(
+                        "readInstance returned an instance with no usable chunk grid"));
+            }
         } catch (Throwable thrown) {
+            view.fill((byte) 0);
             run.recordError(thrown);
-            return 0;
         }
     }
 
