@@ -177,6 +177,7 @@ tasks.register<Test>("liveSmokeTest") {
         includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveLocationsSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveDynamicRegionSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.rpc.LiveStaleRpcSmokeTest")
+        includeTestsMatching("com.botwithus.bot.core.rpc.LiveRetiredWalkerRpcTest")
         includeTestsMatching("com.botwithus.bot.core.impl.LiveComponentApiSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.impl.LiveVariableApiSmokeTest")
     }

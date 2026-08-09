@@ -1,8 +1,8 @@
 package com.botwithus.bot.api.model;
 
 /**
- * Configuration for world-scale pathfinding via {@code walk_world_path}.
- * All fields use defaults matching the server; only override what you need.
+ * Configuration for world-scale pathfinding. All fields use defaults matching
+ * the pathfinder's own; only override what you need.
  *
  * <p>Use the {@link Builder} for convenient construction:</p>
  * <pre>{@code

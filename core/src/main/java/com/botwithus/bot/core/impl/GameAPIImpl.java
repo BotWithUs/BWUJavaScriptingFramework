@@ -675,11 +675,15 @@ public class GameAPIImpl implements GameAPI {
     // ---------------------------------------------------------------- Walker / pathfinder
     //
     // Every walker/pathfinder method routes through the in-process WorldWalker
-    // (worldwalker.dll + baked artifact). The producer-side handlers
-    // (walk_to, walk_world_path, walk_cancel, is_reachable, find_path,
-    // find_world_path, region_cache_*) are no-op stubs — see
-    // NXTLibrary/src/rpc/Handlers.cpp:299-305 — so the public Navigation /
+    // (worldwalker.dll + baked artifact). The agent has no pathfinder and
+    // exposes no walker RPCs — its whole contribution to movement is a single
+    // queue_action WALK click per tile, which the WorldWalker executor drives
+    // through WorldWalkerCallbackBridge. So the public Navigation /
     // NavigationAPI surface only does useful work when an artifact is loaded.
+    //
+    // The walk_arrived / walk_cancelled / walk_failed events these methods
+    // publish are produced HERE, locally, from the executor's terminal status —
+    // the agent never emits those ring event types.
 
     @Override
     public void walkToAsync(int x, int y) {

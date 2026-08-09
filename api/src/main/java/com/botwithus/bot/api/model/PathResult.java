@@ -3,7 +3,7 @@ package com.botwithus.bot.api.model;
 import java.util.List;
 
 /**
- * Result of a pathfinding query ({@code find_path} or {@code find_world_path}).
+ * Result of a pathfinding query.
  *
  * @param found        whether a path was found
  * @param pathLength   number of tiles in the path
