@@ -7,6 +7,7 @@ module com.botwithus.bot.api {
     exports com.botwithus.bot.api.domain;
     exports com.botwithus.bot.api.entities;
     exports com.botwithus.bot.api.event;
+    exports com.botwithus.bot.api.gameval;
     exports com.botwithus.bot.api.inventory;
     exports com.botwithus.bot.api.model;
     exports com.botwithus.bot.api.snapshot;

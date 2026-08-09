@@ -95,6 +95,7 @@ Pure interface module (sole runtime dependency: `slf4j-api`, exposed transitivel
 - **`snapshot/GameSnapshot`** — Tick-scoped read view backed by the SHM mapping. Exposes `self()`, `npcs()`, `players()`, `locations()`, `inventories()`, `serverTick()`, `gameCycle()`, `publishSeq()`, `gameState()`, `sceneVersion()`. Not safe to cache across ticks.
 - **`entities/`** — Fluent query facades (`Npcs`, `Players`, `SceneObjects`, `GroundItems`, `WorldMapElements`) that wrap the snapshot tables with chainable filters.
 - **`inventory/`** — `Backpack`, `Bank`, `Equipment` facades.
+- **`gameval/`** — Contract for gameval name → id lookup (`GamevalIndex`, `GamevalType`, `GamevalEntry`). See *Gameval names* below.
 - **`event/`** — `EventBus` (game-event push from the producer) and event types.
 - **`isc/`** — Inter-Script Communication: `MessageBus` (request/response) + `SharedState` (thread-safe KV).
 - **`script/`** — `ManagementScript` SPI (cross-client orchestration), `ScriptManager`, `ScriptScheduler`, `TaskScript`, `ClientOrchestrator`.
@@ -111,7 +112,8 @@ Runtime, transports, RPC, script discovery, native bridges:
 - **`msgpack/MessagePackCodec`** — Serialization via `org.msgpack:msgpack-core:0.9.8`.
 - **`impl/`** — Concrete implementations: `GameAPIImpl`, `EventBusImpl`, `ClientImpl`, `ClientProviderImpl`, `ScriptContextImpl`, `ScriptManagerImpl`, `ScriptSchedulerImpl`, `MessageBusImpl`, `SharedStateImpl`, `Walker`, plus `impl/snapshot/` for the snapshot view backed by `SharedRegion`.
 - **`runtime/`** — Script lifecycle: `LocalScriptLoader` (filesystem JAR discovery), `SDNScriptLoader` (signed-network distribution), `ManagementScriptLoader`, `ScriptRunner` (per-script virtual thread; sets MDC `script.name` and `connection.name`), `ScriptRuntime`, `ScriptProfiler`, `ConnectionContext`.
-- **`util/NativeCache`** — Path-only resolver for the `~/.botwithus/native/` directory where the NXTCache and WorldWalker DLLs live. Populated by a separate loader (out-of-band from the host); dev work can bypass with `-Dnxtcache.dll=…` / `-Dworldwalker.dll=…` overrides.
+- **`util/NativeCache`** — Path-only resolver for the `~/.botwithus/native/` directory where the NXTCache and WorldWalker DLLs and the gameval index live. Populated by a separate loader (out-of-band from the host); dev work can bypass with `-Dnxtcache.dll=…` / `-Dworldwalker.dll=…` / `-Dbotwithus.gameval=…` overrides.
+- **`gameval/`** — `SqliteGamevalIndex`, the read-only reader over `gameval.sqlite` behind the api's `GamevalIndex`. See *Gameval names* below.
 - **`resolver/`** — Maven-coordinate script installer: discovers versions via `maven-metadata.xml`, fetches JAR + `.sha1`/`.sha256`/`.asc` sidecars, optional PGP verification, writes to `scripts/`, tracks installs in `~/.botwithus/installed-scripts.json`. Repository drivers are plugged in via `RepositoryDriver` ServiceLoader SPI.
 - **`crypto/`** — `SdnLoader` reflects into a JVM-injected `jdk.internal.sdn.SdnClassLoader` for signed scripts (see *Java rules exceptions* below).
 - **`cache/`** — Lazy NXT cache reader for cache-resident asset queries.
@@ -129,6 +131,66 @@ Reference scripts: `ExampleScript` (Script UI demo), `WoodcuttingFletcherScript`
 ### test-support (`com.botwithus.bot.test`, artifact `bot-test-support`)
 
 Published mocks for downstream script projects: `MockGameAPI`, `MockScriptContext`, `CannedSnapshot`, `InMemoryEventBus`.
+
+## Gameval names
+
+A **gameval** is the game's own stable symbolic name for an entity — `YEW_LOGS`,
+`BANK__BANK_INV_BUTTON`, `ZAROS_SPELLBOOK`. Unlike a display name it is unique
+within its namespace, is not localised, and exists for things that have no
+display name at all (interface components, varbits, params). Unlike a raw id it
+survives a game update.
+
+`GameAPI.gamevals()` returns a `GamevalIndex` — never `null`, so a script that
+names something can always ask. The script-facing surface:
+
+```java
+api.npcs().allByGameval("HANS");
+api.objects().query().withGameval("MCANNONCAVE").withinDistance(10).nearest();
+api.groundItems().nearestByGameval("COINS");
+api.components().get("BANK__BANK_INV_BUTTON").interact(1);            // detached, 1 RPC
+api.components().in("BANK").withGameval("BANK__BANK_INV_BUTTON")      // tree-attached,
+        .visible().first();                                           //   composes with filters
+api.components().isOpen("BANK");
+api.backpack().containsGameval("YEW_LOGS");
+api.getVarbit("ZAROS_SPELLBOOK");
+api.gamevals().id(GamevalType.ENUM, "CRAFTING_PLATINUM_TABLE");
+```
+
+Three things to keep straight when extending it:
+
+- **Gameval methods never overload a display-name method.** `contains(String)` /
+  `named(String)` / `nearest(String)` all mean *localised display name, matched
+  by case-insensitive substring*; the gameval siblings are separately named
+  (`containsGameval`, `withGameval`, `nearestByGameval`) because same-signature
+  opposite-semantics overloads would be a silent trap. `Components` is the one
+  exception, and only because its int-taking methods differ in arity or type.
+- **An unresolved name matches nothing, loudly.** `EntityQuery.withGamevalOf` and
+  `ComponentQuery.withGameval` resolve once at query-build time; a stale name
+  drops to `filter(… -> false)` plus a `WARN`. It must never quietly widen a
+  query to every entity in the scene.
+- **`ComponentQuery.withGameval` matches the whole `(interfaceId, componentId)`
+  pair**, not just the component half — a materialized tree is cross-mount aware
+  (`ComponentTreeNode`'s javadoc), so a mounted sub-interface can contribute a
+  node with the same component id. `withId(int)` is component-id only and *does*
+  see both; that asymmetry is deliberate and tested.
+- **Backing data is out-of-band and optional.** `core.gameval.SqliteGamevalIndex`
+  reads `~/.botwithus/native/gameval.sqlite` (override `-Dbotwithus.gameval`),
+  a ~70 MB read-only index of ~814k names baked offline from the game's index-67
+  tables. Absent file → `GamevalIndex.empty()`, every lookup empty,
+  `isAvailable()` false. Lookups are lazy and memoised (hits *and* misses);
+  eagerly loading the whole table would retain ~200 MB. One process-wide index
+  is opened at the composition root (`CliContext.getOrInitGamevals()`,
+  `JBotApplication.openGamevalIndex()`) and shared by every connection — the
+  same treatment `NXTCache` gets.
+
+`meta.schema_version` gates the file: the reader refuses anything but `1`, so a
+format change fails loud rather than misreading rows. `GamevalTypeTest` pins the
+41 `etype` strings, and `GamevalIndexLiveTest` checks a deployed index for drift
+(it skips when none is present).
+
+This is separate from `skilling-core`'s `Atlas` (`resolved.sqlite`), which still
+owns recipes, gather spots and closures and has its own gameval methods against
+that heavier file.
 
 ## Key Patterns
 

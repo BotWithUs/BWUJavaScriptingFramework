@@ -1,11 +1,16 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -32,6 +37,11 @@ import java.util.stream.Stream;
  * @param <Q> self-type for fluent chaining (CRTP)
  */
 public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery<T, Q>> {
+
+    private static final Logger log = LoggerFactory.getLogger(EntityQuery.class);
+
+    /** Sentinel for a gameval name that did not resolve. No entity id is negative. */
+    private static final int UNRESOLVED = -1;
 
     protected final GameAPI api;
     private Predicate<T> filter = t -> true;
@@ -86,6 +96,51 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
     /** Filter by type/definition id. */
     public Q withId(int typeId) {
         return filter(t -> rawTypeId(t) == typeId);
+    }
+
+    /**
+     * Filter by gameval symbolic name — the hook subclasses expose as
+     * {@code withGameval(...)} once they know which {@link GamevalType} their
+     * type ids live in.
+     *
+     * <p>Names are resolved once, here, rather than per candidate. A name that
+     * does not resolve narrows the query to nothing and logs a warning: a stale
+     * or misspelled name must not silently widen the result set to everything.</p>
+     *
+     * @param type     namespace the subclass's type ids live in
+     * @param gamevals one or more names; the filter matches any of them
+     */
+    protected final Q withGamevalOf(GamevalType type, String... gamevals) {
+        int[] ids = Arrays.stream(gamevals)
+                .mapToInt(name -> resolveOrWarn(type, name))
+                .filter(id -> id != UNRESOLVED)
+                .toArray();
+        if (ids.length == 0) {
+            return filter(t -> false);
+        }
+        if (ids.length == 1) {
+            return withId(ids[0]);
+        }
+        return filter(t -> {
+            int id = rawTypeId(t);
+            for (int candidate : ids) {
+                if (candidate == id) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    private int resolveOrWarn(GamevalType type, String gameval) {
+        OptionalInt id = api.gamevals().id(type, gameval);
+        if (id.isEmpty()) {
+            log.warn("gameval {} '{}' did not resolve; this query will match nothing"
+                            + " (is ~/.botwithus/native/gameval.sqlite present and current?)",
+                    type.wire(), gameval);
+            return UNRESOLVED;
+        }
+        return id.getAsInt();
     }
 
     /** Filter to a specific plane. */

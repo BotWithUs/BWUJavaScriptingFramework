@@ -1,6 +1,7 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.model.GroundItemInfo;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -46,6 +47,19 @@ public final class GroundItems {
         return new Query(api, this::lookupType);
     }
 
+    /**
+     * Nearest ground stack of the item with the given gameval name (e.g.
+     * {@code "COINS"}), or {@code null}.
+     */
+    public GroundItem nearestByGameval(String gameval) {
+        return query().withGameval(gameval).nearest();
+    }
+
+    /** All ground stacks of the item with the given gameval name. */
+    public List<GroundItem> allByGameval(String gameval) {
+        return query().withGameval(gameval).all();
+    }
+
     public void clearDefinitionCache() { defCache.clear(); }
     public int definitionCacheSize()   { return defCache.size(); }
 
@@ -71,6 +85,16 @@ public final class GroundItems {
         Query(GameAPI api, IntFunction<ItemType> typeLookup) {
             super(api);
             this.typeLookup = typeLookup;
+        }
+
+        /**
+         * Filter by the item's gameval symbolic name, e.g. {@code "COINS"}.
+         * Pass several to match any of them. Names are resolved once when the
+         * filter is added; an unknown name narrows the query to nothing and
+         * logs a warning.
+         */
+        public Query withGameval(String... gamevals) {
+            return withGamevalOf(GamevalType.ITEM, gamevals);
         }
 
         @Override

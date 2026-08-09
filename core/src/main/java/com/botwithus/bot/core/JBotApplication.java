@@ -1,6 +1,9 @@
 package com.botwithus.bot.core;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.diag.StubGuard;
+import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.core.gameval.SqliteGamevalIndex;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
@@ -48,6 +51,7 @@ public final class JBotApplication {
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
             NXTCache nxtCache = openNxtCacheOrNull();
+            GamevalIndex gamevals = openGamevalIndex();
 
             // Pump owns the SHM mapping; we open it before constructing
             // GameAPIImpl so the entity facades (snapshot reads) can read from
@@ -55,8 +59,9 @@ public final class JBotApplication {
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, nxtCache,
                     () -> new GameSnapshotImpl(pump.region().snapshot()),
-                    new com.botwithus.bot.api.diag.StubGuard(),
-                    eventBus::publish);
+                    new StubGuard(),
+                    eventBus::publish,
+                    gamevals);
             ClientProviderImpl clientProvider = new ClientProviderImpl();
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 
@@ -100,6 +105,7 @@ public final class JBotApplication {
                 pump.close();
                 rpc.close();
                 gameAPI.closeWorldWalker();
+                gamevals.close();
             }));
 
             Thread.currentThread().join();
@@ -107,6 +113,26 @@ public final class JBotApplication {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.error("Fatal error: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Open the shared gameval name index, or the empty one when no
+     * {@code gameval.sqlite} is deployed. Never throws: a missing or unreadable
+     * index degrades gameval lookups to "unknown" rather than blocking startup.
+     */
+    private static GamevalIndex openGamevalIndex() {
+        try {
+            return SqliteGamevalIndex.openDefault()
+                    .<GamevalIndex>map(index -> index)
+                    .orElseGet(() -> {
+                        log.debug("no gameval index — set -Dbotwithus.gameval=<file> or place "
+                                + "gameval.sqlite in ~/.botwithus/native/ to resolve names");
+                        return GamevalIndex.empty();
+                    });
+        } catch (RuntimeException e) {
+            log.warn("gameval index failed to open: {}", e.getMessage());
+            return GamevalIndex.empty();
         }
     }
 

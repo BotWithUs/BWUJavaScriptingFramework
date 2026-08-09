@@ -32,6 +32,14 @@
 # when unset. Also settable via the BOTWITHUS_ATLAS environment variable.
 # botwithus.atlas=C:/path/to/resolved.sqlite
 
+# Baked gameval name index (gameval.sqlite, built by build_gameval_db.py from
+# the game's index-67 tables) that resolves symbolic names — YEW_LOGS,
+# BANK__BANK_INV_BUTTON, ZAROS_SPELLBOOK — to ids. Forwarded as
+# -Dbotwithus.gameval. Falls back to ~/.botwithus/native/gameval.sqlite when
+# unset; when that is absent too, gameval lookups simply resolve to nothing.
+# Also settable via the BOTWITHUS_GAMEVAL environment variable.
+# botwithus.gameval=C:/path/to/gameval.sqlite
+
 # JDK home for jlink/jpackage, when the auto-provisioned Java toolchain can
 # not be discovered. Also settable via the JLINK_JAVA_HOME environment var.
 # jlink.javaHome=C:/path/to/jdk-25

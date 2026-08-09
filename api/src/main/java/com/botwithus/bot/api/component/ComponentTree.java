@@ -50,6 +50,14 @@ public final class ComponentTree {
         return new ComponentTree(api, api.getInterfaceTree(interfaceId, componentId));
     }
 
+    /**
+     * An empty tree that cost no round-trip. Used when a query's root was named
+     * by a gameval that didn't resolve, so there is nothing to fetch.
+     */
+    static ComponentTree empty(GameAPI api) {
+        return new ComponentTree(api, List.of());
+    }
+
     /** The root node, or {@code null} when the subtree didn't resolve (empty tree). */
     public ComponentNode root() {
         return nodes.isEmpty() ? null : nodes.get(0);

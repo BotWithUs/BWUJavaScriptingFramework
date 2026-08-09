@@ -1,7 +1,11 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.diag.StubGuard;
 import com.botwithus.bot.api.entities.GroundItem;
 import com.botwithus.bot.api.entities.SceneObject;
+import com.botwithus.bot.api.gameval.GamevalEntry;
+import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
@@ -15,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -47,11 +52,15 @@ class GameAPIImplSceneObjectsTest {
     private GameAPIImpl api;
 
     private GameAPIImpl build() {
+        return build(GamevalIndex.empty());
+    }
+
+    private GameAPIImpl build(GamevalIndex gamevals) {
         rpc = mock(RpcClient.class);
         snap = new StubSnapshot();
         locTypes = new HashMap<>();
         itemTypes = new HashMap<>();
-        api = new GameAPIImpl(rpc, null, () -> snap) {
+        api = new GameAPIImpl(rpc, null, () -> snap, new StubGuard(), event -> {}, gamevals) {
             @Override public LocationType getLocationType(int id) { return locTypes.get(id); }
             @Override public com.botwithus.bot.api.model.ItemType getItemType(int id) { return itemTypes.get(id); }
         };
@@ -211,7 +220,100 @@ class GameAPIImplSceneObjectsTest {
                 eq(Map.of("action_id", 18, "param1", 7, "param2", 0, "param3", 0)));
     }
 
+    // ---------------------------------------------------------------- Gameval names
+
+    @Test
+    void objectsQueryFiltersByGamevalName() {
+        build(stubIndex(Map.of("YEW", 50, "MAPLE", 51)));
+        snap.self = makeSelf(0, 0, 0);
+        snap.locs.add(directLoc(50, 5, 0, 0));
+        snap.locs.add(directLoc(51, 1, 0, 0));
+
+        List<SceneObject> yews = api.objects().query().withGameval("YEW").all();
+        assertEquals(1, yews.size());
+        assertEquals(50, yews.getFirst().typeId());
+
+        // Several names match any of them, and lookups are case-insensitive
+        // only because the index says so — the query passes the name through.
+        assertEquals(2, api.objects().query().withGameval("YEW", "MAPLE").count());
+        assertEquals(50, api.objects().nearestByGameval("YEW").typeId());
+        assertEquals(1, api.objects().allByGameval("MAPLE").size());
+    }
+
+    @Test
+    void unresolvedGamevalMatchesNothingRatherThanEverything() {
+        // The failure mode this guards: a filter that silently drops out and
+        // leaves the query matching every entity in the scene.
+        build(stubIndex(Map.of("YEW", 50)));
+        snap.locs.add(directLoc(50, 5, 0, 0));
+        snap.locs.add(directLoc(51, 1, 0, 0));
+
+        assertEquals(0, api.objects().query().withGameval("NOT_A_REAL_NAME").count());
+        assertNull(api.objects().nearestByGameval("NOT_A_REAL_NAME"));
+        // A partially-resolvable set keeps the names that did resolve.
+        assertEquals(1, api.objects().query().withGameval("NOT_A_REAL_NAME", "YEW").count());
+    }
+
+    @Test
+    void gamevalQueriesResolveNothingWithoutAnIndex() {
+        build();
+        snap.locs.add(directLoc(50, 5, 0, 0));
+        assertEquals(0, api.objects().query().withGameval("YEW").count());
+        assertEquals(0, api.groundItems().query().withGameval("COINS").count());
+    }
+
+    @Test
+    void groundItemsQueryFiltersByGamevalName() {
+        build(stubIndex(Map.of("COINS", 995)));
+        snap.grounds.add(new com.botwithus.bot.api.snapshot.GroundItem(995, 1000, 0, 0, 0));
+        snap.grounds.add(new com.botwithus.bot.api.snapshot.GroundItem(1515, 1, 0, 0, 0));
+        itemTypes.put(995, makeItem(995, "Coins", List.of("Take")));
+
+        assertEquals(1, api.groundItems().query().withGameval("COINS").count());
+        assertEquals(1000, api.groundItems().nearestByGameval("COINS").quantity());
+    }
+
+    @Test
+    void componentsByGamevalSpendNoRpcWhenTheNameIsUnknown() {
+        build(stubIndex(Map.of()));
+        assertNull(api.components().get("BANK__BANK_INV_BUTTON"));
+        assertFalse(api.components().isOpen("BANK"));
+        assertEquals(0, api.components().in("BANK").count());
+        assertNull(api.components().under("BANK__CONTENT").root());
+        verify(rpc, times(0)).callSync(eq("get_component"), anyMap());
+        verify(rpc, times(0)).callSync(eq("get_interface_tree"), anyMap());
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    /**
+     * A gameval index over a fixed name→id map. Every name is looked up in the
+     * one namespace, which is enough here: each facade only ever consults its
+     * own type, so a shared map cannot cross-talk within a single assertion.
+     */
+    private static GamevalIndex stubIndex(Map<String, Integer> byName) {
+        return new GamevalIndex() {
+            @Override public OptionalInt id(GamevalType type, String gameval) {
+                Integer found = byName.get(gameval);
+                return found == null ? OptionalInt.empty() : OptionalInt.of(found);
+            }
+
+            @Override public Optional<String> gameval(GamevalType type, int id) {
+                return byName.entrySet().stream()
+                        .filter(e -> e.getValue() == id)
+                        .map(Map.Entry::getKey)
+                        .findFirst();
+            }
+
+            @Override public List<GamevalEntry> startingWith(GamevalType t, String p, int n) {
+                return List.of();
+            }
+
+            @Override public boolean isAvailable() { return true; }
+
+            @Override public Optional<String> meta(String key) { return Optional.empty(); }
+        };
+    }
 
     private static LocalPlayer makeSelf(int x, int y, int plane) {
         return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, -1, List.of());

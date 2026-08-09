@@ -1,6 +1,9 @@
 package com.botwithus.bot.api.component;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.model.ComponentRef;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,6 +27,16 @@ import java.util.stream.Stream;
  * }</pre>
  */
 public final class ComponentQuery {
+
+    /**
+     * Root interface id standing for "the gameval naming this root did not
+     * resolve". Real interface ids are non-negative, so this can never collide;
+     * {@link #materialize()} short-circuits on it rather than spending a
+     * round-trip on a lookup that cannot succeed.
+     */
+    static final int UNRESOLVED_INTERFACE = -1;
+
+    private static final Logger log = LoggerFactory.getLogger(ComponentQuery.class);
 
     private final GameAPI api;
     private final int rootInterfaceId;
@@ -50,6 +63,52 @@ public final class ComponentQuery {
     /** Filter by component id within the interface. */
     public ComponentQuery withId(int componentId) {
         return filter(node -> node.componentId() == componentId);
+    }
+
+    /**
+     * Filter by gameval symbolic name, e.g. {@code "BANK__BANK_INV_BUTTON"}.
+     * Pass several to match any of them.
+     *
+     * <p>Matches on the <em>whole</em> {@code (interfaceId, componentId)} pair a
+     * gameval encodes, not just the component half — a materialized tree is
+     * cross-mount aware and can carry nodes from more than one interface, so
+     * matching the component id alone would collide across mounts.</p>
+     *
+     * <p>Names are resolved once when the filter is added. A name that does not
+     * resolve narrows the query to nothing and logs a warning — a stale name
+     * must not silently widen the result set.</p>
+     *
+     * <pre>{@code
+     * ComponentNode inv = api.components().in("BANK")
+     *         .withGameval("BANK__BANK_INV_BUTTON")
+     *         .visible()
+     *         .first();
+     * }</pre>
+     */
+    public ComponentQuery withGameval(String... gamevals) {
+        List<ComponentRef> refs = new ArrayList<>(gamevals.length);
+        for (String gameval : gamevals) {
+            Optional<ComponentRef> ref = api.gamevals().component(gameval);
+            if (ref.isPresent()) {
+                refs.add(ref.get());
+            } else {
+                log.warn("gameval component '{}' did not resolve; this query will match nothing"
+                                + " (is ~/.botwithus/native/gameval.sqlite present and current?)",
+                        gameval);
+            }
+        }
+        if (refs.isEmpty()) {
+            return filter(node -> false);
+        }
+        return filter(node -> {
+            for (ComponentRef ref : refs) {
+                if (node.interfaceId() == ref.interfaceId()
+                        && node.componentId() == ref.componentId()) {
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 
     /** Filter to a single semantic category. */
@@ -173,7 +232,9 @@ public final class ComponentQuery {
 
     private ComponentTree materialize() {
         if (cachedTree == null) {
-            cachedTree = ComponentTree.fetch(api, rootInterfaceId, rootComponentId);
+            cachedTree = rootInterfaceId == UNRESOLVED_INTERFACE
+                    ? ComponentTree.empty(api)
+                    : ComponentTree.fetch(api, rootInterfaceId, rootComponentId);
         }
         return cachedTree;
     }

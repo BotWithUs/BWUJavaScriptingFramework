@@ -11,6 +11,8 @@ import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
+import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
@@ -76,6 +78,61 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * Each call resolves the published front buffer.</p>
      */
     GameSnapshot snapshot();
+
+    // ---------------------------------------------------------------- Gameval names
+
+    /**
+     * Resolves gameval symbolic names — the game's own stable names for items,
+     * scenery, NPCs, interfaces, components and variables — to ids. Never
+     * {@code null}: when no index is deployed this returns
+     * {@link GamevalIndex#empty()}, whose lookups all come back empty.
+     *
+     * <p>Backed by an out-of-band {@code gameval.sqlite} in
+     * {@code ~/.botwithus/native/}, so a game renumber is fixed by refreshing
+     * that file rather than by editing scripts. The same instance is shared by
+     * every connected client.</p>
+     *
+     * <pre>{@code
+     * int yew = api.gamevals().require(GamevalType.ITEM, "YEW_LOGS");
+     * }</pre>
+     */
+    default GamevalIndex gamevals() {
+        return GamevalIndex.empty();
+    }
+
+    /**
+     * Value of a player variable named by its gameval, e.g.
+     * {@code "WOODCUTTING_WOODBOX_LASTUSED_TIER"}. Convenience over
+     * {@link #getVarp(int)}.
+     *
+     * @throws com.botwithus.bot.api.gameval.GamevalNotFoundException when the
+     *         name is unknown or no gameval index is deployed
+     */
+    default int getVarp(String gameval) {
+        return getVarp(gamevals().require(GamevalType.VARP, gameval));
+    }
+
+    /**
+     * Value of a variable bit named by its gameval, e.g.
+     * {@code "ZAROS_SPELLBOOK"}. Convenience over {@link #getVarbit(int)}.
+     *
+     * @throws com.botwithus.bot.api.gameval.GamevalNotFoundException when the
+     *         name is unknown or no gameval index is deployed
+     */
+    default int getVarbit(String gameval) {
+        return getVarbit(gamevals().require(GamevalType.VARBIT, gameval));
+    }
+
+    /**
+     * Value of an integer client variable named by its gameval. Convenience
+     * over {@link #getVarcInt(int)}.
+     *
+     * @throws com.botwithus.bot.api.gameval.GamevalNotFoundException when the
+     *         name is unknown or no gameval index is deployed
+     */
+    default int getVarcInt(String gameval) {
+        return getVarcInt(gamevals().require(GamevalType.VAR_CLIENT, gameval));
+    }
 
     // ---------------------------------------------------------------- Entity queries
 

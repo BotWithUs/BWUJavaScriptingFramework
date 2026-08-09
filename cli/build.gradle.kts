@@ -99,6 +99,12 @@ tasks.named<JavaExec>("run") {
     // ~/.botwithus/native/resolved.sqlite.
     project.localProperty("botwithus.atlas", "BOTWITHUS_ATLAS")
         ?.let { jvmArgs("-Dbotwithus.atlas=$it") }
+    // Optional: dev override for the baked gameval name index (gameval.sqlite),
+    // read by core.gameval.SqliteGamevalIndex via NativeCache.locateGamevalDb().
+    // When unset, falls back to ~/.botwithus/native/gameval.sqlite; when that is
+    // absent too, gameval lookups resolve to nothing.
+    project.localProperty("botwithus.gameval", "BOTWITHUS_GAMEVAL")
+        ?.let { jvmArgs("-Dbotwithus.gameval=$it") }
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink
@@ -138,7 +144,14 @@ jlink {
             // com.botwithus.merged.module — LWJGL's System.load() trips the
             // same restriction from there, so the merged module is on the
             // list too.
-            "--enable-native-access=com.botwithus.bot.core,com.botwithus.merged.module",
+            //
+            // sqlite-jdbc ships a real module-info, so it links as itself
+            // rather than being merged; it System.load()s its own native lib
+            // when core opens the gameval index or a skilling script opens the
+            // Atlas, so it needs its own entry here (the `run` task already
+            // has one).
+            "--enable-native-access=com.botwithus.bot.core,com.botwithus.merged.module,"
+                    + "org.xerial.sqlitejdbc",
         )
     }
     forceMerge("lwjgl")

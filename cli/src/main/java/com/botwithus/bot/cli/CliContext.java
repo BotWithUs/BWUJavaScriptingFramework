@@ -41,6 +41,8 @@ import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.cache.NXTCache;
+import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.core.gameval.SqliteGamevalIndex;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -98,6 +100,7 @@ public class CliContext {
     private ManagementScriptRuntime managementRuntime;
     private NXTCache nxtCache;
     private boolean nxtCacheInitAttempted;
+    private GamevalIndex gamevals;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
@@ -129,6 +132,46 @@ public class CliContext {
             log.warn("NXTCache failed to open: {}", t.getMessage());
         }
         return nxtCache;
+    }
+
+    /**
+     * Lazy-init the process-wide gameval name index, sharing one handle across
+     * every GameAPIImpl for the same reason {@link #getOrInitNxtCache()} does.
+     * Never null and never throws: when no {@code gameval.sqlite} is deployed
+     * (or it fails to open) this is {@link GamevalIndex#empty()}, whose lookups
+     * all come back empty, so scripts degrade instead of crashing. No separate
+     * "attempted" flag is needed — the empty index is itself a valid result.
+     */
+    private synchronized GamevalIndex getOrInitGamevals() {
+        if (gamevals != null) {
+            return gamevals;
+        }
+        try {
+            gamevals = SqliteGamevalIndex.openDefault()
+                    .<GamevalIndex>map(index -> index)
+                    .orElseGet(() -> {
+                        log.debug("no gameval index — set -Dbotwithus.gameval=<file> or place "
+                                + "gameval.sqlite in ~/.botwithus/native/ to resolve names");
+                        return GamevalIndex.empty();
+                    });
+        } catch (RuntimeException e) {
+            log.warn("gameval index failed to open: {}", e.getMessage());
+            gamevals = GamevalIndex.empty();
+        }
+        return gamevals;
+    }
+
+    /**
+     * Release the shared gameval index. Called from the two shutdown paths
+     * (the {@code exit} command and the GUI's close handler) — not from
+     * {@link #disconnectAll(boolean)}, which is also a mid-session operation.
+     * Clears the field, so a later connection simply reopens the index.
+     */
+    public synchronized void closeGamevals() {
+        if (gamevals != null) {
+            gamevals.close();
+            gamevals = null;
+        }
     }
 
     public void setStreamManager(StreamManager sm) { this.streamManager = sm; }
@@ -195,7 +238,8 @@ public class CliContext {
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
                     () -> new GameSnapshotImpl(pump.region().snapshot()),
                     new StubGuard(),
-                    eventBus::publish);
+                    eventBus::publish,
+                    getOrInitGamevals());
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 
             rpc.start();

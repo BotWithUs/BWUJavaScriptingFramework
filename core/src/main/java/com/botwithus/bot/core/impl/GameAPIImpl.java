@@ -13,6 +13,7 @@ import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
+import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
@@ -123,6 +124,14 @@ public class GameAPIImpl implements GameAPI {
      */
     private final Consumer<? super GameEvent> eventPublisher;
 
+    /**
+     * Gameval name → id resolver. Process-wide: the composition root opens one
+     * index over {@code ~/.botwithus/native/gameval.sqlite} and passes the same
+     * instance to every connection. Never {@code null} — callers that have no
+     * index pass {@link GamevalIndex#empty()}, whose lookups all come back empty.
+     */
+    private final GamevalIndex gamevals;
+
     private volatile WorldWalker worldWalker;
     private final Object worldWalkerLock = new Object();
 
@@ -194,17 +203,36 @@ public class GameAPIImpl implements GameAPI {
                        Supplier<GameSnapshot> snapshotSource,
                        StubGuard stubGuard,
                        Consumer<? super GameEvent> eventPublisher) {
+        this(rpc, cache, snapshotSource, stubGuard, eventPublisher, GamevalIndex.empty());
+    }
+
+    /**
+     * Full ctor, additionally taking the shared {@link GamevalIndex} that
+     * resolves gameval symbolic names. Production wiring opens one index per
+     * process and hands the same instance to every connection; the shorter ctors
+     * chain to {@link GamevalIndex#empty()} so tests and legacy callers keep
+     * compiling and simply resolve no names.
+     */
+    public GameAPIImpl(RpcClient rpc, NXTCache cache,
+                       Supplier<GameSnapshot> snapshotSource,
+                       StubGuard stubGuard,
+                       Consumer<? super GameEvent> eventPublisher,
+                       GamevalIndex gamevals) {
         if (stubGuard == null) {
             throw new IllegalArgumentException("stubGuard");
         }
         if (eventPublisher == null) {
             throw new IllegalArgumentException("eventPublisher");
         }
+        if (gamevals == null) {
+            throw new IllegalArgumentException("gamevals");
+        }
         this.rpc = rpc;
         this.cache = cache;
         this.snapshotSource = snapshotSource;
         this.stubGuard = stubGuard;
         this.eventPublisher = eventPublisher;
+        this.gamevals = gamevals;
     }
 
     // ---------------------------------------------------------------- Snapshot + entities
@@ -213,6 +241,9 @@ public class GameAPIImpl implements GameAPI {
     public GameSnapshot snapshot() {
         return snapshotSource != null ? snapshotSource.get() : null;
     }
+
+    @Override
+    public GamevalIndex gamevals() { return gamevals; }
 
     @Override
     public Npcs npcs() { return npcsFacade; }

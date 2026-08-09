@@ -18,10 +18,30 @@ dependencies {
     implementation(libs.msgpack.core)
     implementation(libs.gson)
     implementation(libs.logback.classic)
+    // Reader for the baked gameval name index (~/.botwithus/native/gameval.sqlite).
+    // skilling-core already ships this at runtime via its own `implementation`,
+    // but core now compiles against it directly, so declare it here too.
+    implementation(libs.sqlite.jdbc)
 }
 
 extraJavaModuleInfo {
     automaticModule("org.msgpack:msgpack-core", "msgpack.core")
+    // No entry for sqlite-jdbc: since 3.47 it ships a real module-info
+    // (`org.xerial.sqlitejdbc`), so it needs no patching and jlink can link it
+    // directly. Adding one fails the transform with "patching of real modules
+    // must be explicitly enabled".
+}
+
+tasks.named<Test>("test") {
+    // GamevalIndexLiveTest skips cleanly (JUnit Assumptions) when no
+    // gameval.sqlite is present, and otherwise picks up the one in
+    // ~/.botwithus/native/. Forward the dev override so it can be pointed
+    // elsewhere:
+    //   ./gradlew :core:test -Dbotwithus.gameval=<path>\gameval.sqlite
+    System.getProperty("botwithus.gameval")?.let { systemProperty("botwithus.gameval", it) }
+    // sqlite-jdbc System.load()s its native lib when the gameval tests open an
+    // index; without this the JVM prints a restricted-method warning per fork.
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
 tasks.register<JavaExec>("benchmark") {

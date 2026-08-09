@@ -2,7 +2,10 @@ package com.botwithus.bot.api.component;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentRef;
 
+import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Predicate;
 
 /**
@@ -87,5 +90,66 @@ public final class Components {
     public ComponentNode pickAt(int screenX, int screenY) {
         Component data = api.findComponentAt(screenX, screenY);
         return data == null ? null : new ComponentNode(api, data, null, DETACHED_INDEX);
+    }
+
+    // ---------------------------------------------------------------- Gameval names
+
+    /**
+     * Query over the whole interface named by its gameval, e.g. {@code "BANK"}.
+     * Returns an empty query when the name doesn't resolve.
+     *
+     * <pre>{@code
+     * ComponentNode close = api.components().in("BANK")
+     *         .withType(ComponentType.MODEL)
+     *         .first();
+     * }</pre>
+     */
+    public ComponentQuery in(String interfaceGameval) {
+        OptionalInt id = api.gamevals().interfaceId(interfaceGameval);
+        return id.isPresent() ? in(id.getAsInt()) : new ComponentQuery(api, ComponentQuery.UNRESOLVED_INTERFACE, ROOT_COMPONENT_ID);
+    }
+
+    /**
+     * Query over the subtree rooted at the component named by its gameval, e.g.
+     * {@code "BANK__CONTENT"}. Returns an empty query when the name doesn't
+     * resolve.
+     */
+    public ComponentQuery under(String componentGameval) {
+        Optional<ComponentRef> ref = api.gamevals().component(componentGameval);
+        return ref.map(r -> under(r.interfaceId(), r.componentId()))
+                .orElseGet(() -> new ComponentQuery(api, ComponentQuery.UNRESOLVED_INTERFACE, ROOT_COMPONENT_ID));
+    }
+
+    /**
+     * Single component named by its gameval, e.g. {@code "BANK__BANK_INV_BUTTON"}
+     * → interface 517, component 39. {@code null} when the name doesn't resolve
+     * or the component isn't loaded — the gameval names every component the
+     * cache defines, not just the ones currently on screen.
+     *
+     * <pre>{@code
+     * ComponentNode inv = api.components().get("BANK__BANK_INV_BUTTON");
+     * if (inv != null) {
+     *     inv.interact(1);
+     * }
+     * }</pre>
+     */
+    public ComponentNode get(String componentGameval) {
+        return api.gamevals().component(componentGameval)
+                .map(r -> get(r.interfaceId(), r.componentId()))
+                .orElse(null);
+    }
+
+    /** True when the interface named by its gameval is currently loaded. */
+    public boolean isOpen(String interfaceGameval) {
+        OptionalInt id = api.gamevals().interfaceId(interfaceGameval);
+        return id.isPresent() && isOpen(id.getAsInt());
+    }
+
+    /**
+     * Convenience: first node in the gameval-named interface matching
+     * {@code predicate}, or {@code null}.
+     */
+    public ComponentNode find(String interfaceGameval, Predicate<ComponentNode> predicate) {
+        return in(interfaceGameval).filter(predicate).first();
     }
 }

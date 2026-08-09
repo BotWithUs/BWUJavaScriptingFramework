@@ -1,6 +1,7 @@
 package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -70,6 +71,25 @@ public final class SceneObjects {
         return query().withId(typeId).all();
     }
 
+    /**
+     * Nearest scene object with the given gameval name (e.g.
+     * {@code "MCANNONCAVE"}), or {@code null}. Distinct from
+     * {@link #nearest(String)}, which matches the localised <em>display</em>
+     * name — and unlike a display name, a gameval distinguishes the many
+     * scenery types that share one label.
+     */
+    public SceneObject nearestByGameval(String gameval) {
+        return query().withGameval(gameval).nearest();
+    }
+
+    /**
+     * All scene objects with the given gameval name. Distinct from
+     * {@link #all(String)}, which matches the localised <em>display</em> name.
+     */
+    public List<SceneObject> allByGameval(String gameval) {
+        return query().withGameval(gameval).all();
+    }
+
     public void clearDefinitionCache() { defCache.clear(); }
     public int definitionCacheSize()   { return defCache.size(); }
 
@@ -95,6 +115,16 @@ public final class SceneObjects {
         Query(GameAPI api, IntFunction<LocationType> typeLookup) {
             super(api);
             this.typeLookup = typeLookup;
+        }
+
+        /**
+         * Filter by gameval symbolic name, e.g. {@code "MCANNONCAVE"} — the
+         * cache's {@code loc} namespace. Pass several to match any of them.
+         * Names are resolved once when the filter is added; an unknown name
+         * narrows the query to nothing and logs a warning.
+         */
+        public Query withGameval(String... gamevals) {
+            return withGamevalOf(GamevalType.LOC, gamevals);
         }
 
         @Override

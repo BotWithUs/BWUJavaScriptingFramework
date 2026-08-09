@@ -53,6 +53,9 @@ public final class NativeCache {
     public static final String WORLDWALKER_SPELL_TELEPORTS_NAME = "spell_teleports.json";
     public static final String WORLDWALKER_ITEM_TELEPORTS_NAME = "item_teleports.json";
 
+    /** File name of the baked gameval name index within the native cache. */
+    public static final String GAMEVAL_DB_NAME = "gameval.sqlite";
+
     private final Path cacheDir;
 
     /** Cache rooted at the user's home directory ({@code ~/.botwithus/native/}). */
@@ -139,6 +142,26 @@ public final class NativeCache {
             }
         }
         Path cached = new NativeCache().resolve(WORLDWALKER_ARTIFACT_NAME);
+        return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();
+    }
+
+    /**
+     * Locate the baked gameval name index ({@code gameval.sqlite}) on disk
+     * without opening it. Same precedence as {@link #locateWorldWalkerDll()}:
+     * the {@code -Dbotwithus.gameval} override first (when it points at an
+     * existing file), then the cache entry under the default cache root.
+     * Returns empty when neither is present, in which case the host runs with
+     * {@code GamevalIndex.empty()} and gameval lookups resolve to nothing.
+     */
+    public static Optional<Path> locateGamevalDb() {
+        String override = System.getProperty("botwithus.gameval");
+        if (override != null && !override.isBlank()) {
+            Path overridePath = Path.of(override);
+            if (Files.isRegularFile(overridePath)) {
+                return Optional.of(overridePath);
+            }
+        }
+        Path cached = new NativeCache().resolve(GAMEVAL_DB_NAME);
         return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();
     }
 

@@ -1,6 +1,7 @@
 package com.botwithus.bot.api.inventory;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -14,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntFunction;
 
@@ -277,6 +279,63 @@ public class InventoryContainer {
             return false;
         }
         return t.name().toLowerCase().contains(needle.toLowerCase());
+    }
+
+    // ------------------------------------------------------------ Gameval names
+
+    /*
+     * The String-taking methods above match the localised DISPLAY name by
+     * case-insensitive substring. The ones below match a gameval symbolic name
+     * exactly. The two are deliberately NOT overloads of each other — same
+     * signature, opposite semantics — so do not "unify" them later.
+     */
+
+    /** Item id for a gameval name, or empty when it doesn't resolve. */
+    protected OptionalInt gamevalItemId(String gameval) {
+        return api.gamevals().id(GamevalType.ITEM, gameval);
+    }
+
+    /** Containment by gameval name, e.g. {@code "YEW_LOGS"}. */
+    public boolean containsGameval(String gameval) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() && contains(id.getAsInt());
+    }
+
+    /** Total quantity of the item with the given gameval name. */
+    public int countGameval(String gameval) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() ? count(id.getAsInt()) : 0;
+    }
+
+    /** First slot holding the item with the given gameval name, or {@code null}. */
+    public InventoryItem getFirstGameval(String gameval) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() ? getFirst(id.getAsInt()) : null;
+    }
+
+    /** First slot holding the item with the given gameval name, as an Optional. */
+    public Optional<InventoryItem> findFirstGameval(String gameval) {
+        return Optional.ofNullable(getFirstGameval(gameval));
+    }
+
+    /**
+     * Click the first slot holding the item with the given gameval name, using
+     * the given 1-based option index. {@code false} when the name doesn't
+     * resolve or the item isn't present.
+     */
+    public boolean interactFirstGameval(String gameval, int optionIndex) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() && interactFirst(id.getAsInt(), optionIndex);
+    }
+
+    /**
+     * Click the first slot holding the item with the given gameval name, using
+     * the named option. {@code false} when the name doesn't resolve, the item
+     * isn't present, or the option isn't offered.
+     */
+    public boolean interactFirstGameval(String gameval, String option) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() && interactFirst(id.getAsInt(), option);
     }
 
     /** Pull ItemType through the subclass-provided cache. {@code null} on failure. */
