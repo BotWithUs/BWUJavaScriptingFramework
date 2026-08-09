@@ -265,12 +265,24 @@ class GameAPIImplSceneObjectsTest {
     @Test
     void groundItemsQueryFiltersByGamevalName() {
         build(stubIndex(Map.of("COINS", 995)));
-        snap.grounds.add(new com.botwithus.bot.api.snapshot.GroundItem(995, 1000, 0, 0, 0));
-        snap.grounds.add(new com.botwithus.bot.api.snapshot.GroundItem(1515, 1, 0, 0, 0));
+        snap.grounds.add(groundStack(995, 1000));
+        snap.grounds.add(groundStack(1515, 1));
         itemTypes.put(995, makeItem(995, "Coins", List.of("Take")));
 
         assertEquals(1, api.groundItems().query().withGameval("COINS").count());
         assertEquals(1000, api.groundItems().nearestByGameval("COINS").quantity());
+    }
+
+    @Test
+    void emptyGamevalListMatchesNothing() {
+        // Not the same as "every name failed": building a filter from an empty
+        // list is silent unless the query says so.
+        build(stubIndex(Map.of("YEW", 50)));
+        snap.locs.add(directLoc(50, 5, 0, 0));
+        snap.locs.add(directLoc(51, 1, 0, 0));
+
+        assertEquals(0, api.objects().query().withGameval().count());
+        assertEquals(0, api.objects().query().withGameval(new String[0]).count());
     }
 
     @Test
@@ -333,6 +345,15 @@ class GameAPIImplSceneObjectsTest {
 
     private static LocationType makeLoc(int id, String name, List<String> options) {
         return new LocationType(id, name, 1, 1, 0, 0, false, options, -1, -1, List.of(), 0, Map.of());
+    }
+
+    /**
+     * Snapshot ground-item row. A named factory rather than an inline
+     * constructor call because the snapshot type collides with the entity
+     * wrapper {@code GroundItem} this file imports.
+     */
+    private static com.botwithus.bot.api.snapshot.GroundItem groundStack(int itemId, int quantity) {
+        return new com.botwithus.bot.api.snapshot.GroundItem(itemId, quantity, 0, 0, 0);
     }
 
     private static com.botwithus.bot.api.model.ItemType makeItem(int id, String name, List<String> ground) {

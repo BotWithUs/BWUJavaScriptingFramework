@@ -35,6 +35,7 @@ import com.botwithus.bot.api.snapshot.LocalPlayer;
 
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 /**
  * Slim RPC-shaped surface for talking to the game producer. After the
@@ -61,6 +62,13 @@ import java.util.Map;
  * @see ScriptContext#getGameAPI()
  */
 public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAPI {
+
+    /**
+     * Value the gameval-named variable reads return when the name does not
+     * resolve — the same sentinel {@link #getVarp(int)} yields for an unset
+     * variable, so callers need only one "no value" check.
+     */
+    int UNRESOLVED_VARIABLE = -1;
 
     // ---------------------------------------------------------------- Snapshot
 
@@ -105,33 +113,35 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * {@code "WOODCUTTING_WOODBOX_LASTUSED_TIER"}. Convenience over
      * {@link #getVarp(int)}.
      *
-     * @throws com.botwithus.bot.api.gameval.GamevalNotFoundException when the
-     *         name is unknown or no gameval index is deployed
+     * <p>Returns {@link #UNRESOLVED_VARIABLE} when the name does not resolve —
+     * the same value {@link #getVarp(int)} already yields for an unset variable,
+     * so a host with no gameval index deployed degrades rather than killing the
+     * script. Use {@code gamevals().require(...)} explicitly when you would
+     * rather fail fast.</p>
      */
     default int getVarp(String gameval) {
-        return getVarp(gamevals().require(GamevalType.VARP, gameval));
+        OptionalInt id = gamevals().id(GamevalType.VARP, gameval);
+        return id.isPresent() ? getVarp(id.getAsInt()) : UNRESOLVED_VARIABLE;
     }
 
     /**
      * Value of a variable bit named by its gameval, e.g.
-     * {@code "ZAROS_SPELLBOOK"}. Convenience over {@link #getVarbit(int)}.
-     *
-     * @throws com.botwithus.bot.api.gameval.GamevalNotFoundException when the
-     *         name is unknown or no gameval index is deployed
+     * {@code "ZAROS_SPELLBOOK"}. Convenience over {@link #getVarbit(int)};
+     * {@link #UNRESOLVED_VARIABLE} when the name does not resolve.
      */
     default int getVarbit(String gameval) {
-        return getVarbit(gamevals().require(GamevalType.VARBIT, gameval));
+        OptionalInt id = gamevals().id(GamevalType.VARBIT, gameval);
+        return id.isPresent() ? getVarbit(id.getAsInt()) : UNRESOLVED_VARIABLE;
     }
 
     /**
      * Value of an integer client variable named by its gameval. Convenience
-     * over {@link #getVarcInt(int)}.
-     *
-     * @throws com.botwithus.bot.api.gameval.GamevalNotFoundException when the
-     *         name is unknown or no gameval index is deployed
+     * over {@link #getVarcInt(int)}; {@link #UNRESOLVED_VARIABLE} when the name
+     * does not resolve.
      */
     default int getVarcInt(String gameval) {
-        return getVarcInt(gamevals().require(GamevalType.VAR_CLIENT, gameval));
+        OptionalInt id = gamevals().id(GamevalType.VAR_CLIENT, gameval);
+        return id.isPresent() ? getVarcInt(id.getAsInt()) : UNRESOLVED_VARIABLE;
     }
 
     // ---------------------------------------------------------------- Entity queries

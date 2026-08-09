@@ -111,6 +111,11 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
      * @param gamevals one or more names; the filter matches any of them
      */
     protected final Q withGamevalOf(GamevalType type, String... gamevals) {
+        if (gamevals.length == 0) {
+            log.warn("withGameval() was given no {} names; this query will match nothing",
+                    type.wire());
+            return filter(t -> false);
+        }
         int[] ids = Arrays.stream(gamevals)
                 .mapToInt(name -> resolveOrWarn(type, name))
                 .filter(id -> id != UNRESOLVED)
@@ -135,8 +140,10 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
     private int resolveOrWarn(GamevalType type, String gameval) {
         OptionalInt id = api.gamevals().id(type, gameval);
         if (id.isEmpty()) {
-            log.warn("gameval {} '{}' did not resolve; this query will match nothing"
-                            + " (is ~/.botwithus/native/gameval.sqlite present and current?)",
+            // The index warns once per distinct unknown name; this is the
+            // caller-side consequence, so it stays at debug to avoid a second
+            // line per tick for the same mistake.
+            log.debug("gameval {} '{}' did not resolve; excluded from this query",
                     type.wire(), gameval);
             return UNRESOLVED;
         }

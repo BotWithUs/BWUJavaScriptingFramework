@@ -166,8 +166,23 @@ Three things to keep straight when extending it:
   exception, and only because its int-taking methods differ in arity or type.
 - **An unresolved name matches nothing, loudly.** `EntityQuery.withGamevalOf` and
   `ComponentQuery.withGameval` resolve once at query-build time; a stale name
-  drops to `filter(… -> false)` plus a `WARN`. It must never quietly widen a
-  query to every entity in the scene.
+  drops to `filter(… -> false)`. It must never quietly widen a query to every
+  entity in the scene. Passing *no* names warns too — an empty varargs array is
+  a filter that silently matches nothing otherwise.
+- **The `WARN` for an unknown name is emitted once per name, by the index.**
+  `SqliteGamevalIndex` logs when it first memoises a miss; the query classes log
+  at `DEBUG`. Warning from the query would fire every tick for a script that
+  polls a typo in `onLoop`. Keep new lookup sites on that side of the line.
+- **Everything degrades; nothing throws for a missing name.** Including
+  `getVarp`/`getVarbit`/`getVarcInt(String)`, which return
+  `GameAPI.UNRESOLVED_VARIABLE` (`-1`, the same sentinel the `int` overloads
+  already use for an unset variable). "No index deployed" is the *default* state
+  today, so a throw there would kill scripts on an otherwise healthy host. Use
+  `gamevals().require(...)` explicitly to opt into fail-fast.
+- **A closed index degrades too.** `close()` sets a flag; already-memoised
+  answers keep working and cold lookups return empty. Shutdown can race a script
+  the non-force `disconnectAll()` deliberately left running, and that script's
+  next lookup must not throw out of its loop.
 - **`ComponentQuery.withGameval` matches the whole `(interfaceId, componentId)`
   pair**, not just the component half — a materialized tree is cross-mount aware
   (`ComponentTreeNode`'s javadoc), so a mounted sub-interface can contribute a

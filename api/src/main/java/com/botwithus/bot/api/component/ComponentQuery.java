@@ -52,6 +52,15 @@ public final class ComponentQuery {
         this.rootComponentId = rootComponentId;
     }
 
+    /**
+     * A query whose root gameval did not resolve: yields nothing and costs no
+     * round-trip. Keeps the {@link #UNRESOLVED_INTERFACE} sentinel from leaking
+     * into {@link Components}.
+     */
+    static ComponentQuery unresolved(GameAPI api) {
+        return new ComponentQuery(api, UNRESOLVED_INTERFACE, 0);
+    }
+
     // ---------------- Filters ----------------
 
     /** Adds a predicate; multiple calls AND together. */
@@ -86,14 +95,19 @@ public final class ComponentQuery {
      * }</pre>
      */
     public ComponentQuery withGameval(String... gamevals) {
+        if (gamevals.length == 0) {
+            log.warn("withGameval() was given no component names; this query will match nothing");
+            return filter(node -> false);
+        }
         List<ComponentRef> refs = new ArrayList<>(gamevals.length);
         for (String gameval : gamevals) {
             Optional<ComponentRef> ref = api.gamevals().component(gameval);
             if (ref.isPresent()) {
                 refs.add(ref.get());
             } else {
-                log.warn("gameval component '{}' did not resolve; this query will match nothing"
-                                + " (is ~/.botwithus/native/gameval.sqlite present and current?)",
+                // The index warns once per distinct unknown name; debug here
+                // keeps a per-tick query from doubling that.
+                log.debug("gameval component '{}' did not resolve; excluded from this query",
                         gameval);
             }
         }

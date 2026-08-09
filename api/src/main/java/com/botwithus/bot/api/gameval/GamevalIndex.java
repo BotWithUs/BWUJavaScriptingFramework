@@ -102,8 +102,7 @@ public interface GamevalIndex extends AutoCloseable {
 
     /**
      * An index that resolves nothing — the fallback when none is deployed.
-     * A fresh, stateless instance each call; compare with {@link #isAvailable()},
-     * never by identity.
+     * Test for it with {@link #isAvailable()}, never by identity.
      */
     static GamevalIndex empty() {
         return new EmptyGamevalIndex();

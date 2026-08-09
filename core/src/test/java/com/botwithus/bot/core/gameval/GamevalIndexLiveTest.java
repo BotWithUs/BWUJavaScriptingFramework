@@ -10,8 +10,11 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.stream.Stream;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -52,44 +55,50 @@ class GamevalIndexLiveTest {
 
     @Test
     void carriesABuildStamp() {
-        assertEquals(Optional.of("1"), index.meta("schema_version"));
-        assertTrue(index.meta("built").isPresent(), "index should record when it was built");
-        assertTrue(index.meta("rows").isPresent(), "index should record its row count");
+        assertAll(
+                () -> assertEquals(Optional.of("1"), index.meta("schema_version")),
+                () -> assertTrue(index.meta("built").isPresent(),
+                        "index should record when it was built"),
+                () -> assertTrue(index.meta("rows").isPresent(),
+                        "index should record its row count"));
     }
 
     @Test
     void resolvesPinnedEntityNames() {
-        assertEquals(OptionalInt.of(YEW_LOGS), index.id(GamevalType.ITEM, "YEW_LOGS"));
-        assertEquals(OptionalInt.of(BANK_INTERFACE), index.interfaceId("BANK"));
-        assertEquals(Optional.of("YEW_LOGS"), index.gameval(GamevalType.ITEM, YEW_LOGS));
+        assertAll(
+                () -> assertEquals(OptionalInt.of(YEW_LOGS), index.id(GamevalType.ITEM, "YEW_LOGS")),
+                () -> assertEquals(OptionalInt.of(BANK_INTERFACE), index.interfaceId("BANK")),
+                () -> assertEquals(Optional.of("YEW_LOGS"),
+                        index.gameval(GamevalType.ITEM, YEW_LOGS)));
     }
 
     @Test
     void resolvesPinnedComponentName() {
         ComponentRef ref = index.component("BANK__BANK_INV_BUTTON").orElseThrow();
-        assertEquals(BANK_INTERFACE, ref.interfaceId());
-        assertEquals(BANK_INV_BUTTON_COMPONENT, ref.componentId());
+        assertAll(
+                () -> assertEquals(BANK_INTERFACE, ref.interfaceId()),
+                () -> assertEquals(BANK_INV_BUTTON_COMPONENT, ref.componentId()));
     }
 
     @Test
     void resolvesPinnedVariableNames() {
-        assertEquals(OptionalInt.of(WOODCUTTING_WOODBOX_LASTUSED_TIER),
-                index.id(GamevalType.VARP, "WOODCUTTING_WOODBOX_LASTUSED_TIER"));
-        // The varbit table was absent from the first Atlas bake; assert it is
-        // populated so a regression in the build script is caught here.
-        assertTrue(index.id(GamevalType.VARBIT, "ZAROS_SPELLBOOK").isPresent(),
-                "varbit names should be indexed");
+        assertAll(
+                () -> assertEquals(OptionalInt.of(WOODCUTTING_WOODBOX_LASTUSED_TIER),
+                        index.id(GamevalType.VARP, "WOODCUTTING_WOODBOX_LASTUSED_TIER")),
+                // The varbit table was absent from the first Atlas bake; assert
+                // it is populated so a build-script regression is caught here.
+                () -> assertTrue(index.id(GamevalType.VARBIT, "ZAROS_SPELLBOOK").isPresent(),
+                        "varbit names should be indexed"));
     }
 
     @Test
     void everyTypeHasNames() {
-        for (GamevalType type : GamevalType.values()) {
-            assertFalseEmpty(type);
-        }
+        assertAll(Stream.of(GamevalType.values())
+                .map(type -> () -> assertTypeHasNames(type)));
     }
 
-    private static void assertFalseEmpty(GamevalType type) {
-        assertTrue(!index.startingWith(type, "", 1).isEmpty(),
+    private static void assertTypeHasNames(GamevalType type) {
+        assertFalse(index.startingWith(type, "", 1).isEmpty(),
                 () -> "no names indexed for type '" + type.wire() + "' — is the group "
                         + "missing from build_gameval_db.py's input?");
     }

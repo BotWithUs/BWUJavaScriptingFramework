@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.diag.StubGuard;
 import com.botwithus.bot.api.gameval.GamevalEntry;
 import com.botwithus.bot.api.gameval.GamevalIndex;
@@ -119,6 +120,18 @@ class GameAPIImplInventoryTest {
         assertEquals(0, api.backpack().countGameval("YEW_LOGS"));
         assertFalse(api.backpack().interactFirstGameval("YEW_LOGS", 1));
         verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
+    }
+
+    @Test
+    void gamevalVariableReadsDegradeInsteadOfThrowing() {
+        // Every other gameval entry point degrades when nothing resolves; these
+        // must too, because "no index deployed" is the default state today. A
+        // throw here would kill a script's onLoop on an otherwise fine host.
+        build();
+        assertEquals(GameAPI.UNRESOLVED_VARIABLE, api.getVarp("WOODCUTTING_WOODBOX_LASTUSED_TIER"));
+        assertEquals(GameAPI.UNRESOLVED_VARIABLE, api.getVarbit("ZAROS_SPELLBOOK"));
+        assertEquals(GameAPI.UNRESOLVED_VARIABLE, api.getVarcInt("TOOLTIP_TIME"));
+        verify(rpc, times(0)).callSync(eq("get_varp"), anyMap());
     }
 
     @Test

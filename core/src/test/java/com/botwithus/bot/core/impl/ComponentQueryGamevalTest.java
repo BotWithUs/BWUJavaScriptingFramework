@@ -35,11 +35,6 @@ class ComponentQueryGamevalTest {
     private static final int INV_BUTTON = 39;
     private static final int WORN_BUTTON = 40;
 
-    /** Packs a gameval component id the way the cache does. */
-    private static int packed(int interfaceId, int componentId) {
-        return (interfaceId << 16) | componentId;
-    }
-
     private GameAPIImpl build(List<ComponentTreeNode> tree) {
         RpcClient rpc = mock(RpcClient.class);
         GamevalIndex gamevals = stubIndex(Map.of(
@@ -149,7 +144,20 @@ class ComponentQueryGamevalTest {
         assertEquals(0, api.components().in(BANK).withGameval("BANK__BANK_INV_BUTTON").count());
     }
 
+    @Test
+    void emptyGamevalListMatchesNothing() {
+        GameAPIImpl api = build(List.of(
+                node(BANK, 0, "root", -1),
+                node(BANK, INV_BUTTON, "Inventory", 0)));
+        assertEquals(0, api.components().in(BANK).withGameval().count());
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    /** Packs a gameval component id the way the cache does. */
+    private static int packed(int interfaceId, int componentId) {
+        return (interfaceId << GamevalIndex.INTERFACE_ID_SHIFT) | componentId;
+    }
 
     private static ComponentTreeNode node(int iface, int comp, String text, int parentIndex) {
         return treeNode(iface, comp, text, parentIndex, 0);

@@ -160,6 +160,11 @@ public final class NativeCache {
             if (Files.isRegularFile(overridePath)) {
                 return Optional.of(overridePath);
             }
+            // Loud on purpose: the siblings above fall through silently, so a
+            // typo'd override quietly loads the deployed file instead and the
+            // operator debugs the wrong data.
+            log.warn("-Dbotwithus.gameval={} is not a readable file; falling back to the "
+                    + "native cache entry", override);
         }
         Path cached = new NativeCache().resolve(GAMEVAL_DB_NAME);
         return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();

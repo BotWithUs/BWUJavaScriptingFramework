@@ -23,11 +23,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -41,8 +40,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class SqliteGamevalIndexTest {
 
+    private static final int BANK_INTERFACE = 517;
     /** {@code BANK__BANK_INV_BUTTON}: interface 517, component 39, packed. */
-    private static final int BANK_INV_BUTTON_PACKED = (517 << 16) | 39;
+    private static final int BANK_INV_BUTTON_PACKED =
+            (BANK_INTERFACE << GamevalIndex.INTERFACE_ID_SHIFT) | 39;
+    /** {@code BANK__ALL}: the same interface's root component. */
+    private static final int BANK_ALL_PACKED = BANK_INTERFACE << GamevalIndex.INTERFACE_ID_SHIFT;
     private static final int YEW_LOGS = 1515;
     private static final int HAMMER_THREADS = 32;
     private static final int HAMMER_ITERATIONS = 200;
@@ -73,7 +76,7 @@ class SqliteGamevalIndexTest {
                     + " ('loc', 2, 'MCANNONCAVE'),"
                     + " ('interface', 517, 'BANK'),"
                     + " ('component', " + BANK_INV_BUTTON_PACKED + ", 'BANK__BANK_INV_BUTTON'),"
-                    + " ('component', 33882112, 'BANK__ALL'),"
+                    + " ('component', " + BANK_ALL_PACKED + ", 'BANK__ALL'),"
                     + " ('varbit', 0, 'ZAROS_SPELLBOOK')");
         }
         index = SqliteGamevalIndex.open(db);
@@ -88,9 +91,10 @@ class SqliteGamevalIndexTest {
 
     @Test
     void resolvesNameToId() {
-        assertEquals(OptionalInt.of(YEW_LOGS), index.id(GamevalType.ITEM, "YEW_LOGS"));
-        assertEquals(OptionalInt.of(0), index.id(GamevalType.NPC, "HANS"));
-        assertEquals(OptionalInt.of(517), index.interfaceId("BANK"));
+        assertAll(
+                () -> assertEquals(OptionalInt.of(YEW_LOGS), index.id(GamevalType.ITEM, "YEW_LOGS")),
+                () -> assertEquals(OptionalInt.of(0), index.id(GamevalType.NPC, "HANS")),
+                () -> assertEquals(OptionalInt.of(BANK_INTERFACE), index.interfaceId("BANK")));
     }
 
     @Test
@@ -128,12 +132,12 @@ class SqliteGamevalIndexTest {
     @Test
     void componentNameSplitsIntoInterfaceAndComponent() {
         ComponentRef ref = index.component("BANK__BANK_INV_BUTTON").orElseThrow();
-        assertEquals(517, ref.interfaceId());
-        assertEquals(39, ref.componentId());
-
         ComponentRef root = index.component("BANK__ALL").orElseThrow();
-        assertEquals(517, root.interfaceId());
-        assertEquals(0, root.componentId());
+        assertAll(
+                () -> assertEquals(BANK_INTERFACE, ref.interfaceId()),
+                () -> assertEquals(39, ref.componentId()),
+                () -> assertEquals(BANK_INTERFACE, root.interfaceId()),
+                () -> assertEquals(0, root.componentId()));
     }
 
     @Test
@@ -180,10 +184,11 @@ class SqliteGamevalIndexTest {
 
     @Test
     void exposesBuildStamp() {
-        assertEquals(Optional.of("1"), index.meta("schema_version"));
-        assertEquals(Optional.of("2026-08-08 20:18:14"), index.meta("built"));
-        assertEquals(Optional.empty(), index.meta("no_such_key"));
-        assertTrue(index.isAvailable());
+        assertAll(
+                () -> assertEquals(Optional.of("1"), index.meta("schema_version")),
+                () -> assertEquals(Optional.of("2026-08-08 20:18:14"), index.meta("built")),
+                () -> assertEquals(Optional.empty(), index.meta("no_such_key")),
+                () -> assertTrue(index.isAvailable()));
     }
 
     @Test
@@ -239,22 +244,39 @@ class SqliteGamevalIndexTest {
     @Test
     void emptyIndexResolvesNothingAndNeverThrows() {
         GamevalIndex empty = GamevalIndex.empty();
-        assertFalse(empty.isAvailable());
-        assertEquals(OptionalInt.empty(), empty.id(GamevalType.ITEM, "YEW_LOGS"));
-        assertEquals(Optional.empty(), empty.gameval(GamevalType.ITEM, YEW_LOGS));
-        assertEquals(Optional.empty(), empty.component("BANK__BANK_INV_BUTTON"));
-        assertEquals(List.of(), empty.startingWith(GamevalType.ITEM, "Y", 5));
-        assertEquals(Optional.empty(), empty.meta("built"));
-        assertThrows(GamevalNotFoundException.class,
-                () -> empty.require(GamevalType.ITEM, "YEW_LOGS"));
+        assertAll(
+                () -> assertFalse(empty.isAvailable()),
+                () -> assertEquals(OptionalInt.empty(), empty.id(GamevalType.ITEM, "YEW_LOGS")),
+                () -> assertEquals(Optional.empty(), empty.gameval(GamevalType.ITEM, YEW_LOGS)),
+                () -> assertEquals(Optional.empty(), empty.component("BANK__BANK_INV_BUTTON")),
+                () -> assertEquals(List.of(), empty.startingWith(GamevalType.ITEM, "Y", 5)),
+                () -> assertEquals(Optional.empty(), empty.meta("built")),
+                () -> assertThrows(GamevalNotFoundException.class,
+                        () -> empty.require(GamevalType.ITEM, "YEW_LOGS")));
         empty.close();
     }
 
     @Test
-    void emptyIndexIsNotIdentityComparable() {
-        // empty() hands out a fresh instance each call by design (no shared
-        // mutable static); callers must test isAvailable(), never identity.
-        assertNotSame(GamevalIndex.empty(), GamevalIndex.empty());
-        assertSame(GamevalType.ITEM, GamevalType.fromWire("item").orElseThrow());
+    void closedIndexDegradesInsteadOfThrowing() {
+        // Shutdown can race a still-running script. A cold lookup after close()
+        // must read as "unknown", not blow out of the script's loop with a
+        // closed-connection error.
+        index.close();
+        assertAll(
+                () -> assertEquals(OptionalInt.empty(), index.id(GamevalType.ITEM, "YEW_LOGS")),
+                () -> assertEquals(Optional.empty(), index.gameval(GamevalType.NPC, 0)),
+                () -> assertEquals(Optional.empty(), index.component("BANK__BANK_INV_BUTTON")),
+                () -> assertEquals(List.of(), index.startingWith(GamevalType.ITEM, "Y", 5)),
+                () -> assertTrue(index.isClosed()));
+        index.close();   // idempotent
+    }
+
+    @Test
+    void rejectsANullName() {
+        assertThrows(NullPointerException.class, () -> index.id(GamevalType.ITEM, null));
+        // Same failure with no index deployed, so a null slipping through a
+        // dynamically-built name array can't be silent in dev and fatal in prod.
+        assertThrows(NullPointerException.class,
+                () -> GamevalIndex.empty().id(GamevalType.ITEM, null));
     }
 }

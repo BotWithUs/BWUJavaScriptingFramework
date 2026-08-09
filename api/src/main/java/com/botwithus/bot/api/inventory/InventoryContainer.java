@@ -290,11 +290,6 @@ public class InventoryContainer {
      * signature, opposite semantics — so do not "unify" them later.
      */
 
-    /** Item id for a gameval name, or empty when it doesn't resolve. */
-    protected OptionalInt gamevalItemId(String gameval) {
-        return api.gamevals().id(GamevalType.ITEM, gameval);
-    }
-
     /** Containment by gameval name, e.g. {@code "YEW_LOGS"}. */
     public boolean containsGameval(String gameval) {
         OptionalInt id = gamevalItemId(gameval);
@@ -336,6 +331,11 @@ public class InventoryContainer {
     public boolean interactFirstGameval(String gameval, String option) {
         OptionalInt id = gamevalItemId(gameval);
         return id.isPresent() && interactFirst(id.getAsInt(), option);
+    }
+
+    /** Item id for a gameval name, or empty when it doesn't resolve. */
+    private OptionalInt gamevalItemId(String gameval) {
+        return api.gamevals().id(GamevalType.ITEM, gameval);
     }
 
     /** Pull ItemType through the subclass-provided cache. {@code null} on failure. */

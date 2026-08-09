@@ -143,20 +143,8 @@ public class CliContext {
      * "attempted" flag is needed — the empty index is itself a valid result.
      */
     private synchronized GamevalIndex getOrInitGamevals() {
-        if (gamevals != null) {
-            return gamevals;
-        }
-        try {
-            gamevals = SqliteGamevalIndex.openDefault()
-                    .<GamevalIndex>map(index -> index)
-                    .orElseGet(() -> {
-                        log.debug("no gameval index — set -Dbotwithus.gameval=<file> or place "
-                                + "gameval.sqlite in ~/.botwithus/native/ to resolve names");
-                        return GamevalIndex.empty();
-                    });
-        } catch (RuntimeException e) {
-            log.warn("gameval index failed to open: {}", e.getMessage());
-            gamevals = GamevalIndex.empty();
+        if (gamevals == null) {
+            gamevals = SqliteGamevalIndex.openDefaultOrEmpty();
         }
         return gamevals;
     }

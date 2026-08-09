@@ -51,7 +51,7 @@ public final class JBotApplication {
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
             NXTCache nxtCache = openNxtCacheOrNull();
-            GamevalIndex gamevals = openGamevalIndex();
+            GamevalIndex gamevals = SqliteGamevalIndex.openDefaultOrEmpty();
 
             // Pump owns the SHM mapping; we open it before constructing
             // GameAPIImpl so the entity facades (snapshot reads) can read from
@@ -113,26 +113,6 @@ public final class JBotApplication {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.error("Fatal error: {}", e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Open the shared gameval name index, or the empty one when no
-     * {@code gameval.sqlite} is deployed. Never throws: a missing or unreadable
-     * index degrades gameval lookups to "unknown" rather than blocking startup.
-     */
-    private static GamevalIndex openGamevalIndex() {
-        try {
-            return SqliteGamevalIndex.openDefault()
-                    .<GamevalIndex>map(index -> index)
-                    .orElseGet(() -> {
-                        log.debug("no gameval index — set -Dbotwithus.gameval=<file> or place "
-                                + "gameval.sqlite in ~/.botwithus/native/ to resolve names");
-                        return GamevalIndex.empty();
-                    });
-        } catch (RuntimeException e) {
-            log.warn("gameval index failed to open: {}", e.getMessage());
-            return GamevalIndex.empty();
         }
     }
 

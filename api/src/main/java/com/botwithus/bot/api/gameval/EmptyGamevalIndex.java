@@ -1,6 +1,7 @@
 package com.botwithus.bot.api.gameval;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 
@@ -10,12 +11,16 @@ import java.util.OptionalInt;
  * {@code gameval.sqlite} is deployed, so scripts see an index that answers
  * "unknown" rather than a {@code null} that answers with an NPE.
  *
- * <p>Stateless and immutable, so instances are interchangeable.</p>
+ * <p>A stateless record, so instances really are interchangeable — including by
+ * {@code equals}, which an ordinary class would not give.</p>
  */
-final class EmptyGamevalIndex implements GamevalIndex {
+record EmptyGamevalIndex() implements GamevalIndex {
 
     @Override
     public OptionalInt id(GamevalType type, String gameval) {
+        // Rejected here as well as in the real index, so a name that is null by
+        // accident fails the same way whether or not an index is deployed.
+        Objects.requireNonNull(gameval, "gameval");
         return OptionalInt.empty();
     }
 

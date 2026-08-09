@@ -106,7 +106,7 @@ public final class Components {
      */
     public ComponentQuery in(String interfaceGameval) {
         OptionalInt id = api.gamevals().interfaceId(interfaceGameval);
-        return id.isPresent() ? in(id.getAsInt()) : new ComponentQuery(api, ComponentQuery.UNRESOLVED_INTERFACE, ROOT_COMPONENT_ID);
+        return id.isPresent() ? in(id.getAsInt()) : ComponentQuery.unresolved(api);
     }
 
     /**
@@ -117,7 +117,7 @@ public final class Components {
     public ComponentQuery under(String componentGameval) {
         Optional<ComponentRef> ref = api.gamevals().component(componentGameval);
         return ref.map(r -> under(r.interfaceId(), r.componentId()))
-                .orElseGet(() -> new ComponentQuery(api, ComponentQuery.UNRESOLVED_INTERFACE, ROOT_COMPONENT_ID));
+                .orElseGet(() -> ComponentQuery.unresolved(api));
     }
 
     /**
