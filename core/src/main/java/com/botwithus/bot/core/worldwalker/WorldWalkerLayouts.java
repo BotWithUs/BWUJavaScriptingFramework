@@ -42,6 +42,32 @@ final class WorldWalkerLayouts {
     static final int WW_STATUS_FAILED    = 1;
     static final int WW_STATUS_CANCELLED = 2;
 
+    // ── Ceilings on native-reported element counts ────────────────────────
+    //
+    // Every count that arrives from the C side sizes both a reinterpret() view
+    // and a Java array. A garbage-but-in-int-range count (~2e9) produces a
+    // multi-GB view and a loop that walks off the real buffer before it
+    // faults — which takes the whole JVM down, and with it every connected
+    // client. Bounding the count turns that into a typed exception on one
+    // call. The ceilings are deliberately far above any real value so a
+    // legitimate result can never trip them.
+
+    /**
+     * Ceiling on {@code WwPath.stepCount}. WALK steps are chunked at 16 tiles
+     * ({@code kWalkChunkTiles} in {@code PathAssembler.cpp}) and a world axis is
+     * 16384 tiles, so this admits roughly 64 full world crossings — orders of
+     * magnitude past any route the planner can assemble, while capping the
+     * steps view at 1 MiB.
+     */
+    static final int MAX_PATH_STEPS = 1 << 16;
+
+    /**
+     * Ceiling on the id count of a batched {@code readVarbits} /
+     * {@code readItemCounts} upcall. A capability snapshot carries on the order
+     * of tens of entries; this caps the pair of views at 256 KiB each.
+     */
+    static final int MAX_BATCH_IDS = 1 << 16;
+
     static final int WW_EVENT_STEP_ADVANCED       = 0;
     static final int WW_EVENT_WALKING_TO_INTERACT = 1;
     static final int WW_EVENT_TELEPORT_INITIATED  = 2;
@@ -229,6 +255,27 @@ final class WorldWalkerLayouts {
         view.set(ValueLayout.ADDRESS,   IC_DESCRIPTORS_OFFSET, cells);
         view.set(ValueLayout.JAVA_LONG, IC_DESCRIPTOR_COUNT_OFFSET, count);
         return true;
+    }
+
+    /**
+     * Validate a native-reported element count against a ceiling and narrow it
+     * to {@code int}.
+     *
+     * <p>Callers must run this <em>before</em> using the count to size a
+     * {@code reinterpret()} view or allocate an array — see the ceiling
+     * constants above for why an unbounded count is a JVM-lifetime hazard
+     * rather than a merely-wrong answer.</p>
+     *
+     * @param what human-readable name of the count, for the exception message
+     * @throws WorldWalkerException when the count is negative or above
+     *         {@code ceiling}
+     */
+    static int boundedCount(long count, int ceiling, String what) {
+        if (count < 0 || count > ceiling) {
+            throw new WorldWalkerException(
+                    what + " out of range: " + count + " (ceiling " + ceiling + ")");
+        }
+        return (int) count;
     }
 
     private static void assertSize(MemoryLayout layout, long expected, String name) {

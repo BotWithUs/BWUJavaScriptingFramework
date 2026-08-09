@@ -460,10 +460,11 @@ public final class WorldWalker implements AutoCloseable {
         long stepCount         = outPath.get(JAVA_LONG, 8);
         float cost             = outPath.get(JAVA_FLOAT, 16);
 
-        if (stepCount < 0 || stepCount > Integer.MAX_VALUE) {
-            throw new WorldWalkerException("ww_query stepCount out of range: " + stepCount);
-        }
-        int n = (int) stepCount;
+        // Bounded, not merely int-ranged: an in-range-but-garbage ~2e9 count
+        // would size a 32 GB steps view and a 2e9-entry list, and the read loop
+        // would run off the real buffer long before it faulted.
+        int n = WorldWalkerLayouts.boundedCount(
+                stepCount, WorldWalkerLayouts.MAX_PATH_STEPS, "ww_query stepCount");
         if (n == 0) {
             return new WwPathResult(List.of(), cost);
         }

@@ -294,18 +294,34 @@ final class UpcallStubs {
      * reinterpret + alloc rather than ask the host to handle a zero-length
      * array). On any throw, fills the output with zeros so the planner reads
      * sentinels instead of uninitialised memory.
+     *
+     * <p>A count above {@link WorldWalkerLayouts#MAX_BATCH_IDS}, or a positive
+     * count paired with a null buffer, is recorded as a run error and skipped
+     * rather than trusted — both would otherwise fault inside the read loop and
+     * take the JVM down with every connected client.</p>
      */
     private static void readBatchImpl(Run run, MemorySegment idsPtr, long count,
                                        MemorySegment outPtr, boolean itemsNotVarbits) {
         if (count <= 0) {
             return;
         }
-        if (count > Integer.MAX_VALUE) {
-            run.recordError(new IllegalArgumentException(
-                    "batch count out of range: " + count));
+        int n;
+        try {
+            n = WorldWalkerLayouts.boundedCount(
+                    count, WorldWalkerLayouts.MAX_BATCH_IDS, "batch count");
+        } catch (WorldWalkerException thrown) {
+            run.recordError(thrown);
             return;
         }
-        int n = (int) count;
+        // Same guard decodePath carries: count > 0 with a null buffer would
+        // SIGSEGV inside the reinterpret-and-read loop and take the JVM down.
+        // Record it as a run error so the executor cancels at its next safe
+        // point and the throwable is rethrown on the calling thread.
+        if (idsPtr.address() == 0L || outPtr.address() == 0L) {
+            run.recordError(new WorldWalkerException(
+                    "batch count=" + n + " with null ids/out pointer"));
+            return;
+        }
         long bytes = (long) n * Integer.BYTES;
         MemorySegment idsView = idsPtr.reinterpret(bytes);
         MemorySegment outView = outPtr.reinterpret(bytes);
