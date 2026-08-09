@@ -137,6 +137,23 @@ tasks.register<Test>("liveDialogContinueTest") {
     }
 }
 
+tasks.register<Test>("liveIscTeardownTest") {
+    description = "Live check that a stopped script stops handling ISC messages " +
+            "(read-only — publishes on an internal channel, never touches the game)"
+    group = "verification"
+    useJUnitPlatform()
+    systemProperty("botwithus.smoke.live", "true")
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.impl.LiveIscTeardownSmokeTest")
+    }
+}
+
 tasks.register<Test>("liveSmokeTest") {
     description = "Live-producer smoke tests (requires NXTLibrary DLL injected into a running game)"
     group = "verification"

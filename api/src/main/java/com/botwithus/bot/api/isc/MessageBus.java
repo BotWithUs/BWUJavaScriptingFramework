@@ -17,6 +17,11 @@ public interface MessageBus {
     /**
      * Subscribes a handler to receive messages on the given channel.
      *
+     * <p>The bus holds a bounded number of channels, and each channel a bounded
+     * number of handlers. A subscription past either bound is refused with a
+     * warning in the host log and the handler never fires — reaching a bound is a
+     * bug in the subscriber, not a state to design around.</p>
+     *
      * @param channel the channel name to subscribe to
      * @param handler the callback invoked for each message on the channel
      */
@@ -34,6 +39,11 @@ public interface MessageBus {
      * Publishes a message to all subscribers of the given channel.
      * Delivery is asynchronous; the caller never blocks.
      *
+     * <p>Delivery is best-effort: the bus bounds how many handler invocations it
+     * will have running at once, and drops deliveries beyond that rather than
+     * spawning threads without limit. A script publishing at a sane rate never
+     * meets the bound, but do not treat delivery as guaranteed.</p>
+     *
      * @param channel the channel to publish on
      * @param sender  identifier of the sending script
      * @param payload the message payload
@@ -42,6 +52,11 @@ public interface MessageBus {
 
     /**
      * Sends a request and waits for a response on the given channel.
+     *
+     * <p>{@code timeoutMs} is clamped to a range in which the timeout actually
+     * expires — a request always either completes or times out, so asking to wait
+     * forever is not an option. The returned future also fails immediately when
+     * too many requests are already outstanding.</p>
      *
      * @param channel   the channel to send the request on
      * @param sender    identifier of the requesting script

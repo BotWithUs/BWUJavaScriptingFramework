@@ -14,6 +14,8 @@ import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.core.config.ScriptConfigStore;
+import com.botwithus.bot.core.impl.ScopedEventBus;
+import com.botwithus.bot.core.impl.ScopedMessageBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -77,6 +79,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private final ScriptProfiler profiler = new ScriptProfiler();
     private volatile ScriptGate scriptGate;
     private volatile Runnable eventUnsubscriber;
+    private volatile Runnable messageUnsubscriber;
     private volatile Runnable watchdogArmer;
 
     /**
@@ -101,10 +104,19 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     /**
      * Installs the hook that drops this script's event subscriptions when it
      * stops. Set by {@link ScriptRuntime#registerScript} to the per-script
-     * {@link com.botwithus.bot.core.impl.ScopedEventBus}; null in test seams.
+     * {@link ScopedEventBus}; null in test seams.
      */
     public void setEventUnsubscriber(Runnable eventUnsubscriber) {
         this.eventUnsubscriber = eventUnsubscriber;
+    }
+
+    /**
+     * Installs the hook that drops this script's ISC subscriptions when it stops.
+     * Set by {@link ScriptRuntime#registerScript} to the per-script
+     * {@link ScopedMessageBus}; null in test seams.
+     */
+    public void setMessageUnsubscriber(Runnable messageUnsubscriber) {
+        this.messageUnsubscriber = messageUnsubscriber;
     }
 
     public void setErrorHandler(ErrorHandler errorHandler) {
@@ -333,16 +345,43 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
      * @return {@code true} if the script stopped within the timeout
      */
     public boolean awaitStop(long timeoutMs) {
+        long startNanos = System.nanoTime();
+        // Both reads up front, so the latch and the thread belong to the same run
+        // even if a restart lands mid-call: start() assigns the latch and then the
+        // thread, and pairing a stale latch with a fresh thread would join the
+        // wrong run for the whole budget.
         CountDownLatch latch = this.stopLatch;
-        if (latch == null) {
-            return true;
-        }
+        Thread t = this.thread;
         try {
-            return latch.await(timeoutMs, TimeUnit.MILLISECONDS);
+            if (latch != null && !latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                return false;
+            }
+            return awaitThreadDeath(t, timeoutMs - elapsedMillis(startNanos));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
         }
+    }
+
+    /**
+     * Waits out the gap between the stop latch and the thread actually dying.
+     * The latch counts down from inside the script thread's own {@code finally},
+     * so it is still alive for the instructions between there and termination —
+     * yet callers read a {@code true} from {@link #awaitStop} as "finished", and
+     * the watchdog spares only a runner whose thread is already gone. Without
+     * this a script that stopped exactly as asked can still be quarantined.
+     */
+    private boolean awaitThreadDeath(Thread t, long remainingMs) throws InterruptedException {
+        if (t == null || t == Thread.currentThread()) {
+            return true;
+        }
+        // join(0) waits forever, so never let the remaining budget reach zero.
+        t.join(Math.max(1L, remainingMs));
+        return !t.isAlive();
+    }
+
+    private static long elapsedMillis(long sinceNanos) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - sinceNanos);
     }
 
     public boolean isRunning() {
@@ -537,18 +576,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
             log.error("onStop error in {}: {}", name, e.getMessage());
             notifyError(Phase.ON_STOP, e);
         }
-        // Drop this script's event subscriptions before releasing anything else.
-        // EventBusImpl dispatches inline on the event-pump thread, so a listener
-        // left registered keeps running — and can keep driving the game — long
-        // after the script that registered it has stopped.
-        Runnable unsubscriber = this.eventUnsubscriber;
-        if (unsubscriber != null) {
-            try {
-                unsubscriber.run();
-            } catch (Exception e) {
-                log.debug("Event unsubscribe error in {}: {}", name, e.getMessage());
-            }
-        }
+        releaseSubscriptions(name);
         // Cancels *and joins* the walk executor this script started (owner-
         // scoped, so a sibling's walk is left alone). Without the join, stop
         // returns while ww-executor is still queueing actions.
@@ -568,6 +596,30 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
             gate.exit();
         }
         connectionCleaner.run();
+    }
+
+    /**
+     * Hands this script's event and ISC subscriptions back, before anything else
+     * is released. Both buses hold handlers the script registered, and a handler
+     * left registered keeps running — and can keep driving the game — long after
+     * the script that registered it has stopped: {@code EventBusImpl} dispatches
+     * inline on the event-pump thread, and {@code MessageBusImpl} on a virtual
+     * thread of its own.
+     */
+    private void releaseSubscriptions(String name) {
+        release(this.eventUnsubscriber, "Event", name);
+        release(this.messageUnsubscriber, "ISC", name);
+    }
+
+    private void release(Runnable unsubscriber, String kind, String name) {
+        if (unsubscriber == null) {
+            return;
+        }
+        try {
+            unsubscriber.run();
+        } catch (Exception e) {
+            log.debug("{} unsubscribe error in {}: {}", kind, name, e.getMessage());
+        }
     }
 
     private void publishState(String state, String detail) {

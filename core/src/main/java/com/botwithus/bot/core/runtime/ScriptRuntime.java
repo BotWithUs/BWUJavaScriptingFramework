@@ -2,9 +2,11 @@ package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
+import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.core.impl.ScopedEventBus;
+import com.botwithus.bot.core.impl.ScopedMessageBus;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -183,6 +185,9 @@ public class ScriptRuntime {
             if (scoped.bus() != null) {
                 runner.setEventUnsubscriber(scoped.bus()::unsubscribeAll);
             }
+            if (scoped.messages() != null) {
+                runner.setMessageUnsubscriber(scoped.messages()::unsubscribeAll);
+            }
             runner.setWatchdogArmer(this::ensureWatchdog);
             if (connectionName != null) {
                 runner.setConnectionName(connectionName);
@@ -199,52 +204,53 @@ public class ScriptRuntime {
     }
 
     /**
-     * A per-script context together with the {@link ScopedEventBus} inside it.
-     * The bus is carried out separately so the runner can be handed its
-     * {@code unsubscribeAll} hook without re-testing the context's shape;
-     * {@code bus} is null when the context isn't scopable (test mocks).
+     * A per-script context together with the two scoped buses inside it. They are
+     * carried out separately so the runner can be handed their
+     * {@code unsubscribeAll} hooks without re-testing the context's shape; both
+     * are null when the context isn't scopable (test mocks).
      */
-    private record ScopedContext(ScriptContext context, ScopedEventBus bus) {}
+    private record ScopedContext(ScriptContext context, ScopedEventBus bus,
+                                 ScopedMessageBus messages) {}
 
     /**
      * Builds a per-script {@link ScriptContext}: its own {@link ScopedEventBus}
-     * always, plus a publisher tagged with the script's name when a factory is
-     * installed. Falls back to the shared context unchanged when it isn't a
-     * {@link ScriptContextImpl} we can clone.
+     * and {@link ScopedMessageBus} always, plus a publisher tagged with the
+     * script's name when a factory is installed. Falls back to the shared context
+     * unchanged when it isn't a {@link ScriptContextImpl} we can clone.
      */
     private ScopedContext perScriptContextFor(BotScript script, RunnerLiveness liveness) {
         // rule-exception: {rule:no-instanceof} — runtime-shape boundary. ScriptContext
         // is an interface so callers can substitute mocks (see test-support); only the
         // production ScriptContextImpl carries the with-publisher / with-bus hooks.
         if (!(context instanceof ScriptContextImpl impl)) {
-            return new ScopedContext(context, null);
+            return new ScopedContext(context, null, null);
         }
-        // Always scope the event bus, publisher factory or not: it is what lets
+        // Always scope both buses, publisher factory or not: they are what let
         // cleanup take back the script's subscriptions, and a script whose
-        // listeners outlive it keeps acting on the game after Stop.
+        // listeners or ISC handlers outlive it keeps acting on the game after Stop.
         ScopedEventBus bus = new ScopedEventBus(impl.getEventBus());
+        ScopedMessageBus messages = new ScopedMessageBus(impl.getMessageBus());
         String name = resolveScriptName(script);
         // Bound straight to the runner's own liveness state, which is created
         // here and handed to the runner below. isStopRequested() is documented
         // as something scripts poll inside long loops, so it must not cost a
         // by-name scan of the runner lists on every call.
         ScriptContextImpl scoped = impl.withEventBus(bus)
-                .withStopSignal(liveness::isStopRequested)
-                .withSenderIdentity(name);
+                .withScriptMessageBus(messages, name)
+                .withStopSignal(liveness::isStopRequested);
         Function<String, ScriptContextPublisher> factory = this.publisherFactory;
         if (factory == null) {
-            return new ScopedContext(scoped, bus);
+            return new ScopedContext(scoped, bus, messages);
         }
         ScriptContextPublisher publisher = factory.apply(name);
         if (publisher == null || publisher == ScriptContextPublisher.NOOP) {
-            return new ScopedContext(scoped, bus);
+            return new ScopedContext(scoped, bus, messages);
         }
-        return new ScopedContext(scoped.withScriptContext(publisher), bus);
+        return new ScopedContext(scoped.withScriptContext(publisher), bus, messages);
     }
 
     private static String resolveScriptName(BotScript script) {
-        com.botwithus.bot.api.ScriptManifest manifest =
-                script.getClass().getAnnotation(com.botwithus.bot.api.ScriptManifest.class);
+        ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
         return manifest != null ? manifest.name() : script.getClass().getSimpleName();
     }
 

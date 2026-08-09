@@ -20,6 +20,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -35,6 +36,9 @@ import static org.mockito.Mockito.when;
  * deterministic and fast.</p>
  */
 class ScriptStopEnforcementTest {
+
+    /** Channel used by the ISC teardown test; nothing else subscribes to it. */
+    private static final String ISC_CHANNEL = "test.isc.teardown";
 
     /**
      * A script that ignores both the running flag and interruption — the exact
@@ -336,5 +340,51 @@ class ScriptStopEnforcementTest {
         assertTrue(runner.awaitStop(5000), "script polling isStopRequested should exit cleanly");
         assertTrue(sawStopRequest.get());
         assertEquals(Liveness.LIVE, runner.liveness(), "a clean exit is not an escalation");
+    }
+
+    @Test
+    @DisplayName("a stopped script stops handling ISC messages")
+    void stoppedScriptStopsHandlingIscMessages() throws Exception {
+        // The wiring test for the ISC scope. ScopedMessageBusTest drives that class
+        // directly; only this proves the runtime installs it and the runner releases
+        // it. Nothing else would catch a dropped hook — the scope logs nothing on
+        // teardown, so the failure mode is a script that quietly keeps handling
+        // messages after Stop.
+        MessageBusImpl shared = new MessageBusImpl();
+        ScriptRuntime runtime = new ScriptRuntime(new ScriptContextImpl(
+                mock(GameAPI.class), new EventBusImpl(), shared));
+        AtomicInteger handled = new AtomicInteger();
+        CountDownLatch subscribed = new CountDownLatch(1);
+        CountDownLatch firstDelivery = new CountDownLatch(1);
+
+        ScriptRunner runner = runtime.registerScript(new BotScript() {
+            @Override public void onStart(ScriptContext context) {
+                context.getMessageBus().subscribe(ISC_CHANNEL, message -> {
+                    handled.incrementAndGet();
+                    firstDelivery.countDown();
+                });
+                subscribed.countDown();
+            }
+            @Override public int onLoop() { return 10; }
+            @Override public void onStop() {}
+        });
+        runner.start();
+        // onStart runs on the script's own thread, so publishing before it has
+        // subscribed would prove nothing.
+        assertTrue(subscribed.await(5, TimeUnit.SECONDS), "onStart never ran");
+        shared.publish(ISC_CHANNEL, "someone-else", "while-running");
+        assertTrue(firstDelivery.await(5, TimeUnit.SECONDS),
+                "a running script must receive ISC messages");
+
+        runner.stop();
+        assertTrue(runner.awaitStop(5000));
+
+        assertEquals(0, shared.getSubscriptionInfo().getOrDefault(ISC_CHANNEL, 0),
+                "stopping the script must take its handler off the shared bus");
+        // Deterministic given the assertion above: with no handlers left, publish
+        // returns without dispatching, so there is no race to wait out.
+        int afterStop = handled.get();
+        shared.publish(ISC_CHANNEL, "someone-else", "after-stop");
+        assertEquals(afterStop, handled.get(), "a stopped script's handler must not fire");
     }
 }

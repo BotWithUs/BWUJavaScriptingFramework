@@ -80,18 +80,25 @@ public class ScriptContextImpl implements ScriptContext {
     }
 
     /**
-     * Returns a copy of this context whose {@link MessageBus} stamps
-     * {@code name} as the sender on every outbound message, so one script
+     * Returns a copy of this context holding the message bus a running script
+     * should see: {@code scoped}, so its ISC handlers can be taken back when it
+     * stops rather than outliving it on a virtual thread, under an identity stamp
+     * that makes {@code name} the sender subscribers observe — so one script
      * cannot publish, request or respond under another script's identity.
-     * Delivery and subscription semantics are unchanged. A null or blank name
-     * leaves the context as-is.
+     * Delivery and subscription semantics are otherwise unchanged.
+     *
+     * <p>The two layers are composed here rather than by two chained withers
+     * because their order is load-bearing and nothing else would enforce it: an
+     * identity stamp applied <em>underneath</em> the scope is silently discarded
+     * the moment the scope replaces the bus, and the spoofing protection goes with
+     * it. A null bus or a null/blank name leaves that layer off.</p>
      */
-    public ScriptContextImpl withSenderIdentity(String name) {
-        if (name == null || name.isBlank()) {
-            return this;
-        }
-        return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus,
-                new IdentifiedMessageBus(messageBus, name), sharedState,
+    public ScriptContextImpl withScriptMessageBus(MessageBus scoped, String name) {
+        MessageBus bus = scoped != null ? scoped : messageBus;
+        MessageBus identified = name == null || name.isBlank()
+                ? bus
+                : new IdentifiedMessageBus(bus, name);
+        return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, identified, sharedState,
                 navigation, scriptContext, stopRequested);
     }
 
