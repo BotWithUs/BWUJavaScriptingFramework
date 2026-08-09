@@ -93,6 +93,25 @@ public interface GameSnapshot {
     int sceneVersion();
 
     /**
+     * The scene's dynamic-region (instance) chunk-descriptor grid (v19+) — the
+     * table mapping each instance tile back to the static tile it was copied
+     * from. See {@link DynamicRegion} for what that buys you and for the units
+     * trap that catches everyone once.
+     *
+     * <p>The returned region is a flyweight over the snapshot's shared memory
+     * and shares its tick lifetime; take a {@link DynamicRegion#copyOf} if it
+     * has to outlive the tick.</p>
+     *
+     * <p>Defaults to {@link DynamicRegion#STATIC} so test doubles and
+     * hand-rolled stubs don't have to implement it. That default is the correct
+     * answer for a scene nobody modelled as an instance, not a placeholder; the
+     * live snapshot implementation overrides it.</p>
+     */
+    default DynamicRegion dynamicRegion() {
+        return DynamicRegion.STATIC;
+    }
+
+    /**
      * Whether {@code ifaceId} is currently mounted in
      * {@code jag::InterfaceManager}'s open-subs hashmap — the engine's
      * canonical "this interface is open right now" signal. Backed by the v14

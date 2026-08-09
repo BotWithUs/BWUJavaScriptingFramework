@@ -23,6 +23,16 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v19 appended the {@code dynRegion} tail block — the client's dynamic-region (instance)
+     *  chunk-descriptor grid. RS3 assembles instances (player-owned houses, Dungeoneering floors,
+     *  boss rooms) by stamping 8x8-tile chunks copied out of ordinary static regions, driven by a
+     *  server-supplied table; publishing that table lets a consumer map an instance tile back to
+     *  the static tile it was copied from, which is what a static-baked navigation layer needs to
+     *  path inside an instance. The block is a 36-byte scalar header
+     *  ({@link #SNAP_DYNREGION_OFFSET}) plus a count and a {@link #DYN_CHUNK_CAP}-entry array of
+     *  raw packed u32 descriptors. v18 had consumed the last tail pad, so there was nowhere to
+     *  hide the new fields — the snapshot grew and every reader must be rebuilt (hard version
+     *  bump).
      *  v18 made the snapshot's three time bases separately readable and honestly named. The u64 at
      *  offset 0 was {@code tickId} but is neither a tick nor the client's cycle counter — it is the
      *  producer's own publish counter, so it is now {@code publishSeq}. Alongside it the snapshot
@@ -53,7 +63,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 18;
+    public static final int PROTOCOL_VERSION = 19;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -80,6 +90,14 @@ public final class Layout {
      *  out around a dozen), costs 8 KB per buffer at {@link #PROJECTILE_ENTRY_SIZE}
      *  per row. */
     public static final int PROJECTILE_CAP     = 256;
+    /** Mirrors {@code kDynChunkCap} in SharedLayout.h. Cap on the dynamic-region
+     *  chunk-descriptor grid: 4 planes x 64 x 64 chunks, 64 KB per buffer. Mode 6
+     *  (the only size class measured live) needs {@code 4*32*32 = 4096}; the
+     *  headroom covers the unmeasured modes 4/5/7, whose grid dims arrive as raw
+     *  u8s off the wire. Sized deliberately large because a truncated grid
+     *  publishes ZERO chunks and therefore reads as a static scene — a silent
+     *  no-op is the worst failure this block can have. */
+    public static final int DYN_CHUNK_CAP      = 16384;
 
     /** Bit flag shared between NpcEntry and PlayerEntry. */
     public static final int FLAG_MOVING = 1;
@@ -371,7 +389,64 @@ public final class Layout {
     public static final int SNAP_GAMECYCLE_OFFSET = SNAP_PROJECTILES_OFFSET
                                                   + PROJECTILE_CAP * PROJECTILE_ENTRY_SIZE;
 
-    public static final int SNAPSHOT_SIZE = SNAP_GAMECYCLE_OFFSET + 4;
+    // ------------------------------------------------------------------
+    // DynamicRegion (36 bytes, alignof 4) — mirrors ipc::DynamicRegion in
+    // SharedLayout.h. The header of the v19 dynamic-region tail block: the
+    // scalars describing the client's instance chunk-descriptor grid, read
+    // once per tick. The grid itself follows as dynChunkCount + dynChunks[].
+    //
+    // UNITS TRAP: originMapX/originMapY/maxMapX/maxMapY are MAPSQUARES
+    // (64 tiles each); gridW/gridH are CHUNKS (8 tiles each). One mapsquare
+    // is 8 chunks, so an origin only becomes a grid index after a x8. That
+    // conversion happens exactly once, in DynamicRegion's resolver — do not
+    // repeat it here and do not skip it there.
+    //
+    // gridW/gridH stay populated when truncated is set, so a consumer can
+    // log "40x40 grid, cap 64x64" instead of seeing zeros. requiredChunks
+    // (4*gridW*gridH) is always written, which makes an overflow diagnosable
+    // rather than merely flagged.
+    // ------------------------------------------------------------------
+
+    public static final int DYNREGION_SIZE = 36;
+
+    /** {@code 1} when the scene is a dynamic region (the client's descriptor pointer
+     *  was non-null); {@code 0} for an ordinary static scene. */
+    public static final int DYNREGION_ISINSTANCE_OFFSET     = 0;    // u8
+    /** {@code 1} when the grid exceeded {@link #DYN_CHUNK_CAP}; the chunk array is
+     *  then empty while gridW/gridH/requiredChunks stay populated. */
+    public static final int DYNREGION_TRUNCATED_OFFSET      = 1;    // u8
+    // bytes 2..3 are _pad0; not accessed
+    /** {@code 3} = static, {@code 4..7} = dynamic size classes. */
+    public static final int DYNREGION_SCENEMODE_OFFSET      = 4;    // i32
+    public static final int DYNREGION_ORIGINMAPX_OFFSET     = 8;    // i32  min loaded MAPSQUARE X
+    public static final int DYNREGION_ORIGINMAPY_OFFSET     = 12;   // i32
+    public static final int DYNREGION_MAXMAPX_OFFSET        = 16;   // i32
+    public static final int DYNREGION_MAXMAPY_OFFSET        = 20;   // i32
+    public static final int DYNREGION_GRIDW_OFFSET          = 24;   // i32  width in CHUNKS
+    public static final int DYNREGION_GRIDH_OFFSET          = 28;   // i32  height in CHUNKS
+    public static final int DYNREGION_REQUIREDCHUNKS_OFFSET = 32;   // i32  4*gridW*gridH
+
+    // ------------------------------------------------------------------
+    // Dynamic region tail (v19+)
+    //
+    // dynChunks is plane-major: the descriptor for grid cell (gx, gy) on
+    // plane p lives at index ((p * gridW) + gx) * gridH + gy. Each entry is
+    // a raw packed u32 copied verbatim from the client; the BIT layout is
+    // NOT here — it lives on api's DynamicRegion, because scripts decode it
+    // and api cannot depend on core. One home, not two copies of a wire
+    // contract.
+    //
+    // PRODUCER CONTRACT: in a static scene the producer publishes
+    // dynChunkCount = 0 and leaves the dynChunks bytes stale/untouched — it
+    // deliberately does not memset 64 KB per tick for nothing. Never read
+    // past the count.
+    // ------------------------------------------------------------------
+
+    public static final int SNAP_DYNREGION_OFFSET     = SNAP_GAMECYCLE_OFFSET + 4;
+    public static final int SNAP_DYNCHUNKCOUNT_OFFSET = SNAP_DYNREGION_OFFSET + DYNREGION_SIZE;
+    public static final int SNAP_DYNCHUNKS_OFFSET     = SNAP_DYNCHUNKCOUNT_OFFSET + 4;
+
+    public static final int SNAPSHOT_SIZE = SNAP_DYNCHUNKS_OFFSET + DYN_CHUNK_CAP * 4;
 
     // ------------------------------------------------------------------
     // Event ring

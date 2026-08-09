@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.impl.snapshot;
 
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.GroundItem;
 import com.botwithus.bot.api.snapshot.GroundItemFilter;
@@ -45,6 +46,23 @@ import java.util.stream.Stream;
 public final class GameSnapshotImpl implements GameSnapshot {
 
     private final SnapshotView view;
+
+    /**
+     * Memoised {@link #dynamicRegion()} result. Acquiring the region allocates
+     * three objects (header record, memory slice, flyweight), and the natural way
+     * to write a per-tile resolve loop is
+     * {@code snapshot.dynamicRegion().sourceOfPacked(...)} — which would put
+     * those three allocations on the per-tile path and defeat the whole point of
+     * the allocation-free resolver. Caching makes the naive loop cost the same as
+     * the careful one.
+     *
+     * <p>Deliberately unsynchronised. This class is documented as one instance
+     * per acquisition, and a racing double-initialisation is benign: every field
+     * of the view is {@code final}, so the JMM guarantees a racing reader sees a
+     * fully-built object, and two views over the same buffer are
+     * interchangeable.</p>
+     */
+    private DynamicRegion dynamicRegion;
 
     public GameSnapshotImpl(SnapshotView view) {
         this.view = view;
@@ -140,6 +158,16 @@ public final class GameSnapshotImpl implements GameSnapshot {
     @Override
     public int sceneVersion() {
         return view.sceneVersion();
+    }
+
+    @Override
+    public DynamicRegion dynamicRegion() {
+        DynamicRegion cached = dynamicRegion;
+        if (cached == null) {
+            cached = view.dynamicRegion();
+            dynamicRegion = cached;
+        }
+        return cached;
     }
 
     @Override

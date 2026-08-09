@@ -274,4 +274,45 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_ENDTILEY_OFFSET),
                 seg.get(ValueLayout.JAVA_BYTE,  base + Layout.PROJECTILE_PLANE_OFFSET));
     }
+
+    // ------------------------------------------------------------------
+    // Dynamic region (v19+)
+    //
+    // The client's instance chunk-descriptor grid. The grid stays in shared
+    // memory: only the scalar header is read out, and tile lookups go through
+    // the DynamicRegionView flyweight so a per-tile loop allocates nothing.
+    // In a static scene the producer publishes dynChunkCount = 0 and leaves
+    // the chunk bytes stale, so nothing here may read past the count.
+    // ------------------------------------------------------------------
+
+    /** The dynamic-region block's ten scalars. Cheap enough to read per tick. */
+    public DynamicRegionEntry dynRegion() {
+        long base = Layout.SNAP_DYNREGION_OFFSET;
+        return new DynamicRegionEntry(
+                seg.get(ValueLayout.JAVA_BYTE, base + Layout.DYNREGION_ISINSTANCE_OFFSET) != 0,
+                seg.get(ValueLayout.JAVA_BYTE, base + Layout.DYNREGION_TRUNCATED_OFFSET) != 0,
+                seg.get(ValueLayout.JAVA_INT,  base + Layout.DYNREGION_SCENEMODE_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,  base + Layout.DYNREGION_ORIGINMAPX_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,  base + Layout.DYNREGION_ORIGINMAPY_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,  base + Layout.DYNREGION_MAXMAPX_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,  base + Layout.DYNREGION_MAXMAPY_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,  base + Layout.DYNREGION_GRIDW_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,  base + Layout.DYNREGION_GRIDH_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,  base + Layout.DYNREGION_REQUIREDCHUNKS_OFFSET));
+    }
+
+    /** Number of published chunk descriptors this tick, clamped to the wire cap. */
+    public int dynChunkCount() {
+        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_DYNCHUNKCOUNT_OFFSET);
+        return n < 0 ? 0 : Math.min(n, Layout.DYN_CHUNK_CAP);
+    }
+
+    /** The block as the public {@code DynamicRegion} surface: header read now,
+     *  grid left in place behind a slice sized to the published count. */
+    public DynamicRegionView dynamicRegion() {
+        int count = dynChunkCount();
+        MemorySegment chunks = seg.asSlice(Layout.SNAP_DYNCHUNKS_OFFSET,
+                                           (long) count * Integer.BYTES);
+        return new DynamicRegionView(dynRegion(), chunks, count);
+    }
 }
