@@ -21,13 +21,41 @@ public class StreamPipeReader implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(StreamPipeReader.class);
     private static final String PIPE_PREFIX = "\\\\.\\pipe\\";
-    private static final int MAX_FRAME_SIZE = 8 * 1024 * 1024; // 8 MB
+    private static final int BYTES_PER_MIB = 1024 * 1024;
+
+    /** Size of the little-endian uint32 length prefix in front of each frame. */
+    private static final int HEADER_BYTES = 4;
+
+    /**
+     * Upper bound on a single JPEG frame; anything larger is treated as framing
+     * corruption. Held equal to the producer's other pipe caps ({@code kMaxMsgSize}
+     * in {@code NXTLibrary/src/rpc/PipeServer.cpp}, {@code kMaxFrameBytes} in
+     * {@code Broker.cpp}) so all three pipes bound a frame the same way. The
+     * producer's {@code start_stream} is still {@code not_implemented}, so this
+     * is currently the specification that side has to meet rather than a mirror
+     * of a value it already enforces — raise both together or not at all.
+     */
+    private static final int MAX_FRAME_SIZE = 4 * BYTES_PER_MIB;
+
+    /**
+     * Sustained throughput a producer is allowed on the stream pipe. A frame is
+     * only self-limiting individually — nothing stopped a producer sending them
+     * back to back, and each one costs the consumer a {@code byte[]}, a decoded
+     * {@code BufferedImage} and a queued texture upload. A demanding legitimate
+     * stream (30 fps of ~300 KiB frames) sits an order of magnitude under both
+     * numbers.
+     */
+    private static final int MAX_FRAMES_PER_WINDOW = 120;
+    private static final long MAX_BYTES_PER_WINDOW = 32L * BYTES_PER_MIB;
+    private static final long BUDGET_WINDOW_NANOS = 1_000_000_000L;
 
     private final String pipePath;
     private final Consumer<byte[]> frameCallback;
     private Consumer<String> errorCallback;
     private volatile boolean running;
-    private RandomAccessFile pipeFile;
+    // Written by the reader thread on open, read by whichever thread calls
+    // close() — volatile so that thread sees the handle rather than null.
+    private volatile RandomAccessFile pipeFile;
 
     public StreamPipeReader(String pipeName, Consumer<byte[]> frameCallback) {
         // Server may return full path (\\.\pipe\...) or bare name
@@ -57,23 +85,7 @@ public class StreamPipeReader implements AutoCloseable {
             // connects to a PIPE_ACCESS_OUTBOUND server pipe.
             pipeFile = new RandomAccessFile(pipePath, "r");
             reportError("Stream pipe connected: " + pipePath);
-
-            byte[] header = new byte[4];
-            while (running) {
-                readFully(header);
-                int length = ByteBuffer.wrap(header)
-                        .order(ByteOrder.LITTLE_ENDIAN)
-                        .getInt();
-                if (length <= 0 || length > MAX_FRAME_SIZE) {
-                    reportError("Invalid frame size: " + length + " — stopping stream.");
-                    break;
-                }
-                byte[] frame = new byte[length];
-                readFully(frame);
-                if (running) {
-                    frameCallback.accept(frame);
-                }
-            }
+            pumpFrames();
         } catch (IOException e) {
             if (running) {
                 reportError("Stream pipe error: " + e.getMessage());
@@ -82,6 +94,45 @@ public class StreamPipeReader implements AutoCloseable {
             running = false;
             closePipe();
         }
+    }
+
+    /**
+     * Reads frames until the reader is stopped, the pipe closes, or the producer
+     * breaks framing or outruns its throughput budget. A guard trip stops the
+     * stream rather than dropping frames: the bytes still have to be read to
+     * stay framed, so dropping would spare only the callback and leave the
+     * reader servicing an abusive producer forever.
+     */
+    private void pumpFrames() throws IOException {
+        FrameBudget budget = new FrameBudget(MAX_FRAMES_PER_WINDOW, MAX_BYTES_PER_WINDOW,
+                BUDGET_WINDOW_NANOS, System::nanoTime);
+        byte[] header = new byte[HEADER_BYTES];
+        while (running) {
+            readFully(header);
+            int length = ByteBuffer.wrap(header)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+                    .getInt();
+            if (length <= 0 || length > MAX_FRAME_SIZE) {
+                reportError("Invalid frame size: " + length + " — stopping stream.");
+                return;
+            }
+            FrameBudget.Verdict verdict = budget.record(length);
+            if (verdict != FrameBudget.Verdict.WITHIN_BUDGET) {
+                reportError(throttleMessage(verdict));
+                return;
+            }
+            byte[] frame = new byte[length];
+            readFully(frame);
+            if (running) {
+                frameCallback.accept(frame);
+            }
+        }
+    }
+
+    private static String throttleMessage(FrameBudget.Verdict verdict) {
+        return "Stream throttled (" + verdict.description() + "): a producer may send at most "
+                + MAX_FRAMES_PER_WINDOW + " frames and " + MAX_BYTES_PER_WINDOW / BYTES_PER_MIB
+                + " MiB per second — stopping stream.";
     }
 
     private void readFully(byte[] buf) throws IOException {
