@@ -60,6 +60,19 @@ public final class ScriptGate {
     }
 
     /**
+     * Whether {@code scriptName}'s access has already been withdrawn.
+     *
+     * <p>A read-only view of the same set {@link #checkCaller()} consults, for
+     * the one case that has to act on another script's revocation rather than
+     * its own: reclaiming a per-connection resource a revoked script is still
+     * nominally holding. A revoked script's thread cannot be killed, so nothing
+     * that script owns will ever be released by the script itself.</p>
+     */
+    public boolean isRevoked(String scriptName) {
+        return scriptName != null && revoked.contains(scriptName);
+    }
+
+    /**
      * How long a revoked caller is parked before its call is rejected.
      *
      * <p>Not politeness — throttling. A revoked script that swallows the

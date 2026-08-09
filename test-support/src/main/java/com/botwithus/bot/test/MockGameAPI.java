@@ -178,6 +178,11 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public long walkRefusalCount() {
+        throw notStubbed("walkRefusalCount");
+    }
+
+    @Override
     public boolean isReachable(int x, int y) {
         throw notStubbed("isReachable");
     }

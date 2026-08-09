@@ -7,6 +7,35 @@ import com.botwithus.bot.api.model.WorldPathConfig;
 /**
  * Navigation and pathfinding.
  *
+ * <h2>One script walks at a time</h2>
+ *
+ * <p>A client has one character, one position, and one server-side action queue
+ * that drains a single action per server tick. Two scripts walking the same
+ * character therefore cannot both make progress: their per-tile clicks
+ * interleave, neither sees the character move toward its own goal, and both
+ * re-plan forever from a position neither predicted. So the character is held
+ * by <b>one walker at a time</b>:</p>
+ *
+ * <ul>
+ *   <li>A walk request from a script while <em>another</em> script is walking
+ *       is <b>refused</b>. It returns immediately without starting anything,
+ *       the walk already in progress is left alone, and
+ *       {@link #getWalkStatus()} reports {@code "refused_busy"} to the script
+ *       that was refused. It does not queue and it will not be retried for you
+ *       — decide in your own script whether to wait and ask again.</li>
+ *   <li>Re-targeting your <em>own</em> walk is always allowed: the walk in
+ *       flight is cancelled and joined, then the new one starts.</li>
+ *   <li>{@link #walkCancel()} only cancels a walk you started. Asking to cancel
+ *       somebody else's is a no-op, not an error.</li>
+ *   <li>{@link #getWalkStatus()} is scoped to the calling script: it reports
+ *       your walk, or the outcome of your last one — never a sibling
+ *       script's.</li>
+ *   <li>The <b>host</b>, and any {@code ManagementScript} orchestrating this
+ *       client, walk with override authority: they may take the character from
+ *       a script and cancel any walk. This is deliberate — an orchestrator that
+ *       could not move a character it manages could not do its job.</li>
+ * </ul>
+ *
  * @see com.botwithus.bot.api.GameAPI
  */
 public interface NavigationAPI {
@@ -16,6 +45,10 @@ public interface NavigationAPI {
     /**
      * Starts a local A* walk to the given tile. Returns immediately.
      *
+     * <p>Refused, silently and without starting a walk, if another script is
+     * already walking this character — check {@link #getWalkStatus()} for
+     * {@code "refused_busy"}.</p>
+     *
      * @param x target world tile X
      * @param y target world tile Y
      */
@@ -24,6 +57,10 @@ public interface NavigationAPI {
     /**
      * Starts a world-scale walk using HPA&#42;/flat A&#42; with teleport, door,
      * shortcut, and transport support. Returns immediately.
+     *
+     * <p>Refused, silently and without starting a walk, if another script is
+     * already walking this character — check {@link #getWalkStatus()} for
+     * {@code "refused_busy"}.</p>
      *
      * @param x     target world tile X
      * @param y     target world tile Y
@@ -59,6 +96,10 @@ public interface NavigationAPI {
     /**
      * Starts a world-scale walk with full pathfinder configuration.
      *
+     * <p>Refused, silently and without starting a walk, if another script is
+     * already walking this character — check {@link #getWalkStatus()} for
+     * {@code "refused_busy"}.</p>
+     *
      * @param x             target world tile X
      * @param y             target world tile Y
      * @param plane         target plane (height level)
@@ -68,16 +109,49 @@ public interface NavigationAPI {
     void walkWorldPathAsync(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config);
 
     /**
-     * Cancels any active walk.
+     * Cancels the walk this script started. A no-op if the walk in progress
+     * belongs to another script; the host and management scripts may cancel
+     * any walk.
      */
     void walkCancel();
 
     /**
-     * Returns the current walker state.
+     * Returns the walker state <em>for the calling script</em>: {@code walking}
+     * while its own walk is in flight, otherwise the outcome of its last
+     * request — {@code arrived}, {@code cancelled}, {@code failed},
+     * {@code refused_busy}, or {@code idle} if it has never asked for one.
+     *
+     * <p>Never reports a sibling script's walk. The host and management scripts
+     * see whichever walk is in progress, whoever started it.</p>
+     *
+     * <p>This is a <em>level</em>, so it cannot on its own tell you whether the
+     * request you just made was the one refused — an older refusal reads the
+     * same. Use {@link #walkRefusalCount()} for that.</p>
      *
      * @return the walk status
      */
     WalkStatus getWalkStatus();
+
+    /**
+     * How many of the calling script's walk requests have been refused because
+     * another script held the character.
+     *
+     * <p>Monotonic and caller-scoped. Read it before a walk request and again
+     * after: an increase means <em>that</em> request was refused. This is the
+     * reliable way to detect a refusal — {@link #getWalkStatus()} reports a
+     * level, so a refusal left over from an earlier request is indistinguishable
+     * from one caused by this one, and a host or management caller sees
+     * {@code walking} for whatever walk is in progress rather than its own
+     * refusal at all.</p>
+     *
+     * <p>Implementations that do not track refusals return {@code 0}, which
+     * simply reads as "never refused".</p>
+     *
+     * @return the refusal count for the calling script, never negative
+     */
+    default long walkRefusalCount() {
+        return 0L;
+    }
 
     // ============================== Path Queries ==============================
 

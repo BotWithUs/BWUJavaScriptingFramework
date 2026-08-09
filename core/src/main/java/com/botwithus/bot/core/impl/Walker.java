@@ -147,8 +147,17 @@ public class Walker implements Navigation {
         Subscription<WalkCancelledEvent> cancelled = subscribeTerminal(WalkCancelledEvent.class, latch, result, WalkResult.CANCELLED);
         Subscription<WalkFailedEvent> failed = subscribeTerminal(WalkFailedEvent.class, latch, result, WalkResult.FAILED);
 
+        long refusalsBefore = api.walkRefusalCount();
+
         try {
             startWalk.run();
+            if (api.walkRefusalCount() > refusalsBefore) {
+                // Another script holds the character. Nothing was started, so
+                // no terminal event is coming and awaiting one would park this
+                // caller for the whole timeout instead of failing fast.
+                log.warn("Walk refused: another script is already walking this character");
+                return WalkResult.FAILED;
+            }
             if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
                 log.warn("Walk timed out after {}ms", timeoutMs);
                 api.walkCancel();
