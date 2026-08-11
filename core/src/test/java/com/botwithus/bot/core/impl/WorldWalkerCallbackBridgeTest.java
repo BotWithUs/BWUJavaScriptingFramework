@@ -62,7 +62,8 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     private LocalPlayer player(int x, int y, int plane) {
-        return new LocalPlayer(0, 0, x, y, plane, 0, -1, -1, 0, -1, 0, false, -1, List.<Skill>of());
+        return new LocalPlayer(0, 0, x, y, plane, 0, -1, -1, 0, -1, 0, false, -1,
+                LocalPlayer.HEALTH_UNKNOWN, LocalPlayer.HEALTH_UNKNOWN, List.<Skill>of());
     }
 
     // ============================== Reads ==============================
@@ -249,7 +250,8 @@ class WorldWalkerCallbackBridgeTest {
 
     private LocalPlayer playerWithMagic(int x, int y, int plane, int magicLevel) {
         Skill magic = new Skill(6, 0, magicLevel, magicLevel);
-        return new LocalPlayer(0, 0, x, y, plane, 0, -1, -1, 0, -1, 0, false, -1, List.of(magic));
+        return new LocalPlayer(0, 0, x, y, plane, 0, -1, -1, 0, -1, 0, false, -1,
+                LocalPlayer.HEALTH_UNKNOWN, LocalPlayer.HEALTH_UNKNOWN, List.of(magic));
     }
 
     @Test

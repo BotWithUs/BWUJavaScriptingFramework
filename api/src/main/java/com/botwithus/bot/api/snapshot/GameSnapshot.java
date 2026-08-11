@@ -63,6 +63,12 @@ public interface GameSnapshot {
      * The local player, or {@code null} if not currently in-game. Inspect
      * {@link #gameState()} or {@link #ownIndex()} first if you need to
      * distinguish login/lobby states.
+     *
+     * <p>Read entirely out of shared memory, so
+     * {@link LocalPlayer#currentHealth()} / {@link LocalPlayer#maxHealth()}
+     * come back as {@link LocalPlayer#HEALTH_UNKNOWN} — those two live in
+     * varps and cost a pipe round-trip. Use {@code GameAPI.getLocalPlayer()}
+     * when you need health.</p>
      */
     LocalPlayer self();
 

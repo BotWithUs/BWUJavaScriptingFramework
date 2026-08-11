@@ -156,6 +156,8 @@ class MockScriptContextTest {
                 0,
                 false,
                 -1,
+                LocalPlayer.HEALTH_UNKNOWN,
+                LocalPlayer.HEALTH_UNKNOWN,
                 List.of());
     }
 }

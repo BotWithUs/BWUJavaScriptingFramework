@@ -111,6 +111,15 @@ public class GameAPIImpl implements GameAPI {
      */
     private static final int LEASE_ACQUIRE_ATTEMPTS = 3;
 
+    /**
+     * Varps holding the local player's current and maximum life points. The
+     * snapshot has no health field — {@code LocalPlayer} in the mapping stops
+     * at the skills array — so {@link #getLocalPlayer()} reads these two over
+     * the pipe instead.
+     */
+    private static final int VARP_CURRENT_HEALTH = 13537;
+    private static final int VARP_MAX_HEALTH = 13538;
+
     private final RpcClient rpc;
     private final NXTCache cache;
 
@@ -156,6 +165,19 @@ public class GameAPIImpl implements GameAPI {
      * index pass {@link GamevalIndex#empty()}, whose lookups all come back empty.
      */
     private final GamevalIndex gamevals;
+
+    /**
+     * Last health reading and the server tick it was taken on, or {@code null}
+     * before the first read. Written and read as one object so a caller can
+     * never pair a fresh tick with a stale pair of values.
+     *
+     * <p>Health changes on the 600ms server tick, so caching on
+     * {@link GameSnapshot#serverTick()} costs at most one batched {@code
+     * get_varps} per tick however often scripts call {@link #getLocalPlayer()}.
+     * Two threads racing here both issue the read and one wins the field —
+     * benign, and cheaper than locking a path every script walks.</p>
+     */
+    private volatile HealthSample health;
 
     private volatile WorldWalker worldWalker;
     private final Object worldWalkerLock = new Object();
@@ -370,12 +392,61 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public LocalPlayer getLocalPlayer() {
         GameSnapshot snap = snapshot();
-        return snap == null ? null : snap.self();
+        if (snap == null) {
+            return null;
+        }
+        LocalPlayer self = snap.self();
+        if (self == null) {
+            // Not in-game: no health to read, and no reason to spend a
+            // round-trip finding that out.
+            return null;
+        }
+        HealthSample sample = readHealth(snap.serverTick());
+        return self.withHealth(sample.current(), sample.max());
+    }
+
+    /**
+     * Current life points for {@code serverTick}, reusing the cached sample
+     * while the tick holds. Degrades to
+     * {@link LocalPlayer#HEALTH_UNKNOWN} rather than throwing: health is one
+     * field of a record callers mostly want for position and skills, and a
+     * transient pipe hiccup should not take {@link #getLocalPlayer()} down
+     * with it.
+     */
+    private HealthSample readHealth(int serverTick) {
+        HealthSample cached = health;
+        if (cached != null && cached.serverTick() == serverTick) {
+            return cached;
+        }
+        HealthSample sample = fetchHealth(serverTick);
+        if (sample.isKnown()) {
+            health = sample;
+        }
+        return sample;
+    }
+
+    private HealthSample fetchHealth(int serverTick) {
+        List<Integer> values;
+        try {
+            values = getVarps(List.of(VARP_CURRENT_HEALTH, VARP_MAX_HEALTH));
+        } catch (RuntimeException e) {
+            log.debug("Health varp read failed; reporting unknown health", e);
+            return HealthSample.unknown(serverTick);
+        }
+        // A producer that truncated the batch leaves the missing entries
+        // unknown rather than shifting one value into the other's slot.
+        if (values.size() < 2) {
+            return HealthSample.unknown(serverTick);
+        }
+        return new HealthSample(serverTick, values.get(0), values.get(1));
     }
 
     @Override
     public PlayerStat getPlayerStat(int skillId) {
-        LocalPlayer self = getLocalPlayer();
+        // Deliberately not via getLocalPlayer(): skills are in the mapping, and
+        // this method promises no round-trip.
+        GameSnapshot snap = snapshot();
+        LocalPlayer self = snap == null ? null : snap.self();
         if (self == null) {
             return null;
         }

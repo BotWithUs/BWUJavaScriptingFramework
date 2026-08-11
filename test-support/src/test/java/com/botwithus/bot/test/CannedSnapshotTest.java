@@ -98,6 +98,8 @@ class CannedSnapshotTest {
                 0,
                 true,
                 -1,
+                LocalPlayer.HEALTH_UNKNOWN,
+                LocalPlayer.HEALTH_UNKNOWN,
                 List.of());
     }
 }

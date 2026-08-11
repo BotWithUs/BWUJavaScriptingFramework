@@ -122,6 +122,11 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 lpv.targetType(),
                 lpv.isMember(),
                 lpv.spotAnimId(),
+                // Health lives in varps, not in the mapping. This path is the
+                // RPC-free one by contract, so it leaves both at the sentinel;
+                // GameAPIImpl.getLocalPlayer fills them from get_varps.
+                LocalPlayer.HEALTH_UNKNOWN,
+                LocalPlayer.HEALTH_UNKNOWN,
                 skills);
     }
 

@@ -150,6 +150,11 @@ class GameSnapshotImplTest {
             assertEquals(List.of(
                     new Skill(1, 13_034_431, 99, 105),
                     new Skill(4, 100_000, 50, 50)), self.skills());
+            // Health is varp-backed, not in the mapping — this path never
+            // pays a round-trip for it.
+            assertEquals(LocalPlayer.HEALTH_UNKNOWN, self.currentHealth());
+            assertEquals(LocalPlayer.HEALTH_UNKNOWN, self.maxHealth());
+            assertFalse(self.hasHealth());
         }
     }
 

@@ -8,6 +8,7 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.rpc.RpcException;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -97,6 +98,90 @@ class GameAPIImplEntitiesTest {
         build();
         snap.self = null;
         assertNull(api.getLocalPlayer());
+    }
+
+    // ---------------------------------------------------------------- health varps
+
+    @Test
+    void getLocalPlayerFillsHealthFromVarps() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of());
+        stubHealthVarps(2400, 9900);
+
+        LocalPlayer lp = api.getLocalPlayer();
+
+        assertNotNull(lp);
+        assertEquals(2400, lp.currentHealth());
+        assertEquals(9900, lp.maxHealth());
+        assertTrue(lp.hasHealth());
+        // Both ids in one batch — one round-trip, not two.
+        verify(rpc, times(1)).callSync(eq("get_varps"),
+                eq(Map.of("ids", List.of(13537, 13538))));
+    }
+
+    @Test
+    void getLocalPlayerCachesHealthUntilServerTickAdvances() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of());
+        stubHealthVarps(2400, 9900);
+
+        api.getLocalPlayer();
+        api.getLocalPlayer();
+        verify(rpc, times(1)).callSync(eq("get_varps"), anyMap());
+
+        snap.serverTick = 1;
+        assertEquals(2400, api.getLocalPlayer().currentHealth());
+        verify(rpc, times(2)).callSync(eq("get_varps"), anyMap());
+    }
+
+    @Test
+    void getLocalPlayerReportsUnknownHealthWhenReadFails() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of());
+        when(rpc.callSync(eq("get_varps"), anyMap()))
+                .thenThrow(new RpcException("pipe closed"));
+
+        LocalPlayer lp = api.getLocalPlayer();
+
+        assertNotNull(lp, "a failed health read must not take the whole record down");
+        assertEquals(LocalPlayer.HEALTH_UNKNOWN, lp.currentHealth());
+        assertEquals(LocalPlayer.HEALTH_UNKNOWN, lp.maxHealth());
+        assertFalse(lp.hasHealth());
+        // A failure is not cached, so the next call retries within the tick.
+        api.getLocalPlayer();
+        verify(rpc, times(2)).callSync(eq("get_varps"), anyMap());
+    }
+
+    @Test
+    void getLocalPlayerReportsUnknownHealthWhenBatchTruncated() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of());
+        when(rpc.callSync(eq("get_varps"), anyMap()))
+                .thenReturn(Map.of("values", List.of(2400)));
+
+        LocalPlayer lp = api.getLocalPlayer();
+
+        // Half a batch must not slide the current value into the max slot.
+        assertEquals(LocalPlayer.HEALTH_UNKNOWN, lp.currentHealth());
+        assertEquals(LocalPlayer.HEALTH_UNKNOWN, lp.maxHealth());
+    }
+
+    @Test
+    void getLocalPlayerSkipsHealthReadWhenNotInGame() {
+        build();
+        snap.self = null;
+
+        assertNull(api.getLocalPlayer());
+        verify(rpc, times(0)).callSync(eq("get_varps"), anyMap());
+    }
+
+    @Test
+    void getPlayerStatDoesNotReadHealthVarps() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of(new Skill(6, 500_000, 70, 75)));
+
+        assertNotNull(api.getPlayerStat(6));
+        verify(rpc, times(0)).callSync(eq("get_varps"), anyMap());
     }
 
     @Test
@@ -253,8 +338,15 @@ class GameAPIImplEntitiesTest {
 
     // ---------------------------------------------------------------- helpers
 
+    /** Canned reply for the batched current/max life-point read. */
+    private void stubHealthVarps(int current, int max) {
+        when(rpc.callSync(eq("get_varps"), anyMap()))
+                .thenReturn(Map.<String, Object>of("values", List.of(current, max)));
+    }
+
     private static LocalPlayer makeSelf(int x, int y, int plane, List<Skill> skills) {
-        return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, -1, skills);
+        return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, -1,
+                LocalPlayer.HEALTH_UNKNOWN, LocalPlayer.HEALTH_UNKNOWN, skills);
     }
 
     private static com.botwithus.bot.api.snapshot.Npc makeNpc(int idx, int typeId, int x, int y) {

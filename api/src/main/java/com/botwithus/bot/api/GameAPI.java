@@ -226,10 +226,17 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     // ---------------------------------------------------------------- Local player & skills
 
     /**
-     * Convenience accessor — equivalent to {@code snapshot().self()} but
-     * named for ergonomics in scripts that don't otherwise touch the
-     * snapshot. Returns {@code null} when not in-game (matches snapshot
-     * semantics).
+     * The local player, with {@link LocalPlayer#currentHealth()} and
+     * {@link LocalPlayer#maxHealth()} filled in. Returns {@code null} when not
+     * in-game (matches snapshot semantics).
+     *
+     * <p>Otherwise the same record {@code snapshot().self()} returns — but
+     * health is not in the mapping, so filling it costs one batched varp read
+     * over the pipe. That read is cached per server tick, so calling this in a
+     * loop costs at most one round-trip per 600ms tick; both values degrade to
+     * {@link LocalPlayer#HEALTH_UNKNOWN} if the read doesn't land. Callers that
+     * only want position, skills or animation should prefer
+     * {@code snapshot().self()}, which never touches the pipe.</p>
      */
     LocalPlayer getLocalPlayer();
 
@@ -237,10 +244,15 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * No-plane convenience for {@link NavigationAPI#walkWorldPathAsync(int, int, int)}
      * — uses the local player's current plane, falling back to plane 0 when
      * not in-game. Lives here (not on {@code NavigationAPI}) because it
-     * needs {@link #getLocalPlayer()}.
+     * needs {@link #snapshot()}.
+     *
+     * <p>Reads the plane off the snapshot rather than
+     * {@link #getLocalPlayer()}: only the plane is wanted, and the health read
+     * that accessor pays for would be a round-trip spent on nothing.</p>
      */
     default void walkWorldPath(int x, int y) {
-        LocalPlayer lp = getLocalPlayer();
+        GameSnapshot snap = snapshot();
+        LocalPlayer lp = snap == null ? null : snap.self();
         walkWorldPathAsync(x, y, lp == null ? 0 : lp.plane());
     }
 

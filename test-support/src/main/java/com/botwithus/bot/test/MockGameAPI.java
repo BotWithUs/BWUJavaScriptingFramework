@@ -46,7 +46,10 @@ import java.util.function.Supplier;
  * actually call are implemented:
  * <ul>
  *   <li>{@link #snapshot()} — delegates to the configured supplier</li>
- *   <li>{@link #getLocalPlayer()} — returns {@code snapshot().self()}</li>
+ *   <li>{@link #getLocalPlayer()} — returns {@code snapshot().self()}. There is
+ *       no pipe here, so health is whatever the canned {@code LocalPlayer}
+ *       carries: build it with the values your test wants to exercise rather
+ *       than expecting the mock to fill them in</li>
  *   <li>{@link #queueAction(GameAction)} — forwards to the recording sink</li>
  *   <li>{@link #queueActions(List)} — forwarded one-by-one to the sink</li>
  * </ul>
