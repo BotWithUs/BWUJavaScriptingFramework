@@ -120,7 +120,11 @@ public class ScriptConfigPanel {
         ImDrawList draw = ImGui.getWindowDrawList();
         float fontH = ImGui.getFontSize();
 
-        float bannerH = fontH * 4.2f;
+        // Height is row-count driven. Two rows (title + subtitle) end at 0.85 + 1.45 + 1.0
+        // em, so 4.2 leaves the same 0.85 em below them as above the title. A description
+        // adds a row at +2.75 em whose glyphs run to 4.6 — under the old 4.2 the accent
+        // stripe and its hairline crossed the text and the rest spilled out of the banner.
+        float bannerH = fontH * (hasDescription(manifest) ? 5.2f : 4.2f);
         float padX = fontH * 1.1f;
         float padY = fontH * 0.85f;
 
@@ -203,12 +207,17 @@ public class ScriptConfigPanel {
                 ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.92f);
         draw.addText(textX, titleY + fontH * 1.45f, subtitleCol, subtitle.toString());
 
-        if (manifest != null && !manifest.description().isEmpty()) {
+        if (hasDescription(manifest)) {
             int descCol = ImGuiTheme.imCol32(
                     ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.9f);
             String desc = truncateToWidth(manifest.description(), maxTextWidth);
             draw.addText(textX, titleY + fontH * 2.75f, descCol, desc);
         }
+    }
+
+    /** Whether the banner gets a third text row — keeps its height and its content in step. */
+    private static boolean hasDescription(ScriptManifest manifest) {
+        return manifest != null && !manifest.description().isEmpty();
     }
 
     private static String truncateToWidth(String text, float maxWidth) {
@@ -253,12 +262,13 @@ public class ScriptConfigPanel {
 
         ImGui.beginChild("##configBody", 0, bodyH, false);
 
-        if (fields == null || fields.isEmpty()) {
+        if (scriptOwnsBody()) {
+            renderCustomUi();
+        } else if (fields == null || fields.isEmpty()) {
             renderEmptyState();
         } else {
             renderFields(cs);
         }
-        renderCustomUi();
 
         ImGui.endChild();
         ImGui.popStyleColor();
@@ -268,22 +278,27 @@ public class ScriptConfigPanel {
     }
 
     /**
-     * Render the script's custom {@link ScriptUI} below the config fields, when it
-     * provides one — so a script that exposes both settings and a live status/control
-     * tab shows them together in this one window (the config button no longer has to
-     * choose one or the other).
+     * A script that ships its own {@link ScriptUI} owns the entire body: we render
+     * that UI and nothing else.
+     *
+     * <p>Stacking the generated {@link ConfigField} rows above it — which is what this
+     * panel used to do — is wrong on two counts. The rows are the same values the
+     * script's UI already presents, so every control appeared twice; and a UI that
+     * paints a full-window backdrop (any {@code BwuScriptUI}) fills
+     * {@code getWindowPos()}‥{@code getWindowSize()} on the window draw list, which in
+     * submission order lands on top of every row drawn before it in this same child.
+     * The rows kept their layout space but were painted over, so the panel opened onto
+     * a tall band of dead space before the script's UI came into view.</p>
      */
+    private boolean scriptOwnsBody() {
+        return runner != null && runner.getScript() != null && runner.getScript().getUI() != null;
+    }
+
     private void renderCustomUi() {
         ScriptUI ui = runner.getScript().getUI();
         if (ui == null) {
             return;
         }
-        float fontH = ImGui.getFontSize();
-        if (fields != null && !fields.isEmpty()) {
-            ImGui.dummy(0f, fontH * 0.7f);
-        }
-        GuiHelpers.sectionHeader("Live");
-        ImGui.dummy(0f, fontH * 0.2f);
         try {
             ui.render();
         } catch (Exception e) {
@@ -475,7 +490,8 @@ public class ScriptConfigPanel {
 
         ImGui.setCursorScreenPos(x0 + padX, y0 + padY);
 
-        boolean dirty = isDirty();
+        boolean ownsBody = scriptOwnsBody();
+        boolean dirty = !ownsBody && isDirty();
         renderDirtyIndicator(dirty);
 
         // Right-aligned action buttons: Reset (secondary) · Close (secondary) · Apply (primary).
@@ -483,18 +499,30 @@ public class ScriptConfigPanel {
         float resetW = textButtonWidth(Icons.ROTATE + "  Reset");
         float applyW = textButtonWidth(Icons.CHECK + "  Apply");
         float gap = ImGui.getStyle().getItemSpacingX();
-        float buttonsW = closeW + resetW + applyW + gap * 2;
+        float buttonsW = ownsBody ? closeW : closeW + resetW + applyW + gap * 2;
 
         ImGui.sameLine();
         float rightEdge = availW - padX;
         ImGui.setCursorPosX(rightEdge - buttonsW);
 
-        if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reset##cfgReset", resetW, ImGui.getFrameHeight())) {
-            resetToDefaults();
+        // When the script owns the body, Reset/Apply would act on generated fields that
+        // are not on screen: Apply would push the snapshot taken when this panel opened
+        // (clobbering anything the script's UI has changed since) and Reset would drop
+        // the whole config back to defaults. The script's UI persists on its own, so
+        // only Close is offered.
+        if (!ownsBody) {
+            if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reset##cfgReset", resetW, ImGui.getFrameHeight())) {
+                resetToDefaults();
+            }
+            ImGui.sameLine(0, gap);
         }
-        ImGui.sameLine(0, gap);
         if (GuiHelpers.buttonSecondary("Close##cfgClose", closeW, ImGui.getFrameHeight())) {
             open.set(false);
+        }
+        if (ownsBody) {
+            ImGui.setCursorScreenPos(x0, y0 + barH);
+            ImGui.dummy(availW, 0);
+            return;
         }
         ImGui.sameLine(0, gap);
 

@@ -25,8 +25,52 @@ public final class SnapshotView {
 
     private final MemorySegment seg;
 
+    /*
+     * Element counts are read once, here, and every bounds check below tests
+     * against the cached value rather than re-reading shared memory.
+     *
+     * Re-reading per access broke any caller that fixed an upper bound ahead of
+     * the reads it guards — notably
+     * {@code IntStream.range(0, view.npcCount()).mapToObj(this::at)} in
+     * GameSnapshotImpl, whose elements are only pulled by the terminal
+     * operation. A producer publish partway through the pipeline shrank the
+     * count, and an index the range had already issued then failed npcAt()'s
+     * own check, throwing IndexOutOfBoundsException from inside the stream.
+     *
+     * This cannot make the row data coherent — that is inherent to the
+     * lock-free double buffer, and a view is valid for one tick regardless —
+     * but it does keep indices in range for the view's lifetime. Views are
+     * constructed per {@code region.snapshot()} call, so the cache is nine int
+     * loads with no staleness window of its own.
+     */
+    private final int npcCount;
+    private final int playerCount;
+    private final int locationCount;
+    private final int inventoryCount;
+    private final int invItemCount;
+    private final int openIfaceCount;
+    private final int groundItemCount;
+    private final int projectileCount;
+    private final int dynChunkCount;
+
     public SnapshotView(MemorySegment seg) {
-        this.seg = seg;
+        this.seg             = seg;
+        this.npcCount        = readCount(seg, Layout.SNAP_NPCCOUNT_OFFSET,        Layout.NPC_CAP);
+        this.playerCount     = readCount(seg, Layout.SNAP_PLAYERCOUNT_OFFSET,     Layout.PLAYER_CAP);
+        this.locationCount   = readCount(seg, Layout.SNAP_LOCATIONCOUNT_OFFSET,   Layout.LOCATION_CAP);
+        this.inventoryCount  = readCount(seg, Layout.SNAP_INVENTORYCOUNT_OFFSET,  Layout.INVENTORY_CAP);
+        this.invItemCount    = readCount(seg, Layout.SNAP_INVITEMCOUNT_OFFSET,    Layout.INVENTORY_ITEM_CAP);
+        this.openIfaceCount  = readCount(seg, Layout.SNAP_OPENIFACECOUNT_OFFSET,  Layout.OPEN_IFACE_CAP);
+        this.groundItemCount = readCount(seg, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, Layout.GROUND_ITEM_CAP);
+        this.projectileCount = readCount(seg, Layout.SNAP_PROJECTILECOUNT_OFFSET, Layout.PROJECTILE_CAP);
+        this.dynChunkCount   = readCount(seg, Layout.SNAP_DYNCHUNKCOUNT_OFFSET,   Layout.DYN_CHUNK_CAP);
+    }
+
+    /** Reads a published element count, clamping a negative or oversized
+     *  producer value into {@code [0, cap]}. */
+    private static int readCount(MemorySegment seg, long offset, int cap) {
+        int n = seg.get(ValueLayout.JAVA_INT, offset);
+        return n < 0 ? 0 : Math.min(n, cap);
     }
 
     public long publishSeq()  { return seg.get(ValueLayout.JAVA_LONG, Layout.SNAP_PUBLISHSEQ_OFFSET); }
@@ -45,8 +89,7 @@ public final class SnapshotView {
     // ------------------------------------------------------------------
 
     public int npcCount() {
-        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_NPCCOUNT_OFFSET);
-        return n < 0 ? 0 : Math.min(n, Layout.NPC_CAP);
+        return npcCount;
     }
 
     public NpcEntry npcAt(int i) {
@@ -74,8 +117,7 @@ public final class SnapshotView {
     // ------------------------------------------------------------------
 
     public int playerCount() {
-        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_PLAYERCOUNT_OFFSET);
-        return n < 0 ? 0 : Math.min(n, Layout.PLAYER_CAP);
+        return playerCount;
     }
 
     public PlayerEntry playerAt(int i) {
@@ -101,8 +143,7 @@ public final class SnapshotView {
     // ------------------------------------------------------------------
 
     public int locationCount() {
-        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_LOCATIONCOUNT_OFFSET);
-        return n < 0 ? 0 : Math.min(n, Layout.LOCATION_CAP);
+        return locationCount;
     }
 
     public LocationEntry locationAt(int i) {
@@ -138,8 +179,7 @@ public final class SnapshotView {
     // ------------------------------------------------------------------
 
     public int inventoryCount() {
-        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_INVENTORYCOUNT_OFFSET);
-        return n < 0 ? 0 : Math.min(n, Layout.INVENTORY_CAP);
+        return inventoryCount;
     }
 
     public int invId(int i)        { return readInvHeader(i, Layout.INV_HEADER_INVID_OFFSET, false); }
@@ -158,8 +198,7 @@ public final class SnapshotView {
     }
 
     public int invItemCount() {
-        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_INVITEMCOUNT_OFFSET);
-        return n < 0 ? 0 : Math.min(n, Layout.INVENTORY_ITEM_CAP);
+        return invItemCount;
     }
 
     public int itemIdAt(int flatIdx) {
@@ -189,8 +228,7 @@ public final class SnapshotView {
 
     /** Number of live entries in {@code openIfaces} this tick. */
     public int openIfaceCount() {
-        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_OPENIFACECOUNT_OFFSET);
-        return n < 0 ? 0 : Math.min(n, Layout.OPEN_IFACE_CAP);
+        return openIfaceCount;
     }
 
     /** Returns the interface id at index {@code i} (0..openIfaceCount-1). */
@@ -225,8 +263,7 @@ public final class SnapshotView {
     // ------------------------------------------------------------------
 
     public int groundItemCount() {
-        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_GROUNDITEMCOUNT_OFFSET);
-        return n < 0 ? 0 : Math.min(n, Layout.GROUND_ITEM_CAP);
+        return groundItemCount;
     }
 
     public GroundItemEntry groundItemAt(int i) {
@@ -251,8 +288,7 @@ public final class SnapshotView {
     // ------------------------------------------------------------------
 
     public int projectileCount() {
-        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET);
-        return n < 0 ? 0 : Math.min(n, Layout.PROJECTILE_CAP);
+        return projectileCount;
     }
 
     public ProjectileEntry projectileAt(int i) {
@@ -303,8 +339,7 @@ public final class SnapshotView {
 
     /** Number of published chunk descriptors this tick, clamped to the wire cap. */
     public int dynChunkCount() {
-        int n = seg.get(ValueLayout.JAVA_INT, Layout.SNAP_DYNCHUNKCOUNT_OFFSET);
-        return n < 0 ? 0 : Math.min(n, Layout.DYN_CHUNK_CAP);
+        return dynChunkCount;
     }
 
     /** The block as the public {@code DynamicRegion} surface: header read now,
