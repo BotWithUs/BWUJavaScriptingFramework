@@ -85,12 +85,16 @@ public final class WorldWalker implements AutoCloseable {
     // pool / artifact. The winner runs the destructors; losers see closed=true
     // and return cleanly.
     private final AtomicBoolean destroyed = new AtomicBoolean(false);
-    // In-flight gate: query / runExecutor take the read lock, close() takes
-    // the write lock. The reader/writer asymmetry both (a) lets many queries
-    // run concurrently and (b) makes close() wait for every in-flight call to
-    // return before the native pool/artifact are freed (eliminating the
-    // use-after-free where close() destroyed the pool while a query was
-    // borrowing a context from it).
+    // In-flight gate: query / runExecutor / reloadTeleports take the read
+    // lock, close() takes the write lock. The reader/writer asymmetry both
+    // (a) lets many calls run concurrently and (b) makes close() wait for
+    // every in-flight call to return before the native pool/artifact are
+    // freed (eliminating the use-after-free where close() destroyed the pool
+    // while a query was borrowing a context from it). It guards ONLY the
+    // native handles' lifetime: the teleport reload's exclusion against
+    // concurrent queries and runs is the library's own job now
+    // (ww_artifact_load_teleports takes the artifact's lifecycle lock
+    // exclusively), so the host no longer serialises it here.
     private final ReentrantReadWriteLock lifecycle = new ReentrantReadWriteLock();
 
     private WorldWalker(MemorySegment artifact, MemorySegment pool) {
@@ -138,20 +142,20 @@ public final class WorldWalker implements AutoCloseable {
      * set. Lets scripters edit {@code spell_teleports.json} /
      * {@code item_teleports.json} and apply the change live without restarting.
      *
-     * <p>Takes the lifecycle write lock so it cannot run concurrently with any
-     * in-flight {@link #query} / {@link #runExecutor} — the native call mutates
-     * the shared artifact. Throws {@link IllegalStateException} if the handle is
-     * closed.</p>
+     * <p>Enters like any other call (shared lifecycle lock, so {@link #close}
+     * waits for it) and otherwise relies on the library: the native
+     * {@code ww_artifact_load_teleports} takes the artifact's own lock
+     * exclusively, so it waits for every in-flight {@link #query} /
+     * {@link #runExecutor} on this artifact — a run lasts the whole walk — and
+     * holds new ones off until the pools are stable. Throws
+     * {@link IllegalStateException} if the handle is closed.</p>
      */
     public void reloadTeleports() {
-        lifecycle.writeLock().lock();
+        enterCall();
         try {
-            if (closed) {
-                throw new IllegalStateException("WorldWalker handle is closed");
-            }
             loadTeleports(artifact, NativeCache.locateTeleportsDir());
         } finally {
-            lifecycle.writeLock().unlock();
+            leaveCall();
         }
     }
 
