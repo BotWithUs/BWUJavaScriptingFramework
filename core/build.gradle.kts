@@ -183,6 +183,36 @@ tasks.register<Test>("liveSmokeTest") {
     }
 }
 
+tasks.register<Test>("harnessTest") {
+    description = "Live tests selected by an integration harness (requires an injected agent). " +
+            "Narrow the set with -PharnessTests=<pattern>; the default runs the whole Live* family."
+    group = "verification"
+    useJUnitPlatform()
+    systemProperty("botwithus.smoke.live", "true")
+    // Same native-access and cache-locator forwarding as liveSmokeTest: the
+    // harness may point these at a dev build rather than ~/.botwithus/native.
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live",
+           "worldwalker.dll", "worldwalker.artifact").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    // Unlike liveSmokeTest this does not enumerate class names: a change that
+    // ships a new Live*Test must be runnable without editing this file, or the
+    // harness stops being the thing you reach for.
+    filter {
+        includeTestsMatching((project.findProperty("harnessTests") as String?) ?: "*Live*")
+    }
+    // The verdict depends on a live game, not on the inputs Gradle can see, so
+    // a cached "up-to-date" here would be a lie.
+    outputs.upToDateWhen { false }
+}
+
 tasks.register<Test>("sdnValidationTest") {
     description = "SDN encrypted-script validation against the custom JDK " +
             "(requires the patched jdk25u image)"
