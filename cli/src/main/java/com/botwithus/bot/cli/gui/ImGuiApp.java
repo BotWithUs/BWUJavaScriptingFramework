@@ -353,6 +353,10 @@ public class ImGuiApp extends Application {
         panels.add(new GroupsPanel());
         panels.add(new DiagnosticsPanel());
         panels.add(new SettingsPanel());
+        // Appended last on purpose: NAV_SECTION_PANELS and NAV_ICONS index into
+        // this list positionally, so inserting anywhere else renumbers every
+        // panel after it.
+        panels.add(new SdnScriptsPanel(executor));
     }
 
     private void setupStatusBar() {
@@ -501,7 +505,7 @@ public class ImGuiApp extends Application {
     private static final String[] NAV_SECTION_LABELS = {"CORE", "EXTENSIONS", "SYSTEM"};
     private static final int[][] NAV_SECTION_PANELS = {
         {0, 1, 2},      // Console, Connections, Scripts
-        {3, 4, 6},      // Management, Script UI, Groups
+        {3, 4, 6, 9},   // Management, Script UI, Groups, Scripts Store
         {5, 7, 8}       // Logs, Diagnostics, Settings
     };
     // Font Awesome icons for each panel (matching panel order in the panels list)
@@ -515,6 +519,7 @@ public class ImGuiApp extends Application {
         Icons.LAYER_GROUP,  // 6 Groups
         Icons.CHART,        // 7 Diagnostics
         Icons.GEAR,         // 8 Settings
+        Icons.DOWNLOAD,     // 9 Scripts Store
     };
 
     private void renderSidebar() {
