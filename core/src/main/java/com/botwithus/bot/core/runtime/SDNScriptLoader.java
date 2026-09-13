@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 
 /**
@@ -128,29 +128,51 @@ public final class SDNScriptLoader {
             return List.of();
         }
         try {
-            Optional<ClassLoader> loaderOpt =
+            List<ClassLoader> loaders =
                     SdnDiskBundleSource.awaitBundle(SDNScriptLoader.class.getClassLoader());
-            if (loaderOpt.isEmpty()) {
+            if (loaders.isEmpty()) {
                 return List.of();
             }
 
             List<BotScript> scripts = new ArrayList<>();
-            ServiceLoader<BotScript> loader = ServiceLoader.load(BotScript.class, loaderOpt.get());
-            for (BotScript script : loader) {
-                scripts.add(script);
-                log.info("SDN (disk) loaded: {}", script.getClass().getName());
+            for (ClassLoader loader : loaders) {
+                scripts.addAll(providersFrom(loader));
             }
 
             if (scripts.isEmpty()) {
                 log.info("No BotScript providers found in SDN disk bundle.");
             } else {
-                log.info("Loaded {} script(s) from SDN disk bundle.", scripts.size());
+                log.info("Loaded {} script(s) from {} SDN bundle(s).", scripts.size(), loaders.size());
             }
             return scripts;
         } catch (Exception e) {
             log.error("SDN disk script loading failed: {}", e.getMessage());
             return List.of();
         }
+    }
+
+    /**
+     * Discovers the providers in one delivered bundle.
+     *
+     * <p>Failure is contained to this loader. ServiceLoader resolves providers
+     * lazily, so a single script whose provider class is missing or whose
+     * constructor throws surfaces here, during iteration — and without this
+     * boundary it would cost the user every other script in the same delivery.
+     * That isolation is the reason the delivery is N loaders rather than one
+     * merged jar.
+     */
+    private static List<BotScript> providersFrom(ClassLoader loader) {
+        List<BotScript> found = new ArrayList<>();
+        try {
+            for (BotScript script : ServiceLoader.load(BotScript.class, loader)) {
+                found.add(script);
+                log.info("SDN (disk) loaded: {}", script.getClass().getName());
+            }
+        } catch (Exception | ServiceConfigurationError e) {
+            log.warn("SDN: a delivered bundle yielded no usable providers, skipping it: {}",
+                    e.getMessage());
+        }
+        return found;
     }
 
     /**
