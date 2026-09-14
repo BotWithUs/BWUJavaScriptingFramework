@@ -4,7 +4,8 @@
 # anonymously, unlike GitHub Packages, which requires a token even to read a
 # public artifact.
 #
-# Cut a release by tagging: `git tag v1.2.0 && git push origin v1.2.0`.
+# Cut a release by tagging: `git tag v1.2.0 && git push origin v1.2.0`. The tag
+# also fires javadoc.yml, which redeploys the API docs to Pages.
 name: Publish bot-api
 
 on:
@@ -18,8 +19,10 @@ on:
         required: true
         type: string
 
+# contents: write is needed to create the GitHub release. The push to
+# BotWithUs/maven uses a deploy key, not this token.
 permissions:
-  contents: read
+  contents: write
 
 # Two publishes racing would both push to BotWithUs/maven and one would be
 # rejected non-fast-forward, so serialise them.
@@ -97,6 +100,38 @@ jobs:
           fi
           git commit -m "bot-api ${{ steps.release.outputs.version }}"
           git push
+
+      # Only on a tag. A workflow_dispatch run has no tag to hang a release off,
+      # and --verify-tag keeps `gh` from inventing one from the default branch.
+      - name: Create the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          cat > notes.md <<NOTES
+          \`com.botwithus:bot-api:$version\` is published to the
+          [BotWithUs Maven repository](https://botwithus.github.io/maven).
+
+          \`\`\`kotlin
+          repositories {
+              mavenCentral()
+              maven { url = uri("https://botwithus.github.io/maven") }
+          }
+
+          dependencies {
+              implementation("com.botwithus:bot-api:$version")
+          }
+          \`\`\`
+
+          [API documentation](https://botwithus.github.io/BWUJavaScriptingFramework/)
+          NOTES
+          gh release create "v$version" \
+            --title "bot-api $version" \
+            --notes-file notes.md \
+            --generate-notes \
+            --verify-tag \
+            maven/com/botwithus/bot-api/"$version"/*.jar
 
       - name: Summarise
         run: |

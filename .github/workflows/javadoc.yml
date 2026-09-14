@@ -3,6 +3,10 @@ name: Deploy Javadoc to GitHub Pages
 on:
   push:
     branches: [master]
+    # A release tag redeploys the docs so the published Javadoc matches the
+    # version script authors just resolved. Both this and publish-api.yml fire
+    # on a v* tag; the 'pages' concurrency group keeps deploys serialised.
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
