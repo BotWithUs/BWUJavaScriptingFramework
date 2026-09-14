@@ -53,3 +53,17 @@
 # `Quests.java` (a `QuestId` constant per F2P quest). When the directory is
 # missing the codegen emits an empty stub and the module still compiles.
 # quest.research.dir=C:/path/to/Quest Research
+
+# Home of the patched runtime image used for jlink/jpackage. Drives both
+# core's sdnValidationTest and packaging, and takes precedence over the Gradle
+# toolchain (jlink.javaHome still wins over both). Leave unset to build against
+# the toolchain: the host compiles and runs local scripts, but the resulting
+# image cannot load SDN scripts. Also settable via the SDN_JDK env var.
+# sdn.jdk=C:/path/to/patched-jdk/images/jdk
+
+# Lowercase-hex marker that identifies a shipped image as the patched runtime.
+# verifySdnRuntime looks for these bytes in the linked image and refuses to let
+# an unverified one be packaged when sdn.jdk is set. Required for release
+# builds; without it the check is skipped and says so. Ask for the value rather
+# than guessing. Also settable via the SDN_MARKER env var.
+# sdn.marker=
