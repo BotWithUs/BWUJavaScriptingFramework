@@ -57,7 +57,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: BotWithUs/maven
-          token: ${{ secrets.MAVEN_REPO_TOKEN }}
+          # Write-enabled deploy key scoped to BotWithUs/maven alone — checkout
+          # leaves it configured, so the push step below authenticates with it.
+          ssh-key: ${{ secrets.MAVEN_DEPLOY_KEY }}
           path: maven
 
       - name: Refuse to overwrite a published version
