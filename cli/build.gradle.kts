@@ -174,7 +174,7 @@ jlink {
             // baked .cfg, so link time is the only place it can be set.
             //
             // The matching directory needs no flag: SdnRendezvous.directory()
-            // and the launcher's RendezvousDirectory() both default to
+            // and the launcher's matching lookup both default to
             // ~/.botwithus/sdn, so they agree unless one is overridden.
             "-Dbotwithus.sdn.disk=true",
         )
