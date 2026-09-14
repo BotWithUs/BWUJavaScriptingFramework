@@ -395,6 +395,41 @@ The producer (an injected C++ DLL) exposes two transports under the same `<pid>`
 
 Tests cover MessagePack codec, RPC metrics, event bus, message bus, script runner/runtime, script profiler, script profile persistence, auto-start command, connection groups, and end-to-end transport with a mock game server.
 
+## Using the API in your own project
+
+The `api` module is published as `com.botwithus:bot-api` to a static Maven
+repository hosted at [BotWithUs/maven](https://github.com/BotWithUs/maven) and
+served over GitHub Pages. It resolves anonymously — no token, no login:
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven { url = uri("https://botwithus.github.io/maven") }
+}
+
+dependencies {
+    implementation("com.botwithus:bot-api:1.0.0")
+}
+```
+
+Sources and Javadoc jars are published alongside each release, so IDEs pick up
+documentation and step-through sources automatically.
+
+### Cutting a release
+
+Releases are tagged, and the tag drives the version:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+That fires `.github/workflows/publish-api.yml`, which builds `:api` with
+`-PreleaseVersion=1.2.0`, publishes into a checkout of `BotWithUs/maven`, and
+pushes. Builds without `-PreleaseVersion` stay on `1.0-SNAPSHOT`, which is never
+published. Published versions are immutable — the workflow fails rather than
+overwrite one, so a bad release is corrected by cutting the next version.
+
 ## API Documentation
 
 Javadoc is generated for the API module and published to GitHub Pages. Build locally with:

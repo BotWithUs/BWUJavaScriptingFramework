@@ -60,6 +60,16 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 ./gradlew test --tests "com.botwithus.SomeTest.methodName"  # Run a single test
 ```
 
+### Publishing `bot-api`
+
+`api` is the only published module. It goes to **`BotWithUs/maven`** — a static Maven tree served over GitHub Pages at `https://botwithus.github.io/maven` — not to GitHub Packages, which demands a token even to *read* a public artifact and would put a PAT setup step in front of every third-party script author. Tagging `vX.Y.Z` fires `.github/workflows/publish-api.yml`.
+
+Three things that will bite if changed carelessly:
+- **The workflow checks out `BotWithUs/maven` *before* running Gradle and publishes into that working copy.** Gradle merges `maven-metadata.xml` against the versions already on disk; publish to a fresh staging dir and copy afterwards and the metadata collapses to a single version, making every prior release unresolvable by version range.
+- **Version comes from `-PreleaseVersion`** (root `build.gradle.kts`), defaulting to `1.0-SNAPSHOT`. The default is never published; a static repo has no SNAPSHOT republish story.
+- **`:api:javadoc` sets `modularity.inferModulePath = false`.** `module-info.java` is excluded from the javadoc source set, so with module path inference on, every `org.slf4j` import fails to resolve and javadoc emits *nothing*. That combination silently shipped an empty javadoc jar and an empty Pages site until `isFailOnError` was turned on. Leave it on.
+
+
 ### Machine-specific paths (`local.properties`)
 
 Absolute paths that differ per developer must **not** be committed. They live in `local.properties` at the project root (git-ignored); copy `local.properties.example` to start. The `Project.localProperty(key, envVar?)` helper in `buildSrc` resolves each key in order: Gradle project property (`-Pkey=` / `gradle.properties`) → `local.properties` → environment variable. Supported keys: `nxtcache.dll`, `nxtcache.path`, `worldwalker.dll`, `worldwalker.artifact`, `jlink.javaHome`, `navDataDir`. Use forward slashes in `.properties` files — a backslash is an escape char.
