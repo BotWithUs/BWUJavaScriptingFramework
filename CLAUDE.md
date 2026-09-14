@@ -62,13 +62,25 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 
 ### Publishing `bot-api`
 
-`api` is the only published module. It goes to **`BotWithUs/maven`** — a static Maven tree served over GitHub Pages at `https://botwithus.github.io/maven` — not to GitHub Packages, which demands a token even to *read* a public artifact and would put a PAT setup step in front of every third-party script author. Tagging `vX.Y.Z` fires `.github/workflows/publish-api.yml`.
+`api` is the only published module. It goes to **`BotWithUs/maven`** — a static Maven tree served over GitHub Pages at `https://botwithus.github.io/maven` — not to GitHub Packages, which demands a token even to *read* a public artifact and would put a PAT setup step in front of every third-party script author.
+
+Tagging `vX.Y.Z` fans out to three jobs: `publish-api.yml` writes the artifact to the Maven repo, `javadoc.yml` redeploys the docs so they match the tag, and `publish-api.yml` cuts a GitHub release carrying the jar, sources and javadoc.
 
 Three things that will bite if changed carelessly:
 - **The workflow checks out `BotWithUs/maven` *before* running Gradle and publishes into that working copy.** Gradle merges `maven-metadata.xml` against the versions already on disk; publish to a fresh staging dir and copy afterwards and the metadata collapses to a single version, making every prior release unresolvable by version range.
 - **Version comes from `-PreleaseVersion`** (root `build.gradle.kts`), defaulting to `1.0-SNAPSHOT`. The default is never published; a static repo has no SNAPSHOT republish story.
 - **`:api:javadoc` sets `modularity.inferModulePath = false`.** `module-info.java` is excluded from the javadoc source set, so with module path inference on, every `org.slf4j` import fails to resolve and javadoc emits *nothing*. That combination silently shipped an empty javadoc jar and an empty Pages site until `isFailOnError` was turned on. Leave it on.
 
+### CI and branch protection
+
+`master` is governed by two rulesets, both with an empty bypass list — they apply to org admins too.
+
+- **`master protection`** — PRs only, one approving review (GitHub forbids self-approval, so this genuinely needs a second person), stale reviews dismissed on push, the `build` check green, and no force-push or deletion.
+- **`release tags are immutable`** — `v*` tags cannot be deleted, moved, or force-updated, which is what makes "a published version is never replaced" true at the git level and not just by workflow convention.
+
+`ci.yml` provides the required `build` check. **Its job must stay named `build`** — the required-check context is matched by job name, so renaming the job blocks every merge to `master` until the ruleset is updated to match.
+
+**CI does not run `./gradlew build`.** It builds `:api :core :test-support :quest-core :skilling-core`, the modules that compile from a bare clone. `cli` needs `NXTCache.dll`, `worldwalker.dll`, an Atlas database and a jlink JDK home from `local.properties`; `example-script` and `sdn-test-script` reference quest constants that `quest-core` only generates when `quest.research.dir` points at the research data, and emits as a stub otherwise. Adding a module to CI means making it build without `local.properties` first.
 
 ### Machine-specific paths (`local.properties`)
 

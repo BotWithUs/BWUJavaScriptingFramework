@@ -424,11 +424,24 @@ git tag v1.2.0
 git push origin v1.2.0
 ```
 
-That fires `.github/workflows/publish-api.yml`, which builds `:api` with
-`-PreleaseVersion=1.2.0`, publishes into a checkout of `BotWithUs/maven`, and
-pushes. Builds without `-PreleaseVersion` stay on `1.0-SNAPSHOT`, which is never
-published. Published versions are immutable — the workflow fails rather than
+That tag does three things: publishes `bot-api` to the Maven repository,
+redeploys the Javadoc so the docs match the version just published, and cuts a
+[GitHub release](https://github.com/BotWithUs/BWUJavaScriptingFramework/releases)
+carrying the jar, sources, and javadoc. Builds without `-PreleaseVersion` stay on
+`1.0-SNAPSHOT`, which is never published. Published versions are immutable — the workflow fails rather than
 overwrite one, so a bad release is corrected by cutting the next version.
+
+
+### Contributing
+
+Day-to-day work happens on `develop`. `master` is protected: changes land through
+a pull request carrying one approving review and a green CI build, and cannot be
+force-pushed or deleted. CI builds and tests `api`, `core`, `test-support`,
+`quest-core` and `skilling-core` — the modules that compile from a bare clone;
+`cli` and the script modules need machine-specific paths in `local.properties`.
+
+Release tags cannot be moved or deleted once pushed, so a published version is
+never silently replaced.
 
 ## API Documentation
 
