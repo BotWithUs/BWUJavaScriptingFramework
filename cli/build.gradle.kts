@@ -284,7 +284,15 @@ val verifySdnRuntime by tasks.registering {
 
     val javaDll = layout.buildDirectory.file("image/bin/java.dll")
     val configuredFork = sdnJdkPath
-    val markerHex = sdnRuntimeMarkerHex
+
+    // Blank is not a value. localProperty null-checks but does not blank-check,
+    // so a bare `sdn.marker=` yields "" rather than null — and "" would clear
+    // the null branch below, parse to a zero-length needle, and match on
+    // containsSequence's first iteration. The task would then report success on
+    // an image it never verified, which is worse than the failure it exists to
+    // catch. Normalised here rather than in localProperty: that helper is shared
+    // with sdn.jdk and other callers, and is not ours to tighten globally.
+    val markerHex = sdnRuntimeMarkerHex?.trim()?.takeIf { it.isNotEmpty() }
 
     inputs.file(javaDll)
     outputs.upToDateWhen { false }
@@ -306,6 +314,25 @@ val verifySdnRuntime by tasks.registering {
             }
             logger.warn(message)
             return@doLast
+        }
+
+        // A marker short enough to occur by chance proves nothing: "00" is in
+        // every binary, so a two-character value would pass this task on any
+        // image at all. 16 bytes is the floor for a match to carry information.
+        // Malformed input is rejected here too, so a typo surfaces as a build
+        // error that names the problem rather than as a NumberFormatException
+        // thrown out of toInt(16) below.
+        val isWellFormedMarker = markerHex.length >= 32
+                && markerHex.length % 2 == 0
+                && markerHex.all { it in '0'..'9' || it in 'a'..'f' }
+        if (!isWellFormedMarker) {
+            throw GradleException(
+                "verifySdnRuntime: sdn.marker is not usable. Expected an even number of " +
+                        "lowercase hex characters, at least 32 of them (16 bytes); got " +
+                        "${markerHex.length}. A short or malformed marker either fails to " +
+                        "parse or matches any binary by chance, which would report success " +
+                        "on an image that was never verified."
+            )
         }
 
         val marker = markerHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()

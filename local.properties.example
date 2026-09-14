@@ -66,4 +66,8 @@
 # an unverified one be packaged when sdn.jdk is set. Required for release
 # builds; without it the check is skipped and says so. Ask for the value rather
 # than guessing. Also settable via the SDN_MARKER env var.
-# sdn.marker=
+#
+# The placeholder below is deliberately not a valid marker: uncommenting this
+# line without replacing it fails the build with a message naming the problem,
+# which is the outcome you want from a half-finished edit to a guard.
+# sdn.marker=REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS
