@@ -353,6 +353,10 @@ public class ImGuiApp extends Application {
         panels.add(new GroupsPanel());
         panels.add(new DiagnosticsPanel());
         panels.add(new SettingsPanel());
+        // Appended last on purpose: NAV_SECTION_PANELS and NAV_ICONS index into
+        // this list positionally, so inserting anywhere else renumbers every
+        // panel after it.
+        panels.add(new SdnScriptsPanel(executor));
     }
 
     private void setupStatusBar() {
@@ -370,10 +374,16 @@ public class ImGuiApp extends Application {
         if (runner == null) {
             return;
         }
-        if (runner.getScript().getUI() != null) {
-            scriptUIWindow.open(runner);
-        } else {
+        var fields = runner.getConfigFields();
+        boolean hasFields = fields != null && !fields.isEmpty();
+        if (hasFields) {
+            // The config panel renders the ConfigFields (with Apply/persist) AND,
+            // below them, the script's custom getUI() if it has one — so a script
+            // that provides both shows both here instead of the custom UI hiding the
+            // settings. UI-only scripts (no fields) still get the dedicated window.
             scriptConfigPanel.open(runner);
+        } else if (runner.getScript().getUI() != null) {
+            scriptUIWindow.open(runner);
         }
     }
 
@@ -495,7 +505,7 @@ public class ImGuiApp extends Application {
     private static final String[] NAV_SECTION_LABELS = {"CORE", "EXTENSIONS", "SYSTEM"};
     private static final int[][] NAV_SECTION_PANELS = {
         {0, 1, 2},      // Console, Connections, Scripts
-        {3, 4, 6},      // Management, Script UI, Groups
+        {3, 4, 6, 9},   // Management, Script UI, Groups, Scripts Store
         {5, 7, 8}       // Logs, Diagnostics, Settings
     };
     // Font Awesome icons for each panel (matching panel order in the panels list)
@@ -509,6 +519,7 @@ public class ImGuiApp extends Application {
         Icons.LAYER_GROUP,  // 6 Groups
         Icons.CHART,        // 7 Diagnostics
         Icons.GEAR,         // 8 Settings
+        Icons.DOWNLOAD,     // 9 Scripts Store
     };
 
     private void renderSidebar() {
@@ -745,6 +756,7 @@ public class ImGuiApp extends Application {
             ctx.getManagementRuntime().stopAll();
         }
         ctx.disconnectAll();
+        ctx.closeGamevals();
         executor.shutdownNow();
         if (glfwWindow != 0) {
             GLFW.glfwSetWindowShouldClose(glfwWindow, true);

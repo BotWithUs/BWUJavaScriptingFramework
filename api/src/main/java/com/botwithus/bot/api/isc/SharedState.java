@@ -10,6 +10,11 @@ public interface SharedState {
     /**
      * Stores a value under the given key, replacing any existing value.
      *
+     * <p>The store holds a bounded number of distinct keys. Once full it keeps
+     * accepting overwrites of keys it already has but drops writes that would
+     * introduce a new one, so a runaway script cannot exhaust the host's heap.
+     * Reaching the bound is a bug in the writer, not a state to design around.</p>
+     *
      * @param key   the key to store the value under
      * @param value the value to store
      */

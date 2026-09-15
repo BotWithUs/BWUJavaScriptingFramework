@@ -7,6 +7,7 @@ import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.VarbitValue;
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
@@ -106,6 +107,67 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
             log.debug("readVarbit({}) failed: {}", id, e.toString());
             return 0;
         }
+    }
+
+    /**
+     * The scene's dynamic-region grid, so the planner can path inside a
+     * player-owned house or a Dungeoneering floor instead of reading the whole
+     * instance as solid.
+     *
+     * <p>Three deliberate choices here, each of which fails silently and wrongly
+     * if reversed:</p>
+     * <ul>
+     *   <li>{@code copyOfStable} rather than the snapshot's flyweight. The
+     *       flyweight reads a live double-buffered mapping with no seqlock, and
+     *       the grid is up to 64 KB; a torn read resolves to plausible wrong
+     *       tiles rather than failing.</li>
+     *   <li>{@code isInstance()} as the predicate, never {@code sceneMode()} —
+     *       the two are independent client fields that disagree on a
+     *       never-written buffer and on a scene caught mid-rebuild.</li>
+     *   <li>Both "cannot describe this instance" cases — a producer-truncated
+     *       grid and a grid that tore on every copy attempt — throw. Returning
+     *       {@code null} for either would marshal as "not an instance" and plan
+     *       the walk against the overworld collision that happens to share this
+     *       instance's coordinates, which is the same silent wrong answer in
+     *       both cases and so gets the same treatment.</li>
+     * </ul>
+     *
+     * <p>Throwing aborts the run: the marshaller records it, cancellation trips
+     * at the next safe point, and {@code runExecutor} rethrows on the calling
+     * thread. Note the executor may still dispatch one {@code walkTo} before
+     * that poll lands, so this bounds the damage to a single stray click rather
+     * than eliminating it outright.</p>
+     */
+    @Override
+    public DynamicRegion readInstance() {
+        GameSnapshot snap = snapshotSource.get();
+        if (snap == null) {
+            return null;
+        }
+        DynamicRegion region = snap.dynamicRegion();
+        if (region == null || !region.isInstance()) {
+            return null;
+        }
+        if (region.isTruncated()) {
+            // The producer publishes zero chunks when it truncates, so there is
+            // no partial grid to path through — the scene is simply an instance
+            // we cannot describe at all.
+            log.warn("ww readInstance: instance grid {}x{} chunks needs {} descriptors but the"
+                            + " producer dropped it (over the wire cap); failing the walk rather"
+                            + " than planning against static collision",
+                    region.gridW(), region.gridH(), region.requiredChunks());
+            throw new WorldWalkerException(
+                    "dynamic-region grid was truncated by the producer; cannot path in this scene");
+        }
+        DynamicRegion stable = DynamicRegion.copyOfStable(snap).orElseThrow(() ->
+                new WorldWalkerException("dynamic-region grid tore on all "
+                        + DynamicRegion.STABLE_COPY_ATTEMPTS
+                        + " copy attempts; refusing to plan against static collision"
+                        + " inside an instance"));
+        log.info("ww readInstance: mode={} origin=({},{}) mapsquares grid={}x{} chunks count={}",
+                stable.sceneMode(), stable.originMapX(), stable.originMapY(),
+                stable.gridW(), stable.gridH(), stable.chunkCount());
+        return stable;
     }
 
     @Override

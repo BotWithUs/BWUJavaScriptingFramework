@@ -8,8 +8,11 @@ import com.botwithus.bot.api.domain.VariableAPI;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
+import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
@@ -32,6 +35,7 @@ import com.botwithus.bot.api.snapshot.LocalPlayer;
 
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 /**
  * Slim RPC-shaped surface for talking to the game producer. After the
@@ -59,6 +63,13 @@ import java.util.Map;
  */
 public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAPI {
 
+    /**
+     * Value the gameval-named variable reads return when the name does not
+     * resolve — the same sentinel {@link #getVarp(int)} yields for an unset
+     * variable, so callers need only one "no value" check.
+     */
+    int UNRESOLVED_VARIABLE = -1;
+
     // ---------------------------------------------------------------- Snapshot
 
     /**
@@ -84,6 +95,63 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     default boolean isInterfaceOpen(int ifaceId) {
         GameSnapshot s = snapshot();
         return s != null && s.isInterfaceOpen(ifaceId);
+    }
+
+    // ---------------------------------------------------------------- Gameval names
+
+    /**
+     * Resolves gameval symbolic names — the game's own stable names for items,
+     * scenery, NPCs, interfaces, components and variables — to ids. Never
+     * {@code null}: when no index is deployed this returns
+     * {@link GamevalIndex#empty()}, whose lookups all come back empty.
+     *
+     * <p>Backed by an out-of-band {@code gameval.sqlite} in
+     * {@code ~/.botwithus/native/}, so a game renumber is fixed by refreshing
+     * that file rather than by editing scripts. The same instance is shared by
+     * every connected client.</p>
+     *
+     * <pre>{@code
+     * int yew = api.gamevals().require(GamevalType.ITEM, "YEW_LOGS");
+     * }</pre>
+     */
+    default GamevalIndex gamevals() {
+        return GamevalIndex.empty();
+    }
+
+    /**
+     * Value of a player variable named by its gameval, e.g.
+     * {@code "WOODCUTTING_WOODBOX_LASTUSED_TIER"}. Convenience over
+     * {@link #getVarp(int)}.
+     *
+     * <p>Returns {@link #UNRESOLVED_VARIABLE} when the name does not resolve —
+     * the same value {@link #getVarp(int)} already yields for an unset variable,
+     * so a host with no gameval index deployed degrades rather than killing the
+     * script. Use {@code gamevals().require(...)} explicitly when you would
+     * rather fail fast.</p>
+     */
+    default int getVarp(String gameval) {
+        OptionalInt id = gamevals().id(GamevalType.VARP, gameval);
+        return id.isPresent() ? getVarp(id.getAsInt()) : UNRESOLVED_VARIABLE;
+    }
+
+    /**
+     * Value of a variable bit named by its gameval, e.g.
+     * {@code "ZAROS_SPELLBOOK"}. Convenience over {@link #getVarbit(int)};
+     * {@link #UNRESOLVED_VARIABLE} when the name does not resolve.
+     */
+    default int getVarbit(String gameval) {
+        OptionalInt id = gamevals().id(GamevalType.VARBIT, gameval);
+        return id.isPresent() ? getVarbit(id.getAsInt()) : UNRESOLVED_VARIABLE;
+    }
+
+    /**
+     * Value of an integer client variable named by its gameval. Convenience
+     * over {@link #getVarcInt(int)}; {@link #UNRESOLVED_VARIABLE} when the name
+     * does not resolve.
+     */
+    default int getVarcInt(String gameval) {
+        OptionalInt id = gamevals().id(GamevalType.VAR_CLIENT, gameval);
+        return id.isPresent() ? getVarcInt(id.getAsInt()) : UNRESOLVED_VARIABLE;
     }
 
     // ---------------------------------------------------------------- Entity queries
@@ -139,6 +207,15 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     /** Ground-item query facade. Singleton per {@link GameAPI}. */
     GroundItems groundItems();
 
+    /**
+     * In-flight projectile query facade (v17+). Singleton per {@link GameAPI}.
+     *
+     * <p>Read-only: projectiles carry no menu actions and no cache definition,
+     * so the entities this yields have no {@code interact()} and no
+     * {@code name()}. See {@link com.botwithus.bot.api.entities.Projectile}.</p>
+     */
+    Projectiles projectiles();
+
     // Scene entity queries are SHM-backed as of v15 — read them via the
     // {@link #objects()} / {@link #groundItems()} facades, which in turn
     // pull from {@link #snapshot()}. The old query_locations /
@@ -177,10 +254,17 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     // ---------------------------------------------------------------- Local player & skills
 
     /**
-     * Convenience accessor — equivalent to {@code snapshot().self()} but
-     * named for ergonomics in scripts that don't otherwise touch the
-     * snapshot. Returns {@code null} when not in-game (matches snapshot
-     * semantics).
+     * The local player, with {@link LocalPlayer#currentHealth()} and
+     * {@link LocalPlayer#maxHealth()} filled in. Returns {@code null} when not
+     * in-game (matches snapshot semantics).
+     *
+     * <p>Otherwise the same record {@code snapshot().self()} returns — but
+     * health is not in the mapping, so filling it costs one batched varp read
+     * over the pipe. That read is cached per server tick, so calling this in a
+     * loop costs at most one round-trip per 600ms tick; both values degrade to
+     * {@link LocalPlayer#HEALTH_UNKNOWN} if the read doesn't land. Callers that
+     * only want position, skills or animation should prefer
+     * {@code snapshot().self()}, which never touches the pipe.</p>
      */
     LocalPlayer getLocalPlayer();
 
@@ -188,10 +272,15 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * No-plane convenience for {@link NavigationAPI#walkWorldPathAsync(int, int, int)}
      * — uses the local player's current plane, falling back to plane 0 when
      * not in-game. Lives here (not on {@code NavigationAPI}) because it
-     * needs {@link #getLocalPlayer()}.
+     * needs {@link #snapshot()}.
+     *
+     * <p>Reads the plane off the snapshot rather than
+     * {@link #getLocalPlayer()}: only the plane is wanted, and the health read
+     * that accessor pays for would be a round-trip spent on nothing.</p>
      */
     default void walkWorldPath(int x, int y) {
-        LocalPlayer lp = getLocalPlayer();
+        GameSnapshot snap = snapshot();
+        LocalPlayer lp = snap == null ? null : snap.self();
         walkWorldPathAsync(x, y, lp == null ? 0 : lp.plane());
     }
 

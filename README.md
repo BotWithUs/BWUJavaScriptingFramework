@@ -395,6 +395,54 @@ The producer (an injected C++ DLL) exposes two transports under the same `<pid>`
 
 Tests cover MessagePack codec, RPC metrics, event bus, message bus, script runner/runtime, script profiler, script profile persistence, auto-start command, connection groups, and end-to-end transport with a mock game server.
 
+## Using the API in your own project
+
+The `api` module is published as `com.botwithus:bot-api` to a static Maven
+repository hosted at [BotWithUs/maven](https://github.com/BotWithUs/maven) and
+served over GitHub Pages. It resolves anonymously — no token, no login:
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven { url = uri("https://botwithus.github.io/maven") }
+}
+
+dependencies {
+    implementation("com.botwithus:bot-api:1.0.0")
+}
+```
+
+Sources and Javadoc jars are published alongside each release, so IDEs pick up
+documentation and step-through sources automatically.
+
+### Cutting a release
+
+Releases are tagged, and the tag drives the version:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+That tag does three things: publishes `bot-api` to the Maven repository,
+redeploys the Javadoc so the docs match the version just published, and cuts a
+[GitHub release](https://github.com/BotWithUs/BWUJavaScriptingFramework/releases)
+carrying the jar, sources, and javadoc. Builds without `-PreleaseVersion` stay on
+`1.0-SNAPSHOT`, which is never published. Published versions are immutable — the workflow fails rather than
+overwrite one, so a bad release is corrected by cutting the next version.
+
+
+### Contributing
+
+Day-to-day work happens on `develop`. `master` is protected: changes land through
+a pull request carrying one approving review and a green CI build, and cannot be
+force-pushed or deleted. CI builds and tests `api`, `core`, `test-support`,
+`quest-core` and `skilling-core` — the modules that compile from a bare clone;
+`cli` and the script modules need machine-specific paths in `local.properties`.
+
+Release tags cannot be moved or deleted once pushed, so a published version is
+never silently replaced.
+
 ## API Documentation
 
 Javadoc is generated for the API module and published to GitHub Pages. Build locally with:
@@ -411,4 +459,4 @@ Javadoc is generated for the API module and published to GitHub Pages. Build loc
 
 **Missing `provides` clause.** A JAR is placed in `scripts/` but doesn't show up in the Scripts panel. The most common cause is forgetting `provides com.botwithus.bot.api.BotScript with my.script.MyScript;` in the script's `module-info.java`. `LocalScriptLoader` emits a WARN-level log line when a module-bearing JAR contains no `BotScript` provider — check the log to confirm.
 
-**Scripts folder discovery order.** `LocalScriptLoader.resolveScriptsDir()` checks the `botwithus.scripts.dir` system property first; if unset, it walks up from the current working directory looking for an existing `scripts/` subdirectory (up to three parents — handles running from a sub-module's working dir). If nothing is found, it falls back to creating `./scripts` in the current working directory. If your script JAR isn't being picked up, the most common cause is running the CLI from a working directory the loader can't see — set `-Dbotwithus.scripts.dir=/absolute/path/to/scripts` or check the log for the resolved path.
+**Scripts folder discovery order.** `LocalScriptLoader.resolveScriptsDir()` checks the `botwithus.scripts.dir` system property first; if unset, it looks for a `scripts/` subdirectory of the current working directory; if that is missing, it falls back to `~/.botwithus/scripts`. Parent directories are **not** searched — every JAR found is loaded as fully-trusted code with no signature check, so searching upward would let a `scripts/` planted in any ancestor of the working directory take over. If your script JAR isn't being picked up, the most common cause is running the CLI from a different working directory — set `-Dbotwithus.scripts.dir=/absolute/path/to/scripts` or check the log for the resolved path.

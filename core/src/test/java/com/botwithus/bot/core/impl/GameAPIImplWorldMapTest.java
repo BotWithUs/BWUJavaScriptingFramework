@@ -180,12 +180,15 @@ class GameAPIImplWorldMapTest {
     }
 
     private static LocalPlayer makeSelf(int x, int y, int plane) {
-        return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, -1, List.of());
+        return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, -1,
+                LocalPlayer.HEALTH_UNKNOWN, LocalPlayer.HEALTH_UNKNOWN, List.of());
     }
 
     private static final class StubSnapshot implements GameSnapshot {
         LocalPlayer self;
-        @Override public long tickId() { return 0; }
+        @Override public int serverTick() { return 0; }
+        @Override public int gameCycle() { return 0; }
+        @Override public long publishSeq() { return 0; }
         @Override public int gameState() { return 30; }
         @Override public int ownIndex() { return 0; }
         @Override public LocalPlayer self() { return self; }
@@ -220,6 +223,12 @@ class GameAPIImplWorldMapTest {
             @Override public com.botwithus.bot.api.snapshot.GroundItem at(int i) { throw new IndexOutOfBoundsException(); }
             @Override public List<com.botwithus.bot.api.snapshot.GroundItem> filter(com.botwithus.bot.api.snapshot.GroundItemFilter f) { return List.of(); }
             @Override public Stream<com.botwithus.bot.api.snapshot.GroundItem> stream() { return Stream.empty(); }
+        }; }
+        @Override public Projectiles projectiles() { return new Projectiles() {
+            @Override public int count() { return 0; }
+            @Override public com.botwithus.bot.api.snapshot.Projectile at(int i) { throw new IndexOutOfBoundsException(); }
+            @Override public List<com.botwithus.bot.api.snapshot.Projectile> filter(com.botwithus.bot.api.snapshot.ProjectileFilter f) { return List.of(); }
+            @Override public Stream<com.botwithus.bot.api.snapshot.Projectile> stream() { return Stream.empty(); }
         }; }
         @Override public int sceneVersion() { return 0; }
     }

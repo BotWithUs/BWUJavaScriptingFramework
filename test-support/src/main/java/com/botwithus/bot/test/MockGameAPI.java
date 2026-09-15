@@ -5,6 +5,7 @@ import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
+import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.inventory.Backpack;
@@ -45,7 +46,10 @@ import java.util.function.Supplier;
  * actually call are implemented:
  * <ul>
  *   <li>{@link #snapshot()} — delegates to the configured supplier</li>
- *   <li>{@link #getLocalPlayer()} — returns {@code snapshot().self()}</li>
+ *   <li>{@link #getLocalPlayer()} — returns {@code snapshot().self()}. There is
+ *       no pipe here, so health is whatever the canned {@code LocalPlayer}
+ *       carries: build it with the values your test wants to exercise rather
+ *       than expecting the mock to fill them in</li>
  *   <li>{@link #queueAction(GameAction)} — forwards to the recording sink</li>
  *   <li>{@link #queueActions(List)} — forwarded one-by-one to the sink</li>
  * </ul>
@@ -177,6 +181,11 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public long walkRefusalCount() {
+        throw notStubbed("walkRefusalCount");
+    }
+
+    @Override
     public boolean isReachable(int x, int y) {
         throw notStubbed("isReachable");
     }
@@ -251,6 +260,11 @@ final class MockGameAPI implements GameAPI {
     @Override
     public GroundItems groundItems() {
         throw notStubbed("groundItems");
+    }
+
+    @Override
+    public Projectiles projectiles() {
+        throw notStubbed("projectiles");
     }
 
     @Override

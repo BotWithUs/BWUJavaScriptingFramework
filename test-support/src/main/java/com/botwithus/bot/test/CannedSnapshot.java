@@ -11,6 +11,8 @@ import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
+import com.botwithus.bot.api.snapshot.Projectile;
+import com.botwithus.bot.api.snapshot.ProjectileFilter;
 
 import java.util.List;
 import java.util.Optional;
@@ -31,7 +33,9 @@ import java.util.stream.Stream;
  * Npcs/Players/Inventories table records are reusable singletons.</p>
  */
 public record CannedSnapshot(
-        long tickId,
+        int serverTick,
+        int gameCycle,
+        long publishSeq,
         int gameState,
         int ownIndex,
         LocalPlayer self,
@@ -40,6 +44,7 @@ public record CannedSnapshot(
         Locations locations,
         Inventories inventories,
         GroundItems groundItems,
+        Projectiles projectiles,
         int sceneVersion
 ) implements GameSnapshot {
 
@@ -52,7 +57,11 @@ public record CannedSnapshot(
     /** Game state code returned when the client is in-game. */
     public static final int GAME_STATE_IN_GAME = 30;
 
-    private static final long DEFAULT_TICK_ID = 0L;
+    /** Matches the producer's "no server tick observed yet" sentinel. */
+    private static final int DEFAULT_SERVER_TICK = -1;
+    /** Matches the producer's pre-login game cycle. */
+    private static final int DEFAULT_GAME_CYCLE = 0;
+    private static final long DEFAULT_PUBLISH_SEQ = 0L;
     private static final int NO_LOCAL_PLAYER_INDEX = -1;
     private static final int DEFAULT_SCENE_VERSION = 0;
 
@@ -61,11 +70,14 @@ public record CannedSnapshot(
     private static final Locations EMPTY_LOCATIONS = new Locations(List.of());
     private static final Inventories EMPTY_INVENTORIES = new Inventories(List.of());
     private static final GroundItems EMPTY_GROUND_ITEMS = new GroundItems(List.of());
+    private static final Projectiles EMPTY_PROJECTILES = new Projectiles(List.of());
 
     /** Snapshot with no in-game player, no NPCs, no other players, no inventories. */
     public static CannedSnapshot empty() {
         return new CannedSnapshot(
-                DEFAULT_TICK_ID,
+                DEFAULT_SERVER_TICK,
+                DEFAULT_GAME_CYCLE,
+                DEFAULT_PUBLISH_SEQ,
                 GAME_STATE_LOGIN,
                 NO_LOCAL_PLAYER_INDEX,
                 null,
@@ -74,6 +86,7 @@ public record CannedSnapshot(
                 EMPTY_LOCATIONS,
                 EMPTY_INVENTORIES,
                 EMPTY_GROUND_ITEMS,
+                EMPTY_PROJECTILES,
                 DEFAULT_SCENE_VERSION);
     }
 
@@ -83,7 +96,9 @@ public record CannedSnapshot(
             throw new IllegalArgumentException("self");
         }
         return new CannedSnapshot(
-                DEFAULT_TICK_ID,
+                DEFAULT_SERVER_TICK,
+                DEFAULT_GAME_CYCLE,
+                DEFAULT_PUBLISH_SEQ,
                 GAME_STATE_IN_GAME,
                 self.serverIndex(),
                 self,
@@ -92,13 +107,52 @@ public record CannedSnapshot(
                 EMPTY_LOCATIONS,
                 EMPTY_INVENTORIES,
                 EMPTY_GROUND_ITEMS,
+                EMPTY_PROJECTILES,
                 DEFAULT_SCENE_VERSION);
     }
 
-    /** Returns a copy with a different {@link #tickId()} for advancing time in tests. */
-    public CannedSnapshot withTickId(long newTickId) {
-        return new CannedSnapshot(newTickId, gameState, ownIndex, self,
-                                  npcs, players, locations, inventories, groundItems, sceneVersion);
+    /** Returns a copy with a different {@link #serverTick()} for advancing time in tests. */
+    public CannedSnapshot withServerTick(int newServerTick) {
+        return new CannedSnapshot(newServerTick, gameCycle, publishSeq, gameState, ownIndex, self,
+                                  npcs, players, locations, inventories, groundItems,
+                                  projectiles, sceneVersion);
+    }
+
+    /**
+     * Returns a copy with a different {@link #gameCycle()}. Use this rather than
+     * {@link #withServerTick(int)} when the code under test compares against
+     * {@link com.botwithus.bot.api.snapshot.Projectile} launch/land stamps, which
+     * are denominated in game cycles.
+     */
+    public CannedSnapshot withGameCycle(int newGameCycle) {
+        return new CannedSnapshot(serverTick, newGameCycle, publishSeq, gameState, ownIndex, self,
+                                  npcs, players, locations, inventories, groundItems,
+                                  projectiles, sceneVersion);
+    }
+
+    /**
+     * Returns a copy carrying the supplied in-flight projectiles. Chains off
+     * {@link #withSelf(LocalPlayer)} so a test can build an in-game snapshot
+     * with projectiles in one expression.
+     */
+    public CannedSnapshot withProjectiles(List<Projectile> rows) {
+        return new CannedSnapshot(serverTick, gameCycle, publishSeq, gameState, ownIndex, self,
+                                  npcs, players, locations, inventories, groundItems,
+                                  new Projectiles(rows), sceneVersion);
+    }
+
+    /** Returns a copy carrying the supplied NPCs. Chains like {@link #withProjectiles(List)}. */
+    public CannedSnapshot withNpcs(List<Npc> rows) {
+        return new CannedSnapshot(serverTick, gameCycle, publishSeq, gameState, ownIndex, self,
+                                  new Npcs(rows), players, locations, inventories,
+                                  groundItems, projectiles, sceneVersion);
+    }
+
+    /** Returns a copy carrying the supplied players. Chains like {@link #withProjectiles(List)}. */
+    public CannedSnapshot withPlayers(List<Player> rows) {
+        return new CannedSnapshot(serverTick, gameCycle, publishSeq, gameState, ownIndex, self,
+                                  npcs, new Players(rows), locations, inventories,
+                                  groundItems, projectiles, sceneVersion);
     }
 
     public record Npcs(List<Npc> all) implements GameSnapshot.Npcs {
@@ -237,6 +291,32 @@ public record CannedSnapshot(
 
         @Override
         public Stream<GroundItem> stream() {
+            return all.stream();
+        }
+    }
+
+    public record Projectiles(List<Projectile> all) implements GameSnapshot.Projectiles {
+        public Projectiles {
+            all = List.copyOf(all);
+        }
+
+        @Override
+        public int count() {
+            return all.size();
+        }
+
+        @Override
+        public Projectile at(int index) {
+            return index >= 0 && index < all.size() ? all.get(index) : null;
+        }
+
+        @Override
+        public List<Projectile> filter(ProjectileFilter filter) {
+            return all.stream().filter(filter::test).toList();
+        }
+
+        @Override
+        public Stream<Projectile> stream() {
             return all.stream();
         }
     }

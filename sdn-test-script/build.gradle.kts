@@ -1,14 +1,13 @@
-// Dummy BotScript for the SDN end-to-end test.
+// Dummy BotScript used as the payload for SDN end-to-end validation.
 //
 // Built as a plain (non-modular) classpath jar carrying a
-// META-INF/services/com.botwithus.bot.api.BotScript entry. The heartbeat dev rig
-// (LOCAL_TEST) encrypts this jar into an SDN bundle, which the custom JVM's
-// jdk.internal.sdn.SdnClassLoader loads via classpath ServiceLoader. The API
-// types are resolved from the parent loader at runtime, so :api is compileOnly
-// and never bundled.
+// META-INF/services/com.botwithus.bot.api.BotScript entry, so the custom JVM's
+// jdk.internal.sdn.SdnClassLoader can discover it via the classpath
+// ServiceLoader. The API types are resolved from the parent loader at runtime,
+// so :api is compileOnly and never bundled.
 //
-// Point the heartbeat at the built jar with
-//   SDN_PLAINTEXT_BUNDLE=<...>/sdn-test-script/build/libs/sdn-test-script.jar
+// The bundling rig that consumes this jar is internal; see the private
+// SDN validation notes for how to point it here.
 
 java {
     // Force the classpath model: no module-info, so the jar is a plain

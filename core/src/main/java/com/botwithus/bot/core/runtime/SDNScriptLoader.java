@@ -10,7 +10,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
+import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 
 /**
@@ -30,6 +30,13 @@ public final class SDNScriptLoader {
     // rules exceptions".
     private static volatile boolean lockdownCalled = false;
 
+    /**
+     * Debug-only escape hatch: when {@code true}, a failure to arm process
+     * lockdown is logged and tolerated instead of aborting the load. Leaving
+     * this on in production defeats the unsigned-DLL guard.
+     */
+    public static final String LOCKDOWN_OPTIONAL_PROP = "botwithus.sdn.lockdown.optional";
+
     private SDNScriptLoader() {}
 
     /**
@@ -46,7 +53,7 @@ public final class SDNScriptLoader {
         }
         allScripts.addAll(loadSdnScriptsFromDisk());
 
-        enforceLockdown(allScripts);
+        enforceLockdown();
         return allScripts;
     }
 
@@ -71,7 +78,7 @@ public final class SDNScriptLoader {
      */
     public static LoadReport loadLocalReport() {
         LoadReport report = LocalScriptLoader.loadReport();
-        enforceLockdown(report.scripts());
+        enforceLockdown();
         return report;
     }
 
@@ -121,23 +128,21 @@ public final class SDNScriptLoader {
             return List.of();
         }
         try {
-            Optional<ClassLoader> loaderOpt =
+            List<ClassLoader> loaders =
                     SdnDiskBundleSource.awaitBundle(SDNScriptLoader.class.getClassLoader());
-            if (loaderOpt.isEmpty()) {
+            if (loaders.isEmpty()) {
                 return List.of();
             }
 
             List<BotScript> scripts = new ArrayList<>();
-            ServiceLoader<BotScript> loader = ServiceLoader.load(BotScript.class, loaderOpt.get());
-            for (BotScript script : loader) {
-                scripts.add(script);
-                log.info("SDN (disk) loaded: {}", script.getClass().getName());
+            for (ClassLoader loader : loaders) {
+                scripts.addAll(providersFrom(loader));
             }
 
             if (scripts.isEmpty()) {
                 log.info("No BotScript providers found in SDN disk bundle.");
             } else {
-                log.info("Loaded {} script(s) from SDN disk bundle.", scripts.size());
+                log.info("Loaded {} script(s) from {} SDN bundle(s).", scripts.size(), loaders.size());
             }
             return scripts;
         } catch (Exception e) {
@@ -147,12 +152,36 @@ public final class SDNScriptLoader {
     }
 
     /**
+     * Discovers the providers in one delivered bundle.
+     *
+     * <p>Failure is contained to this loader. ServiceLoader resolves providers
+     * lazily, so a single script whose provider class is missing or whose
+     * constructor throws surfaces here, during iteration — and without this
+     * boundary it would cost the user every other script in the same delivery.
+     * That isolation is the reason the delivery is N loaders rather than one
+     * merged jar.
+     */
+    private static List<BotScript> providersFrom(ClassLoader loader) {
+        List<BotScript> found = new ArrayList<>();
+        try {
+            for (BotScript script : ServiceLoader.load(BotScript.class, loader)) {
+                found.add(script);
+                log.info("SDN (disk) loaded: {}", script.getClass().getName());
+            }
+        } catch (Exception | ServiceConfigurationError e) {
+            log.warn("SDN: a delivered bundle yielded no usable providers, skipping it: {}",
+                    e.getMessage());
+        }
+        return found;
+    }
+
+    /**
      * Loads all BotScript providers from local JARs in the default {@code scripts/} directory.
      * This is the legacy entry point — equivalent to {@link #loadLocalScripts()}.
      */
     public static List<BotScript> loadScripts() {
         List<BotScript> scripts = loadLocalScripts();
-        enforceLockdown(scripts);
+        enforceLockdown();
         return scripts;
     }
 
@@ -162,27 +191,50 @@ public final class SDNScriptLoader {
      */
     public static List<BotScript> loadScripts(Path scriptsDir) {
         List<BotScript> scripts = loadLocalScripts(scriptsDir);
-        enforceLockdown(scripts);
+        enforceLockdown();
         return scripts;
     }
 
     /**
-     * Enforces process lockdown after scripts are loaded to prevent unsigned DLL loading.
+     * Enforces process lockdown after scripts are loaded to prevent unsigned
+     * DLL loading.
+     *
+     * <p>Lockdown is armed unconditionally once the initial load decision is
+     * made — NOT gated on scripts being present. An earlier
+     * {@code !scripts.isEmpty()} guard meant an empty-scripts session never
+     * armed it, leaving unsigned-DLL loading open for the whole session.</p>
+     *
+     * <p>On a JVM that provides the SDN loader, a failure to arm is fatal:
+     * continuing would run scripts with the very protection they depend on
+     * silently disabled, which is exactly the state an attacker wants. On a
+     * stock JDK there is nothing to arm, so this is a no-op.</p>
+     *
+     * @throws IllegalStateException if lockdown is available but could not be
+     *         armed, unless {@code -D}{@value #LOCKDOWN_OPTIONAL_PROP}{@code =true}
      */
-    private static void enforceLockdown(List<BotScript> scripts) {
-        // Lock down unconditionally once the initial load decision is made — NOT
-        // gated on scripts being present. The previous `!scripts.isEmpty()` guard
-        // meant an empty-scripts session never armed the lockdown, leaving
-        // unsigned-DLL loading open for the whole session. `scripts` is kept for
-        // call-site signature stability but no longer gates the call.
-        if (!lockdownCalled) {
-            try {
-                SdnLoader.lockdown();
-                lockdownCalled = true;
-                log.info("Process lockdown enforced — unsigned DLL loading blocked.");
-            } catch (Exception e) {
-                log.error("lockdown0() failed: {}", e.getMessage());
+    private static void enforceLockdown() {
+        if (lockdownCalled) {
+            return;
+        }
+        if (!SdnLoader.isAvailable()) {
+            log.debug("SDN class loader absent (stock JDK) — process lockdown not applicable.");
+            return;
+        }
+        try {
+            SdnLoader.lockdown();
+            lockdownCalled = true;
+            log.info("Process lockdown enforced — unsigned DLL loading blocked.");
+        } catch (Exception e) {
+            if (Boolean.getBoolean(LOCKDOWN_OPTIONAL_PROP)) {
+                log.error("lockdown0() failed: {} — continuing anyway because -D{}=true. "
+                        + "Unsigned DLLs can still load in this process.", e.getMessage(),
+                        LOCKDOWN_OPTIONAL_PROP);
+                return;
             }
+            throw new IllegalStateException(
+                    "Process lockdown failed on an SDN-capable JVM; refusing to run scripts "
+                            + "with unsigned-DLL loading left open. Set -D"
+                            + LOCKDOWN_OPTIONAL_PROP + "=true to override for debugging.", e);
         }
     }
 }

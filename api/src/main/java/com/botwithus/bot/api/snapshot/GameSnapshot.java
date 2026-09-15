@@ -19,8 +19,36 @@ import java.util.stream.Stream;
  */
 public interface GameSnapshot {
 
-    /** Monotonically increasing producer tick id. */
-    long tickId();
+    /**
+     * The server-tick counter: the 0.6-second game-logic step the server runs on.
+     * <p><b>This is the clock to pace a script against.</b> Respawn timers,
+     * cooldowns and drop cadence are all denominated in these ticks.
+     * Returns {@code -1} until the producer has observed one (not yet in a world).
+     */
+    int serverTick();
+
+    /**
+     * The client's own game-cycle counter: one per ~20 ms client main-loop
+     * iteration, roughly 30 per {@link #serverTick()}.
+     * <p>This is the unit {@link Projectile#startCycle()} and
+     * {@link Projectile#endCycle()} are stamped in, so it is what
+     * {@link ProjectileFilter#inFlightAt(int)} expects. Reads {@code 0} only until the
+     * client populates its transmission manager — it is already counting in the lobby,
+     * so {@code 0} does not mean "not in a world"; {@link #serverTick()} {@code == -1}
+     * is that signal.
+     */
+    int gameCycle();
+
+    /**
+     * The producer's snapshot publish counter, incremented once per ~20 ms
+     * republish starting from 1 when the agent attached.
+     * <p>Useful only for answering "has the snapshot advanced since I last
+     * looked". It shares {@link #gameCycle()}'s cadence but not its number
+     * space, so the two must never be compared or subtracted, and it is
+     * <b>not</b> a tick — pacing off it runs ~30x fast. It was misnamed
+     * {@code tickId()} before wire protocol v18, which is exactly that bug.
+     */
+    long publishSeq();
 
     /**
      * Game client state. {@code 10 = login}, {@code 20 = lobby},
@@ -35,6 +63,12 @@ public interface GameSnapshot {
      * The local player, or {@code null} if not currently in-game. Inspect
      * {@link #gameState()} or {@link #ownIndex()} first if you need to
      * distinguish login/lobby states.
+     *
+     * <p>Read entirely out of shared memory, so
+     * {@link LocalPlayer#currentHealth()} / {@link LocalPlayer#maxHealth()}
+     * come back as {@link LocalPlayer#HEALTH_UNKNOWN} — those two live in
+     * varps and cost a pipe round-trip. Use {@code GameAPI.getLocalPlayer()}
+     * when you need health.</p>
      */
     LocalPlayer self();
 
@@ -53,6 +87,9 @@ public interface GameSnapshot {
     /** Ground items table accessor (v15+). */
     GroundItems groundItems();
 
+    /** In-flight projectiles table accessor (v17+). */
+    Projectiles projectiles();
+
     /**
      * Producer-side scene-shape version. Bumps whenever the streamed
      * {@code loaded_map_squares} identity changes — region crossings, login,
@@ -60,6 +97,25 @@ public interface GameSnapshot {
      * snapshot data; a change invalidates anything keyed on the prior scene.
      */
     int sceneVersion();
+
+    /**
+     * The scene's dynamic-region (instance) chunk-descriptor grid (v19+) — the
+     * table mapping each instance tile back to the static tile it was copied
+     * from. See {@link DynamicRegion} for what that buys you and for the units
+     * trap that catches everyone once.
+     *
+     * <p>The returned region is a flyweight over the snapshot's shared memory
+     * and shares its tick lifetime; take a {@link DynamicRegion#copyOf} if it
+     * has to outlive the tick.</p>
+     *
+     * <p>Defaults to {@link DynamicRegion#STATIC} so test doubles and
+     * hand-rolled stubs don't have to implement it. That default is the correct
+     * answer for a scene nobody modelled as an instance, not a placeholder; the
+     * live snapshot implementation overrides it.</p>
+     */
+    default DynamicRegion dynamicRegion() {
+        return DynamicRegion.STATIC;
+    }
 
     /**
      * Whether {@code ifaceId} is currently mounted in
@@ -134,5 +190,15 @@ public interface GameSnapshot {
         List<GroundItem> filter(GroundItemFilter filter);
 
         Stream<GroundItem> stream();
+    }
+
+    interface Projectiles {
+        int count();
+
+        Projectile at(int index);
+
+        List<Projectile> filter(ProjectileFilter filter);
+
+        Stream<Projectile> stream();
     }
 }

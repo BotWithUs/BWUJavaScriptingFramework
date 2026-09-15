@@ -8,6 +8,13 @@ local.properties
 ### Claude Code ###
 .claude/
 
+### Internal-only docs ###
+# This repo is PUBLIC. Security audits, protocol specs, planning docs and
+# anything naming a private sibling repo live in JBotWithUsV2-internal/,
+# never here. See CLAUDE.md -> "This repository is public".
+claudedocs/
+*-internal/
+
 ### IntelliJ IDEA ###
 .idea/
 *.iws

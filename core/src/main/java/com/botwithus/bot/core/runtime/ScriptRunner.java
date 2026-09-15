@@ -10,10 +10,12 @@ import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.ScriptCrashedEvent;
 import com.botwithus.bot.api.runtime.LastCrash;
+import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.core.config.ScriptConfigStore;
-import com.botwithus.bot.core.impl.ScriptContextImpl;
+import com.botwithus.bot.core.impl.ScopedEventBus;
+import com.botwithus.bot.core.impl.ScopedMessageBus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -27,18 +29,29 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
- * Runs a single BotScript on its own virtual thread.
+ * Runs a single BotScript on its own platform thread (see {@link #start()} for
+ * why it isn't a virtual one).
  * Lifecycle: onStart -> loop(onLoop + sleep) -> onStop
  */
-public class ScriptRunner implements Runnable {
+public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptRunner.class);
 
     /** Lifecycle state strings emitted on the {@code script.context} broker topic. */
-    private static final String STATE_STARTING = "STARTING";
-    private static final String STATE_RUNNING  = "RUNNING";
-    private static final String STATE_STOPPED  = "STOPPED";
-    private static final String STATE_CRASHED  = "CRASHED";
+    private static final String STATE_STARTING  = "STARTING";
+    private static final String STATE_RUNNING   = "RUNNING";
+    private static final String STATE_STOPPED   = "STOPPED";
+    private static final String STATE_CRASHED   = "CRASHED";
+    private static final String STATE_STALLED   = "STALLED";
+    private static final String STATE_REVOKED   = "REVOKED";
+    private static final String STATE_ABANDONED = "ABANDONED";
+
+    /**
+     * Script threads run one notch below normal so the host's own machinery
+     * (RPC reader, event pump, GUI) still wins the CPU when a script is busy.
+     * Shared with {@link ManagementScriptRunner}.
+     */
+    static final int SCRIPT_THREAD_PRIORITY = Thread.NORM_PRIORITY - 1;
 
     private final BotScript script;
     private final ScriptContext context;
@@ -51,8 +64,9 @@ public class ScriptRunner implements Runnable {
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
     private final AtomicReference<ScriptHealth> healthRef =
             new AtomicReference<>(ScriptHealth.HEALTHY);
+    private final RunnerLiveness livenessState;
     private volatile CountDownLatch stopLatch;
-    private Thread thread;
+    private volatile Thread thread;
     private String connectionName;
     private String accountUuid;
 
@@ -63,6 +77,47 @@ public class ScriptRunner implements Runnable {
 
     private ErrorHandler errorHandler;
     private final ScriptProfiler profiler = new ScriptProfiler();
+    private volatile ScriptGate scriptGate;
+    private volatile Runnable eventUnsubscriber;
+    private volatile Runnable messageUnsubscriber;
+    private volatile Runnable watchdogArmer;
+
+    /**
+     * Installs the hook that starts the owning runtime's watchdog. Invoked from
+     * {@link #start()} so it fires on every start path — including the CLI and
+     * GUI, which start a script by resolving its runner rather than going
+     * through {@link ScriptRuntime#startScript}. Null in test seams.
+     */
+    public void setWatchdogArmer(Runnable watchdogArmer) {
+        this.watchdogArmer = watchdogArmer;
+    }
+
+    /**
+     * Installs the per-connection gate this runner tags its thread with. Set by
+     * {@link ScriptRuntime#registerScript}; left null in test seams, where no
+     * revocation happens.
+     */
+    public void setScriptGate(ScriptGate scriptGate) {
+        this.scriptGate = scriptGate;
+    }
+
+    /**
+     * Installs the hook that drops this script's event subscriptions when it
+     * stops. Set by {@link ScriptRuntime#registerScript} to the per-script
+     * {@link ScopedEventBus}; null in test seams.
+     */
+    public void setEventUnsubscriber(Runnable eventUnsubscriber) {
+        this.eventUnsubscriber = eventUnsubscriber;
+    }
+
+    /**
+     * Installs the hook that drops this script's ISC subscriptions when it stops.
+     * Set by {@link ScriptRuntime#registerScript} to the per-script
+     * {@link ScopedMessageBus}; null in test seams.
+     */
+    public void setMessageUnsubscriber(Runnable messageUnsubscriber) {
+        this.messageUnsubscriber = messageUnsubscriber;
+    }
 
     public void setErrorHandler(ErrorHandler errorHandler) {
         this.errorHandler = errorHandler;
@@ -82,6 +137,67 @@ public class ScriptRunner implements Runnable {
     }
 
     /**
+     * Returns how responsive this runner is, as judged by the watchdog. Never
+     * {@code null}.
+     */
+    public Liveness liveness() {
+        return livenessState.get();
+    }
+
+    /** The mutable liveness state the watchdog drives. */
+    @Override
+    public RunnerLiveness livenessState() {
+        return livenessState;
+    }
+
+    /** {@code true} once {@link #stop()} has been called on the current run. */
+    public boolean isStopRequested() {
+        return livenessState.isStopRequested();
+    }
+
+    /** {@code true} while the script thread exists and has not yet terminated. */
+    @Override
+    public boolean isThreadAlive() {
+        Thread t = this.thread;
+        return t != null && t.isAlive();
+    }
+
+    /** Cuts this script off from the game; every later RPC from it throws. */
+    @Override
+    public void revokeAccess() {
+        ScriptGate gate = this.scriptGate;
+        if (gate != null) {
+            gate.revoke(getScriptName());
+        }
+    }
+
+    /** Keeps this script's classes loaded for as long as its thread runs. */
+    @Override
+    public void pinClassLoader() {
+        LocalScriptLoader.pinLoaderOf(script);
+    }
+
+    /** Mirrors each watchdog transition onto the {@code script.context} topic. */
+    @Override
+    public void onLivenessChanged(Liveness to) {
+        switch (to) {
+            case STALLED   -> publishState(STATE_STALLED, "unresponsive inside onLoop()");
+            case REVOKED   -> publishState(STATE_REVOKED, "did not stop; cut off from the game");
+            case ABANDONED -> publishState(STATE_ABANDONED, "thread survived revocation; quarantined");
+            case LIVE      -> { }
+        }
+    }
+
+    /**
+     * Snapshot of where the script thread currently is, for surfacing a stuck
+     * runner to the user. Empty when the thread has terminated or never ran.
+     */
+    public StackTraceElement[] threadStackTrace() {
+        Thread t = this.thread;
+        return t != null ? t.getStackTrace() : new StackTraceElement[0];
+    }
+
+    /**
      * Constructs a runner with an explicit {@link ScriptContextPublisher} to
      * emit lifecycle state changes to. {@code scriptCtxPublisher} may be
      * {@link ScriptContextPublisher#NOOP} (or null, treated as NOOP) when no
@@ -91,15 +207,30 @@ public class ScriptRunner implements Runnable {
                         Consumer<String> connectionTagger, Runnable connectionCleaner,
                         Consumer<GameEvent> eventSink,
                         ScriptContextPublisher scriptCtxPublisher) {
+        this(script, context, connectionTagger, connectionCleaner, eventSink,
+                scriptCtxPublisher, new RunnerLiveness());
+    }
+
+    /**
+     * Canonical constructor, taking the {@link RunnerLiveness} the caller has
+     * already created. {@link ScriptRuntime#registerScript} uses this so the
+     * script's {@code isStopRequested()} signal can be bound straight to the
+     * state object — the context is a constructor argument to this runner, so
+     * it cannot reference the runner itself.
+     */
+    public ScriptRunner(BotScript script, ScriptContext context,
+                        Consumer<String> connectionTagger, Runnable connectionCleaner,
+                        Consumer<GameEvent> eventSink,
+                        ScriptContextPublisher scriptCtxPublisher,
+                        RunnerLiveness livenessState) {
         this.script = script;
-        this.context = (context instanceof ScriptContextImpl impl)
-                ? impl.withStopCallback(this::stop)
-                : context;
+        this.context = context;
         this.connectionTagger = connectionTagger;
         this.connectionCleaner = connectionCleaner;
         this.eventSink = eventSink;
         this.scriptCtxPublisher = scriptCtxPublisher != null
                 ? scriptCtxPublisher : ScriptContextPublisher.NOOP;
+        this.livenessState = livenessState != null ? livenessState : new RunnerLiveness();
     }
 
     /**
@@ -139,17 +270,58 @@ public class ScriptRunner implements Runnable {
     }
 
     public void start() {
+        Liveness current = livenessState.get();
+        if (current.isTerminal()) {
+            // The previous run's thread is still alive and can't be killed.
+            // Starting a second one would put two copies of the script on the
+            // same client. Guarded here rather than at each call site so every
+            // start path (auto-start, CLI, GUI, restart) is covered.
+            log.warn("Refusing to start {}: previous run is {} and its thread has not exited",
+                    getScriptName(), current);
+            return;
+        }
         if (running.compareAndSet(false, true)) {
+            // Reset the stop bookkeeping before the thread exists. A runner is
+            // reused across restarts, so leaving the previous run's stop
+            // timestamp in place would make the watchdog see a stop that
+            // happened minutes ago, revoke the freshly-started script and
+            // quarantine it — and would make isStopRequested() true on its very
+            // first loop. Safe to force LIVE here: terminal states returned above.
+            livenessState.resetForRestart();
             stopLatch = new CountDownLatch(1);
             String name = getScriptName();
-            this.thread = Thread.ofVirtual().name("script-" + name).start(this);
+            // rule-exception: {rule:prefer-virtual-threads} — see CLAUDE.md
+            // "Java rules exceptions". Virtual threads are never preempted: a
+            // script that spins in onLoop() without blocking pins its carrier
+            // forever, and availableProcessors() such scripts starve every
+            // other virtual thread in the JVM — including rpc-reader, which
+            // wedges RPC for every connected client. Script runners are few,
+            // long-lived, CPU-active each loop and run untrusted third-party
+            // code, so they are the anti-pattern for virtual threads. On a
+            // platform thread the OS preempts a runaway script and it costs
+            // CPU share and nothing else.
+            this.thread = Thread.ofPlatform()
+                    .name("script-" + name)
+                    .daemon(true)
+                    .priority(SCRIPT_THREAD_PRIORITY)
+                    .start(this);
+            // Arm the watchdog here, not at the runtime's startScript(): the
+            // CLI and GUI both start scripts by resolving a runner and calling
+            // this method directly, so arming further up would leave the
+            // watchdog unstarted for every user-initiated start.
+            Runnable armer = this.watchdogArmer;
+            if (armer != null) {
+                armer.run();
+            }
         }
     }
 
     public void stop() {
         running.set(false);
-        if (thread != null) {
-            thread.interrupt();
+        livenessState.requestStop();
+        Thread t = this.thread;
+        if (t != null) {
+            t.interrupt();
         }
     }
 
@@ -173,16 +345,43 @@ public class ScriptRunner implements Runnable {
      * @return {@code true} if the script stopped within the timeout
      */
     public boolean awaitStop(long timeoutMs) {
+        long startNanos = System.nanoTime();
+        // Both reads up front, so the latch and the thread belong to the same run
+        // even if a restart lands mid-call: start() assigns the latch and then the
+        // thread, and pairing a stale latch with a fresh thread would join the
+        // wrong run for the whole budget.
         CountDownLatch latch = this.stopLatch;
-        if (latch == null) {
-            return true;
-        }
+        Thread t = this.thread;
         try {
-            return latch.await(timeoutMs, TimeUnit.MILLISECONDS);
+            if (latch != null && !latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
+                return false;
+            }
+            return awaitThreadDeath(t, timeoutMs - elapsedMillis(startNanos));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
         }
+    }
+
+    /**
+     * Waits out the gap between the stop latch and the thread actually dying.
+     * The latch counts down from inside the script thread's own {@code finally},
+     * so it is still alive for the instructions between there and termination —
+     * yet callers read a {@code true} from {@link #awaitStop} as "finished", and
+     * the watchdog spares only a runner whose thread is already gone. Without
+     * this a script that stopped exactly as asked can still be quarantined.
+     */
+    private boolean awaitThreadDeath(Thread t, long remainingMs) throws InterruptedException {
+        if (t == null || t == Thread.currentThread()) {
+            return true;
+        }
+        // join(0) waits forever, so never let the remaining budget reach zero.
+        t.join(Math.max(1L, remainingMs));
+        return !t.isAlive();
+    }
+
+    private static long elapsedMillis(long sinceNanos) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - sinceNanos);
     }
 
     public boolean isRunning() {
@@ -261,6 +460,13 @@ public class ScriptRunner implements Runnable {
             connectionTagger.accept(connectionName);
         }
         String name = getScriptName();
+        // Tag before any script code runs. The tag is inheritable, so threads
+        // the script spawns (notably the walk executor) are attributed back to
+        // it and are covered by the same revocation.
+        ScriptGate gate = this.scriptGate;
+        if (gate != null) {
+            gate.enter(name);
+        }
         MDC.put("script.name", name);
         if (connectionName != null) {
             MDC.put("connection.name", connectionName);
@@ -318,17 +524,25 @@ public class ScriptRunner implements Runnable {
         GameAPI gameAPI = context.getGameAPI();
         while (running.get() && !Thread.currentThread().isInterrupted()) {
             long loopStart = System.nanoTime();
-            int delay = script.onLoop();
+            livenessState.enterLoop();
+            int delay;
+            try {
+                delay = script.onLoop();
+            } finally {
+                // Also clears an advisory stall; terminal states stick.
+                livenessState.exitLoop();
+            }
             profiler.recordLoop(System.nanoTime() - loopStart);
             if (delay < 0) {
                 break;
             }
             // Always sleep at least 1 ms so interruption is observed every
-            // iteration; a tight onLoop()==0 loop that swallows InterruptedException
-            // would otherwise be unstoppable. Stop stays best-effort — a script
-            // blocking *inside* onLoop() still cannot be force-killed (no safe
-            // Thread.stop in modern Java). A future onLoop watchdog could flag
-            // (not terminate) an unresponsive runner via loopStart + healthRef.
+            // iteration; a tight onLoop()==0 loop that swallows
+            // InterruptedException would otherwise never notice the stop.
+            // A script blocking *inside* onLoop() still cannot be force-killed
+            // (no safe Thread.stop in modern Java) — that case is handled by
+            // ScriptRuntime's watchdog escalating to REVOKED and then
+            // ABANDONED, which contains the thread rather than terminating it.
             delay = adjustDelay(delay, gameAPI);
             Thread.sleep(Math.max(1, delay));
         }
@@ -336,12 +550,36 @@ public class ScriptRunner implements Runnable {
 
     private void cleanup(String name) {
         running.set(false);
+        // Clear the interrupt for the duration of teardown, then restore it.
+        // stop() interrupts the thread, so by the time we get here the flag is
+        // almost always set — and every blocking call below (onStop, and the
+        // join inside the walk cancel) would throw InterruptedException
+        // immediately, skipping the very quiescing this method exists to do.
+        boolean wasInterrupted = Thread.interrupted();
+        try {
+            cleanupPhases(name);
+        } finally {
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+            CountDownLatch latch = this.stopLatch;
+            if (latch != null) {
+                latch.countDown();
+            }
+        }
+    }
+
+    private void cleanupPhases(String name) {
         try {
             script.onStop();
         } catch (Exception e) {
             log.error("onStop error in {}: {}", name, e.getMessage());
             notifyError(Phase.ON_STOP, e);
         }
+        releaseSubscriptions(name);
+        // Cancels *and joins* the walk executor this script started (owner-
+        // scoped, so a sibling's walk is left alone). Without the join, stop
+        // returns while ww-executor is still queueing actions.
         try {
             context.getNavigation().cleanup();
         } catch (Exception e) {
@@ -349,10 +587,38 @@ public class ScriptRunner implements Runnable {
         }
         publishState(STATE_STOPPED, null);
         MDC.clear();
+        // Only a clean exit clears the tag. A zombie never reaches here, so it
+        // keeps its tag — which is what lets the gate keep rejecting it. Any
+        // thread the script spawned holds its own inherited copy and is
+        // likewise unaffected, so an outliving walk executor stays revokable.
+        ScriptGate gate = this.scriptGate;
+        if (gate != null) {
+            gate.exit();
+        }
         connectionCleaner.run();
-        CountDownLatch latch = this.stopLatch;
-        if (latch != null) {
-            latch.countDown();
+    }
+
+    /**
+     * Hands this script's event and ISC subscriptions back, before anything else
+     * is released. Both buses hold handlers the script registered, and a handler
+     * left registered keeps running — and can keep driving the game — long after
+     * the script that registered it has stopped: {@code EventBusImpl} dispatches
+     * inline on the event-pump thread, and {@code MessageBusImpl} on a virtual
+     * thread of its own.
+     */
+    private void releaseSubscriptions(String name) {
+        release(this.eventUnsubscriber, "Event", name);
+        release(this.messageUnsubscriber, "ISC", name);
+    }
+
+    private void release(Runnable unsubscriber, String kind, String name) {
+        if (unsubscriber == null) {
+            return;
+        }
+        try {
+            unsubscriber.run();
+        } catch (Exception e) {
+            log.debug("{} unsubscribe error in {}: {}", kind, name, e.getMessage());
         }
     }
 

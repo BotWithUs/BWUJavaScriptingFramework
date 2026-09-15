@@ -5,8 +5,11 @@ import com.botwithus.bot.api.script.ManagementScript;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Stream;
 
 /**
  * Manages the lifecycle of {@link ManagementScript} instances.
@@ -17,8 +20,13 @@ public class ManagementScriptRuntime {
     private static final Logger log = LoggerFactory.getLogger(ManagementScriptRuntime.class);
     /** How long to wait for a management-script thread to drain before abandoning it. */
     private static final long STOP_AWAIT_MS = 2000L;
+
     private final ManagementContext context;
     private final List<ManagementScriptRunner> runners = new CopyOnWriteArrayList<>();
+    /** Runners whose threads refused to drain; kept visible rather than dropped. */
+    private final List<ManagementScriptRunner> quarantined = new CopyOnWriteArrayList<>();
+    private final LivenessWatchdog watchdog =
+            new LivenessWatchdog(() -> "mgmt-script-watchdog", this::watchdogSubjects);
     private Runnable onStateChange;
 
     public ManagementScriptRuntime(ManagementContext context) {
@@ -43,6 +51,7 @@ public class ManagementScriptRuntime {
     /** Registers a management script without starting it. */
     public ManagementScriptRunner registerScript(ManagementScript script) {
         ManagementScriptRunner runner = new ManagementScriptRunner(script, context);
+        runner.setWatchdogArmer(this::ensureWatchdog);
         runners.add(runner);
         return runner;
     }
@@ -53,6 +62,25 @@ public class ManagementScriptRuntime {
         runner.start();
         log.info("Started: {}", runner.getScriptName());
         fireStateChange();
+    }
+
+    /**
+     * Starts the watchdog on first use. Armed from
+     * {@link ManagementScriptRunner#start()} so every start path is covered,
+     * including the CLI and GUI which start a runner directly.
+     */
+    private void ensureWatchdog() {
+        watchdog.arm();
+    }
+
+    /** Active runners followed by quarantined ones — everything the watchdog sweeps. */
+    private Iterable<ManagementScriptRunner> watchdogSubjects() {
+        return () -> Stream.concat(runners.stream(), quarantined.stream()).iterator();
+    }
+
+    /** One watchdog pass; time-parameterised so tests can drive it deterministically. */
+    void sweep(long nowNanos) {
+        watchdog.sweep(nowNanos);
     }
 
     /** Finds a runner by script name (case-insensitive). */
@@ -98,16 +126,24 @@ public class ManagementScriptRuntime {
         // dispose() only interrupts cooperatively. Best-effort with a timeout.
         for (ManagementScriptRunner runner : runners) {
             if (!runner.awaitStop(STOP_AWAIT_MS)) {
-                log.warn("Management script {} did not stop within {} ms; abandoning its thread",
+                log.warn("Management script {} did not stop within {} ms; quarantining it",
                         runner.getScriptName(), STOP_AWAIT_MS);
+                quarantined.add(runner);
             }
         }
         runners.clear();
+        if (quarantined.isEmpty()) {
+            watchdog.close();
+        }
         fireStateChange();
     }
 
-    /** Returns all registered runners. */
+    /** Returns all known runners — active first, then quarantined zombies. */
     public List<ManagementScriptRunner> getRunners() {
-        return List.copyOf(runners);
+        List<ManagementScriptRunner> all =
+                new ArrayList<>(runners.size() + quarantined.size());
+        all.addAll(runners);
+        all.addAll(quarantined);
+        return Collections.unmodifiableList(all);
     }
 }

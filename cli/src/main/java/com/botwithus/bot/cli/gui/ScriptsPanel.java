@@ -4,6 +4,7 @@ import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.runtime.LastCrash;
+import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
@@ -351,7 +352,57 @@ public class ScriptsPanel implements GuiPanel {
         ImGui.setCursorScreenPos(startX, startY + cardH + 4f);
         ImGui.dummy(0, 0);
 
+        renderLivenessHeader(runner);
         renderCrashHeader(runner);
+    }
+
+    /**
+     * Surfaces a runner the watchdog has flagged. A zombie that keeps running
+     * after Stop is the single worst thing the user can be left unaware of, so
+     * it gets a header of its own above the crash header, with the thread's
+     * current stack so they can see exactly where it is wedged.
+     */
+    private static void renderLivenessHeader(ScriptRunner runner) {
+        Liveness liveness = runner.liveness();
+        if (liveness == Liveness.LIVE) {
+            return;
+        }
+        String label = switch (liveness) {
+            case STALLED   -> Icons.WARNING + "  Not responding — still inside onLoop()";
+            case REVOKED   -> Icons.WARNING + "  Revoked — ignored Stop, cut off from the game";
+            case ABANDONED -> Icons.WARNING + "  Abandoned — thread will not exit; quarantined";
+            case LIVE      -> "";
+        };
+        boolean severe = liveness.isTerminal();
+        float r = severe ? ImGuiTheme.RED_R : ImGuiTheme.ORANGE_R;
+        float g = severe ? ImGuiTheme.RED_G : ImGuiTheme.ORANGE_G;
+        float b = severe ? ImGuiTheme.RED_B : ImGuiTheme.ORANGE_B;
+
+        ImGui.pushStyleColor(ImGuiCol.Text, r, g, b, 0.9f);
+        boolean expanded = ImGui.collapsingHeader(label + "##liveness_" + runner.getScriptName());
+        ImGui.popStyleColor();
+        if (expanded) {
+            if (liveness == Liveness.ABANDONED) {
+                GuiHelpers.textSecondary("Java cannot kill a thread. This script can no longer "
+                        + "touch the game, but it will keep running until the host restarts.");
+            }
+            ImGui.beginChild("##livenessTrace_" + runner.getScriptName(), 0,
+                    ImGui.getFontSize() * 10f, true);
+            ImGui.textUnformatted(stackTraceOf(runner.threadStackTrace()));
+            ImGui.endChild();
+        }
+        ImGui.dummy(0, 4f);
+    }
+
+    private static String stackTraceOf(StackTraceElement[] frames) {
+        if (frames.length == 0) {
+            return "(thread has exited)";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (StackTraceElement frame : frames) {
+            sb.append("\tat ").append(frame).append('\n');
+        }
+        return sb.toString();
     }
 
     private static final DateTimeFormatter CRASH_TIME_FMT =

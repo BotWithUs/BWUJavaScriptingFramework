@@ -1,6 +1,7 @@
 package com.botwithus.bot.api.inventory;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -14,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntFunction;
 
@@ -27,9 +29,10 @@ import java.util.function.IntFunction;
  *
  * <p>Slot interactions build a {@link GameAction} with action id
  * {@link ActionTypes#COMPONENT}, the right-click option index in
- * {@code param1}, the packed {@code (iface<<16)|comp} of the slot grid in
- * {@code param2}, and the slot index in {@code param3}. The packing matches
- * what {@code ApplyDeferredUpdate} uses on the producer side.</p>
+ * {@code param1}, the slot index (sub-component id) in {@code param2}, and
+ * the packed {@code (iface<<16)|comp} of the slot grid in {@code param3}.
+ * The packing matches what {@code ApplyDeferredUpdate} uses on the producer
+ * side.</p>
  *
  * <p>Subclasses ({@link Backpack}, {@link Bank}, {@link Equipment}) bind
  * the inventory id and the slot-grid component coordinates; this class
@@ -288,6 +291,63 @@ public class InventoryContainer {
         return t.name().toLowerCase().contains(needle.toLowerCase());
     }
 
+    // ------------------------------------------------------------ Gameval names
+
+    /*
+     * The String-taking methods above match the localised DISPLAY name by
+     * case-insensitive substring. The ones below match a gameval symbolic name
+     * exactly. The two are deliberately NOT overloads of each other — same
+     * signature, opposite semantics — so do not "unify" them later.
+     */
+
+    /** Containment by gameval name, e.g. {@code "YEW_LOGS"}. */
+    public boolean containsGameval(String gameval) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() && contains(id.getAsInt());
+    }
+
+    /** Total quantity of the item with the given gameval name. */
+    public int countGameval(String gameval) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() ? count(id.getAsInt()) : 0;
+    }
+
+    /** First slot holding the item with the given gameval name, or {@code null}. */
+    public InventoryItem getFirstGameval(String gameval) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() ? getFirst(id.getAsInt()) : null;
+    }
+
+    /** First slot holding the item with the given gameval name, as an Optional. */
+    public Optional<InventoryItem> findFirstGameval(String gameval) {
+        return Optional.ofNullable(getFirstGameval(gameval));
+    }
+
+    /**
+     * Click the first slot holding the item with the given gameval name, using
+     * the given 1-based option index. {@code false} when the name doesn't
+     * resolve or the item isn't present.
+     */
+    public boolean interactFirstGameval(String gameval, int optionIndex) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() && interactFirst(id.getAsInt(), optionIndex);
+    }
+
+    /**
+     * Click the first slot holding the item with the given gameval name, using
+     * the named option. {@code false} when the name doesn't resolve, the item
+     * isn't present, or the option isn't offered.
+     */
+    public boolean interactFirstGameval(String gameval, String option) {
+        OptionalInt id = gamevalItemId(gameval);
+        return id.isPresent() && interactFirst(id.getAsInt(), option);
+    }
+
+    /** Item id for a gameval name, or empty when it doesn't resolve. */
+    private OptionalInt gamevalItemId(String gameval) {
+        return api.gamevals().id(GamevalType.ITEM, gameval);
+    }
+
     /** Pull ItemType through the subclass-provided cache. {@code null} on failure. */
     protected ItemType lookupType(int itemId) {
         return itemTypeLookup.apply(itemId);
@@ -298,8 +358,8 @@ public class InventoryContainer {
     /**
      * Click the given slot with the given 1-based right-click option index.
      * Builds a {@link GameAction} with action id {@link ActionTypes#COMPONENT}
-     * (57), option in {@code param1}, packed {@code (iface<<16)|comp} of the
-     * slot grid in {@code param2}, and the slot index in {@code param3}.
+     * (57), option in {@code param1}, the slot index in {@code param2}, and the
+     * packed {@code (iface<<16)|comp} of the slot grid in {@code param3}.
      *
      * @return {@code true} when a queue_action was sent (slot is in range);
      *         {@code false} when the slot index is out of range
@@ -311,8 +371,8 @@ public class InventoryContainer {
         api.queueAction(new GameAction(
                 ActionTypes.COMPONENT,
                 optionIndex,
-                Interfaces.componentHash(interfaceId, componentId),
-                slot));
+                slot,
+                Interfaces.componentHash(interfaceId, componentId)));
         return true;
     }
 

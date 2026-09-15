@@ -73,7 +73,9 @@ tasks.named<JavaExec>("run") {
         "-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}",
         // FFM downcalls in com.botwithus.bot.core.cache.NXTCache hit the
         // restricted Linker API; J22+ requires explicit native-access opt-in.
-        "--enable-native-access=com.botwithus.bot.core",
+        // sqlite-jdbc (org.xerial.sqlitejdbc) System.load()s its native lib when
+        // a skilling script opens the Atlas — opt it in too so the read is clean.
+        "--enable-native-access=com.botwithus.bot.core,org.xerial.sqlitejdbc",
     )
     // Optional: point at the NXTCache DLL + cache directory to enable
     // cache-backed config-type lookups (item/npc/loc/quest/etc.). Set these
@@ -92,6 +94,17 @@ tasks.named<JavaExec>("run") {
         ?.let { jvmArgs("-Dworldwalker.dll=$it") }
     project.localProperty("worldwalker.artifact", "WORLDWALKER_ARTIFACT")
         ?.let { jvmArgs("-Dworldwalker.artifact=$it") }
+    // Optional: dev override for the baked Atlas (resolved.sqlite), read by
+    // skilling-core's AtlasPaths. When unset, skilling scripts fall back to
+    // ~/.botwithus/native/resolved.sqlite.
+    project.localProperty("botwithus.atlas", "BOTWITHUS_ATLAS")
+        ?.let { jvmArgs("-Dbotwithus.atlas=$it") }
+    // Optional: dev override for the baked gameval name index (gameval.sqlite),
+    // read by core.gameval.SqliteGamevalIndex via NativeCache.locateGamevalDb().
+    // When unset, falls back to ~/.botwithus/native/gameval.sqlite; when that is
+    // absent too, gameval lookups resolve to nothing.
+    project.localProperty("botwithus.gameval", "BOTWITHUS_GAMEVAL")
+        ?.let { jvmArgs("-Dbotwithus.gameval=$it") }
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink
@@ -102,8 +115,22 @@ val toolchainJdkPath = javaToolchains
     .launcherFor(java.toolchain)
     .map { it.metadata.installationPath.asFile }
 
+// Home of the patched runtime image. Shared with core's sdnValidationTest so a
+// single setting drives both testing and packaging.
+//
+// NOT required to build. SdnLoader resolves jdk.internal.sdn.SdnClassLoader by
+// name and gates every call on isAvailable(), so a stock JDK 25 compiles the
+// host and runs local scripts unchanged. It IS required for the runtime image
+// we ship, because the loader depends on runtime support a module cannot add.
+// See verifySdnRuntime.
+val sdnJdkPath = project.localProperty("sdn.jdk", "SDN_JDK")
+
 jlink {
+    // Precedence: an explicit jlink.javaHome wins, then the patched SDN JDK,
+    // then the toolchain. Falling through to the toolchain is the supported
+    // local-dev path — it just yields an image that cannot load SDN scripts.
     val jlinkHomeOverride = project.localProperty("jlink.javaHome", "JLINK_JAVA_HOME")
+        ?: sdnJdkPath
     if (jlinkHomeOverride != null) {
         javaHome.set(file(jlinkHomeOverride))
     } else {
@@ -131,7 +158,25 @@ jlink {
             // com.botwithus.merged.module — LWJGL's System.load() trips the
             // same restriction from there, so the merged module is on the
             // list too.
-            "--enable-native-access=com.botwithus.bot.core,com.botwithus.merged.module",
+            //
+            // sqlite-jdbc ships a real module-info, so it links as itself
+            // rather than being merged; it System.load()s its own native lib
+            // when core opens the gameval index or a skilling script opens the
+            // Atlas, so it needs its own entry here (the `run` task already
+            // has one).
+            "--enable-native-access=com.botwithus.bot.core,com.botwithus.merged.module,"
+                    + "org.xerial.sqlitejdbc",
+            // SdnDiskBundleSource.isEnabled() reads this and skips the whole
+            // disk-delivery path when it is absent — silently, so an unset flag
+            // presents as "the launcher's courier isn't running" (a 30s timeout)
+            // rather than as a misconfiguration. The shipped host must always
+            // carry it, and a jpackage launcher takes JVM options only from its
+            // baked .cfg, so link time is the only place it can be set.
+            //
+            // The matching directory needs no flag: SdnRendezvous.directory()
+            // and the launcher's matching lookup both default to
+            // ~/.botwithus/sdn, so they agree unless one is overridden.
+            "-Dbotwithus.sdn.disk=true",
         )
     }
     forceMerge("lwjgl")
@@ -204,8 +249,116 @@ jlink {
     }
 }
 
-val packageJre by tasks.registering(Zip::class) {
+// Marker that identifies a shipped runtime as the patched one, as lowercase hex.
+// Release builds set it; its value is configuration, not source, and lives with
+// the runtime's own build rather than here.
+//
+// An image lacking the marker is either not the patched runtime, or was built
+// against different material. Both fail the same way: local scripts keep working
+// while every SDN script silently fails to load, so it reads as "SDN is broken"
+// rather than "wrong runtime". Inspecting the shipped image catches both, which
+// is why this checks the artifact rather than the path it was copied from.
+val sdnRuntimeMarkerHex = project.localProperty("sdn.marker", "SDN_MARKER")
+
+fun ByteArray.containsSequence(needle: ByteArray): Boolean {
+    outer@ for (start in 0..(size - needle.size)) {
+        for (offset in needle.indices) {
+            if (this[start + offset] != needle[offset]) {
+                continue@outer
+            }
+        }
+        return true
+    }
+    return false
+}
+
+// Reports whether the linked image can actually load SDN scripts. An
+// unconfigured local build gets a warning and stays green, so the host still
+// builds and runs on a stock JDK 25; a build that configured sdn.jdk is by
+// definition producing a shippable image, so there it fails hard rather than
+// letting an unverifiable one through.
+val verifySdnRuntime by tasks.registering {
+    description = "Checks the linked image is the patched SDN-capable runtime"
+    group = "verification"
     dependsOn(tasks.named("jlink"))
+
+    val javaDll = layout.buildDirectory.file("image/bin/java.dll")
+    val configuredFork = sdnJdkPath
+
+    // Blank is not a value. localProperty null-checks but does not blank-check,
+    // so a bare `sdn.marker=` yields "" rather than null — and "" would clear
+    // the null branch below, parse to a zero-length needle, and match on
+    // containsSequence's first iteration. The task would then report success on
+    // an image it never verified, which is worse than the failure it exists to
+    // catch. Normalised here rather than in localProperty: that helper is shared
+    // with sdn.jdk and other callers, and is not ours to tighten globally.
+    val markerHex = sdnRuntimeMarkerHex?.trim()?.takeIf { it.isNotEmpty() }
+
+    inputs.file(javaDll)
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val dll = javaDll.get().asFile
+
+        // No marker means the check cannot be performed at all. Say so in those
+        // words: a guard that reports nothing looks exactly like a guard that
+        // passed, which is the failure this task exists to prevent.
+        if (markerHex == null) {
+            val message = "verifySdnRuntime: SKIPPED — no sdn.marker set, so the image was NOT " +
+                    "verified. Set sdn.marker in local.properties (or the SDN_MARKER env var)."
+            if (configuredFork != null) {
+                throw GradleException(
+                    "$message sdn.jdk points at $configuredFork, so this build is producing an " +
+                            "image intended for shipping and must not skip the check."
+                )
+            }
+            logger.warn(message)
+            return@doLast
+        }
+
+        // A marker short enough to occur by chance proves nothing: "00" is in
+        // every binary, so a two-character value would pass this task on any
+        // image at all. 16 bytes is the floor for a match to carry information.
+        // Malformed input is rejected here too, so a typo surfaces as a build
+        // error that names the problem rather than as a NumberFormatException
+        // thrown out of toInt(16) below.
+        val isWellFormedMarker = markerHex.length >= 32
+                && markerHex.length % 2 == 0
+                && markerHex.all { it in '0'..'9' || it in 'a'..'f' }
+        if (!isWellFormedMarker) {
+            throw GradleException(
+                "verifySdnRuntime: sdn.marker is not usable. Expected an even number of " +
+                        "lowercase hex characters, at least 32 of them (16 bytes); got " +
+                        "${markerHex.length}. A short or malformed marker either fails to " +
+                        "parse or matches any binary by chance, which would report success " +
+                        "on an image that was never verified."
+            )
+        }
+
+        val marker = markerHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        val isSdnCapable = dll.isFile && dll.readBytes().containsSequence(marker)
+        if (isSdnCapable) {
+            logger.lifecycle("verifySdnRuntime: image IS SDN-capable — marker present in ${dll.name}")
+        } else if (configuredFork != null) {
+            throw GradleException(
+                "verifySdnRuntime: sdn.jdk points at $configuredFork, but the linked image's " +
+                        "${dll.name} does not carry the expected marker. Shipping it would " +
+                        "silently break every SDN script. Rebuild the patched runtime as a " +
+                        "release/PRODUCT image and re-link."
+            )
+        } else {
+            logger.warn(
+                "verifySdnRuntime: image is NOT SDN-capable — linked against the Gradle toolchain, " +
+                        "not the patched runtime. Local scripts work; every SDN script will fail to " +
+                        "load. Set sdn.jdk in local.properties (or the SDN_JDK env var) to produce " +
+                        "a shippable image."
+            )
+        }
+    }
+}
+
+val packageJre by tasks.registering(Zip::class) {
+    dependsOn(tasks.named("jlink"), verifySdnRuntime)
     archiveFileName.set("jre.zip")
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
     from(layout.buildDirectory.dir("image"))

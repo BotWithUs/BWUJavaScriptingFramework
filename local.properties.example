@@ -26,6 +26,20 @@
 # ~/.botwithus/native/worldwalker.wwa when unset.
 # worldwalker.artifact=C:/path/to/worldwalker.wwa
 
+# Baked Atlas data layer (resolved.sqlite, built by the RuneScape Data Analyzer)
+# that skilling scripts read for gather/bank coordinates + recipe closures.
+# Forwarded as -Dbotwithus.atlas. Falls back to ~/.botwithus/native/resolved.sqlite
+# when unset. Also settable via the BOTWITHUS_ATLAS environment variable.
+# botwithus.atlas=C:/path/to/resolved.sqlite
+
+# Baked gameval name index (gameval.sqlite, built by build_gameval_db.py from
+# the game's index-67 tables) that resolves symbolic names — YEW_LOGS,
+# BANK__BANK_INV_BUTTON, ZAROS_SPELLBOOK — to ids. Forwarded as
+# -Dbotwithus.gameval. Falls back to ~/.botwithus/native/gameval.sqlite when
+# unset; when that is absent too, gameval lookups simply resolve to nothing.
+# Also settable via the BOTWITHUS_GAMEVAL environment variable.
+# botwithus.gameval=C:/path/to/gameval.sqlite
+
 # JDK home for jlink/jpackage, when the auto-provisioned Java toolchain can
 # not be discovered. Also settable via the JLINK_JAVA_HOME environment var.
 # jlink.javaHome=C:/path/to/jdk-25
@@ -39,3 +53,21 @@
 # `Quests.java` (a `QuestId` constant per F2P quest). When the directory is
 # missing the codegen emits an empty stub and the module still compiles.
 # quest.research.dir=C:/path/to/Quest Research
+
+# Home of the patched runtime image used for jlink/jpackage. Drives both
+# core's sdnValidationTest and packaging, and takes precedence over the Gradle
+# toolchain (jlink.javaHome still wins over both). Leave unset to build against
+# the toolchain: the host compiles and runs local scripts, but the resulting
+# image cannot load SDN scripts. Also settable via the SDN_JDK env var.
+# sdn.jdk=C:/path/to/patched-jdk/images/jdk
+
+# Lowercase-hex marker that identifies a shipped image as the patched runtime.
+# verifySdnRuntime looks for these bytes in the linked image and refuses to let
+# an unverified one be packaged when sdn.jdk is set. Required for release
+# builds; without it the check is skipped and says so. Ask for the value rather
+# than guessing. Also settable via the SDN_MARKER env var.
+#
+# The placeholder below is deliberately not a valid marker: uncommenting this
+# line without replacing it fails the build with a message naming the problem,
+# which is the outcome you want from a half-finished edit to a guard.
+# sdn.marker=REPLACE_WITH_64_LOWERCASE_HEX_CHARACTERS

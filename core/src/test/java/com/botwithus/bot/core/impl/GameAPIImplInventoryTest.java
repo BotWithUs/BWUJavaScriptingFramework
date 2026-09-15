@@ -1,5 +1,10 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.diag.StubGuard;
+import com.botwithus.bot.api.gameval.GamevalEntry;
+import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -14,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -40,13 +46,92 @@ class GameAPIImplInventoryTest {
     private GameAPIImpl api;
 
     private GameAPIImpl build() {
+        return build(GamevalIndex.empty());
+    }
+
+    private GameAPIImpl build(GamevalIndex gamevals) {
         rpc = mock(RpcClient.class);
         snap = new StubSnapshot();
         itemTypes = new HashMap<>();
-        api = new GameAPIImpl(rpc, null, () -> snap) {
+        api = new GameAPIImpl(rpc, null, () -> snap, new StubGuard(), event -> {}, gamevals) {
             @Override public ItemType getItemType(int id) { return itemTypes.get(id); }
         };
         return api;
+    }
+
+    /** A gameval index resolving {@code YEW_LOGS} to 1515 in the item namespace. */
+    private static GamevalIndex yewLogsIndex() {
+        return new GamevalIndex() {
+            @Override public OptionalInt id(GamevalType type, String gameval) {
+                return type == GamevalType.ITEM && "YEW_LOGS".equals(gameval)
+                        ? OptionalInt.of(1515) : OptionalInt.empty();
+            }
+
+            @Override public Optional<String> gameval(GamevalType type, int id) {
+                return type == GamevalType.ITEM && id == 1515
+                        ? Optional.of("YEW_LOGS") : Optional.empty();
+            }
+
+            @Override public List<GamevalEntry> startingWith(GamevalType t, String p, int n) {
+                return List.of();
+            }
+
+            @Override public boolean isAvailable() { return true; }
+
+            @Override public Optional<String> meta(String key) { return Optional.empty(); }
+        };
+    }
+
+    @Test
+    void containsAndCountByGamevalName() {
+        build(yewLogsIndex());
+        snap.setInv(Backpack.INVENTORY_ID, 4,
+                items(slot(0, 1515, 10), slot(1, 1515, 5), empty(2), slot(3, 1517, 1)));
+        Backpack bp = api.backpack();
+
+        assertTrue(bp.containsGameval("YEW_LOGS"));
+        assertEquals(15, bp.countGameval("YEW_LOGS"));
+        assertEquals(0, bp.getFirstGameval("YEW_LOGS").slot());
+        assertTrue(bp.findFirstGameval("YEW_LOGS").isPresent());
+
+        // An unknown name must read as "not held", never as a match.
+        assertFalse(bp.containsGameval("MAPLE_LOGS"));
+        assertEquals(0, bp.countGameval("MAPLE_LOGS"));
+        assertNull(bp.getFirstGameval("MAPLE_LOGS"));
+        assertFalse(bp.findFirstGameval("MAPLE_LOGS").isPresent());
+    }
+
+    @Test
+    void interactByGamevalNameClicksTheHoldingSlot() {
+        build(yewLogsIndex());
+        snap.setInv(Backpack.INVENTORY_ID, 4, items(empty(0), slot(1, 1515, 3)));
+
+        assertTrue(api.backpack().interactFirstGameval("YEW_LOGS", 1));
+        verify(rpc).callSync(eq("queue_action"), eq(Map.of(
+                "action_id", 57, "param1", 1, "param2", 1,
+                "param3", Interfaces.componentHash(Interfaces.BACKPACK, Backpack.COMPONENT_ID))));
+    }
+
+    @Test
+    void gamevalInventoryLookupsResolveNothingWithoutAnIndex() {
+        build();
+        snap.setInv(Backpack.INVENTORY_ID, 4, items(slot(0, 1515, 10)));
+        assertFalse(api.backpack().containsGameval("YEW_LOGS"));
+        assertEquals(0, api.backpack().countGameval("YEW_LOGS"));
+        assertFalse(api.backpack().interactFirstGameval("YEW_LOGS", 1));
+        verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
+    }
+
+    @Test
+    void gamevalVariableReadsDegradeInsteadOfThrowing() {
+        // Every other gameval entry point degrades when nothing resolves; these
+        // must too, because "no index deployed" is the default state today. A
+        // throw here would kill a script's onLoop on an otherwise fine host.
+        build();
+        assertEquals(GameAPI.UNRESOLVED_VARIABLE, api.getVarp("WOODCUTTING_WOODBOX_LASTUSED_TIER"));
+        assertEquals(GameAPI.UNRESOLVED_VARIABLE, api.getVarbit("ZAROS_SPELLBOOK"));
+        assertEquals(GameAPI.UNRESOLVED_VARIABLE, api.getVarcInt("TOOLTIP_TIME"));
+        verify(rpc, times(0)).callSync(eq("get_varp"), anyMap());
     }
 
     @Test
@@ -160,7 +245,7 @@ class GameAPIImplInventoryTest {
 
         int packed = Interfaces.componentHash(Backpack.INTERFACE_ID, Backpack.COMPONENT_ID);
         verify(rpc).callSync(eq("queue_action"),
-                eq(Map.of("action_id", 57, "param1", 1, "param2", packed, "param3", 0)));
+                eq(Map.of("action_id", 57, "param1", 1, "param2", 0, "param3", packed)));
     }
 
     @Test
@@ -185,11 +270,11 @@ class GameAPIImplInventoryTest {
         Backpack bp = api.backpack();
         assertTrue(bp.interactFirst(1511, "Drop"));
 
-        // Drop is option 2 (index 2 in 1-based); param2 packs iface/comp,
-        // param3 is the slot index (0).
+        // Drop is option 2 (index 2 in 1-based); param2 is the slot index (0),
+        // param3 packs iface/comp.
         int packed = Interfaces.componentHash(Backpack.INTERFACE_ID, Backpack.COMPONENT_ID);
         verify(rpc).callSync(eq("queue_action"),
-                eq(Map.of("action_id", 57, "param1", 2, "param2", packed, "param3", 0)));
+                eq(Map.of("action_id", 57, "param1", 2, "param2", 0, "param3", packed)));
     }
 
     @Test
@@ -253,7 +338,9 @@ class GameAPIImplInventoryTest {
             invMap.put(invId, new Inventory(invId, slotCount, items));
         }
 
-        @Override public long tickId() { return 0; }
+        @Override public int serverTick() { return 0; }
+        @Override public int gameCycle() { return 0; }
+        @Override public long publishSeq() { return 0; }
         @Override public int gameState() { return 30; }
         @Override public int ownIndex() { return 0; }
         @Override public com.botwithus.bot.api.snapshot.LocalPlayer self() { return null; }
@@ -306,6 +393,15 @@ class GameAPIImplInventoryTest {
                 @Override public com.botwithus.bot.api.snapshot.GroundItem at(int i) { throw new IndexOutOfBoundsException(i); }
                 @Override public List<com.botwithus.bot.api.snapshot.GroundItem> filter(com.botwithus.bot.api.snapshot.GroundItemFilter f) { return List.of(); }
                 @Override public Stream<com.botwithus.bot.api.snapshot.GroundItem> stream() { return Stream.empty(); }
+            };
+        }
+
+        @Override public Projectiles projectiles() {
+            return new Projectiles() {
+                @Override public int count() { return 0; }
+                @Override public com.botwithus.bot.api.snapshot.Projectile at(int i) { throw new IndexOutOfBoundsException(i); }
+                @Override public List<com.botwithus.bot.api.snapshot.Projectile> filter(com.botwithus.bot.api.snapshot.ProjectileFilter f) { return List.of(); }
+                @Override public Stream<com.botwithus.bot.api.snapshot.Projectile> stream() { return Stream.empty(); }
             };
         }
 

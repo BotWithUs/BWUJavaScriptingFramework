@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.impl.snapshot;
 
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.GroundItem;
 import com.botwithus.bot.api.snapshot.GroundItemFilter;
@@ -12,12 +13,15 @@ import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
+import com.botwithus.bot.api.snapshot.Projectile;
+import com.botwithus.bot.api.snapshot.ProjectileFilter;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.shm.GroundItemEntry;
 import com.botwithus.bot.core.shm.LocalPlayerView;
 import com.botwithus.bot.core.shm.LocationEntry;
 import com.botwithus.bot.core.shm.NpcEntry;
 import com.botwithus.bot.core.shm.PlayerEntry;
+import com.botwithus.bot.core.shm.ProjectileEntry;
 import com.botwithus.bot.core.shm.SkillEntry;
 import com.botwithus.bot.core.shm.SnapshotView;
 
@@ -43,13 +47,40 @@ public final class GameSnapshotImpl implements GameSnapshot {
 
     private final SnapshotView view;
 
+    /**
+     * Memoised {@link #dynamicRegion()} result. Acquiring the region allocates
+     * three objects (header record, memory slice, flyweight), and the natural way
+     * to write a per-tile resolve loop is
+     * {@code snapshot.dynamicRegion().sourceOfPacked(...)} — which would put
+     * those three allocations on the per-tile path and defeat the whole point of
+     * the allocation-free resolver. Caching makes the naive loop cost the same as
+     * the careful one.
+     *
+     * <p>Deliberately unsynchronised. This class is documented as one instance
+     * per acquisition, and a racing double-initialisation is benign: every field
+     * of the view is {@code final}, so the JMM guarantees a racing reader sees a
+     * fully-built object, and two views over the same buffer are
+     * interchangeable.</p>
+     */
+    private DynamicRegion dynamicRegion;
+
     public GameSnapshotImpl(SnapshotView view) {
         this.view = view;
     }
 
     @Override
-    public long tickId() {
-        return view.tickId();
+    public int serverTick() {
+        return view.serverTick();
+    }
+
+    @Override
+    public int gameCycle() {
+        return view.gameCycle();
+    }
+
+    @Override
+    public long publishSeq() {
+        return view.publishSeq();
     }
 
     @Override
@@ -91,6 +122,11 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 lpv.targetType(),
                 lpv.isMember(),
                 lpv.spotAnimId(),
+                // Health lives in varps, not in the mapping. This path is the
+                // RPC-free one by contract, so it leaves both at the sentinel;
+                // GameAPIImpl.getLocalPlayer fills them from get_varps.
+                LocalPlayer.HEALTH_UNKNOWN,
+                LocalPlayer.HEALTH_UNKNOWN,
                 skills);
     }
 
@@ -120,8 +156,23 @@ public final class GameSnapshotImpl implements GameSnapshot {
     }
 
     @Override
+    public Projectiles projectiles() {
+        return new ProjectilesImpl();
+    }
+
+    @Override
     public int sceneVersion() {
         return view.sceneVersion();
+    }
+
+    @Override
+    public DynamicRegion dynamicRegion() {
+        DynamicRegion cached = dynamicRegion;
+        if (cached == null) {
+            cached = view.dynamicRegion();
+            dynamicRegion = cached;
+        }
+        return cached;
     }
 
     @Override
@@ -165,6 +216,22 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.quantity(),
                 e.tileX(),
                 e.tileY(),
+                e.plane());
+    }
+
+    private static Projectile toProjectile(ProjectileEntry e) {
+        return new Projectile(
+                e.projectileId(),
+                e.startCycle(),
+                e.endCycle(),
+                e.sourceIndex(),
+                e.sourceType(),
+                e.targetIndex(),
+                e.targetType(),
+                e.startTileX(),
+                e.startTileY(),
+                e.endTileX(),
+                e.endTileY(),
                 e.plane());
     }
 
@@ -326,6 +393,37 @@ public final class GameSnapshotImpl implements GameSnapshot {
         @Override
         public Stream<GroundItem> stream() {
             return IntStream.range(0, view.groundItemCount()).mapToObj(this::at);
+        }
+    }
+
+    private final class ProjectilesImpl implements Projectiles {
+
+        @Override
+        public int count() {
+            return view.projectileCount();
+        }
+
+        @Override
+        public Projectile at(int index) {
+            return toProjectile(view.projectileAt(index));
+        }
+
+        @Override
+        public List<Projectile> filter(ProjectileFilter filter) {
+            int n = view.projectileCount();
+            List<Projectile> out = new ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                Projectile rec = toProjectile(view.projectileAt(i));
+                if (filter.test(rec)) {
+                    out.add(rec);
+                }
+            }
+            return out;
+        }
+
+        @Override
+        public Stream<Projectile> stream() {
+            return IntStream.range(0, view.projectileCount()).mapToObj(this::at);
         }
     }
 

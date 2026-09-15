@@ -16,7 +16,7 @@ import java.util.Map;
  * routes each call to the appropriate per-Connection {@code ScriptManager} /
  * {@link ScriptScheduler}.
  *
- * <h3>Surface (for framework callers that hold a {@code ScriptManager} instance)</h3>
+ * <h2>Surface (for framework callers that hold a {@code ScriptManager} instance)</h2>
  * <pre>{@code
  * // See what's available
  * mgr.listAll().forEach(s ->

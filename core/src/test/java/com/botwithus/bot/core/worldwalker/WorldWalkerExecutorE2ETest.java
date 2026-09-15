@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.worldwalker;
 
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
@@ -136,6 +137,7 @@ class WorldWalkerExecutorE2ETest {
         final AtomicReference<WwTile> position = new AtomicReference<>();
         final AtomicInteger readPositionCalls   = new AtomicInteger();
         final AtomicInteger readCapabilityCalls = new AtomicInteger();
+        final AtomicInteger readInstanceCalls   = new AtomicInteger();
         final AtomicInteger walkToCalls         = new AtomicInteger();
         final AtomicInteger interactCalls       = new AtomicInteger();
         final AtomicInteger runChainStepCalls   = new AtomicInteger();
@@ -161,6 +163,17 @@ class WorldWalkerExecutorE2ETest {
         public CapabilitySnapshot readCapability() {
             readCapabilityCalls.incrementAndGet();
             return CapabilitySnapshot.empty();
+        }
+
+        /**
+         * Pulled at every (re-)plan alongside {@link #readCapability}. The
+         * fixture walks the static overworld, so it reports "not an instance" —
+         * which is what a host answers for any ordinary scene.
+         */
+        @Override
+        public DynamicRegion readInstance() {
+            readInstanceCalls.incrementAndGet();
+            return null;
         }
 
         @Override

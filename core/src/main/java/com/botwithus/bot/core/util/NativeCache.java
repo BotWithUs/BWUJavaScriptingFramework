@@ -53,6 +53,9 @@ public final class NativeCache {
     public static final String WORLDWALKER_SPELL_TELEPORTS_NAME = "spell_teleports.json";
     public static final String WORLDWALKER_ITEM_TELEPORTS_NAME = "item_teleports.json";
 
+    /** File name of the baked gameval name index within the native cache. */
+    public static final String GAMEVAL_DB_NAME = "gameval.sqlite";
+
     private final Path cacheDir;
 
     /** Cache rooted at the user's home directory ({@code ~/.botwithus/native/}). */
@@ -143,6 +146,31 @@ public final class NativeCache {
     }
 
     /**
+     * Locate the baked gameval name index ({@code gameval.sqlite}) on disk
+     * without opening it. Same precedence as {@link #locateWorldWalkerDll()}:
+     * the {@code -Dbotwithus.gameval} override first (when it points at an
+     * existing file), then the cache entry under the default cache root.
+     * Returns empty when neither is present, in which case the host runs with
+     * {@code GamevalIndex.empty()} and gameval lookups resolve to nothing.
+     */
+    public static Optional<Path> locateGamevalDb() {
+        String override = System.getProperty("botwithus.gameval");
+        if (override != null && !override.isBlank()) {
+            Path overridePath = Path.of(override);
+            if (Files.isRegularFile(overridePath)) {
+                return Optional.of(overridePath);
+            }
+            // Loud on purpose: the siblings above fall through silently, so a
+            // typo'd override quietly loads the deployed file instead and the
+            // operator debugs the wrong data.
+            log.warn("-Dbotwithus.gameval={} is not a readable file; falling back to the "
+                    + "native cache entry", override);
+        }
+        Path cached = new NativeCache().resolve(GAMEVAL_DB_NAME);
+        return Files.isRegularFile(cached) ? Optional.of(cached) : Optional.empty();
+    }
+
+    /**
      * Locate the directory holding the editable WorldWalker teleport datasets
      * ({@code spell_teleports.json}, {@code item_teleports.json}). The
      * {@code -Dworldwalker.teleports} override wins when it points at an existing
@@ -165,12 +193,19 @@ public final class NativeCache {
      * Best-effort integrity gate, called immediately before a native DLL is
      * mapped and executed. The native dir is populated out-of-band by the
      * launcher; this canonicalizes the resolved path (resolving symlinks) and,
-     * when the launcher has published a {@code <name>.sha256} sidecar next to
-     * the DLL, verifies the file's SHA-256 against it. Mode via
-     * {@code -Dbotwithus.native.verify}: {@code warn} (default) logs a
-     * mismatch/absence and proceeds — a phased rollout that stays warn-only
-     * until the launcher ships digests; {@code enforce} throws on a mismatch,
-     * an unreadable path, or a missing digest.
+     * when a {@code <name>.sha256} sidecar exists next to the DLL, verifies the
+     * file's SHA-256 against it. Mode via {@code -Dbotwithus.native.verify}:
+     * {@code warn} (default) logs a mismatch/absence and proceeds;
+     * {@code enforce} throws on a mismatch, an unreadable path, or a missing
+     * digest.
+     *
+     * <p><strong>The default is still {@code warn} because the launcher does
+     * not yet publish these sidecars.</strong> It verifies the downloaded
+     * <em>archive</em> against a server hash and records that hash in a
+     * {@code <name>.installed} marker, but writes no per-DLL digest — so
+     * {@code enforce} would currently fail every load. Flipping the default is
+     * blocked on the launcher emitting {@code <name>.sha256} beside each
+     * extracted DLL; until then a tampered DLL is logged, not refused.</p>
      *
      * <p>Returns the canonicalized path to load. This is NOT full DLL-hijack
      * protection: once loaded, Windows resolves the DLL's own dependent imports
@@ -191,8 +226,9 @@ public final class NativeCache {
                 throw new IllegalStateException("no integrity digest " + sidecar + " for " + canonical
                         + " (required by -D" + VERIFY_PROP + "=enforce)");
             }
-            log.debug("native library {} has no integrity digest; set -D{}=enforce to require one",
-                    canonical, VERIFY_PROP);
+            log.warn("native library {} is being loaded WITHOUT an integrity check "
+                            + "(no {} sidecar); set -D{}=enforce to refuse instead",
+                    canonical, SHA256_SIDECAR_SUFFIX, VERIFY_PROP);
             return canonical;
         }
         try {

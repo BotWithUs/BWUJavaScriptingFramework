@@ -59,7 +59,7 @@ public final class SceneObjectsLiveProbe {
             GameSnapshot snap = api.snapshot();
             LocalPlayer self = snap.self();
             System.out.printf("tick=%d state=%d self=(%d,%d,%d) locsTotal=%d%n",
-                    snap.tickId(), snap.gameState(),
+                    snap.serverTick(), snap.gameState(),
                     self == null ? -1 : self.tileX(),
                     self == null ? -1 : self.tileY(),
                     self == null ? -1 : self.plane(),

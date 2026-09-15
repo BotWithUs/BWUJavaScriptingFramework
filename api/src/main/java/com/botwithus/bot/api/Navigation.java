@@ -1,5 +1,6 @@
 package com.botwithus.bot.api;
 
+import com.botwithus.bot.api.domain.NavigationAPI;
 import com.botwithus.bot.api.model.PathResult;
 import com.botwithus.bot.api.model.WalkResult;
 import com.botwithus.bot.api.model.WalkStatus;
@@ -12,6 +13,15 @@ import com.botwithus.bot.api.model.WorldPathConfig;
  * (arrived, cancelled, failed, or timeout), but do <b>not</b> block
  * the pipe — other threads can still send RPC calls and receive events
  * while a walk is in progress.</p>
+ *
+ * <p><b>One script walks at a time.</b> A client has one character and one
+ * server-side action queue, so a walk requested while <em>another</em> script
+ * is walking is refused: the blocking call returns {@link WalkResult#FAILED}
+ * straight away rather than waiting, and the walk already in progress is left
+ * alone. Re-targeting your own walk is always allowed. {@link #cancelWalk()}
+ * and {@link #getWalkStatus()} are likewise scoped to the calling script, and
+ * the host and any managing {@code ManagementScript} keep override authority
+ * over every script's walk. The full contract is on {@link NavigationAPI}.</p>
  *
  * <p>Obtain an instance through {@link ScriptContext#getNavigation()}.</p>
  *
@@ -114,12 +124,15 @@ public interface Navigation {
     // ============================== Walk Control ==============================
 
     /**
-     * Cancels any active walk. Emits {@code walk_cancelled} if a walk was in progress.
+     * Cancels the walk this script started. Emits {@code walk_cancelled} if one
+     * was in progress. A no-op if the walk in progress belongs to another
+     * script; the host and management scripts may cancel any walk.
      */
     void cancelWalk();
 
     /**
-     * Returns the current walker state.
+     * Returns the walker state for the calling script — never a sibling
+     * script's. See {@link NavigationAPI#getWalkStatus()} for the state names.
      *
      * @return the walk status
      */
@@ -203,8 +216,9 @@ public interface Navigation {
     // ============================== Cleanup ==============================
 
     /**
-     * Cancels any active walk. Called automatically by the script runtime
-     * when a script stops. Scripts may also call this explicitly.
+     * Cancels this script's active walk and waits for its walker to stop.
+     * Called automatically by the script runtime when a script stops. Scripts
+     * may also call this explicitly. A sibling script's walk is left running.
      */
     void cleanup();
 }

@@ -93,12 +93,25 @@ public class ScriptsCommand implements Command {
         for (ScriptRunner runner : runners) {
             ScriptManifest m = runner.getManifest();
             String version = m != null ? m.version() : "?";
-            String status = runner.isRunning()
-                    ? AnsiCodes.colorize("RUNNING", AnsiCodes.GREEN)
-                    : AnsiCodes.colorize("STOPPED", AnsiCodes.RED);
-            table.row(String.valueOf(i++), runner.getScriptName(), version, status);
+            table.row(String.valueOf(i++), runner.getScriptName(), version, statusOf(runner));
         }
         ctx.out().print(table.build());
+    }
+
+    /**
+     * A watchdog verdict outranks RUNNING/STOPPED: a quarantined script reads as
+     * STOPPED by the running flag while its thread is still very much alive, and
+     * that is exactly the state the user must not be misled about.
+     */
+    private static String statusOf(ScriptRunner runner) {
+        return switch (runner.liveness()) {
+            case STALLED   -> AnsiCodes.colorize("STALLED", AnsiCodes.YELLOW);
+            case REVOKED   -> AnsiCodes.colorize("REVOKED", AnsiCodes.RED);
+            case ABANDONED -> AnsiCodes.colorize("ABANDONED", AnsiCodes.RED);
+            case LIVE      -> runner.isRunning()
+                    ? AnsiCodes.colorize("RUNNING", AnsiCodes.GREEN)
+                    : AnsiCodes.colorize("STOPPED", AnsiCodes.RED);
+        };
     }
 
     private void startScript(String name, ScriptRuntime runtime, CliContext ctx) {

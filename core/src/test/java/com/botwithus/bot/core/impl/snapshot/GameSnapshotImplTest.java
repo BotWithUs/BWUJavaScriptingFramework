@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.impl.snapshot;
 
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
@@ -10,7 +11,10 @@ import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
+import com.botwithus.bot.api.snapshot.Projectile;
+import com.botwithus.bot.api.snapshot.ProjectileFilter;
 import com.botwithus.bot.api.snapshot.Skill;
+import com.botwithus.bot.api.snapshot.SourceTile;
 import com.botwithus.bot.core.shm.Layout;
 import com.botwithus.bot.core.shm.SnapshotView;
 import org.junit.jupiter.api.Test;
@@ -45,15 +49,36 @@ class GameSnapshotImplTest {
     void tickMetadataPassesThrough() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment seg = allocSnapshot(arena);
-            seg.set(ValueLayout.JAVA_LONG, Layout.SNAP_TICKID_OFFSET, 12_345L);
+            seg.set(ValueLayout.JAVA_LONG, Layout.SNAP_PUBLISHSEQ_OFFSET, 12_345L);
             seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMESTATE_OFFSET, 30);
             seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OWNINDEX_OFFSET, 7);
 
             GameSnapshot snap = build(seg);
 
-            assertEquals(12_345L, snap.tickId());
+            assertEquals(12_345L, snap.publishSeq());
             assertEquals(30, snap.gameState());
             assertEquals(7, snap.ownIndex());
+        }
+    }
+
+    /**
+     * The three clocks live at three different offsets and must not alias — this is
+     * the regression guard for the v18 rename, where serverTick and gameCycle took
+     * over slots that were previously anonymous padding.
+     */
+    @Test
+    void threeClocksReadIndependentSlots() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_LONG, Layout.SNAP_PUBLISHSEQ_OFFSET, 900L);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_SERVERTICK_OFFSET, 30);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMECYCLE_OFFSET, 901);
+
+            GameSnapshot snap = build(seg);
+
+            assertEquals(900L, snap.publishSeq());
+            assertEquals(30, snap.serverTick());
+            assertEquals(901, snap.gameCycle());
         }
     }
 
@@ -125,6 +150,11 @@ class GameSnapshotImplTest {
             assertEquals(List.of(
                     new Skill(1, 13_034_431, 99, 105),
                     new Skill(4, 100_000, 50, 50)), self.skills());
+            // Health is varp-backed, not in the mapping — this path never
+            // pays a round-trip for it.
+            assertEquals(LocalPlayer.HEALTH_UNKNOWN, self.currentHealth());
+            assertEquals(LocalPlayer.HEALTH_UNKNOWN, self.maxHealth());
+            assertFalse(self.hasHealth());
         }
     }
 
@@ -461,6 +491,312 @@ class GameSnapshotImplTest {
     }
 
     // ------------------------------------------------------------------
+    // Projectiles (v17+)
+    // ------------------------------------------------------------------
+
+    @Test
+    void projectilesEmptyByDefault() {
+        try (Arena arena = Arena.ofConfined()) {
+            GameSnapshot snap = build(allocSnapshot(arena));
+            assertEquals(0, snap.projectiles().count());
+            assertTrue(snap.projectiles().filter(p -> true).isEmpty());
+            assertEquals(0L, snap.projectiles().stream().count());
+        }
+    }
+
+    /**
+     * Byte-level round-trip for one projectile row. This is the test that
+     * catches a drifted {@code SNAP_PROJECTILES_OFFSET} or a wrong entry
+     * stride — every field is given a distinct value so a shifted read shows
+     * up as a specific mismatch rather than a plausible-looking number.
+     */
+    @Test
+    void projectilesAtBuildsRecord() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET, 1);
+            writeProjectile(seg, 0,
+                    2468,            // graphic id
+                    900_100, 900_140, // start / end cycle
+                    (short) 7, (short) 1,     // source index / type
+                    (short) 42, (short) 2,    // target index / type
+                    (short) 3200, (short) 3201, // start tile
+                    (short) 3210, (short) 3222, // end tile
+                    (byte) 1);
+
+            Projectile p = build(seg).projectiles().at(0);
+            assertNotNull(p);
+            assertEquals(2468, p.projectileId());
+            assertEquals(900_100, p.startCycle());
+            assertEquals(900_140, p.endCycle());
+            assertEquals(7, p.sourceIndex());
+            assertEquals(1, p.sourceType());
+            assertEquals(42, p.targetIndex());
+            assertEquals(2, p.targetType());
+            assertEquals(3200, p.startTileX());
+            assertEquals(3201, p.startTileY());
+            assertEquals(3210, p.endTileX());
+            assertEquals(3222, p.endTileY());
+            assertEquals(1, p.plane());
+        }
+    }
+
+    @Test
+    void projectilesTileAnchoredEndpointsReadAsNegativeOne() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET, 1);
+            writeProjectile(seg, 0, 11, 5, 10,
+                    (short) -1, (short) 0,
+                    (short) -1, (short) 0,
+                    (short) 3000, (short) 3000,
+                    (short) 3005, (short) 3005,
+                    (byte) 0);
+
+            Projectile p = build(seg).projectiles().at(0);
+            assertEquals(-1, p.sourceIndex(), "tile-anchored source");
+            assertEquals(-1, p.targetIndex(), "tile-anchored target");
+        }
+    }
+
+    @Test
+    void projectilesStrideSeparatesAdjacentRows() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET, 3);
+            for (int i = 0; i < 3; i++) {
+                writeProjectile(seg, i, 100 + i, 10 + i, 20 + i,
+                        (short) i, (short) 0,
+                        (short) (50 + i), (short) 0,
+                        (short) (3000 + i), (short) (3100 + i),
+                        (short) (3200 + i), (short) (3300 + i),
+                        (byte) 0);
+            }
+
+            GameSnapshot snap = build(seg);
+            assertEquals(3, snap.projectiles().count());
+            for (int i = 0; i < 3; i++) {
+                Projectile p = snap.projectiles().at(i);
+                assertEquals(100 + i, p.projectileId(), "row " + i + " id");
+                assertEquals(3200 + i, p.endTileX(), "row " + i + " endTileX");
+            }
+        }
+    }
+
+    @Test
+    void projectilesFilterAndStream() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET, 3);
+            writeProjectile(seg, 0, 55, 0, 10, (short) 1, (short) 0, (short) 9, (short) 0,
+                    (short) 3000, (short) 3000, (short) 3001, (short) 3001, (byte) 0);
+            writeProjectile(seg, 1, 66, 0, 10, (short) 2, (short) 0, (short) 9, (short) 0,
+                    (short) 3000, (short) 3000, (short) 3001, (short) 3001, (byte) 1);
+            writeProjectile(seg, 2, 55, 0, 10, (short) 3, (short) 0, (short) 8, (short) 0,
+                    (short) 3000, (short) 3000, (short) 3001, (short) 3001, (byte) 0);
+
+            GameSnapshot snap = build(seg);
+            assertEquals(2, snap.projectiles().filter(ProjectileFilter.id(55)).size());
+            assertEquals(1, snap.projectiles().filter(ProjectileFilter.onPlane(1)).size());
+            assertEquals(2, snap.projectiles().filter(ProjectileFilter.toTarget(9)).size());
+            assertEquals(1, snap.projectiles().filter(ProjectileFilter.fromSource(3)).size());
+            assertEquals(3L, snap.projectiles().stream().count());
+        }
+    }
+
+    @Test
+    void projectilesCountClampedToCap() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET,
+                    Layout.PROJECTILE_CAP + 500);
+
+            assertEquals(Layout.PROJECTILE_CAP, build(seg).projectiles().count());
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Dynamic region (v19+)
+    // ------------------------------------------------------------------
+
+    @Test
+    void dynamicRegionOfAZeroedSnapshotIsStatic() {
+        try (Arena arena = Arena.ofConfined()) {
+            DynamicRegion region = build(allocSnapshot(arena)).dynamicRegion();
+
+            assertFalse(region.isInstance());
+            assertFalse(region.isTruncated());
+            assertEquals(0, region.chunkCount());
+            assertTrue(region.sourceOf(3200, 3200, 0).isEmpty());
+        }
+    }
+
+    /**
+     * Byte-level round-trip for the block's scalars. {@code gridW != gridH} and
+     * every other field gets a distinct value, so a swapped or shifted read
+     * surfaces as a specific mismatch rather than a plausible-looking number —
+     * the two dimensions in particular are the pair most likely to be
+     * transposed and least likely to be noticed.
+     */
+    @Test
+    void dynamicRegionScalarsRoundTrip() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            writeDynRegion(seg, /* isInstance */ true, /* truncated */ false,
+                    /* sceneMode */ 6, /* originMapX */ 250, /* originMapY */ 6,
+                    /* maxMapX */ 254, /* maxMapY */ 10,
+                    /* gridW */ 32, /* gridH */ 24, /* requiredChunks */ 3072);
+
+            DynamicRegion region = build(seg).dynamicRegion();
+
+            assertTrue(region.isInstance());
+            assertFalse(region.isTruncated());
+            assertEquals(6, region.sceneMode());
+            assertEquals(250, region.originMapX());
+            assertEquals(6, region.originMapY());
+            assertEquals(254, region.maxMapX());
+            assertEquals(10, region.maxMapY());
+            assertEquals(32, region.gridW());
+            assertEquals(24, region.gridH());
+            assertEquals(3072, region.requiredChunks());
+        }
+    }
+
+    /**
+     * A truncated grid publishes zero chunks, which on its own is
+     * indistinguishable from a static scene. The flag plus the retained
+     * dimensions are what make the overflow diagnosable.
+     */
+    @Test
+    void truncatedRegionKeepsItsDimensions() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            writeDynRegion(seg, true, /* truncated */ true, 7, 0, 0, 0, 0,
+                    /* gridW */ 96, /* gridH */ 96, /* requiredChunks */ 36_864);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, 0);
+
+            DynamicRegion region = build(seg).dynamicRegion();
+
+            assertTrue(region.isTruncated());
+            assertEquals(96, region.gridW());
+            assertEquals(96, region.gridH());
+            assertEquals(36_864, region.requiredChunks());
+            assertEquals(0, region.chunkCount());
+        }
+    }
+
+    @Test
+    void dynChunkStrideSeparatesAdjacentSlots() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, 4);
+            for (int i = 0; i < 4; i++) {
+                writeDynChunk(seg, i, 0x0A000000 + i);
+            }
+
+            DynamicRegion region = build(seg).dynamicRegion();
+
+            assertEquals(4, region.chunkCount());
+            for (int i = 0; i < 4; i++) {
+                assertEquals(0x0A000000 + i, region.chunkAt(i), "slot " + i);
+            }
+        }
+    }
+
+    @Test
+    void dynChunkCountClampedToCap() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_DYNCHUNKCOUNT_OFFSET,
+                    Layout.DYN_CHUNK_CAP + 500);
+
+            assertEquals(Layout.DYN_CHUNK_CAP, build(seg).dynamicRegion().chunkCount());
+        }
+    }
+
+    /**
+     * Writes the very last descriptor slot on an arena of exactly
+     * {@link Layout#SNAPSHOT_SIZE} bytes. This is what pins the total size: if
+     * {@code SNAPSHOT_SIZE} ever stops covering
+     * {@code SNAP_DYNCHUNKS_OFFSET + DYN_CHUNK_CAP * 4}, the arena is too small
+     * and the write throws instead of quietly running off the end of a real
+     * mapping.
+     */
+    @Test
+    void lastDynChunkSlotIsInsideTheSnapshot() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            int last = Layout.DYN_CHUNK_CAP - 1;
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, Layout.DYN_CHUNK_CAP);
+            writeDynChunk(seg, last, 0x00A00040);
+
+            DynamicRegion region = build(seg).dynamicRegion();
+
+            assertEquals(Layout.DYN_CHUNK_CAP, region.chunkCount());
+            assertEquals(0x00A00040, region.chunkAt(last));
+            assertThrows(IndexOutOfBoundsException.class,
+                    () -> region.chunkAt(Layout.DYN_CHUNK_CAP));
+        }
+    }
+
+    /**
+     * End-to-end replay of the live player-owned-house capture, through the
+     * real byte layout rather than a hand-built region: mapsquare (252, 8) sits
+     * at grid chunk (16, 16) of a 32x32 grid originating at mapsquare (250, 6),
+     * the descriptor there reads {@code 0x00A00040}, and it resolves into the
+     * house template region (80, 1).
+     */
+    @Test
+    void pohCaptureReplaysThroughTheSnapshot() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            int gridW = 32;
+            int gridH = 32;
+            writeDynRegion(seg, true, false, 6, 250, 6, 254, 10, gridW, gridH,
+                    DynamicRegion.PLANE_COUNT * gridW * gridH);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_DYNCHUNKCOUNT_OFFSET,
+                    DynamicRegion.PLANE_COUNT * gridW * gridH);
+            // Plane-major: ((plane * gridW) + gx) * gridH + gy.
+            writeDynChunk(seg, (16 * gridH) + 16, 0x00A00040);
+
+            DynamicRegion region = build(seg).dynamicRegion();
+            SourceTile source = region.sourceOf(16128, 512, 0).orElseThrow();
+
+            assertEquals(0x00A00040, region.chunkDescriptorAt(16128, 512, 0));
+            assertEquals(5120, source.tileX());
+            assertEquals(64, source.tileY());
+            assertEquals(0, source.plane());
+            assertEquals(0, source.rotation());
+            assertEquals(80, source.tileX() / 64, "source mapsquare X");
+            assertEquals(1, source.tileY() / 64, "source mapsquare Y");
+        }
+    }
+
+    /**
+     * The block sits after every other tail array, so a drifted
+     * {@code SNAP_DYNREGION_OFFSET} would most plausibly show up as the region
+     * reading a neighbour's bytes. Populate a projectile row and the game cycle
+     * — the two things immediately upstream — and check nothing bleeds through.
+     */
+    @Test
+    void dynamicRegionDoesNotAliasTheProjectilesTail() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMECYCLE_OFFSET, 0x7F7F7F7F);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_PROJECTILECOUNT_OFFSET, 1);
+            writeProjectile(seg, Layout.PROJECTILE_CAP - 1, -1, -1, -1,
+                    (short) -1, (short) -1, (short) -1, (short) -1,
+                    (short) -1, (short) -1, (short) -1, (short) -1, (byte) -1);
+
+            DynamicRegion region = build(seg).dynamicRegion();
+
+            assertFalse(region.isInstance(), "isInstance must not read projectile bytes");
+            assertEquals(0, region.sceneMode());
+            assertEquals(0, region.chunkCount());
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Helpers
     // ------------------------------------------------------------------
 
@@ -558,6 +894,52 @@ class GameSnapshotImplTest {
         long base = Layout.SNAP_INVITEMS_OFFSET + (long) flatIndex * Layout.INV_ITEM_SIZE;
         seg.set(ValueLayout.JAVA_INT, base + Layout.INV_ITEM_ITEMID_OFFSET,   itemId);
         seg.set(ValueLayout.JAVA_INT, base + Layout.INV_ITEM_QUANTITY_OFFSET, qty);
+    }
+
+    private static void writeProjectile(MemorySegment seg, int index,
+                                        int projectileId, int startCycle, int endCycle,
+                                        short sourceIndex, short sourceType,
+                                        short targetIndex, short targetType,
+                                        short startTileX, short startTileY,
+                                        short endTileX, short endTileY,
+                                        byte plane) {
+        long base = Layout.SNAP_PROJECTILES_OFFSET + (long) index * Layout.PROJECTILE_ENTRY_SIZE;
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_ID_OFFSET,          projectileId);
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_STARTCYCLE_OFFSET,  startCycle);
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_ENDCYCLE_OFFSET,    endCycle);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_SOURCEINDEX_OFFSET, sourceIndex);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_SOURCETYPE_OFFSET,  sourceType);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_TARGETINDEX_OFFSET, targetIndex);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_TARGETTYPE_OFFSET,  targetType);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_STARTTILEX_OFFSET,  startTileX);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_STARTTILEY_OFFSET,  startTileY);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_ENDTILEX_OFFSET,    endTileX);
+        seg.set(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_ENDTILEY_OFFSET,    endTileY);
+        seg.set(ValueLayout.JAVA_BYTE,  base + Layout.PROJECTILE_PLANE_OFFSET,       plane);
+    }
+
+    private static void writeDynRegion(MemorySegment seg, boolean isInstance, boolean isTruncated,
+                                       int sceneMode, int originMapX, int originMapY,
+                                       int maxMapX, int maxMapY,
+                                       int gridW, int gridH, int requiredChunks) {
+        long base = Layout.SNAP_DYNREGION_OFFSET;
+        seg.set(ValueLayout.JAVA_BYTE, base + Layout.DYNREGION_ISINSTANCE_OFFSET,
+                (byte) (isInstance ? 1 : 0));
+        seg.set(ValueLayout.JAVA_BYTE, base + Layout.DYNREGION_TRUNCATED_OFFSET,
+                (byte) (isTruncated ? 1 : 0));
+        seg.set(ValueLayout.JAVA_INT, base + Layout.DYNREGION_SCENEMODE_OFFSET,      sceneMode);
+        seg.set(ValueLayout.JAVA_INT, base + Layout.DYNREGION_ORIGINMAPX_OFFSET,     originMapX);
+        seg.set(ValueLayout.JAVA_INT, base + Layout.DYNREGION_ORIGINMAPY_OFFSET,     originMapY);
+        seg.set(ValueLayout.JAVA_INT, base + Layout.DYNREGION_MAXMAPX_OFFSET,        maxMapX);
+        seg.set(ValueLayout.JAVA_INT, base + Layout.DYNREGION_MAXMAPY_OFFSET,        maxMapY);
+        seg.set(ValueLayout.JAVA_INT, base + Layout.DYNREGION_GRIDW_OFFSET,          gridW);
+        seg.set(ValueLayout.JAVA_INT, base + Layout.DYNREGION_GRIDH_OFFSET,          gridH);
+        seg.set(ValueLayout.JAVA_INT, base + Layout.DYNREGION_REQUIREDCHUNKS_OFFSET, requiredChunks);
+    }
+
+    private static void writeDynChunk(MemorySegment seg, int index, int descriptor) {
+        seg.set(ValueLayout.JAVA_INT,
+                Layout.SNAP_DYNCHUNKS_OFFSET + (long) index * Integer.BYTES, descriptor);
     }
 
     private static void assertArrayEqualsBoxed(int[] expected, int[] actual) {

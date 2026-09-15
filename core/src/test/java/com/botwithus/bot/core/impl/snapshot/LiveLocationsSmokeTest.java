@@ -59,7 +59,7 @@ class LiveLocationsSmokeTest {
             int gameState = snap.gameState();
             LocalPlayer self = snap.self();
             log.info("live snapshot: tick={} gameState={} self={} locations.count={} sceneVer={}",
-                    snap.tickId(), gameState,
+                    snap.serverTick(), gameState,
                     self == null ? "(null)" : "(" + self.tileX() + "," + self.tileY() + ",p" + self.plane() + ")",
                     count, sceneVer);
 

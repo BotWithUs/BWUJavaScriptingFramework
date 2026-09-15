@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.worldwalker;
 
+import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.util.Throwables;
 import org.slf4j.Logger;
@@ -84,12 +85,16 @@ public final class WorldWalker implements AutoCloseable {
     // pool / artifact. The winner runs the destructors; losers see closed=true
     // and return cleanly.
     private final AtomicBoolean destroyed = new AtomicBoolean(false);
-    // In-flight gate: query / runExecutor take the read lock, close() takes
-    // the write lock. The reader/writer asymmetry both (a) lets many queries
-    // run concurrently and (b) makes close() wait for every in-flight call to
-    // return before the native pool/artifact are freed (eliminating the
-    // use-after-free where close() destroyed the pool while a query was
-    // borrowing a context from it).
+    // In-flight gate: query / runExecutor / reloadTeleports take the read
+    // lock, close() takes the write lock. The reader/writer asymmetry both
+    // (a) lets many calls run concurrently and (b) makes close() wait for
+    // every in-flight call to return before the native pool/artifact are
+    // freed (eliminating the use-after-free where close() destroyed the pool
+    // while a query was borrowing a context from it). It guards ONLY the
+    // native handles' lifetime: the teleport reload's exclusion against
+    // concurrent queries and runs is the library's own job now
+    // (ww_artifact_load_teleports takes the artifact's lifecycle lock
+    // exclusively), so the host no longer serialises it here.
     private final ReentrantReadWriteLock lifecycle = new ReentrantReadWriteLock();
 
     private WorldWalker(MemorySegment artifact, MemorySegment pool) {
@@ -137,20 +142,20 @@ public final class WorldWalker implements AutoCloseable {
      * set. Lets scripters edit {@code spell_teleports.json} /
      * {@code item_teleports.json} and apply the change live without restarting.
      *
-     * <p>Takes the lifecycle write lock so it cannot run concurrently with any
-     * in-flight {@link #query} / {@link #runExecutor} — the native call mutates
-     * the shared artifact. Throws {@link IllegalStateException} if the handle is
-     * closed.</p>
+     * <p>Enters like any other call (shared lifecycle lock, so {@link #close}
+     * waits for it) and otherwise relies on the library: the native
+     * {@code ww_artifact_load_teleports} takes the artifact's own lock
+     * exclusively, so it waits for every in-flight {@link #query} /
+     * {@link #runExecutor} on this artifact — a run lasts the whole walk — and
+     * holds new ones off until the pools are stable. Throws
+     * {@link IllegalStateException} if the handle is closed.</p>
      */
     public void reloadTeleports() {
-        lifecycle.writeLock().lock();
+        enterCall();
         try {
-            if (closed) {
-                throw new IllegalStateException("WorldWalker handle is closed");
-            }
             loadTeleports(artifact, NativeCache.locateTeleportsDir());
         } finally {
-            lifecycle.writeLock().unlock();
+            leaveCall();
         }
     }
 
@@ -275,6 +280,26 @@ public final class WorldWalker implements AutoCloseable {
      * @throws IllegalStateException when this handle has been closed
      */
     public WwPathResult query(WwTile start, WwGoal goal, CapabilitySnapshot capabilities) {
+        return query(start, goal, capabilities, null);
+    }
+
+    /**
+     * {@link #query(WwTile, WwGoal, CapabilitySnapshot)} against a scene that
+     * may be a dynamic region (instance).
+     *
+     * <p>{@code instance} is the chunk-descriptor grid the planner resolves
+     * collision through; pass {@code null} (or a region that is not an
+     * instance) for an ordinary scene. Inside an instance the planner routes by
+     * walking only — the baked area graph, its transitions and the global
+     * teleports all describe the static world — and a query whose start and
+     * goal are not both inside the descriptor grid finds no route, because
+     * crossing an instance boundary needs an exit transition nothing bakes
+     * yet.</p>
+     *
+     * @return the assembled path, or {@code null} when no route exists
+     */
+    public WwPathResult query(WwTile start, WwGoal goal, CapabilitySnapshot capabilities,
+                              DynamicRegion instance) {
         Objects.requireNonNull(start, "start");
         Objects.requireNonNull(goal, "goal");
         enterCall();
@@ -286,9 +311,13 @@ public final class WorldWalker implements AutoCloseable {
                     : writeCapabilitySnapshot(tmp, capabilities);
             MemorySegment outPath  = tmp.allocate(WorldWalkerLayouts.WW_PATH);
 
+            MemorySegment instSeg = tmp.allocate(WorldWalkerLayouts.WW_INSTANCE_CHUNKS);
+            WorldWalkerLayouts.writeInstanceChunks(tmp, instSeg, instance);
+
             int rc;
             try {
-                rc = (int) N.wwQuery.invokeExact(artifact, pool, startSeg, goalSeg, capsSeg, outPath);
+                rc = (int) N.wwQueryEx.invokeExact(
+                        artifact, pool, startSeg, goalSeg, capsSeg, instSeg, outPath);
             } catch (Throwable t) {
                 throw rethrow(t);
             }
@@ -323,7 +352,7 @@ public final class WorldWalker implements AutoCloseable {
      * or stuck deadlines using the same artifact + context pool this handle
      * owns; the call returns only when a terminal state is reached.
      *
-     * <p>All ten {@link WwCallbacks} methods are invoked on the calling
+     * <p>Every {@link WwCallbacks} method is invoked on the calling
      * thread. If any callback throws, the executor is cancelled at the next
      * safe point and the original {@link Throwable} is rethrown from this
      * method (preserving {@link Error} and {@link RuntimeException} as-is;
@@ -435,10 +464,11 @@ public final class WorldWalker implements AutoCloseable {
         long stepCount         = outPath.get(JAVA_LONG, 8);
         float cost             = outPath.get(JAVA_FLOAT, 16);
 
-        if (stepCount < 0 || stepCount > Integer.MAX_VALUE) {
-            throw new WorldWalkerException("ww_query stepCount out of range: " + stepCount);
-        }
-        int n = (int) stepCount;
+        // Bounded, not merely int-ranged: an in-range-but-garbage ~2e9 count
+        // would size a 32 GB steps view and a 2e9-entry list, and the read loop
+        // would run off the real buffer long before it faulted.
+        int n = WorldWalkerLayouts.boundedCount(
+                stepCount, WorldWalkerLayouts.MAX_PATH_STEPS, "ww_query stepCount");
         if (n == 0) {
             return new WwPathResult(List.of(), cost);
         }

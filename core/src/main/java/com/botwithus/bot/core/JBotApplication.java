@@ -1,6 +1,9 @@
 package com.botwithus.bot.core;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.diag.StubGuard;
+import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.core.gameval.SqliteGamevalIndex;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
@@ -15,6 +18,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
+import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
@@ -47,6 +51,7 @@ public final class JBotApplication {
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
             NXTCache nxtCache = openNxtCacheOrNull();
+            GamevalIndex gamevals = SqliteGamevalIndex.openDefaultOrEmpty();
 
             // Pump owns the SHM mapping; we open it before constructing
             // GameAPIImpl so the entity facades (snapshot reads) can read from
@@ -54,8 +59,9 @@ public final class JBotApplication {
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
             GameAPIImpl gameAPI = new GameAPIImpl(rpc, nxtCache,
                     () -> new GameSnapshotImpl(pump.region().snapshot()),
-                    new com.botwithus.bot.api.diag.StubGuard(),
-                    eventBus::publish);
+                    new StubGuard(),
+                    eventBus::publish,
+                    gamevals);
             ClientProviderImpl clientProvider = new ClientProviderImpl();
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 
@@ -79,6 +85,13 @@ public final class JBotApplication {
                     ConnectionContext::set, ConnectionContext::clear);
             runtime.setPublisherFactory(scriptCtxChannel::publisherFor);
 
+            // One gate per connection, shared by the runtime (which tags script
+            // threads and revokes) and the RPC client (which enforces).
+            ScriptGate scriptGate = new ScriptGate();
+            runtime.setScriptGate(scriptGate);
+            rpc.setScriptGate(scriptGate);
+            gameAPI.setScriptGate(scriptGate);
+
             ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
 
             runtime.startAll(scripts);
@@ -92,6 +105,7 @@ public final class JBotApplication {
                 pump.close();
                 rpc.close();
                 gameAPI.closeWorldWalker();
+                gamevals.close();
             }));
 
             Thread.currentThread().join();

@@ -1,15 +1,18 @@
 package com.botwithus.bot.core.worldwalker;
 
+import com.botwithus.bot.api.snapshot.DynamicRegion;
+
 /**
  * Host-supplied callback surface invoked by the C executor for the lifetime of
  * a single {@link WorldWalker#runExecutor} call. Mirrors the {@code WwCallbacks}
- * vtable in {@code worldwalker_c.h} — every method here corresponds to one of
- * the ten function-pointer slots on that struct.
+ * vtable in {@code worldwalker_c.h} — every method here except
+ * {@link #readVarbit} corresponds to one of the fourteen function-pointer slots
+ * on that struct.
  *
  * <h2>Three call categories</h2>
  * <ul>
  *   <li><b>Reads</b> ({@link #readPosition}, {@link #readCapability},
- *       {@link #readVarbit}, {@link #isInterfaceOpen}) are pulled live by the
+ *       {@link #readInstance}, {@link #isInterfaceOpen}) are pulled live by the
  *       executor and must be cheap and side-effect-free.</li>
  *   <li><b>Actions</b> ({@link #walkTo}, {@link #interact},
  *       {@link #runChainStep}, {@link #sleepTicks}) are fire-and-forget; the
@@ -47,8 +50,46 @@ public interface WwCallbacks {
      */
     CapabilitySnapshot readCapability();
 
-    /** Read one varbit by id. */
+    /**
+     * Read one varbit by id.
+     *
+     * <p>No longer bound to a {@code WwCallbacks} slot — the native side calls
+     * only the batched {@link #readVarbits} — but kept because that batch's
+     * default implementation loops over this, which is what makes a minimal
+     * test double viable.</p>
+     */
     int readVarbit(int id);
+
+    /**
+     * The scene's dynamic-region ("instance") chunk-descriptor grid, pulled at
+     * the start of every (re-)plan alongside {@link #readCapability}. Return
+     * {@code null} (or {@link DynamicRegion#STATIC}) for an ordinary scene,
+     * which is the common case.
+     *
+     * <p>WorldWalker's baked artifact describes the static map only. Inside a
+     * player-owned house or a Dungeoneering floor the player stands on terrain
+     * assembled at runtime from copied chunks, and this grid is what lets the
+     * planner resolve each tile back to the static tile its collision came
+     * from. Without it the whole scene reads as solid and no route exists.</p>
+     *
+     * <p>This is a per-plan pull rather than a value captured once at the start
+     * of the run because a single walk can cross into or out of an instance,
+     * and a stale grid would resolve every tile through the wrong scene.</p>
+     *
+     * <p>Implementations must return a region that is safe to read after the
+     * call — the marshalling layer copies the descriptors out, but a flyweight
+     * over live shared memory can tear <em>during</em> that copy. Use
+     * {@link DynamicRegion#copyOfStable} rather than the snapshot's flyweight.</p>
+     *
+     * <p>Defaults to {@code null} so a minimal test double — or any out-of-tree
+     * implementor compiled before this method existed — keeps working and simply
+     * never paths inside an instance. This interface is exported from the module,
+     * so making it abstract would be a source- and binary-breaking change for a
+     * method whose common answer is "no".</p>
+     */
+    default DynamicRegion readInstance() {
+        return null;
+    }
 
     /**
      * Live count of item {@code itemId} the player holds (worn + carried). Used

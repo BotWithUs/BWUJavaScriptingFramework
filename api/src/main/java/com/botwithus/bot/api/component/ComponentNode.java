@@ -25,6 +25,9 @@ public final class ComponentNode {
     /** param3 for a plain component action: no inventory sub-slot. */
     private static final int NO_SUB_SLOT = -1;
 
+    /** param1 a dialogue-option selection carries (the engine ignores a menu index here). */
+    private static final int DIALOGUE_OPTION = 0;
+
     /** Bit-position the producer unpacks the drag "from" sub-slot from in param3. */
     private static final int FROM_SUB_SHIFT = 16;
     /** Mask for the drag "to" sub-slot half packed into param3. */
@@ -110,8 +113,8 @@ public final class ComponentNode {
     /**
      * Queue a click on this component with the given 1-based right-click option
      * index. Builds a {@link GameAction} with {@link ActionTypes#COMPONENT}, the
-     * option in {@code param1}, the packed {@code (iface<<16)|comp} in
-     * {@code param2}, and {@code -1} (no sub-slot) in {@code param3} — the same
+     * option in {@code param1}, {@code -1} (no sub-slot) in {@code param2}, and
+     * the packed {@code (iface<<16)|comp} in {@code param3} — the same
      * shape inventory slot clicks use, minus the slot. For inventory grids use
      * the {@code Backpack}/{@code Bank} facades, which supply the slot.
      */
@@ -119,6 +122,25 @@ public final class ComponentNode {
         api.queueAction(new GameAction(
                 ActionTypes.COMPONENT,
                 optionIndex,
+                NO_SUB_SLOT,
+                Interfaces.componentHash(interfaceId(), componentId())));
+    }
+
+    /**
+     * Queue selection of this component as a multi-choice <b>dialogue option</b>.
+     *
+     * <p>Dialogue options are driven by the {@link ActionTypes#DIALOGUE} action
+     * (type 30) — the engine's resume / pausebutton path — not the
+     * {@link ActionTypes#COMPONENT} action {@link #interact} sends. A COMPONENT
+     * click on an option row <em>dispatches but the server ignores it</em> (the
+     * dialogue doesn't advance); the DIALOGUE action is what a manual option pick
+     * emits. Shape: {@code param1 = 0}, no sub-slot, packed {@code (iface<<16)|comp}
+     * in {@code param3}. Verified live against interface 1188.</p>
+     */
+    public void selectDialogOption() {
+        api.queueAction(new GameAction(
+                ActionTypes.DIALOGUE,
+                DIALOGUE_OPTION,
                 NO_SUB_SLOT,
                 Interfaces.componentHash(interfaceId(), componentId())));
     }

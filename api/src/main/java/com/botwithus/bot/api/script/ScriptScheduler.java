@@ -17,7 +17,7 @@ import java.util.Map;
  * {@code scheduleScriptOnAllEvery(name, interval)}), which routes each call to
  * the appropriate per-Connection scheduler.
  *
- * <h3>Surface (for framework callers that hold a {@code ScriptScheduler} instance)</h3>
+ * <h2>Surface (for framework callers that hold a {@code ScriptScheduler} instance)</h2>
  * <pre>{@code
  * // Run "Woodcutter" once after 10 minutes
  * String id = scheduler.runAfter("Woodcutter", Duration.ofMinutes(10));

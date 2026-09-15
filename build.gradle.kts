@@ -4,14 +4,19 @@ plugins {
     alias(libs.plugins.beryx.jlink) apply false
 }
 
+// Release builds pass `-PreleaseVersion=<x.y.z>`; the publish workflow derives
+// it from the git tag with the leading `v` stripped. Local builds and CI test
+// runs stay on the snapshot version, which is never published.
+val projectVersion = providers.gradleProperty("releaseVersion").getOrElse("1.0-SNAPSHOT")
+
 group = "com.botwithus"
-version = "1.0-SNAPSHOT"
+version = projectVersion
 
 subprojects {
     apply(plugin = "java")
 
     group = "com.botwithus"
-    version = "1.0-SNAPSHOT"
+    version = projectVersion
 
     configure<JavaPluginExtension> {
         toolchain {

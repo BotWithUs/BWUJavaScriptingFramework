@@ -3,6 +3,7 @@ package com.botwithus.bot.quest;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.ComponentNode;
 import com.botwithus.bot.api.component.Components;
+import com.botwithus.bot.api.dialog.Dialog;
 
 import java.util.Locale;
 import java.util.Optional;
@@ -52,12 +53,24 @@ public final class QuestDialog {
 
     /**
      * Looks for an option label containing {@code optionText} (case-insensitive,
-     * whitespace-normalized, color tags stripped) inside the first open hint
-     * interface, and clicks it.
+     * whitespace-normalized, color tags stripped) and clicks it.
+     *
+     * <p>On the multi-choice dialog the label text and the clickable component
+     * are different components: the label is a {@code TEXT} leaf, but the server
+     * keys the click on the option <em>row</em> above it. So that interface is
+     * routed exclusively through {@link Dialog}, which walks label&rarr;row and
+     * clicks the row. Other hint dialogs that present a directly-clickable label
+     * keep the legacy match-and-click path.</p>
      *
      * @return {@code true} when a matching option was clicked
      */
     public static boolean clickOption(GameAPI api, String optionText) {
+        Components ui = api.components();
+        // Multi-choice options: never click the text leaf — only the row the
+        // server expects. Dialog owns that label->row correlation.
+        if (ui.isOpen(Dialog.MULTI_CHOICE_INTERFACE)) {
+            return Dialog.select(api, optionText);
+        }
         Optional<Integer> open = findOpenInterface(api);
         if (open.isEmpty()) {
             return false;
@@ -66,7 +79,7 @@ public final class QuestDialog {
         if (needle.isEmpty()) {
             return false;
         }
-        ComponentNode match = api.components().in(open.get())
+        ComponentNode match = ui.in(open.get())
                 .filter(n -> normalize(n.text()).contains(needle))
                 .first();
         if (match == null) {
@@ -77,13 +90,18 @@ public final class QuestDialog {
     }
 
     /**
-     * Best-effort continue-prompt handler. Looks for any of the standard
-     * "Click here to continue" / "Please wait" / "Continue" labels and
-     * clicks the component carrying them.
+     * Best-effort continue-prompt handler. Advances a text-only NPC-chat page
+     * (1184) via {@link Dialog#continueChat}, which drives the continue button
+     * with the {@code DIALOGUE} action — a plain component click on the continue
+     * label dispatches but doesn't advance. Falls back to a label-match-and-click
+     * on other hint dialogs we don't model.
      *
-     * @return {@code true} when a continue prompt was found and clicked
+     * @return {@code true} when a continue prompt was found and actioned
      */
     public static boolean tryContinue(GameAPI api) {
+        if (Dialog.continueChat(api)) {
+            return true;
+        }
         Optional<Integer> open = findOpenInterface(api);
         if (open.isEmpty()) {
             return false;

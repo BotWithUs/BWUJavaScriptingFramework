@@ -3,6 +3,10 @@ package com.botwithus.bot.core.runtime;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.runtime.LastCrash;
+import com.botwithus.bot.api.runtime.Liveness;
+import com.botwithus.bot.api.runtime.Phase;
+import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.config.ScriptConfigStore;
@@ -10,10 +14,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -21,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * Mirrors {@link ScriptRunner} but uses {@link ManagementContext} instead of
  * {@link com.botwithus.bot.api.ScriptContext}.
  */
-public class ManagementScriptRunner implements Runnable {
+public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subject {
 
     private static final Logger log = LoggerFactory.getLogger(ManagementScriptRunner.class);
 
@@ -33,13 +39,29 @@ public class ManagementScriptRunner implements Runnable {
      */
     static final String MANAGEMENT_BUCKET = "__management";
 
+
     private final ManagementScript script;
     private final ManagementContext context;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean disposed = new AtomicBoolean(false);
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
+    private final AtomicReference<ScriptHealth> healthRef =
+            new AtomicReference<>(ScriptHealth.HEALTHY);
+    private final RunnerLiveness livenessState = new RunnerLiveness();
+    private final AtomicLong loopCount = new AtomicLong();
+    private volatile Runnable watchdogArmer;
+
+    /**
+     * Installs the hook that starts the owning runtime's watchdog. See
+     * {@link ScriptRunner#setWatchdogArmer} — the CLI and GUI start management
+     * scripts by resolving a runner directly, so this must fire from
+     * {@link #start()} rather than from the runtime.
+     */
+    public void setWatchdogArmer(Runnable watchdogArmer) {
+        this.watchdogArmer = watchdogArmer;
+    }
     private volatile CountDownLatch stopLatch;
-    private Thread thread;
+    private volatile Thread thread;
 
     @FunctionalInterface
     public interface ErrorHandler {
@@ -58,18 +80,96 @@ public class ManagementScriptRunner implements Runnable {
     }
 
     public void start() {
+        Liveness current = livenessState.get();
+        if (current.isTerminal()) {
+            log.warn("Refusing to start {}: previous run is {} and its thread has not exited",
+                    getScriptName(), current);
+            return;
+        }
         if (running.compareAndSet(false, true)) {
+            // Reset the previous run's stop bookkeeping, or the watchdog would
+            // see a stop from minutes ago and quarantine the fresh thread.
+            livenessState.resetForRestart();
             stopLatch = new CountDownLatch(1);
             String name = getScriptName();
-            this.thread = Thread.ofVirtual().name("mgmt-script-" + name).start(this);
+            // rule-exception: {rule:prefer-virtual-threads} — same reasoning as
+            // ScriptRunner.start(); see CLAUDE.md "Java rules exceptions".
+            // Management scripts are the more privileged (cross-client) runner,
+            // so the containment argument applies to them at least as strongly.
+            this.thread = Thread.ofPlatform()
+                    .name("mgmt-script-" + name)
+                    .daemon(true)
+                    .priority(ScriptRunner.SCRIPT_THREAD_PRIORITY)
+                    .start(this);
+            Runnable armer = this.watchdogArmer;
+            if (armer != null) {
+                armer.run();
+            }
         }
     }
 
     public void stop() {
         running.set(false);
-        if (thread != null) {
-            thread.interrupt();
+        livenessState.requestStop();
+        Thread t = this.thread;
+        if (t != null) {
+            t.interrupt();
         }
+    }
+
+    /**
+     * Returns the latest {@link ScriptHealth} snapshot. Never {@code null};
+     * {@link ScriptHealth#HEALTHY} when the script has never crashed.
+     */
+    public ScriptHealth health() {
+        return healthRef.get();
+    }
+
+    /** Returns how responsive this runner is, as judged by the watchdog. */
+    public Liveness liveness() {
+        return livenessState.get();
+    }
+
+    /** The mutable liveness state the watchdog drives. */
+    @Override
+    public RunnerLiveness livenessState() {
+        return livenessState;
+    }
+
+    /** {@code true} once {@link #stop()} has been called on the current run. */
+    public boolean isStopRequested() {
+        return livenessState.isStopRequested();
+    }
+
+    /** {@code true} while the script thread exists and has not yet terminated. */
+    @Override
+    public boolean isThreadAlive() {
+        Thread t = this.thread;
+        return t != null && t.isAlive();
+    }
+
+    /**
+     * No-op: revocation is enforced by the per-connection {@code ScriptGate} at
+     * the RPC choke point, and a management script is cross-client by design, so
+     * there is no single gate to close. The REVOKED flag is observational here —
+     * it surfaces the state without enforcing it.
+     */
+    @Override
+    public void revokeAccess() {
+        log.warn("Management script {} ignored stop and cannot be cut off "
+                + "(cross-client, no per-connection gate)", getScriptName());
+    }
+
+    /** Keeps this script's classes loaded for as long as its thread runs. */
+    @Override
+    public void pinClassLoader() {
+        ManagementScriptLoader.pinLoaderOf(script);
+    }
+
+    /** No debug channel on this runner, so transitions are logged by the watchdog only. */
+    @Override
+    public void onLivenessChanged(Liveness to) {
+        // Intentionally empty — ManagementScriptRunner has no ScriptContextPublisher.
     }
 
     public void dispose() {
@@ -144,7 +244,7 @@ public class ManagementScriptRunner implements Runnable {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.error("onLoop error in {}: {}", name, e.getMessage());
-            notifyError(name, "onLoop", e);
+            notifyError(name, Phase.ON_LOOP, e);
         } finally {
             cleanup(name);
         }
@@ -156,7 +256,7 @@ public class ManagementScriptRunner implements Runnable {
             return true;
         } catch (Exception e) {
             log.error("onStart error in {}: {}", name, e.getMessage());
-            notifyError(name, "onStart", e);
+            notifyError(name, Phase.ON_START, e);
             running.set(false);
             return false;
         }
@@ -177,40 +277,75 @@ public class ManagementScriptRunner implements Runnable {
 
     private void runLoop() throws InterruptedException {
         while (running.get() && !Thread.currentThread().isInterrupted()) {
-            int delay = script.onLoop();
+            livenessState.enterLoop();
+            int delay;
+            try {
+                delay = script.onLoop();
+            } finally {
+                // Also clears an advisory stall; terminal states stick.
+                livenessState.exitLoop();
+            }
+            loopCount.incrementAndGet();
             if (delay < 0) {
                 break;
             }
             // Always sleep >=1 ms so interruption is observed each iteration;
-            // an onLoop()==0 loop that swallows interruption is otherwise
-            // unstoppable. Best-effort — blocking inside onLoop() can't be killed.
+            // an onLoop()==0 loop that swallows interruption would otherwise
+            // never notice the stop. Blocking *inside* onLoop() can't be killed
+            // — ManagementScriptRuntime's watchdog escalates that case instead.
             Thread.sleep(Math.max(1, delay));
         }
     }
 
     private void cleanup(String name) {
         running.set(false);
+        // Clear the interrupt for teardown, then restore it — stop() interrupts
+        // the thread, so any blocking call in onStop would otherwise throw
+        // InterruptedException immediately. Mirrors ScriptRunner.cleanup.
+        boolean wasInterrupted = Thread.interrupted();
         try {
             script.onStop();
         } catch (Exception e) {
             log.error("onStop error in {}: {}", name, e.getMessage());
-            notifyError(name, "onStop", e);
-        }
-        MDC.clear();
-        CountDownLatch latch = this.stopLatch;
-        if (latch != null) {
-            latch.countDown();
+            notifyError(name, Phase.ON_STOP, e);
+        } finally {
+            MDC.clear();
+            if (wasInterrupted) {
+                Thread.currentThread().interrupt();
+            }
+            CountDownLatch latch = this.stopLatch;
+            if (latch != null) {
+                latch.countDown();
+            }
         }
     }
 
-    private void notifyError(String scriptName, String phase, Throwable error) {
+    /**
+     * Records the failure into {@link #health()} and forwards it to the error
+     * handler. Brings this runner up to {@link ScriptRunner}'s telemetry: it is
+     * the more privileged, cross-client runner, so having *less* visibility
+     * than a plain script was the wrong way round (audit L14).
+     */
+    private void notifyError(String scriptName, Phase phase, Throwable error) {
+        LastCrash crash = new LastCrash(phase, loopCount.get(), Instant.now(), error);
+        healthRef.updateAndGet(h -> h.withCrash(crash));
         ErrorHandler handler = this.errorHandler;
         if (handler != null) {
             try {
-                handler.onError(scriptName, phase, error);
+                handler.onError(scriptName, phaseLabel(phase), error);
             } catch (Exception e) {
                 log.error("Error handler threw for {}/{}: {}", scriptName, phase, e.getMessage());
             }
         }
+    }
+
+    /** Keeps the handler's phase strings exactly as they were before health was added. */
+    private static String phaseLabel(Phase phase) {
+        return switch (phase) {
+            case ON_START         -> "onStart";
+            case ON_LOOP          -> "onLoop";
+            case ON_STOP          -> "onStop";
+            case ON_CONFIG_UPDATE -> "onConfigUpdate";
+        };
     }
 }

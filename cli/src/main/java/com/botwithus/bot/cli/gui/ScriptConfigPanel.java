@@ -9,6 +9,7 @@ import com.botwithus.bot.api.config.ConfigField.IntField;
 import com.botwithus.bot.api.config.ConfigField.ItemIdField;
 import com.botwithus.bot.api.config.ConfigField.StringField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImDrawList;
@@ -26,13 +27,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 
 /**
  * Floating editor for a script's {@link ConfigField} declarations.
  *
  * <p>Three regions, top to bottom:
  * <ol>
- *   <li>A custom-drawn banner with the script's category icon, name, and subtitle.</li>
+ *   <li>A single-row header with the script's icon, name, version, author, and description.</li>
  *   <li>A scrollable body with one field per row (label caption + control).</li>
  *   <li>A pinned action bar with a dirty indicator and Apply / Reset / Close.</li>
  * </ol>
@@ -50,6 +52,12 @@ public class ScriptConfigPanel {
     private static final float DEFAULT_HEIGHT_EM = 32f;
     private static final float MIN_WIDTH_EM = 20f;
     private static final float MIN_HEIGHT_EM = 18f;
+
+    private static final float BANNER_HEIGHT_EM = 1.9f;
+    private static final float BANNER_PAD_X_EM = 0.75f;
+    private static final float BANNER_ICON_GAP_EM = 0.6f;
+    private static final String BANNER_SEPARATOR = "  ·  ";
+    private static final Pattern LINE_BREAK = Pattern.compile("\\s*\\R\\s*");
 
     private ScriptRunner runner;
     private List<ConfigField> fields;
@@ -115,13 +123,15 @@ public class ScriptConfigPanel {
 
     // ── Banner ────────────────────────────────────────────────────────────
 
+    /**
+     * One neutral row: muted category icon, script name, then version · author ·
+     * description in dim text, truncated to fit. The banner deliberately carries no
+     * category colour, so it sits quietly above whatever theme the script's own UI uses.
+     */
     private void renderBanner(ScriptManifest manifest, CategoryStyle.Style cs) {
         ImDrawList draw = ImGui.getWindowDrawList();
         float fontH = ImGui.getFontSize();
-
-        float bannerH = fontH * 4.2f;
-        float padX = fontH * 1.1f;
-        float padY = fontH * 0.85f;
+        float bannerH = fontH * BANNER_HEIGHT_EM;
 
         float x0 = ImGui.getCursorScreenPosX();
         float y0 = ImGui.getCursorScreenPosY();
@@ -129,85 +139,73 @@ public class ScriptConfigPanel {
         float x1 = x0 + availW;
         float y1 = y0 + bannerH;
 
-        drawBannerBackground(draw, cs, x0, y0, x1, y1, fontH);
+        float padX = fontH * BANNER_PAD_X_EM;
 
-        float iconSize = fontH * 2.4f;
-        float iconX = x0 + padX;
-        float iconY = y0 + (bannerH - iconSize) * 0.5f;
-        drawCategoryChip(draw, cs, iconX, iconY, iconSize, fontH);
-
-        float textX = iconX + iconSize + fontH * 0.85f;
-        float titleY = y0 + padY;
-        drawTitleStack(draw, manifest, fontH, textX, titleY, x1 - textX - padX);
+        draw.pushClipRect(x0, y0, x1, y1, true);
+        drawBannerBackground(draw, x0, y0, x1, y1);
+        drawBannerRow(draw, manifest, cs, fontH, x0 + padX, y0, x1 - padX, bannerH);
+        draw.popClipRect();
 
         ImGui.dummy(availW, bannerH);
     }
 
-    /** Gradient surface→input-bg backdrop plus a soft accent wash on the right, then the accent stripe + hairline. */
-    private static void drawBannerBackground(ImDrawList draw, CategoryStyle.Style cs,
-                                             float x0, float y0, float x1, float y1, float fontH) {
-        int bgLeft = ImGuiTheme.imCol32(
+    /** Flat surface fill with a hairline along the bottom edge. */
+    private static void drawBannerBackground(ImDrawList draw, float x0, float y0, float x1, float y1) {
+        int bg = ImGuiTheme.imCol32(
                 ImGuiTheme.SURFACE_R, ImGuiTheme.SURFACE_G, ImGuiTheme.SURFACE_B, 1f);
-        int bgRight = ImGuiTheme.imCol32(
-                ImGuiTheme.INPUT_BG_R, ImGuiTheme.INPUT_BG_G, ImGuiTheme.INPUT_BG_B, 1f);
-        draw.addRectFilledMultiColor(x0, y0, x1, y1, bgLeft, bgRight, bgRight, bgLeft);
-
-        int accentSoft = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0f);
-        int accentWash = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.14f);
-        draw.addRectFilledMultiColor(x0, y0, x1, y1,
-                accentSoft, accentWash, accentWash, accentSoft);
-
-        float stripeH = Math.max(2f, fontH * 0.12f);
-        int stripeCol = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.85f);
-        draw.addRectFilled(x0, y1 - stripeH, x1, y1, stripeCol);
-
         int hairline = ImGuiTheme.imCol32(
-                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.35f);
-        draw.addLine(x0, y1 - stripeH - 1f, x1, y1 - stripeH - 1f, hairline, 1f);
+                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.5f);
+        draw.addRectFilled(x0, y0, x1, y1, bg);
+        draw.addLine(x0, y1 - 1f, x1, y1 - 1f, hairline, 1f);
     }
 
-    /** Rounded colored chip with the category icon centred inside. */
-    private static void drawCategoryChip(ImDrawList draw, CategoryStyle.Style cs,
-                                         float iconX, float iconY, float iconSize, float fontH) {
-        float iconRounding = fontH * 0.45f;
-        int chipBg = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.16f);
-        int chipBorder = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.45f);
-        draw.addRectFilled(iconX, iconY, iconX + iconSize, iconY + iconSize, chipBg, iconRounding);
-        draw.addRect(iconX, iconY, iconX + iconSize, iconY + iconSize, chipBorder, iconRounding);
-
-        ImVec2 iconTextSize = new ImVec2();
-        ImGui.calcTextSize(iconTextSize, cs.icon());
-        int iconCol = ImGuiTheme.imCol32(cs.r(), cs.g(), cs.b(), 0.95f);
-        draw.addText(
-                iconX + (iconSize - iconTextSize.x) * 0.5f,
-                iconY + (iconSize - iconTextSize.y) * 0.5f,
-                iconCol, cs.icon());
-    }
-
-    /** Title, subtitle ("Script Settings · v1.0 · by Author"), and truncated description. */
-    private void drawTitleStack(ImDrawList draw, ScriptManifest manifest,
-                                float fontH, float textX, float titleY, float maxTextWidth) {
+    /** Icon, name and details left to right between {@code left} and {@code right}, centred vertically. */
+    private void drawBannerRow(ImDrawList draw, ScriptManifest manifest, CategoryStyle.Style cs,
+                               float fontH, float left, float y0, float right, float bannerH) {
+        int dimCol = ImGuiTheme.imCol32(
+                ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.9f);
         int titleCol = ImGuiTheme.imCol32(
                 ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 1f);
-        draw.addText(textX, titleY, titleCol, runner.getScriptName());
+        ImVec2 size = new ImVec2();
+        float x = left;
 
-        StringBuilder subtitle = new StringBuilder(Icons.SLIDERS + "  Script Settings");
-        if (manifest != null && !manifest.version().isEmpty()) {
-            subtitle.append("  ·  v").append(manifest.version());
-        }
-        if (manifest != null && !manifest.author().isEmpty()) {
-            subtitle.append("  ·  by ").append(manifest.author());
-        }
-        int subtitleCol = ImGuiTheme.imCol32(
-                ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.92f);
-        draw.addText(textX, titleY + fontH * 1.45f, subtitleCol, subtitle.toString());
+        ImGui.calcTextSize(size, cs.icon());
+        draw.addText(x, y0 + (bannerH - size.y) * 0.5f, dimCol, cs.icon());
+        x += size.x + fontH * BANNER_ICON_GAP_EM;
 
-        if (manifest != null && !manifest.description().isEmpty()) {
-            int descCol = ImGuiTheme.imCol32(
-                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.9f);
-            String desc = truncateToWidth(manifest.description(), maxTextWidth);
-            draw.addText(textX, titleY + fontH * 2.75f, descCol, desc);
+        String name = truncateToWidth(runner.getScriptName(), right - x);
+        ImGui.calcTextSize(size, name);
+        float textY = y0 + (bannerH - size.y) * 0.5f;
+        draw.addText(x, textY, titleCol, name);
+        x += size.x;
+
+        String details = bannerDetails(manifest);
+        float detailsW = right - x;
+        if (!details.isEmpty() && detailsW > fontH) {
+            draw.addText(x, textY, dimCol, truncateToWidth(details, detailsW));
         }
+    }
+
+    /**
+     * The text after the script name: "  ·  v1.0  ·  by Author  ·  Description", skipping
+     * blank parts. Line breaks in the description are flattened so it stays on the row.
+     */
+    private static String bannerDetails(ScriptManifest manifest) {
+        if (manifest == null) {
+            return "";
+        }
+        StringBuilder details = new StringBuilder();
+        if (!manifest.version().isEmpty()) {
+            details.append(BANNER_SEPARATOR).append('v').append(manifest.version());
+        }
+        if (!manifest.author().isEmpty()) {
+            details.append(BANNER_SEPARATOR).append("by ").append(manifest.author());
+        }
+        if (!manifest.description().isBlank()) {
+            String oneLine = LINE_BREAK.matcher(manifest.description().strip()).replaceAll(" ");
+            details.append(BANNER_SEPARATOR).append(oneLine);
+        }
+        return details.toString();
     }
 
     private static String truncateToWidth(String text, float maxWidth) {
@@ -252,7 +250,9 @@ public class ScriptConfigPanel {
 
         ImGui.beginChild("##configBody", 0, bodyH, false);
 
-        if (fields == null || fields.isEmpty()) {
+        if (scriptOwnsBody()) {
+            renderCustomUi();
+        } else if (fields == null || fields.isEmpty()) {
             renderEmptyState();
         } else {
             renderFields(cs);
@@ -263,6 +263,36 @@ public class ScriptConfigPanel {
         ImGui.popStyleVar(2);
 
         renderActionBar();
+    }
+
+    /**
+     * A script that ships its own {@link ScriptUI} owns the entire body: we render
+     * that UI and nothing else.
+     *
+     * <p>Stacking the generated {@link ConfigField} rows above it — which is what this
+     * panel used to do — is wrong on two counts. The rows are the same values the
+     * script's UI already presents, so every control appeared twice; and a UI that
+     * paints a full-window backdrop (any {@code BwuScriptUI}) fills
+     * {@code getWindowPos()}‥{@code getWindowSize()} on the window draw list, which in
+     * submission order lands on top of every row drawn before it in this same child.
+     * The rows kept their layout space but were painted over, so the panel opened onto
+     * a tall band of dead space before the script's UI came into view.</p>
+     */
+    private boolean scriptOwnsBody() {
+        return runner != null && runner.getScript() != null && runner.getScript().getUI() != null;
+    }
+
+    private void renderCustomUi() {
+        ScriptUI ui = runner.getScript().getUI();
+        if (ui == null) {
+            return;
+        }
+        try {
+            ui.render();
+        } catch (Exception e) {
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f,
+                    "UI error: " + e.getMessage());
+        }
     }
 
     private void renderEmptyState() {
@@ -448,7 +478,8 @@ public class ScriptConfigPanel {
 
         ImGui.setCursorScreenPos(x0 + padX, y0 + padY);
 
-        boolean dirty = isDirty();
+        boolean ownsBody = scriptOwnsBody();
+        boolean dirty = !ownsBody && isDirty();
         renderDirtyIndicator(dirty);
 
         // Right-aligned action buttons: Reset (secondary) · Close (secondary) · Apply (primary).
@@ -456,18 +487,30 @@ public class ScriptConfigPanel {
         float resetW = textButtonWidth(Icons.ROTATE + "  Reset");
         float applyW = textButtonWidth(Icons.CHECK + "  Apply");
         float gap = ImGui.getStyle().getItemSpacingX();
-        float buttonsW = closeW + resetW + applyW + gap * 2;
+        float buttonsW = ownsBody ? closeW : closeW + resetW + applyW + gap * 2;
 
         ImGui.sameLine();
         float rightEdge = availW - padX;
         ImGui.setCursorPosX(rightEdge - buttonsW);
 
-        if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reset##cfgReset", resetW, ImGui.getFrameHeight())) {
-            resetToDefaults();
+        // When the script owns the body, Reset/Apply would act on generated fields that
+        // are not on screen: Apply would push the snapshot taken when this panel opened
+        // (clobbering anything the script's UI has changed since) and Reset would drop
+        // the whole config back to defaults. The script's UI persists on its own, so
+        // only Close is offered.
+        if (!ownsBody) {
+            if (GuiHelpers.buttonSecondary(Icons.ROTATE + "  Reset##cfgReset", resetW, ImGui.getFrameHeight())) {
+                resetToDefaults();
+            }
+            ImGui.sameLine(0, gap);
         }
-        ImGui.sameLine(0, gap);
         if (GuiHelpers.buttonSecondary("Close##cfgClose", closeW, ImGui.getFrameHeight())) {
             open.set(false);
+        }
+        if (ownsBody) {
+            ImGui.setCursorScreenPos(x0, y0 + barH);
+            ImGui.dummy(availW, 0);
+            return;
         }
         ImGui.sameLine(0, gap);
 
