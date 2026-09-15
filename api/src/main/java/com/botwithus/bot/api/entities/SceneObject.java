@@ -68,11 +68,11 @@ public final class SceneObject implements EntityContext {
      */
     public SceneObject resolveTransform() { return this; }
     /**
-     * Two-arg variant kept for pre-rewrite scripts. The second {@code _ignored}
-     * parameter (sub-option) was dropped — the option index encodes everything
-     * the action queue needs. Delegates to {@link #interact(int)}.
+     * Two-arg variant kept for pre-rewrite scripts. {@code unusedSubOption} is
+     * ignored — the option index encodes everything the action queue needs.
+     * Delegates to {@link #interact(int)}.
      */
-    public void interact(int optionIndex, int _ignored) { interact(optionIndex); }
+    public void interact(int optionIndex, int unusedSubOption) { interact(optionIndex); }
 
     /** Cached LocationType for this object's typeId. {@code null} if lookup fails. */
     public LocationType getType() {

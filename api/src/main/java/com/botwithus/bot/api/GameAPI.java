@@ -246,7 +246,9 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      */
     default WorldMapElement getWorldMapElement(int id) {
         for (WorldMapElement e : queryWorldMapElements(Map.of())) {
-            if (e.id() == id) return e;
+            if (e.id() == id) {
+                return e;
+            }
         }
         return null;
     }

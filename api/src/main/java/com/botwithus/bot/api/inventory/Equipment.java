@@ -58,7 +58,9 @@ public final class Equipment extends InventoryContainer {
 
     /** Convenience: try the standard unequip options ("Remove" / "Unequip") on the slot. */
     public boolean unequip(Slot slot) {
-        if (interact(slot, "Remove")) return true;
+        if (interact(slot, "Remove")) {
+            return true;
+        }
         return interact(slot, "Unequip");
     }
 
@@ -97,7 +99,9 @@ public final class Equipment extends InventoryContainer {
         /** Look up by index; {@code null} when {@code index} doesn't map to a real slot. */
         public static Slot fromIndex(int index) {
             for (Slot s : values()) {
-                if (s.index == index) return s;
+                if (s.index == index) {
+                    return s;
+                }
             }
             return null;
         }
