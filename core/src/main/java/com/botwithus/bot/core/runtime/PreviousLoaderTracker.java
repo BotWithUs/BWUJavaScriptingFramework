@@ -13,9 +13,15 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Holds {@link URLClassLoader} instances created by a previous module-load
- * pass so they can be closed before a reload. On Windows, leaving the
- * old classloaders open keeps file handles on the underlying JARs and
- * blocks the next load from re-reading them.
+ * pass so they can be closed before a reload, releasing whatever each one
+ * opened on its own account.
+ *
+ * <p>Closing them does <em>not</em> release the script JARs, and never did.
+ * These loaders are only the <em>parent</em> of the loader a child
+ * {@code ModuleLayer} defines; the JAR handle belongs to that inner loader's
+ * module reader, which is unreachable and uncloseable. Keeping the scripts
+ * directory rebuildable is {@link ScriptJarStaging}'s job — this class cannot
+ * do it and should not be asked to.</p>
  *
  * <p>Each script loader owns its own tracker — there is no cross-loader
  * shared state. {@link #add} and {@link #closeAll()} are called only by the
@@ -44,13 +50,11 @@ final class PreviousLoaderTracker {
      * Marks a loader as never-closable because a script thread it defined is
      * still running and cannot be killed.
      *
-     * <p>This deliberately leaks the loader (and its JAR file handle) for the
-     * life of the process. That is the lesser evil: closing a loader out from
-     * under a live thread gives that thread {@code NoClassDefFoundError} on its
-     * next class load, and on Windows the still-running loader keeps the JAR
-     * handle open anyway, so {@code close()} can't release it — which wedges
-     * every later reload. Leaking one loader costs memory; closing it corrupts
-     * the reload path the tracker exists to protect.</p>
+     * <p>This deliberately leaks the loader for the life of the process, because
+     * closing it out from under a live thread gives that thread
+     * {@code NoClassDefFoundError} on its next class load. The staged JAR it
+     * was defined from leaks with it, which is affordable precisely because it
+     * is a copy: the scripter's own JAR is never the file left open.</p>
      */
     void pin(ClassLoader loader) {
         if (loader != null) {

@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -386,5 +388,30 @@ class ScriptStopEnforcementTest {
         int afterStop = handled.get();
         shared.publish(ISC_CHANNEL, "someone-else", "after-stop");
         assertEquals(afterStop, handled.get(), "a stopped script's handler must not fire");
+    }
+
+    @Test
+    @DisplayName("a quarantined zombie does not shadow a rebuilt script of the same name")
+    void quarantinedRunnerDoesNotShadowAReload() throws Exception {
+        // Every reload path is stopAll() then registerScript() per script. A
+        // spinner never drains, so it is quarantined rather than dropped — and
+        // registerScript is idempotent by name. Matching the zombie there would
+        // hand the reload its own zombie back and discard the freshly built
+        // instance: the scripter rebuilds, the UI says "reloaded", and the old
+        // bytecode carries on running.
+        ScriptRuntime runtime = new ScriptRuntime(mockContext());
+        ScriptRunner zombie = startSpinner(runtime);
+
+        runtime.stopAll();
+        assertEquals(List.of(zombie), runtime.getQuarantined(),
+                "sanity: the spinner should have been quarantined, not drained");
+
+        ScriptRunner rebuilt = runtime.registerScript(newSpinner());
+
+        assertNotSame(zombie, rebuilt, "a reload must register the freshly built script");
+        assertSame(rebuilt, runtime.findRunner("Spinner"),
+                "the fresh runner must be the one every consumer resolves by name");
+        assertTrue(runtime.getRunners().contains(zombie),
+                "the zombie stays visible for as long as its thread is alive");
     }
 }

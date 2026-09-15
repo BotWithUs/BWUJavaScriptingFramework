@@ -24,12 +24,17 @@ import java.util.Set;
  *
  * <p>Each JAR must be a Java module declaring
  * {@code provides com.botwithus.bot.api.script.ManagementScript with <ClassName>}.
+ *
+ * <p>As with {@link LocalScriptLoader}, JARs are loaded from private copies
+ * taken by {@link ScriptJarStaging} so the management directory stays writable
+ * while the host is running.</p>
  */
 public final class ManagementScriptLoader {
 
     private static final Logger log = LoggerFactory.getLogger(ManagementScriptLoader.class);
     private static final String MANAGEMENT_DIR = "management";
     private static final PreviousLoaderTracker previousLoaders = new PreviousLoaderTracker();
+    private static final ScriptJarStaging staging = new ScriptJarStaging(MANAGEMENT_DIR);
 
     /**
      * Pins the classloader that defined {@code script} so no later reload closes
@@ -72,7 +77,7 @@ public final class ManagementScriptLoader {
         }
         log.info("Found {} JAR(s) in {}", jars.size(), managementDir.toAbsolutePath());
 
-        ModuleFinder finder = ModuleFinder.of(managementDir);
+        ModuleFinder finder = ModuleFinder.of(staging.stage(jars, managementDir).dir());
         Set<ModuleReference> moduleReferences = finder.findAll();
         if (moduleReferences.isEmpty()) {
             log.info("No modules found in JARs.");

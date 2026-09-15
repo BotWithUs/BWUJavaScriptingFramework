@@ -165,11 +165,20 @@ public class ScriptRuntime {
      * whole script list. The name is the key every consumer ({@link #findRunner},
      * {@link #stopScript}) already uses, so two same-named runners were never
      * addressable anyway.</p>
+     *
+     * <p>Quarantined runners are deliberately <em>not</em> matched. A zombie is
+     * a dead end — it can never be started again — so treating one as "already
+     * registered" would make a rebuilt script of the same name unloadable for
+     * the life of the process: every reload would hand back the zombie and
+     * silently discard the freshly built instance, leaving the old bytecode
+     * running behind a UI that claims it reloaded. The fresh runner goes in
+     * front of the zombie in {@link #findRunner}'s search order, and the zombie
+     * stays visible in {@link #getRunners()} for as long as its thread lives.</p>
      */
     public ScriptRunner registerScript(BotScript script) {
         String name = resolveScriptName(script);
         synchronized (registrationLock) {
-            ScriptRunner existing = findRunner(name);
+            ScriptRunner existing = findActiveRunner(name);
             if (existing != null) {
                 return existing;
             }
@@ -305,8 +314,7 @@ public class ScriptRuntime {
         // Wait for each runner's thread to actually drain before the caller
         // proceeds to reload (which closes the script ClassLoaders). dispose()
         // only interrupts cooperatively; closing a loader out from under a
-        // still-running script thread risks NoClassDefFoundError and, on
-        // Windows, leaks the JAR file handle and wedges the next reload.
+        // still-running script thread risks NoClassDefFoundError.
         //
         // A thread that won't drain is *quarantined*, not forgotten: we can't
         // kill it, so it is kept visible and left to the watchdog to revoke and
@@ -332,12 +340,25 @@ public class ScriptRuntime {
      * start again ({@link ScriptRunner#start()} guards on terminal liveness).
      */
     public ScriptRunner findRunner(String name) {
-        for (ScriptRunner runner : runners) {
+        ScriptRunner active = findActiveRunner(name);
+        if (active != null) {
+            return active;
+        }
+        for (ScriptRunner runner : quarantined) {
             if (runner.getScriptName().equalsIgnoreCase(name)) {
                 return runner;
             }
         }
-        for (ScriptRunner runner : quarantined) {
+        return null;
+    }
+
+    /**
+     * Finds a runner among the active ones only. {@code null} when the only
+     * runner by that name is a quarantined zombie — which is what lets a
+     * reload register a fresh instance over the top of one.
+     */
+    private ScriptRunner findActiveRunner(String name) {
+        for (ScriptRunner runner : runners) {
             if (runner.getScriptName().equalsIgnoreCase(name)) {
                 return runner;
             }

@@ -26,6 +26,7 @@ import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
 import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.LoadReport;
+import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptLoadResult;
@@ -590,8 +591,14 @@ public class CliContext {
         if (scriptWatcher != null && scriptWatcher.isRunning()) {
             return;
         }
-        Path scriptsDir = Path.of("scripts");
+        // The directory the loader actually reads — not "scripts" relative to
+        // the working directory, which is a different place as soon as the
+        // -Dbotwithus.scripts.dir override or the ~/.botwithus fallback is in
+        // play. A watcher on the wrong directory never fires.
+        Path scriptsDir = LocalScriptLoader.scriptsDir();
         if (!Files.isDirectory(scriptsDir)) {
+            out().println("Script watcher not started: " + scriptsDir.toAbsolutePath()
+                    + " does not exist.");
             return;
         }
         scriptWatcher = new ScriptWatcher(scriptsDir, () -> {

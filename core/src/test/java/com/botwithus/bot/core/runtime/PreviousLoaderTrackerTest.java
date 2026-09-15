@@ -29,9 +29,10 @@ class PreviousLoaderTrackerTest {
 
     /**
      * Every loader a test opened. A pinned loader deliberately survives
-     * {@code closeAll}, and on Windows that keeps a handle on the JAR — which
-     * would then defeat {@code @TempDir}'s cleanup. Closing them here is the
-     * test harness doing what production deliberately does not.
+     * {@code closeAll}, and on Windows a loader that has opened its JAR keeps a
+     * handle on it — which would then defeat {@code @TempDir}'s cleanup.
+     * Closing them here is the test harness doing what production deliberately
+     * does not.
      */
     private final List<URLClassLoader> opened = new ArrayList<>();
 
@@ -84,9 +85,9 @@ class PreviousLoaderTrackerTest {
     @DisplayName("a pinned loader survives reload")
     void keepsPinnedLoadersOpen() throws IOException {
         // Deliberately leaking the loader is the lesser evil: closing it under a
-        // live script thread gives that thread NoClassDefFoundError, and on
-        // Windows the running loader holds the JAR handle open anyway, so the
-        // close can't release it and every later reload wedges.
+        // live script thread gives that thread NoClassDefFoundError on its next
+        // class load. What leaks with it is a staged copy, not the JAR the
+        // scripter rebuilds — see ScriptJarStaging.
         PreviousLoaderTracker tracker = new PreviousLoaderTracker();
         URLClassLoader loader = loaderOver("pinned.jar");
         tracker.add(loader);

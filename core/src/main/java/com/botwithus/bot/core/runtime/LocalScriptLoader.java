@@ -24,6 +24,11 @@ import java.util.Set;
  * Discovers BotScript implementations from local JAR files in a scripts directory.
  * Each JAR is a Java module that {@code provides BotScript with ...}.
  * Loaded into a child ModuleLayer so ServiceLoader can find them.
+ *
+ * <p>JARs are loaded from private copies taken by {@link ScriptJarStaging}, so
+ * the scripts directory itself is never opened and a scripter can rebuild into
+ * it while the host is running. Every path this class reports — in a log line
+ * or a {@link ScriptLoadResult} — is the source JAR, not the staged copy.</p>
  */
 public final class LocalScriptLoader {
 
@@ -38,6 +43,13 @@ public final class LocalScriptLoader {
      * not a raw list scattered across this class.
      */
     private static final PreviousLoaderTracker previousLoaders = new PreviousLoaderTracker();
+
+    /**
+     * JARs are loaded from private copies, never from the directory the
+     * scripter rebuilds into — see {@link ScriptJarStaging} for why a loaded
+     * JAR can never be released.
+     */
+    private static final ScriptJarStaging staging = new ScriptJarStaging(SCRIPTS_DIR_NAME);
 
     private LocalScriptLoader() {}
 
@@ -78,6 +90,17 @@ public final class LocalScriptLoader {
      */
     public static LoadReport loadReport() {
         return loadReport(resolveScriptsDir());
+    }
+
+    /**
+     * The directory {@link #loadReport()} loads from. Public so the CLI's file
+     * watcher can watch the directory the loader actually reads, rather than
+     * assuming {@code scripts/} under the working directory — with the
+     * {@value #SCRIPTS_DIR_PROPERTY} override or the per-user fallback in play,
+     * those are not the same place, and a watcher on the wrong one never fires.
+     */
+    public static Path scriptsDir() {
+        return resolveScriptsDir();
     }
 
     /**
@@ -141,26 +164,42 @@ public final class LocalScriptLoader {
         }
         log.info("Found {} JAR(s) in {}", jars.size(), scriptsDir.toAbsolutePath());
 
-        ModuleFinder finder = ModuleFinder.of(scriptsDir);
+        return loadStaged(staging.stage(jars, scriptsDir), jars);
+    }
+
+    /**
+     * Defines a child {@link ModuleLayer} per staged JAR and collects what each
+     * one yielded. Every {@link ScriptLoadResult} names the JAR the scripter
+     * built, not the staged copy it was loaded from.
+     */
+    private static LoadReport loadStaged(ScriptJarStaging.Staged staged, List<Path> jars) {
+        List<ScriptLoadResult> results = new ArrayList<>();
+        staged.failures().forEach((jar, error) ->
+                results.add(ScriptLoadResult.failure(jar, error, List.of())));
+        List<Path> loadable = jars.stream()
+                .filter(jar -> !staged.failures().containsKey(jar))
+                .toList();
+
+        ModuleFinder finder = ModuleFinder.of(staged.dir());
         Set<ModuleReference> moduleReferences = finder.findAll();
         if (moduleReferences.isEmpty()) {
             log.info("No modules found in JARs. Ensure each JAR has a module-info with 'provides BotScript with ...'");
-            return new LoadReport(jars.stream()
+            loadable.stream()
                     .map(j -> ScriptLoadResult.failure(j,
                             new IllegalStateException(
                                     "JAR is not a Java module — missing module-info.java with 'provides BotScript with ...'"),
                             List.of()))
-                    .toList());
+                    .forEach(results::add);
+            return new LoadReport(results);
         }
 
         if (!coreDeclaresUsesBotScript()) {
             return LoadReport.EMPTY;
         }
 
-        List<ScriptLoadResult> results = new ArrayList<>();
         ModuleLayer bootLayer = ModuleLayer.boot();
         for (ModuleReference ref : moduleReferences) {
-            results.addAll(loadOneModule(ref, finder, bootLayer));
+            results.addAll(loadOneModule(ref, finder, bootLayer, staged));
         }
         return new LoadReport(results);
     }
@@ -196,9 +235,10 @@ public final class LocalScriptLoader {
     }
 
     private static List<ScriptLoadResult> loadOneModule(ModuleReference ref, ModuleFinder finder,
-                                                        ModuleLayer bootLayer) {
+                                                        ModuleLayer bootLayer,
+                                                        ScriptJarStaging.Staged staged) {
         String name = ref.descriptor().name();
-        Path jar = ref.location().map(Path::of).orElse(Path.of(name));
+        Path jar = ref.location().map(Path::of).map(staged::sourceOf).orElse(Path.of(name));
 
         if (ref.location().isEmpty()) {
             return List.of(ScriptLoadResult.failure(jar,
