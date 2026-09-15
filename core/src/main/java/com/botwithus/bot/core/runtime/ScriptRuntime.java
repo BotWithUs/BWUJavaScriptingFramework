@@ -246,15 +246,17 @@ public class ScriptRuntime {
         // by-name scan of the runner lists on every call.
         //
         // stopSelf() is the opposite trade: called once, so the by-name lookup is
-        // free, and routing it through stopScript gives a self-stop the exact
+        // free, and routing it through the runner gives a self-stop the exact
         // path a user Stop takes. That path interrupts the thread, which a bare
         // liveness::requestStop would not: a script sleeping out a long delay
         // after asking to stop would sit past REVOKE_GRACE_MS and be revoked.
-        // The runner does not exist yet, so binding to it directly is not an option.
+        // The runner does not exist yet, so binding to it directly is not an
+        // option — but its liveness state does, which is enough to prove at
+        // call time that the runner answering to this name is still this run.
         ScriptContextImpl scoped = impl.withEventBus(bus)
                 .withScriptMessageBus(messages, name)
                 .withStopSignal(liveness::isStopRequested)
-                .withStopCallback(() -> stopScript(name));
+                .withStopCallback(() -> stopOwnRun(name, liveness));
         Function<String, ScriptContextPublisher> factory = this.publisherFactory;
         if (factory == null) {
             return new ScopedContext(scoped, bus, messages);
@@ -375,14 +377,40 @@ public class ScriptRuntime {
     }
 
     public boolean stopScript(String name) {
+        return stopRunner(findRunner(name));
+    }
+
+    /**
+     * Backs {@code ScriptContext.stopSelf()}. Stops the runner registered under
+     * {@code name} only while it is still the run that asked — proven by the
+     * {@link RunnerLiveness} instance the two share, which is created per run in
+     * {@link #registerScript}.
+     *
+     * <p>Without that proof a self-stop is just a name lookup, and a name can
+     * outlive the run that held it: a quarantined zombie is still executing, can
+     * still reach {@code stopSelf()}, and by then the name may belong to a
+     * freshly reloaded runner. The zombie would stop its own replacement. The
+     * identity check costs one reference comparison on a once-per-run path.</p>
+     */
+    private void stopOwnRun(String name, RunnerLiveness liveness) {
         ScriptRunner runner = findRunner(name);
-        if (runner != null && runner.isRunning()) {
-            runner.stop();
-            log.info("Stopped script: {}", runner.getScriptName());
-            fireStateChange();
-            return true;
+        if (runner != null && runner.livenessState() == liveness) {
+            stopRunner(runner);
+            return;
         }
-        return false;
+        log.warn("Ignoring stopSelf() from a retired run of {}: the name now "
+                + "belongs to a different runner", name);
+    }
+
+    /** Stops a runner that is actually running, and reports whether it did. */
+    private boolean stopRunner(ScriptRunner runner) {
+        if (runner == null || !runner.isRunning()) {
+            return false;
+        }
+        runner.stop();
+        log.info("Stopped script: {}", runner.getScriptName());
+        fireStateChange();
+        return true;
     }
 
     /**

@@ -56,8 +56,12 @@ class ScriptStopEnforcementTest {
     private static final class Spinner implements BotScript {
         private final CountDownLatch inLoop = new CountDownLatch(1);
         private final AtomicBoolean release = new AtomicBoolean(false);
+        /** The per-run context, kept so a test can drive this script's stopSelf(). */
+        private volatile ScriptContext context;
 
-        @Override public void onStart(ScriptContext ctx) {}
+        @Override public void onStart(ScriptContext ctx) {
+            this.context = ctx;
+        }
 
         @Override public int onLoop() {
             inLoop.countDown();
@@ -75,6 +79,10 @@ class ScriptStopEnforcementTest {
 
         void release() {
             release.set(true);
+        }
+
+        void stopSelf() {
+            context.stopSelf();
         }
     }
 
@@ -413,5 +421,38 @@ class ScriptStopEnforcementTest {
                 "the fresh runner must be the one every consumer resolves by name");
         assertTrue(runtime.getRunners().contains(zombie),
                 "the zombie stays visible for as long as its thread is alive");
+    }
+
+    @Test
+    @DisplayName("a quarantined zombie's stopSelf() cannot stop its replacement")
+    void zombieStopSelfDoesNotStopItsReplacement() throws Exception {
+        // stopSelf() resolves its target by name at call time, and a name can
+        // outlive the run that held it: a zombie is still executing, can still
+        // reach stopSelf(), and by then a reload may have registered a fresh
+        // runner under that name. Without an identity check the zombie stops
+        // its own replacement.
+        //
+        // A real ScriptContextImpl, not the shared mock: only the real one gets
+        // a per-script stop callback wired, so a mock context would make this
+        // pass without testing anything.
+        ScriptRuntime runtime = new ScriptRuntime(new ScriptContextImpl(
+                mock(GameAPI.class), new EventBusImpl(), new MessageBusImpl()));
+        Spinner zombieScript = newSpinner();
+        runtime.startScript(zombieScript);
+        zombieScript.awaitInLoop();
+        runtime.stopAll();
+        assertEquals(1, runtime.getQuarantined().size(),
+                "sanity: the spinner should have been quarantined, not drained");
+
+        Spinner replacementScript = newSpinner();
+        ScriptRunner replacement = runtime.registerScript(replacementScript);
+        replacement.start();
+        replacementScript.awaitInLoop();
+
+        zombieScript.stopSelf();
+
+        assertFalse(replacement.isStopRequested(),
+                "the zombie's stopSelf() must not reach the runner that replaced it");
+        assertTrue(replacement.isRunning(), "the replacement must still be running");
     }
 }
