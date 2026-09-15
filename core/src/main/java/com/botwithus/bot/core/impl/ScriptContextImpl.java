@@ -12,6 +12,9 @@ import java.util.function.BooleanSupplier;
 
 public class ScriptContextImpl implements ScriptContext {
 
+    /** Stop hook for contexts the runtime has not bound; matches the {@link ScriptContext#stopSelf} no-op. */
+    private static final Runnable NO_STOP_CALLBACK = () -> { };
+
     private final GameAPI gameAPI;
     private final EventBusImpl eventBus;
     /**
@@ -28,11 +31,13 @@ public class ScriptContextImpl implements ScriptContext {
     private final ScriptContextPublisher scriptContext;
     /** Backs {@link #isStopRequested()}; constant false until the runtime binds it. */
     private final BooleanSupplier stopRequested;
+    /** Backs {@link #stopSelf()}; a no-op until the runtime binds it. */
+    private final Runnable stopCallback;
 
     public ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, MessageBus messageBus,
                              SharedState sharedState, ScriptContextPublisher scriptContext) {
         this(gameAPI, eventBus, eventBus, messageBus, sharedState,
-                new Walker(gameAPI, eventBus), scriptContext, () -> false);
+                new Walker(gameAPI, eventBus), scriptContext, () -> false, NO_STOP_CALLBACK);
     }
 
     public ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, MessageBus messageBus, SharedState sharedState) {
@@ -45,7 +50,8 @@ public class ScriptContextImpl implements ScriptContext {
 
     private ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, EventBus scriptEventBus,
                               MessageBus messageBus, SharedState sharedState, Navigation navigation,
-                              ScriptContextPublisher scriptContext, BooleanSupplier stopRequested) {
+                              ScriptContextPublisher scriptContext, BooleanSupplier stopRequested,
+                              Runnable stopCallback) {
         this.gameAPI = gameAPI;
         this.eventBus = eventBus;
         this.scriptEventBus = scriptEventBus;
@@ -54,6 +60,7 @@ public class ScriptContextImpl implements ScriptContext {
         this.navigation = navigation;
         this.scriptContext = scriptContext != null ? scriptContext : ScriptContextPublisher.NOOP;
         this.stopRequested = stopRequested != null ? stopRequested : () -> false;
+        this.stopCallback = stopCallback != null ? stopCallback : NO_STOP_CALLBACK;
     }
 
     /**
@@ -65,7 +72,7 @@ public class ScriptContextImpl implements ScriptContext {
     public ScriptContextImpl withScriptContext(ScriptContextPublisher publisher) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
                 navigation, publisher != null ? publisher : ScriptContextPublisher.NOOP,
-                stopRequested);
+                stopRequested, stopCallback);
     }
 
     /**
@@ -76,7 +83,7 @@ public class ScriptContextImpl implements ScriptContext {
      */
     public ScriptContextImpl withEventBus(EventBus bus) {
         return new ScriptContextImpl(gameAPI, eventBus, bus != null ? bus : eventBus, messageBus,
-                sharedState, navigation, scriptContext, stopRequested);
+                sharedState, navigation, scriptContext, stopRequested, stopCallback);
     }
 
     /**
@@ -99,7 +106,7 @@ public class ScriptContextImpl implements ScriptContext {
                 ? bus
                 : new IdentifiedMessageBus(bus, name);
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, identified, sharedState,
-                navigation, scriptContext, stopRequested);
+                navigation, scriptContext, stopRequested, stopCallback);
     }
 
     /**
@@ -109,7 +116,19 @@ public class ScriptContextImpl implements ScriptContext {
      */
     public ScriptContextImpl withStopSignal(BooleanSupplier signal) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
-                navigation, scriptContext, signal != null ? signal : () -> false);
+                navigation, scriptContext, signal != null ? signal : () -> false, stopCallback);
+    }
+
+    /**
+     * Returns a copy of this context whose {@link #stopSelf()} runs
+     * {@code callback}. Bound by the runtime to the same stop path a user Stop
+     * takes, so a self-stop sets the flag {@link #withStopSignal} reads and is
+     * observed exactly like a user stop.
+     */
+    public ScriptContextImpl withStopCallback(Runnable callback) {
+        return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
+                navigation, scriptContext, stopRequested,
+                callback != null ? callback : NO_STOP_CALLBACK);
     }
 
     @Override
@@ -132,4 +151,7 @@ public class ScriptContextImpl implements ScriptContext {
 
     @Override
     public boolean isStopRequested() { return stopRequested.getAsBoolean(); }
+
+    @Override
+    public void stopSelf() { stopCallback.run(); }
 }

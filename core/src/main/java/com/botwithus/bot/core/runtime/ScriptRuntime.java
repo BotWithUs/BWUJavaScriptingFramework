@@ -244,9 +244,17 @@ public class ScriptRuntime {
         // here and handed to the runner below. isStopRequested() is documented
         // as something scripts poll inside long loops, so it must not cost a
         // by-name scan of the runner lists on every call.
+        //
+        // stopSelf() is the opposite trade: called once, so the by-name lookup is
+        // free, and routing it through stopScript gives a self-stop the exact
+        // path a user Stop takes. That path interrupts the thread, which a bare
+        // liveness::requestStop would not: a script sleeping out a long delay
+        // after asking to stop would sit past REVOKE_GRACE_MS and be revoked.
+        // The runner does not exist yet, so binding to it directly is not an option.
         ScriptContextImpl scoped = impl.withEventBus(bus)
                 .withScriptMessageBus(messages, name)
-                .withStopSignal(liveness::isStopRequested);
+                .withStopSignal(liveness::isStopRequested)
+                .withStopCallback(() -> stopScript(name));
         Function<String, ScriptContextPublisher> factory = this.publisherFactory;
         if (factory == null) {
             return new ScopedContext(scoped, bus, messages);

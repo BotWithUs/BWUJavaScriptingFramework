@@ -26,6 +26,9 @@ import java.util.function.IntFunction;
  */
 public final class Npc implements EntityContext {
 
+    /** Scale of {@link #getHealthPercent()}: full health reads as this value. */
+    private static final int FULL_HEALTH_PERCENT = 100;
+
     private final GameAPI api;
     // FQN: disambiguates from this-class entity Npc — see class-level note.
     private final com.botwithus.bot.api.snapshot.Npc raw;
@@ -66,6 +69,49 @@ public final class Npc implements EntityContext {
     public int hp()                { return raw.hp(); }
     public int maxHp()             { return raw.maxHp(); }
     public boolean isAlive()       { return raw.hp() > 0; }
+
+    // ---------------- Convenience shims (kept for scripts that pre-date the rewrite) ----------------
+
+    /** Same as {@code !isAlive()}. */
+    public boolean isDead()        { return raw.hp() <= 0; }
+    /** Alias for {@link #hp()}. */
+    public int getHealth()         { return raw.hp(); }
+    /** Alias for {@link #maxHp()}. */
+    public int getMaxHealth()      { return raw.maxHp(); }
+    /** Current health as a percentage of max health, {@code 0} when max health is unknown. */
+    public int getHealthPercent()  {
+        int max = raw.maxHp();
+        return max <= 0 ? 0 : (raw.hp() * FULL_HEALTH_PERCENT) / max;
+    }
+    /** The snapshot only carries visible NPCs; this stub always returns {@code false}. */
+    public boolean isHidden()      { return false; }
+    /** Chebyshev distance to the local player tile, or {@code MAX_VALUE} if the player isn't loaded. */
+    public int distanceToPlayer()  {
+        var lp = api.getLocalPlayer();
+        return lp == null ? Integer.MAX_VALUE : distanceTo(lp.tileX(), lp.tileY());
+    }
+    /** Alias for {@link #animationId()}. */
+    public int getAnimation()      { return raw.animationId(); }
+    /**
+     * Currently-active spot anim ids (graphics) playing on this NPC. The
+     * post-rewrite snapshot surfaces only the <em>first</em> concurrent spot
+     * anim via {@link #spotAnimId()}, so this list is at most one-long — for
+     * every newly-started anim, subscribe to {@code SpotAnimEvent}.
+     */
+    public List<Integer> getSpotAnims() {
+        int id = raw.spotAnimId();
+        return id <= 0 ? List.of() : List.of(id);
+    }
+    /** True when this NPC is following another entity ({@link #followingIndex()} != -1). */
+    public boolean isFollowing()       { return raw.followingIndex() != -1; }
+    /** Alias for {@link #followingIndex()}. */
+    public int getFollowingIndex()     { return raw.followingIndex(); }
+    /**
+     * Two-arg variant kept for pre-rewrite scripts. {@code unusedSubOption} is
+     * ignored — the option index encodes everything the action queue needs.
+     * Delegates to {@link #interact(int)}.
+     */
+    public void interact(int optionIndex, int unusedSubOption) { interact(optionIndex); }
     /** First active spot anim (graphic) id playing on this NPC, or {@code -1} if none.
      *  Only the first concurrent spot anim is surfaced here — subscribe to
      *  {@code SpotAnimEvent} for every newly-started one. */
