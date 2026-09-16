@@ -2,7 +2,7 @@ name: Deploy Javadoc to GitHub Pages
 
 on:
   push:
-    branches: [master]
+    branches: [develop]
     # A release tag redeploys the docs so the published Javadoc matches the
     # version script authors just resolved. Both this and publish-api.yml fire
     # on a v* tag; the 'pages' concurrency group keeps deploys serialised.
@@ -19,7 +19,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  # Deliberately NOT named 'build'. The 'master protection' ruleset matches its
+  # required check by job name, and ci.yml owns that name — see CLAUDE.md.
+  javadoc:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,7 +40,7 @@ jobs:
           path: api/build/docs/javadoc
 
   deploy:
-    needs: build
+    needs: javadoc
     runs-on: ubuntu-latest
     environment:
       name: github-pages
