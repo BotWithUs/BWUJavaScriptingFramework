@@ -28,7 +28,7 @@ class ReconnectControllerTest {
         }
 
         @Override
-        public void reconnect() {
+        public void reconnect(String pipeName) {
             int n = calls.incrementAndGet();
             if (n <= failures) {
                 throw new PipeException("simulated fail #" + n);
@@ -40,10 +40,15 @@ class ReconnectControllerTest {
         private final AtomicInteger calls = new AtomicInteger();
 
         @Override
-        public void reconnect() {
+        public void reconnect(String pipeName) {
             calls.incrementAndGet();
             throw new PipeException("always fails");
         }
+    }
+
+    /** Resolver stand-in for tests about backoff/state, not pipe resolution. */
+    private static ReconnectController.PipeResolver alwaysFound() {
+        return attempt -> new PipeResolution.Found("BotWithUs_1234");
     }
 
     private static ReconnectPolicy zeroDelayPolicy(int maxAttempts) {
@@ -57,7 +62,7 @@ class ReconnectControllerTest {
         List<GameEvent> events = new ArrayList<>();
 
         ReconnectController controller = new ReconnectController(
-                handler -> { /* unused */ }, r, "test", zeroDelayPolicy(10),
+                handler -> { /* unused */ }, r, alwaysFound(), "test", zeroDelayPolicy(10),
                 states::add, events::add);
 
         controller.onDisconnectSync(new RuntimeException("initial drop"));
@@ -81,7 +86,7 @@ class ReconnectControllerTest {
         List<GameEvent> events = new ArrayList<>();
 
         ReconnectController controller = new ReconnectController(
-                handler -> {}, r, "test", zeroDelayPolicy(3),
+                handler -> {}, r, alwaysFound(), "test", zeroDelayPolicy(3),
                 states::add, events::add);
 
         controller.onDisconnectSync(new RuntimeException("drop"));
@@ -99,7 +104,7 @@ class ReconnectControllerTest {
         List<GameEvent> events = new ArrayList<>();
 
         ReconnectController controller = new ReconnectController(
-                handler -> {}, r, "test", zeroDelayPolicy(5),
+                handler -> {}, r, alwaysFound(), "test", zeroDelayPolicy(5),
                 state -> {}, events::add);
 
         RuntimeException cause = new RuntimeException("drop");
@@ -120,7 +125,7 @@ class ReconnectControllerTest {
         List<GameEvent> events = new ArrayList<>();
 
         ReconnectController controller = new ReconnectController(
-                handler -> {}, r, "test", zeroDelayPolicy(5),
+                handler -> {}, r, alwaysFound(), "test", zeroDelayPolicy(5),
                 state -> {}, events::add);
 
         controller.onDisconnectSync(new RuntimeException("drop"));
@@ -136,7 +141,7 @@ class ReconnectControllerTest {
     void closePreventsFurtherAttempts() {
         AlwaysFailingReconnector r = new AlwaysFailingReconnector();
         ReconnectController controller = new ReconnectController(
-                handler -> {}, r, "test", zeroDelayPolicy(100),
+                handler -> {}, r, alwaysFound(), "test", zeroDelayPolicy(100),
                 state -> {}, ev -> {});
         controller.close();
         controller.onDisconnectSync(new RuntimeException("drop"));
@@ -148,7 +153,7 @@ class ReconnectControllerTest {
         List<Throwable> wired = new ArrayList<>();
         ReconnectController.DisconnectArmer armer = handler -> wired.add(new RuntimeException("captured"));
         ReconnectController controller = new ReconnectController(
-                armer, () -> {}, "test", zeroDelayPolicy(0),
+                armer, pipeName -> {}, alwaysFound(), "test", zeroDelayPolicy(0),
                 state -> {}, ev -> {});
         controller.arm();
         assertEquals(1, wired.size());
@@ -157,7 +162,7 @@ class ReconnectControllerTest {
     @Test
     void initialStateIsConnected() {
         ReconnectController controller = new ReconnectController(
-                handler -> {}, () -> {}, "test", zeroDelayPolicy(0),
+                handler -> {}, pipeName -> {}, alwaysFound(), "test", zeroDelayPolicy(0),
                 state -> {}, ev -> {});
         assertInstanceOf(ReconnectState.Connected.class, controller.currentState());
     }
@@ -166,7 +171,7 @@ class ReconnectControllerTest {
     void stateListenerExceptionsDoNotPoisonRecovery() {
         CountingReconnector r = new CountingReconnector(0);
         ReconnectController controller = new ReconnectController(
-                handler -> {}, r, "test", zeroDelayPolicy(5),
+                handler -> {}, r, alwaysFound(), "test", zeroDelayPolicy(5),
                 state -> { throw new RuntimeException("listener boom"); },
                 ev -> {});
         controller.onDisconnectSync(new RuntimeException("drop"));

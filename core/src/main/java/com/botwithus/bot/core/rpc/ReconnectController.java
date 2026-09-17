@@ -9,6 +9,7 @@ import com.botwithus.bot.core.pipe.PipeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -42,10 +43,23 @@ public final class ReconnectController implements AutoCloseable {
      * Functional seam for the actual reconnect operation. Production wires
      * this to {@code rpc::reconnect}; tests substitute a fake that fails N
      * times before succeeding.
+     *
+     * <p>Takes the pipe name resolved for this attempt rather than closing
+     * over one captured at construction — see {@link PipeResolver}.</p>
      */
     @FunctionalInterface
     public interface Reconnector {
-        void reconnect() throws PipeException;
+        void reconnect(String pipeName) throws PipeException;
+    }
+
+    /**
+     * Functional seam deciding, per attempt, which pipe to reconnect to and
+     * whether recovery is still possible at all. Production wires this to
+     * {@link SamePidPipeResolver}; tests substitute a scripted sequence.
+     */
+    @FunctionalInterface
+    public interface PipeResolver {
+        PipeResolution resolve(int attempt);
     }
 
     /**
@@ -60,6 +74,7 @@ public final class ReconnectController implements AutoCloseable {
 
     private final DisconnectArmer disconnectArmer;
     private final Reconnector reconnector;
+    private final PipeResolver pipeResolver;
     private final String connectionName;
     private final ReconnectPolicy policy;
     private final Consumer<ReconnectState> stateListener;
@@ -80,7 +95,8 @@ public final class ReconnectController implements AutoCloseable {
                                String connectionName, ReconnectPolicy policy,
                                Consumer<ReconnectState> stateListener,
                                Consumer<GameEvent> eventSink) {
-        this(rpc::setDisconnectHandler, () -> rpc.reconnect(pipeName),
+        this(rpc::setDisconnectHandler, rpc::reconnect,
+                new SamePidPipeResolver(pipeName)::resolve,
                 connectionName, policy, stateListener, eventSink);
     }
 
@@ -90,11 +106,13 @@ public final class ReconnectController implements AutoCloseable {
      * String, ReconnectPolicy, Consumer, Consumer)} form.
      */
     public ReconnectController(DisconnectArmer disconnectArmer, Reconnector reconnector,
+                               PipeResolver pipeResolver,
                                String connectionName, ReconnectPolicy policy,
                                Consumer<ReconnectState> stateListener,
                                Consumer<GameEvent> eventSink) {
         this.disconnectArmer = disconnectArmer;
         this.reconnector = reconnector;
+        this.pipeResolver = pipeResolver;
         this.connectionName = connectionName;
         this.policy = policy;
         this.stateListener = stateListener;
@@ -159,20 +177,58 @@ public final class ReconnectController implements AutoCloseable {
             if (!sleep(delay)) {
                 return;
             }
-            try {
-                reconnector.reconnect();
-                transition(new ReconnectState.Connected(System.currentTimeMillis()));
-                log.info("Reconnect succeeded for '{}' on attempt {}", connectionName, attempt);
-                return;
-            } catch (PipeException e) {
-                lastCause = e;
-                log.warn("Reconnect attempt {} for '{}' failed: {}", attempt, connectionName, e.getMessage());
+            switch (pipeResolver.resolve(attempt)) {
+                case PipeResolution.Found found -> {
+                    Optional<Throwable> failure = tryReconnect(found.pipeName(), attempt);
+                    if (failure.isEmpty()) {
+                        return;
+                    }
+                    lastCause = failure.get();
+                }
+                case PipeResolution.NotYet notYet -> {
+                    lastCause = new PipeException(notYet.detail());
+                    log.debug("Reconnect attempt {} for '{}': {}",
+                            attempt, connectionName, notYet.detail());
+                }
+                case PipeResolution.Gone gone -> {
+                    abandon(attempt, new PipeException(gone.detail()));
+                    return;
+                }
             }
         }
-        if (!stopped.get()) {
-            transition(new ReconnectState.GivingUp(System.currentTimeMillis(),
-                    policy.maxAttempts(), lastCause));
+        abandon(policy.maxAttempts(), lastCause);
+    }
+
+    /** @return empty on success, else the failure to carry into the next attempt. */
+    private Optional<Throwable> tryReconnect(String pipeName, int attempt) {
+        try {
+            reconnector.reconnect(pipeName);
+            transition(new ReconnectState.Connected(System.currentTimeMillis()));
+            log.info("Reconnect succeeded for '{}' on attempt {} (pipe '{}')",
+                    connectionName, attempt, pipeName);
+            return Optional.empty();
+        } catch (PipeException e) {
+            log.warn("Reconnect attempt {} for '{}' failed: {}",
+                    attempt, connectionName, e.getMessage());
+            return Optional.of(e);
         }
+    }
+
+    /**
+     * Terminal stop. Logged at ERROR, not WARN: the connection is dead, no
+     * further attempt will be made, and the user has to act. A silent give-up
+     * here is how a scripter ends up staring at a session that will never come
+     * back with nothing in the log naming why.
+     */
+    private void abandon(int attempts, Throwable cause) {
+        if (stopped.get()) {
+            return;
+        }
+        log.error("Giving up reconnecting '{}' after {} attempt(s): {}. "
+                        + "The connection will not recover on its own — reconnect to the "
+                        + "running game to rebuild it.",
+                connectionName, attempts, cause.getMessage());
+        transition(new ReconnectState.GivingUp(System.currentTimeMillis(), attempts, cause));
     }
 
     private boolean sleep(long delayMs) {

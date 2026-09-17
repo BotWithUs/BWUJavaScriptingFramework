@@ -147,6 +147,17 @@ public class RpcClient implements AutoCloseable {
      * remote agent comes back. Acquires {@link #pipeLock} for the duration of
      * the swap so no concurrent send/read can observe a half-open transport.
      *
+     * <p><b>Invariant — {@code pipeName} must carry the same pid this
+     * connection was built on.</b> Only the RPC transport is swapped here.
+     * The shared-memory snapshot mapping ({@code Local\nxt_snapshot_<pid>}),
+     * the {@code connections} map key, the {@code ClientImpl} and every entity
+     * flyweight a running script holds are all bound to the original pid and
+     * are NOT rebuilt. Pointing this at another game would leave reads
+     * resolving against a dead mapping — plausible wrong numbers rather than
+     * an exception. {@link SamePidPipeResolver} is what enforces this, and
+     * {@code ReconnectController} is the only caller; keep it that way, or
+     * move the check in here.</p>
+     *
      * @throws com.botwithus.bot.core.pipe.PipeException if the new transport
      *         fails to open; the previous transport remains untouched.
      */

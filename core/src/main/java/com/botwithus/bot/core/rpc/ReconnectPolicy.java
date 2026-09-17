@@ -13,8 +13,16 @@ public record ReconnectPolicy(int maxAttempts, long initialDelayMs,
 
     /**
      * Production default: practically-unbounded attempts, 500ms initial delay
-     * doubling up to a 15s ceiling. A game-client crash that takes 30s to
-     * restart will trigger ~6 attempts before the pipe is back.
+     * doubling up to a 15s ceiling. An agent-side client drop that leaves the
+     * game running takes ~6 attempts before the pipe is back.
+     *
+     * <p>The attempt budget is deliberately not the thing that stops recovery.
+     * It used to be the only bound, which meant a game that restarted under a
+     * new pid — a new {@code BotWithUs_<pid>} name — was retried forever
+     * against a name that could never exist again. Termination is now
+     * {@link SamePidPipeResolver}'s job: it stops as soon as the original
+     * process is gone, because a different pid cannot be adopted without
+     * rebuilding the shared-memory mapping the connection is built on.</p>
      */
     public static final ReconnectPolicy DEFAULT =
             new ReconnectPolicy(Integer.MAX_VALUE, 500L, 2.0, 15_000L);
