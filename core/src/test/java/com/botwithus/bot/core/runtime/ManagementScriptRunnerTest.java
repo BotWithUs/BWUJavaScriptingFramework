@@ -131,7 +131,9 @@ class ManagementScriptRunnerTest {
             ManagementScript script = new ManagementScript() {
                 @Override public void onStart(ManagementContext ctx) {}
                 @Override public int onLoop() {
-                    if (loopCount.incrementAndGet() >= 3) return -1;
+                    if (loopCount.incrementAndGet() >= 3) {
+                        return -1;
+                    }
                     return 10;
                 }
                 @Override public void onStop() {}

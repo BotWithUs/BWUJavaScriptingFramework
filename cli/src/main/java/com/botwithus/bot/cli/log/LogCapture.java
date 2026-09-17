@@ -100,6 +100,10 @@ public class LogCapture {
             String line = lineBuffer.toString();
             lineBuffer.reset();
 
+            // rule-exception: {rule:no-singleton} — ConnectionContext is the documented
+            // request-context carve-out (see CLAUDE.md §"Java rules exceptions").
+            // LogCapture reads the connection-name tag from the print-stream thread,
+            // which is set by ScriptRunner / RpcClient on the producing side.
             String connection = ConnectionContext.get();
 
             if (!line.isEmpty()) {

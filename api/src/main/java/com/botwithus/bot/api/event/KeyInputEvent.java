@@ -2,30 +2,17 @@ package com.botwithus.bot.api.event;
 
 /**
  * Fired when a key is pressed while the overlay has keyboard focus.
+ *
+ * @param key       the virtual key code (VK_*)
+ * @param alt       whether ALT was held
+ * @param ctrl      whether CTRL was held
+ * @param shift     whether SHIFT was held
+ * @param timestamp event creation time in milliseconds since epoch
  */
-public class KeyInputEvent extends GameEvent {
-    private final int key;
-    private final boolean alt;
-    private final boolean ctrl;
-    private final boolean shift;
+public record KeyInputEvent(int key, boolean alt, boolean ctrl, boolean shift, long timestamp)
+        implements GameEvent {
 
     public KeyInputEvent(int key, boolean alt, boolean ctrl, boolean shift) {
-        super("key_input");
-        this.key = key;
-        this.alt = alt;
-        this.ctrl = ctrl;
-        this.shift = shift;
+        this(key, alt, ctrl, shift, System.currentTimeMillis());
     }
-
-    /** Returns the virtual key code (VK_*). */
-    public int getKey() { return key; }
-
-    /** Returns whether ALT was held. */
-    public boolean isAlt() { return alt; }
-
-    /** Returns whether CTRL was held. */
-    public boolean isCtrl() { return ctrl; }
-
-    /** Returns whether SHIFT was held. */
-    public boolean isShift() { return shift; }
 }

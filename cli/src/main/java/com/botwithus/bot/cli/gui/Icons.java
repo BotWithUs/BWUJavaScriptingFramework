@@ -51,6 +51,7 @@ public final class Icons {
     public static final String CUBE        = "\uF1B2";  // fa-cube
     public static final String PUZZLE      = "\uF12E";  // fa-puzzle-piece
     public static final String CHART_BAR   = "\uF080";  // fa-chart-simple
+    public static final String CHART       = "\uF201";  // fa-chart-line
     public static final String CLOCK       = "\uF017";  // fa-clock
     public static final String FOLDER      = "\uF07B";  // fa-folder
     public static final String FILE        = "\uF15B";  // fa-file
@@ -105,6 +106,7 @@ public final class Icons {
     public static final String PAW         = "\uF1B0";  // fa-paw
     public static final String DUNGEON     = "\uF6D9";  // fa-dungeon
     public static final String GAMEPAD     = "\uF11B";  // fa-gamepad
+    public static final String TH_LARGE   = "\uF009";  // fa-table-cells-large (grid)
     public static final String COINS       = "\uF51E";  // fa-coins
     public static final String MAP         = "\uF279";  // fa-map
     public static final String STAR        = "\uF005";  // fa-star

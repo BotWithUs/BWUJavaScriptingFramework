@@ -2,15 +2,39 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
-import com.botwithus.bot.cli.blueprint.BlueprintEditor;
 import com.botwithus.bot.cli.command.CommandRegistry;
-import com.botwithus.bot.cli.command.impl.*;
+import com.botwithus.bot.cli.command.impl.ActionsCommand;
+import com.botwithus.bot.cli.command.impl.AutoStartCommand;
+import com.botwithus.bot.cli.command.impl.ClearCommand;
+import com.botwithus.bot.cli.command.impl.ClientCommand;
+import com.botwithus.bot.cli.command.impl.ConfigCommand;
+import com.botwithus.bot.cli.command.impl.ConnectCommand;
+import com.botwithus.bot.cli.command.impl.EventsCommand;
+import com.botwithus.bot.cli.command.impl.ExitCommand;
+import com.botwithus.bot.cli.command.impl.GroupCommand;
+import com.botwithus.bot.cli.command.impl.HelpCommand;
+import com.botwithus.bot.cli.command.impl.LogsCommand;
+import com.botwithus.bot.cli.command.impl.ManagementScriptsCommand;
+import com.botwithus.bot.cli.command.impl.MetricsCommand;
+import com.botwithus.bot.cli.command.impl.MountCommand;
+import com.botwithus.bot.cli.command.impl.PingCommand;
+import com.botwithus.bot.cli.command.impl.PlayerCommand;
+import com.botwithus.bot.cli.command.impl.ProfileCommand;
+import com.botwithus.bot.cli.command.impl.ReloadCommand;
+import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
+import com.botwithus.bot.cli.command.impl.ScriptsCommand;
+import com.botwithus.bot.cli.command.impl.StreamCommand;
+import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.config.CliConfig;
+import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
+import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImFontAtlas;
 import imgui.ImFontConfig;
@@ -22,10 +46,20 @@ import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiWindowFlags;
 
+import ch.qos.logback.classic.LoggerContext;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.Appender;
+
 import org.lwjgl.glfw.GLFW;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.io.PrintStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -37,6 +71,19 @@ import java.util.concurrent.Executors;
  */
 public class ImGuiApp extends Application {
 
+    public ImGuiApp() {}
+
+    private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
+
+    private static final float UI_FONT_BASE_PX = 17f;
+    /** Initial GLFW window width (px). */
+    private static final int APP_WINDOW_DEFAULT_WIDTH = 1100;
+    /** Initial GLFW window height (px). */
+    private static final int APP_WINDOW_DEFAULT_HEIGHT = 700;
+
+    // The ASCII-art \\ sequences javac reads as line-continuation markers; suppression
+    // is narrower than rewriting the banner as concatenated string literals.
+    @SuppressWarnings("text-blocks")
     private static final String BANNER = """
 
             ____        _ __        ___ _   _     _   _
@@ -47,7 +94,6 @@ public class ImGuiApp extends Application {
                         Script Manager
 
               Type 'help' for available commands.
-              Press F2 to open the Blueprint Editor.
             """;
 
     private TextureManager textureManager;
@@ -67,40 +113,97 @@ public class ImGuiApp extends Application {
     private int selectedPanel = 0;
     private float dpiScale = 1f;
 
-    // Blueprint editor mode
-    private boolean editorMode = false;
-    private BlueprintEditor blueprintEditor;
 
     // Script custom UI window (floating window)
     private ScriptUIWindow scriptUIWindow;
 
+    // Script config-field editor (floating window) — used for scripts that
+    // expose ConfigFields but no custom ScriptUI.
+    private ScriptConfigPanel scriptConfigPanel;
+
     // Management script config panel (floating window)
     private ManagementConfigPanel managementConfigPanel;
+
+    // Toast/banner overlay (event-driven, fixed-position, top-right)
+    private NotificationOverlay notificationOverlay;
 
     // GLFW window handle for title updates
     private long glfwWindow;
 
+    // Mode switching
+    private AppMode currentMode = AppMode.NORMAL;
+    private TopBar topBar;
+    private UserModeRenderer userModeRenderer;
+
     @Override
     protected void configure(Configuration config) {
         config.setTitle("BotWithUs \u2014 disconnected");
-        config.setWidth(1100);
-        config.setHeight(700);
+        config.setWidth(APP_WINDOW_DEFAULT_WIDTH);
+        config.setHeight(APP_WINDOW_DEFAULT_HEIGHT);
     }
 
     @Override
     protected void initImGui(Configuration config) {
         super.initImGui(config);
 
-        // Detect monitor DPI scale via GLFW content scale
+        redirectImGuiIniToConfigDir();
+        dpiScale = detectDpiScale();
+        loadFonts(Math.round(UI_FONT_BASE_PX * dpiScale));
+        setupTheme();
+
+        textureManager = new TextureManager();
+        outputBuffer = new AnsiOutputBuffer();
+        PrintStream guiOut = outputBuffer.getPrintStream();
+        installLogCapture(guiOut, outputBuffer.getPrintStream());
+
+        ScriptProfileStore profileStore = new ScriptProfileStore();
+        ctx.setProfileStore(profileStore);
+        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore);
+        ctx.setAutoStartManager(autoStartManager);
+
+        registry = new CommandRegistry();
+        registerCommands(registry, profileStore, autoStartManager);
+
+        wireDisplayHooks();
+        guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
+
+        ctx.initManagementRuntime();
+        autoStartManager.start();
+
+        buildPanels();
+        setupStatusBar();
+        captureGlfwHandle();
+    }
+
+    private static void redirectImGuiIniToConfigDir() {
+        // Window/dock layout settings ship as imgui.ini, which ImGui writes
+        // next to the CWD by default. In the jpackage app-image the CWD
+        // varies (and the install dir may be read-only), so park the file
+        // alongside every other persistent BotWithUs store under
+        // ~/.botwithus/. Must run before any UI frame so ImGui picks it up
+        // for both the initial load and subsequent saves.
+        Path configDir = Path.of(System.getProperty("user.home"), ".botwithus");
+        try {
+            Files.createDirectories(configDir);
+        } catch (IOException e) {
+            log.warn("Could not create {}; imgui.ini will fall back to CWD: {}",
+                    configDir, e.getMessage());
+            return;
+        }
+        ImGui.getIO().setIniFilename(configDir.resolve("imgui.ini").toString());
+    }
+
+    private static float detectDpiScale() {
         long monitor = GLFW.glfwGetPrimaryMonitor();
         float[] xScale = new float[1];
         float[] yScale = new float[1];
         if (monitor != 0) {
             GLFW.glfwGetMonitorContentScale(monitor, xScale, yScale);
         }
-        dpiScale = Math.max(xScale[0], 1.0f);
+        return Math.max(xScale[0], 1.0f);
+    }
 
-        float uiSize = (float) Math.round(17f * dpiScale);
+    private static void loadFonts(float uiSize) {
         ImFontAtlas atlas = ImGui.getIO().getFonts();
         atlas.clear();
 
@@ -136,61 +239,56 @@ public class ImGuiApp extends Application {
 
         cfg.destroy();
         atlas.build();
+    }
 
-        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable);
-
+    private void setupTheme() {
+        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable | ImGuiConfigFlags.NavEnableKeyboard);
         ImGuiTheme.apply(dpiScale);
+    }
 
-        textureManager = new TextureManager();
-        outputBuffer = new AnsiOutputBuffer();
-
-        PrintStream guiOut = outputBuffer.getPrintStream();
-        PrintStream guiErr = outputBuffer.getPrintStream();
-
+    private void installLogCapture(PrintStream guiOut, PrintStream guiErr) {
         LogBuffer logBuffer = new LogBuffer();
-        LogBufferAppender.setLogBuffer(logBuffer);
+        wireLogBufferAppender(logBuffer);
         LogCapture logCapture = new LogCapture(logBuffer, guiOut, guiErr);
         logCapture.install();
 
         ctx = new CliContext(logBuffer, logCapture);
         ctx.loadGroups();
         ctx.setStreamManager(new StreamManager(outputBuffer, textureManager, guiOut));
+    }
 
-        ScriptProfileStore profileStore = new ScriptProfileStore();
-        ctx.setProfileStore(profileStore);
-        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore);
-        ctx.setAutoStartManager(autoStartManager);
+    private void registerCommands(CommandRegistry r, ScriptProfileStore profileStore,
+                                  AutoStartManager autoStartManager) {
+        r.register(new HelpCommand(r));
+        r.register(new ConnectCommand());
+        r.register(new PingCommand());
+        r.register(new ScriptsCommand());
+        r.register(new LogsCommand());
+        r.register(new ReloadCommand());
+        r.register(new ScreenshotCommand());
+        r.register(new GroupCommand());
+        r.register(new MountCommand());
+        r.register(new UnmountCommand());
+        r.register(new StreamCommand());
+        r.register(new MetricsCommand());
+        r.register(new ProfileCommand());
+        r.register(new ConfigCommand(CliConfig.defaults()));
+        r.register(new ActionsCommand());
+        r.register(new EventsCommand());
+        r.register(new PlayerCommand());
+        r.register(new ClientCommand());
+        r.register(new AutoStartCommand(profileStore, autoStartManager));
+        r.register(new ManagementScriptsCommand());
+        r.register(new ClearCommand());
+        r.register(new ExitCommand());
+    }
 
-        registry = new CommandRegistry();
-        registry.register(new HelpCommand(registry));
-        registry.register(new ConnectCommand());
-        registry.register(new PingCommand());
-        registry.register(new ScriptsCommand());
-        registry.register(new LogsCommand());
-        registry.register(new ReloadCommand());
-        registry.register(new ScreenshotCommand());
-        registry.register(new GroupCommand());
-        registry.register(new MountCommand());
-        registry.register(new UnmountCommand());
-        registry.register(new StreamCommand());
-        registry.register(new MetricsCommand());
-        registry.register(new ProfileCommand());
-        registry.register(new ConfigCommand(com.botwithus.bot.cli.config.CliConfig.defaults()));
-        registry.register(new ActionsCommand());
-        registry.register(new EventsCommand());
-        registry.register(new ClientCommand());
-        registry.register(new AutoStartCommand(profileStore, autoStartManager));
-        registry.register(new ManagementScriptsCommand());
-        registry.register(new ClearCommand());
-        registry.register(new ExitCommand());
-
+    private void wireDisplayHooks() {
         // Image display hook
-        ctx.setImageDisplay(image -> {
-            textureManager.queueOperation(() -> {
-                int texId = textureManager.createTexture(image);
-                outputBuffer.appendImage(texId, image.getWidth(), image.getHeight());
-            });
-        });
+        ctx.setImageDisplay(image -> textureManager.queueOperation(() -> {
+            int texId = textureManager.createTexture(image);
+            outputBuffer.appendImage(texId, image.getWidth(), image.getHeight());
+        }));
 
         // Progress display hook
         ctx.setProgressDisplay(new CliContext.ProgressDisplay() {
@@ -201,6 +299,8 @@ public class ImGuiApp extends Application {
 
             @Override
             public void completeWithImage(Object handle, BufferedImage image) {
+                // Safe: handle is the OutputLine this same ProgressDisplay returned from start();
+                // the interface keeps it opaque so each implementation owns its handle type.
                 OutputLine line = (OutputLine) handle;
                 textureManager.queueOperation(() -> {
                     int texId = textureManager.createTexture(image);
@@ -210,32 +310,37 @@ public class ImGuiApp extends Application {
 
             @Override
             public void completeWithError(Object handle, String message) {
+                // Safe: handle is the OutputLine this same ProgressDisplay returned from start();
+                // the interface keeps it opaque so each implementation owns its handle type.
                 OutputLine line = (OutputLine) handle;
                 outputBuffer.completeProgressWithText(line, message,
                         ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
             }
         });
+    }
 
-        // Print banner
-        guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
+    private void buildPanels() {
+        topBar = new TopBar();
 
-        // Initialize management script runtime
-        ctx.initManagementRuntime();
-
-        // Start auto-connect scanning if enabled
-        autoStartManager.start();
-
-        // Initialize blueprint editor
-        blueprintEditor = new BlueprintEditor();
-
-        // Initialize script UI window and wire opener
+        // Floating windows (created before opener wiring so the lambdas can capture them).
         scriptUIWindow = new ScriptUIWindow();
-        ctx.setConfigPanelOpener(runner -> scriptUIWindow.open(runner));
+        scriptConfigPanel = new ScriptConfigPanel();
 
-        // Initialize management config panel
+        userModeRenderer = new UserModeRenderer();
+        userModeRenderer.setConfigPanelOpener(this::openScriptConfig);
+
+        ctx.setConfigPanelOpener(this::openScriptConfig);
         managementConfigPanel = new ManagementConfigPanel();
 
-        // Initialize panels
+        // Notification overlay (event-driven). Subscribed to each connection's
+        // event bus the moment connect() succeeds.
+        notificationOverlay = new NotificationOverlay();
+        ctx.setOnConnect(conn -> {
+            if (conn.getEventBus() != null) {
+                notificationOverlay.subscribeTo(conn.getEventBus());
+            }
+        });
+
         panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
         panels.add(new ConnectionsPanel(executor, registry));
         panels.add(new ScriptsPanel(executor));
@@ -245,14 +350,48 @@ public class ImGuiApp extends Application {
         panels.add(new ScriptUIPanel());
         panels.add(new LogsPanel());
         panels.add(new GroupsPanel());
+        panels.add(new DiagnosticsPanel());
         panels.add(new SettingsPanel());
+        // Appended last on purpose: NAV_SECTION_PANELS and NAV_ICONS index into
+        // this list positionally, so inserting anywhere else renumbers every
+        // panel after it.
+        panels.add(new SdnScriptsPanel(executor));
+    }
 
+    private void setupStatusBar() {
         statusBar = new StatusBar();
+    }
 
+    /**
+     * Routes the "Configure" action on a running script to whichever floating window
+     * fits the script's surface: the custom {@link com.botwithus.bot.api.ui.ScriptUI}
+     * if the script provides one, otherwise the generic config-field editor.
+     * The card surfaces the button when either is present, so without this routing
+     * config-only scripts open a window that immediately closes itself.
+     */
+    private void openScriptConfig(ScriptRunner runner) {
+        if (runner == null) {
+            return;
+        }
+        var fields = runner.getConfigFields();
+        boolean hasFields = fields != null && !fields.isEmpty();
+        if (hasFields) {
+            // The config panel renders the ConfigFields (with Apply/persist) AND,
+            // below them, the script's custom getUI() if it has one — so a script
+            // that provides both shows both here instead of the custom UI hiding the
+            // settings. UI-only scripts (no fields) still get the dedicated window.
+            scriptConfigPanel.open(runner);
+        } else if (runner.getScript().getUI() != null) {
+            scriptUIWindow.open(runner);
+        }
+    }
+
+    private void captureGlfwHandle() {
         glfwWindow = GLFW.glfwGetCurrentContext();
-
         var oldSizeCb = GLFW.glfwSetWindowSizeCallback(glfwWindow, null);
-        if (oldSizeCb != null) oldSizeCb.free();
+        if (oldSizeCb != null) {
+            oldSizeCb.free();
+        }
     }
 
     @Override
@@ -260,12 +399,15 @@ public class ImGuiApp extends Application {
         // Execute queued GL operations (texture create/delete)
         textureManager.processPending();
 
-        // Toggle editor mode with F2
-        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F2)) {
-            editorMode = !editorMode;
-            if (!editorMode && blueprintEditor != null) {
-                blueprintEditor.dispose();
-            }
+        // Toggle app mode with F12: Normal ↔ Advanced
+        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F12)) {
+            currentMode = switch (currentMode) {
+                case NORMAL -> AppMode.ADVANCED;
+                case ADVANCED -> AppMode.NORMAL;
+            };
+            // Keyboard users can immediately Tab into the new screen instead of
+            // hunting for focus with the mouse.
+            ImGui.setKeyboardFocusHere(0);
         }
 
         // Full-window imgui window — use main viewport pos for correct placement with viewports enabled
@@ -276,51 +418,16 @@ public class ImGuiApp extends Application {
         int windowFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove
                 | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoBringToFrontOnFocus;
 
-        if (editorMode) {
-            windowFlags |= ImGuiWindowFlags.MenuBar;
-        }
-
         ImGui.begin("##main", windowFlags);
 
-        if (editorMode) {
-            try {
-                blueprintEditor.render();
-            } catch (Exception e) {
-                editorMode = false;
-                outputBuffer.getPrintStream().println("Blueprint editor error: " + e.getMessage());
-                e.printStackTrace();
-                blueprintEditor.dispose();
-            }
-        } else {
-            // Reserve space for status bar at the bottom
-            float statusBarHeight = ImGui.getFrameHeightWithSpacing() + 8f;
-            // Sidebar width: icon + longest label + padding
-            float sidebarWidth = ImGui.getFrameHeight() + ImGui.calcTextSize("Management").x + ImGui.getStyle().getWindowPaddingX() * 2 + 48f;
-            float contentHeight = ImGui.getContentRegionAvailY() - statusBarHeight;
+        AppMode toggled = topBar.render(currentMode, dpiScale, ctx);
+        if (toggled != null && toggled != currentMode) {
+            currentMode = toggled;
+        }
 
-            // --- Sidebar Navigation ---
-            ImGui.pushStyleColor(ImGuiCol.ChildBg,
-                    ImGuiTheme.SIDEBAR_BG_R, ImGuiTheme.SIDEBAR_BG_G, ImGuiTheme.SIDEBAR_BG_B, 1f);
-            ImGui.pushStyleColor(ImGuiCol.Border,
-                    ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.3f);
-            ImGui.beginChild("##sidebar", sidebarWidth, contentHeight, true);
-            ImGui.popStyleColor(2);
-            renderSidebar();
-            ImGui.endChild();
-
-            ImGui.sameLine(0, 0);
-
-            // --- Content Area ---
-            ImGui.beginChild("##content", 0, contentHeight, false);
-            ImGui.spacing();
-            if (selectedPanel >= 0 && selectedPanel < panels.size()) {
-                panels.get(selectedPanel).render(ctx);
-            }
-            ImGui.endChild();
-
-            // Status bar at the bottom
-            ImGui.spacing();
-            statusBar.render(ctx);
+        switch (currentMode) {
+            case NORMAL -> renderUserMode();
+            case ADVANCED -> renderDeveloperMode();
         }
 
         ImGui.end();
@@ -330,146 +437,273 @@ public class ImGuiApp extends Application {
             scriptUIWindow.render();
         }
 
+        // Render script config-field editor as a floating window
+        if (scriptConfigPanel != null && scriptConfigPanel.isOpen()) {
+            scriptConfigPanel.render();
+        }
+
         // Render management script config panel as a floating window
         if (managementConfigPanel != null && managementConfigPanel.isOpen()) {
             managementConfigPanel.render();
+        }
+
+        // Notification overlay sits above every other window so banners
+        // float over the active panel without intercepting input.
+        if (notificationOverlay != null) {
+            notificationOverlay.render();
         }
 
         // Update window title based on connection state
         updateTitle();
     }
 
+    /**
+     * Render the full Advanced mode UI with sidebar navigation and panels.
+     */
+    private void renderDeveloperMode() {
+        // Reserve space for status bar at the bottom
+        float statusBarHeight = ImGui.getFrameHeightWithSpacing() + 8f;
+        // Sidebar width: icon + longest label + padding
+        float sidebarWidth = ImGui.getFrameHeight() + ImGui.calcTextSize("Management").x
+                + ImGui.getStyle().getWindowPaddingX() * 2 + 48f;
+        float contentHeight = ImGui.getContentRegionAvailY() - statusBarHeight;
+
+        // --- Sidebar Navigation ---
+        ImGui.pushStyleColor(ImGuiCol.ChildBg,
+                ImGuiTheme.SIDEBAR_BG_R, ImGuiTheme.SIDEBAR_BG_G, ImGuiTheme.SIDEBAR_BG_B, 1f);
+        ImGui.pushStyleColor(ImGuiCol.Border,
+                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.3f);
+        ImGui.beginChild("##sidebar", sidebarWidth, contentHeight, true);
+        ImGui.popStyleColor(2);
+        renderSidebar();
+        ImGui.endChild();
+
+        ImGui.sameLine(0, 0);
+
+        // --- Content Area ---
+        ImGui.beginChild("##content", 0, contentHeight, false);
+        ImGui.spacing();
+        if (selectedPanel >= 0 && selectedPanel < panels.size()) {
+            panels.get(selectedPanel).render(ctx);
+        }
+        ImGui.endChild();
+
+        // Status bar at the bottom
+        ImGui.spacing();
+        statusBar.render(ctx);
+    }
+
+    /**
+     * Render the simplified user mode dashboard with client cards.
+     */
+    private void renderUserMode() {
+        userModeRenderer.render(ctx);
+    }
+
     // Sidebar navigation section definitions
     private static final String[] NAV_SECTION_LABELS = {"CORE", "EXTENSIONS", "SYSTEM"};
     private static final int[][] NAV_SECTION_PANELS = {
         {0, 1, 2},      // Console, Connections, Scripts
-        {3, 4, 5},      // Management, Script UI, Groups
-        {6, 7}           // Logs, Settings
+        {3, 4, 6, 9},   // Management, Script UI, Groups, Scripts Store
+        {5, 7, 8}       // Logs, Diagnostics, Settings
     };
     // Font Awesome icons for each panel (matching panel order in the panels list)
     private static final String[] NAV_ICONS = {
-        Icons.TERMINAL,     // Console
-        Icons.PLUG,         // Connections
-        Icons.CODE,         // Scripts
-        Icons.ROBOT,        // Management
-        Icons.WINDOW,       // Script UI
-        Icons.LAYER_GROUP,  // Groups
-        Icons.LIST,         // Logs
-        Icons.GEAR,         // Settings
+        Icons.TERMINAL,     // 0 Console
+        Icons.PLUG,         // 1 Connections
+        Icons.CODE,         // 2 Scripts
+        Icons.ROBOT,        // 3 Management
+        Icons.WINDOW,       // 4 Script UI
+        Icons.LIST,         // 5 Logs
+        Icons.LAYER_GROUP,  // 6 Groups
+        Icons.CHART,        // 7 Diagnostics
+        Icons.GEAR,         // 8 Settings
+        Icons.DOWNLOAD,     // 9 Scripts Store
     };
 
     private void renderSidebar() {
-        // Brand header
-        ImGui.spacing();
-        ImGui.spacing();
+        float fontH = ImGui.getFontSize();
+        float indent = ImGui.getStyle().getWindowPaddingX() * 0.5f;
 
-        // Logo mark
+        ImGui.dummy(0f, fontH * 0.4f);
+        renderBrandHeader(fontH, indent);
+        renderNavigation(fontH, indent);
+    }
+
+    private static void renderBrandHeader(float fontH, float indent) {
         var draw = ImGui.getWindowDrawList();
-        float logoX = ImGui.getCursorScreenPosX() + 10f;
-        float logoY = ImGui.getCursorScreenPosY();
         int accentCol = ImGuiTheme.imCol32(
                 ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
         int accentDim = ImGuiTheme.imCol32(
-                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.3f);
+                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.35f);
 
-        // Brand mark — small accent square
-        draw.addRectFilled(logoX, logoY, logoX + 4f, logoY + ImGui.getTextLineHeight(), accentCol, 2f);
-        ImGui.setCursorPosX(ImGui.getCursorPosX() + 20f);
+        float logoX = ImGui.getCursorScreenPosX() + indent;
+        float logoY = ImGui.getCursorScreenPosY();
+        float barW = Math.max(3f, fontH * 0.25f);
+        float textH = ImGui.getTextLineHeight();
+
+        // Two-bar brand mark
+        draw.addRectFilled(logoX, logoY, logoX + barW, logoY + textH, accentCol, barW * 0.4f);
+        draw.addRectFilled(logoX + barW + fontH * 0.15f, logoY + textH * 0.4f,
+                logoX + barW * 2f + fontH * 0.15f, logoY + textH, accentDim, barW * 0.4f);
+
+        ImGui.setCursorPosX(ImGui.getCursorPosX() + indent + barW * 2f + fontH * 0.75f);
         ImGui.pushStyleColor(ImGuiCol.Text,
                 ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f);
         ImGui.text("BotWithUs");
         ImGui.popStyleColor();
-        ImGui.setCursorPosX(ImGui.getCursorPosX() + 20f);
+
+        ImGui.setCursorPosX(ImGui.getCursorPosX() + indent + barW * 2f + fontH * 0.75f);
         ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.5f,
                 "Script Manager");
 
-        ImGui.spacing();
-        ImGui.spacing();
+        ImGui.dummy(0f, fontH * 0.4f);
         GuiHelpers.subtleSeparator();
+    }
 
+    private void renderNavigation(float fontH, float indent) {
         for (int s = 0; s < NAV_SECTION_LABELS.length; s++) {
-            ImGui.spacing();
-            ImGui.spacing();
-            ImGui.setCursorPosX(ImGui.getCursorPosX() + 10f);
+            ImGui.dummy(0f, fontH * 0.6f);
+            ImGui.setCursorPosX(ImGui.getCursorPosX() + indent);
             ImGui.textColored(
-                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.5f,
+                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.55f,
                     NAV_SECTION_LABELS[s]);
-            ImGui.spacing();
+            ImGui.dummy(0f, fontH * 0.15f);
 
             for (int p : NAV_SECTION_PANELS[s]) {
-                if (p >= panels.size()) continue;
-                boolean isActive = (p == selectedPanel);
-
-                if (isActive) {
-                    ImGui.pushStyleColor(ImGuiCol.Header,
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.10f);
-                    ImGui.pushStyleColor(ImGuiCol.HeaderHovered,
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.18f);
-                    ImGui.pushStyleColor(ImGuiCol.HeaderActive,
-                            ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.25f);
-                } else {
-                    ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
-                    ImGui.pushStyleColor(ImGuiCol.HeaderHovered,
-                            ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.05f);
-                    ImGui.pushStyleColor(ImGuiCol.HeaderActive,
-                            ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.08f);
+                if (p >= panels.size()) {
+                    continue;
                 }
-
-                String icon = p < NAV_ICONS.length ? NAV_ICONS[p] : "";
-                String label = "  " + icon + "  " + panels.get(p).title() + "##nav" + p;
-
-                if (ImGui.selectable(label, isActive)) {
-                    selectedPanel = p;
-                }
-
-                if (isActive) {
-                    // Draw accent indicator bar on left edge
-                    var drawList = ImGui.getWindowDrawList();
-                    drawList.addRectFilled(
-                            ImGui.getItemRectMinX(), ImGui.getItemRectMinY() + 2f,
-                            ImGui.getItemRectMinX() + 3f, ImGui.getItemRectMaxY() - 2f,
-                            accentCol, 2f);
-                }
-
-                ImGui.popStyleColor(3);
+                renderNavItem(p, fontH, indent);
             }
         }
+    }
 
-        // Bottom hint — pushed to bottom of sidebar
-        float bottomY = ImGui.getWindowHeight() - ImGui.getFrameHeightWithSpacing() * 3;
-        if (bottomY > ImGui.getCursorPosY()) {
-            ImGui.setCursorPosY(bottomY);
-            GuiHelpers.subtleSeparator();
-            ImGui.spacing();
-            ImGui.setCursorPosX(ImGui.getCursorPosX() + 10f);
-            ImGui.textColored(
-                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.4f,
-                    Icons.DIAGRAM + "  F2  Blueprint");
+    private void renderNavItem(int p, float fontH, float indent) {
+        boolean isActive = (p == selectedPanel);
+
+        // Per-item animated hover weight, plus eased "active" animation
+        // for the left accent bar to slide into place.
+        String hoverKey = "nav:h:" + p;
+        String activeKey = "nav:a:" + p;
+
+        // Transparent selectable (we'll draw our own background + accent)
+        ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
+        ImGui.pushStyleColor(ImGuiCol.HeaderHovered, 0f, 0f, 0f, 0f);
+        ImGui.pushStyleColor(ImGuiCol.HeaderActive, 0f, 0f, 0f, 0f);
+
+        String icon = p < NAV_ICONS.length ? NAV_ICONS[p] : "";
+        // leading space reserved for the accent bar + icon gutter
+        String label = "    " + icon + "   " + panels.get(p).title() + "##nav" + p;
+
+        if (ImGui.selectable(label, isActive)) {
+            selectedPanel = p;
+        }
+        boolean hovered = ImGui.isItemHovered();
+        float hoverT = Motion.hover(hoverKey, hovered);
+        float activeT = Motion.step(activeKey, isActive ? 1f : 0f, 14f);
+
+        ImGui.popStyleColor(3);
+        drawNavItemAccent(fontH, indent, hoverT, activeT);
+    }
+
+    private static void drawNavItemAccent(float fontH, float indent, float hoverT, float activeT) {
+        var draw = ImGui.getWindowDrawList();
+        // Custom-drawn row background
+        float x0 = ImGui.getItemRectMinX();
+        float y0 = ImGui.getItemRectMinY();
+        float x1 = ImGui.getItemRectMaxX();
+        float y1 = ImGui.getItemRectMaxY();
+        float rowH = y1 - y0;
+        float rounding = fontH * 0.3f;
+
+        // Hover wash (fades in), active tint (stronger)
+        float bgAlpha = 0.05f * hoverT + 0.12f * activeT;
+        if (bgAlpha > 0.001f) {
+            int bg = ImGuiTheme.imCol32(
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, bgAlpha);
+            draw.addRectFilled(x0 + indent * 0.25f, y0, x1 - indent * 0.25f, y1,
+                    bg, rounding);
+        }
+
+        // Left accent bar — height animates with activeT (Motion eases it in)
+        if (activeT > 0.02f) {
+            float barPadY = rowH * 0.18f;
+            float fullH = rowH - barPadY * 2f;
+            float h = fullH * Motion.easeOutCubic(activeT);
+            float by0 = y0 + (rowH - h) * 0.5f;
+            float bw = Math.max(2.5f, fontH * 0.2f);
+            int col = ImGuiTheme.imCol32(
+                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, activeT);
+            draw.addRectFilled(x0 + indent * 0.25f, by0,
+                    x0 + indent * 0.25f + bw, by0 + h, col, bw * 0.5f);
+        }
+    }
+
+    private static final String LOG_BUFFER_APPENDER_NAME = "LOG_BUFFER";
+
+    /**
+     * Looks up the {@link LogBufferAppender} instance Logback created from
+     * {@code logback.xml} and wires it to the given buffer. The cast from
+     * SLF4J's {@code ILoggerFactory} to Logback's {@link LoggerContext}
+     * and the type test on the looked-up {@code Appender} are forced by
+     * the SLF4J/Logback binding boundary — both APIs are owned externally
+     * and expose loose return types we cannot narrow. They are isolated
+     * here, the one place this seam is crossed.
+     * <p>
+     * The Logback {@code Logger} type below is fully qualified to avoid a
+     * name collision with the imported {@link org.slf4j.Logger}.
+     */
+    private static void wireLogBufferAppender(LogBuffer logBuffer) {
+        // rule-exception: {rule:no-casts} — SLF4J/Logback binding boundary.
+        // getILoggerFactory() is typed ILoggerFactory and Logback's concrete impl
+        // is LoggerContext; there is no cast-free path. Concentrated to one site.
+        LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
+        // ch.qos.logback.classic.Logger fully qualified: name collision with org.slf4j.Logger
+        ch.qos.logback.classic.Logger root = context.getLogger(Logger.ROOT_LOGGER_NAME);
+        Appender<ILoggingEvent> appender = root.getAppender(LOG_BUFFER_APPENDER_NAME);
+        if (appender instanceof LogBufferAppender lba) {
+            lba.setLogBuffer(logBuffer);
+        } else {
+            log.warn("Appender '{}' not found or not a LogBufferAppender; GUI log capture disabled.",
+                    LOG_BUFFER_APPENDER_NAME);
         }
     }
 
     private static byte[] loadResourceFont(String resourcePath) {
         try (var in = ImGuiApp.class.getResourceAsStream(resourcePath)) {
-            if (in != null) return in.readAllBytes();
-        } catch (Exception ignored) {}
+            if (in != null) {
+                return in.readAllBytes();
+            }
+        } catch (IOException e) {
+            log.debug("Could not read resource font {}", resourcePath, e);
+        }
         return null;
     }
 
     private static byte[] loadSystemFont(String... candidates) {
         String windir = System.getenv("WINDIR");
-        if (windir == null) windir = "C:\\Windows";
-        java.nio.file.Path fontsDir = java.nio.file.Paths.get(windir, "Fonts");
+        if (windir == null) {
+            windir = "C:\\Windows";
+        }
+        Path fontsDir = Paths.get(windir, "Fonts");
         for (String name : candidates) {
-            java.nio.file.Path p = fontsDir.resolve(name);
-            if (java.nio.file.Files.exists(p)) {
-                try { return java.nio.file.Files.readAllBytes(p); } catch (Exception ignored) {}
+            Path p = fontsDir.resolve(name);
+            if (Files.exists(p)) {
+                try {
+                    return Files.readAllBytes(p);
+                } catch (IOException e) {
+                    log.debug("Could not read system font {}", p, e);
+                }
             }
         }
         return null;
     }
 
     private void updateTitle() {
-        if (glfwWindow == 0) return;
+        if (glfwWindow == 0) {
+            return;
+        }
         boolean connected = ctx.hasActiveConnection();
         String connName = ctx.getActiveConnectionName();
         int count = ctx.getConnections().size();
@@ -493,7 +727,9 @@ public class ImGuiApp extends Application {
         if (ctx.getStreamManager() != null) {
             ctx.getStreamManager().stopAll(name -> {
                 for (var c : ctx.getConnections()) {
-                    if (c.getName().equals(name)) return c;
+                    if (c.getName().equals(name)) {
+                        return c;
+                    }
                 }
                 return null;
             });
@@ -502,6 +738,7 @@ public class ImGuiApp extends Application {
             ctx.getManagementRuntime().stopAll();
         }
         ctx.disconnectAll();
+        ctx.closeGamevals();
         executor.shutdownNow();
         if (glfwWindow != 0) {
             GLFW.glfwSetWindowShouldClose(glfwWindow, true);

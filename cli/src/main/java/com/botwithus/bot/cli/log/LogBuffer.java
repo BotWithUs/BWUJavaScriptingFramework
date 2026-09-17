@@ -27,7 +27,9 @@ public class LogBuffer {
         try {
             buffer[head] = entry;
             head = (head + 1) % buffer.length;
-            if (size < buffer.length) size++;
+            if (size < buffer.length) {
+                size++;
+            }
         } finally {
             lock.unlock();
         }

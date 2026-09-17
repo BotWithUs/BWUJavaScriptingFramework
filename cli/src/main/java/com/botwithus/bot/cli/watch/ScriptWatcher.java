@@ -4,13 +4,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.nio.file.StandardWatchEventKinds;
+import java.nio.file.WatchEvent;
+import java.nio.file.WatchKey;
+import java.nio.file.WatchService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Watches the scripts/ directory for JAR file changes and triggers a callback.
  */
 public class ScriptWatcher {
+
+    /** Minimum wall-clock between successive change callbacks (ms). */
+    private static final long JAR_CHANGE_DEBOUNCE_MS = 500L;
+    /** Short pause after a change burst lets a partial JAR write finish before we reload (ms). */
+    private static final long JAR_SETTLE_DELAY_MS = 500L;
 
     private static final Logger log = LoggerFactory.getLogger(ScriptWatcher.class);
 
@@ -25,7 +35,9 @@ public class ScriptWatcher {
     }
 
     public void start() {
-        if (!running.compareAndSet(false, true)) return;
+        if (!running.compareAndSet(false, true)) {
+            return;
+        }
         watchThread = Thread.ofVirtual().name("script-watcher").start(this::watchLoop);
     }
 
@@ -59,6 +71,9 @@ public class ScriptWatcher {
 
                 boolean jarChanged = false;
                 for (WatchEvent<?> event : key.pollEvents()) {
+                    // rule-exception: {rule:no-casts} — JDK API boundary. WatchKey.pollEvents()
+                    // returns List<WatchEvent<?>>, so event.context() is typed Object even
+                    // though it is always a Path under StandardWatchEventKinds.ENTRY_*.
                     Path path = (Path) event.context();
                     if (path != null && path.toString().endsWith(".jar")) {
                         jarChanged = true;
@@ -68,11 +83,9 @@ public class ScriptWatcher {
 
                 if (jarChanged) {
                     long now = System.currentTimeMillis();
-                    // Debounce: ignore events within 500ms of last trigger
-                    if (now - lastTrigger > 500) {
+                    if (now - lastTrigger > JAR_CHANGE_DEBOUNCE_MS) {
                         lastTrigger = now;
-                        // Small delay to let file writes complete
-                        try { Thread.sleep(500); } catch (InterruptedException e) {
+                        try { Thread.sleep(JAR_SETTLE_DELAY_MS); } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                             break;
                         }

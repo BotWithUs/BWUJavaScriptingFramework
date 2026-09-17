@@ -2,25 +2,16 @@ package com.botwithus.bot.api.event;
 
 /**
  * Fired when a break begins (logout triggered by fatigue/risk or manual schedule).
+ *
+ * @param durationSeconds the scheduled break duration in seconds
+ * @param fatigue         the fatigue level at break start [0,1]
+ * @param risk            the cumulative risk at break start
+ * @param timestamp       event creation time in milliseconds since epoch
  */
-public class BreakStartedEvent extends GameEvent {
-    private final int durationSeconds;
-    private final double fatigue;
-    private final double risk;
+public record BreakStartedEvent(int durationSeconds, double fatigue, double risk, long timestamp)
+        implements GameEvent {
 
     public BreakStartedEvent(int durationSeconds, double fatigue, double risk) {
-        super("break_started");
-        this.durationSeconds = durationSeconds;
-        this.fatigue = fatigue;
-        this.risk = risk;
+        this(durationSeconds, fatigue, risk, System.currentTimeMillis());
     }
-
-    /** Returns the scheduled break duration in seconds. */
-    public int getDurationSeconds() { return durationSeconds; }
-
-    /** Returns the fatigue level at break start [0,1]. */
-    public double getFatigue() { return fatigue; }
-
-    /** Returns the cumulative risk at break start. */
-    public double getRisk() { return risk; }
 }

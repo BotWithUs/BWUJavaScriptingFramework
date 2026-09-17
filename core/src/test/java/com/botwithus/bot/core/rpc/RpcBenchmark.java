@@ -4,7 +4,10 @@ import com.botwithus.bot.core.msgpack.MessagePackCodec;
 import com.botwithus.bot.core.pipe.PipeClient;
 
 import java.io.PrintStream;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -48,23 +51,33 @@ public class RpcBenchmark {
         double max()  { return latenciesUs.length > 0 ? latenciesUs[latenciesUs.length - 1] : 0; }
 
         double percentile(double p) {
-            if (latenciesUs.length == 0) return 0;
+            if (latenciesUs.length == 0) {
+                return 0;
+            }
             int idx = (int) (latenciesUs.length * p);
             return latenciesUs[Math.min(idx, latenciesUs.length - 1)];
         }
 
         double mean() {
-            if (latenciesUs.length == 0) return 0;
+            if (latenciesUs.length == 0) {
+                return 0;
+            }
             double sum = 0;
-            for (double v : latenciesUs) sum += v;
+            for (double v : latenciesUs) {
+                sum += v;
+            }
             return sum / latenciesUs.length;
         }
 
         double stddev() {
-            if (latenciesUs.length < 2) return 0;
+            if (latenciesUs.length < 2) {
+                return 0;
+            }
             double m = mean();
             double sumSq = 0;
-            for (double v : latenciesUs) sumSq += (v - m) * (v - m);
+            for (double v : latenciesUs) {
+                sumSq += (v - m) * (v - m);
+            }
             return Math.sqrt(sumSq / (latenciesUs.length - 1));
         }
     }
@@ -197,7 +210,9 @@ public class RpcBenchmark {
         out.println("|--------|----------|----------|----------|----------|----------|-----------|----------|");
 
         for (BenchmarkResult r : results) {
-            if (r.latenciesUs().length == 0) continue;
+            if (r.latenciesUs().length == 0) {
+                continue;
+            }
             out.printf("| `%s` | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f | %.1f |%n",
                     r.name(), r.min(), r.percentile(0.50), r.percentile(0.95),
                     r.percentile(0.99), r.max(), r.mean(), r.stddev());
@@ -281,8 +296,11 @@ public class RpcBenchmark {
                 printResults(results, System.out);
             }
         } finally {
-            if (rpc != null) rpc.close();
-            else pipe.close();
+            if (rpc != null) {
+                rpc.close();
+            } else {
+                pipe.close();
+            }
         }
     }
 }

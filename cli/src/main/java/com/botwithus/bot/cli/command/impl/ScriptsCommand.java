@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.command.impl;
 
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.cli.CliContext;
+import com.botwithus.bot.cli.ClientManager;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
@@ -17,7 +18,7 @@ public class ScriptsCommand implements Command {
     @Override public String name() { return "scripts"; }
     @Override public List<String> aliases() { return List.of("s"); }
     @Override public String description() { return "Manage scripts on active connection"; }
-    @Override public String usage() { return "scripts [list|start <name>|stop <name>|restart <name>|info <name>|config <name>|status] [--group=<name>]"; }
+    @Override public String usage() { return "scripts [list|start|stop|restart|info|config|status] ..."; }
 
     @Override
     public void execute(ParsedCommand parsed, CliContext ctx) {
@@ -68,20 +69,15 @@ public class ScriptsCommand implements Command {
             return;
         }
 
-        if (sub == null || sub.equals("list")) {
-            listScripts(runtime, ctx);
-        } else if (sub.equals("start")) {
-            startScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("stop")) {
-            stopScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("restart")) {
-            restartScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("info")) {
-            infoScript(parsed.arg(1), runtime, ctx);
-        } else if (sub.equals("config")) {
-            configScript(parsed.arg(1), runtime, ctx);
-        } else {
-            ctx.out().println("Unknown subcommand: " + sub + ". Use: list, start, stop, restart, info, config, status");
+        switch (sub == null ? "list" : sub) {
+            case "list" -> listScripts(runtime, ctx);
+            case "start" -> startScript(parsed.arg(1), runtime, ctx);
+            case "stop" -> stopScript(parsed.arg(1), runtime, ctx);
+            case "restart" -> restartScript(parsed.arg(1), runtime, ctx);
+            case "info" -> infoScript(parsed.arg(1), runtime, ctx);
+            case "config" -> configScript(parsed.arg(1), runtime, ctx);
+            default -> ctx.out().println(
+                    "Unknown subcommand: " + sub + ". Use: list, start, stop, restart, info, config, status");
         }
     }
 
@@ -97,12 +93,25 @@ public class ScriptsCommand implements Command {
         for (ScriptRunner runner : runners) {
             ScriptManifest m = runner.getManifest();
             String version = m != null ? m.version() : "?";
-            String status = runner.isRunning()
-                    ? AnsiCodes.colorize("RUNNING", AnsiCodes.GREEN)
-                    : AnsiCodes.colorize("STOPPED", AnsiCodes.RED);
-            table.row(String.valueOf(i++), runner.getScriptName(), version, status);
+            table.row(String.valueOf(i++), runner.getScriptName(), version, statusOf(runner));
         }
         ctx.out().print(table.build());
+    }
+
+    /**
+     * A watchdog verdict outranks RUNNING/STOPPED: a quarantined script reads as
+     * STOPPED by the running flag while its thread is still very much alive, and
+     * that is exactly the state the user must not be misled about.
+     */
+    private static String statusOf(ScriptRunner runner) {
+        return switch (runner.liveness()) {
+            case STALLED   -> AnsiCodes.colorize("STALLED", AnsiCodes.YELLOW);
+            case REVOKED   -> AnsiCodes.colorize("REVOKED", AnsiCodes.RED);
+            case ABANDONED -> AnsiCodes.colorize("ABANDONED", AnsiCodes.RED);
+            case LIVE      -> runner.isRunning()
+                    ? AnsiCodes.colorize("RUNNING", AnsiCodes.GREEN)
+                    : AnsiCodes.colorize("STOPPED", AnsiCodes.RED);
+        };
     }
 
     private void startScript(String name, ScriptRuntime runtime, CliContext ctx) {
@@ -147,7 +156,7 @@ public class ScriptsCommand implements Command {
         }
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
         }
         runner.start();
         ctx.out().println("Restarted: " + runner.getScriptName());
@@ -222,7 +231,7 @@ public class ScriptsCommand implements Command {
         }
         if (runner.isRunning()) {
             runner.stop();
-            runner.awaitStop(2000);
+            runner.awaitStop(ClientManager.RESTART_STOP_TIMEOUT_MS);
         }
         runner.start();
         ctx.out().println("[" + connName + "] Restarted: " + runner.getScriptName());
@@ -230,7 +239,9 @@ public class ScriptsCommand implements Command {
 
     private void warnDisconnected(String groupName, List<Connection> activeConns, CliContext ctx) {
         var group = ctx.getGroup(groupName);
-        if (group == null) return;
+        if (group == null) {
+            return;
+        }
         for (String connName : group.getConnectionNames()) {
             if (activeConns.stream().noneMatch(c -> c.getName().equals(connName))) {
                 ctx.out().println("[" + connName + "] " + AnsiCodes.colorize("Warning: disconnected, skipped.", AnsiCodes.YELLOW));

@@ -3,15 +3,14 @@ package com.botwithus.bot.api.model;
 import java.util.List;
 
 /**
- * A group of resource items available at a world map element, keyed by a title
- * (e.g., "Coal rock", "Runite rock", "Shark").
+ * A group of {@link ResourceItem}s available at a {@link WorldMapElement},
+ * grouped under a display title (e.g. "Coal rock", "Wisp", "Shark").
  *
- * @param title the display title for this resource group
- * @param items the individual resource items in this group
- * @see ResourceItem
- * @see WorldMapElement
+ * @param title display title for this resource group
+ * @param items individual resource lines; defensively copied
  */
-public record ResourceSection(
-        String title,
-        List<ResourceItem> items
-) {}
+public record ResourceSection(String title, List<ResourceItem> items) {
+    public ResourceSection {
+        items = List.copyOf(items);
+    }
+}

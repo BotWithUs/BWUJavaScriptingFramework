@@ -18,7 +18,9 @@ public final class Timing {
      * @param ms duration in milliseconds; values &lt;= 0 return immediately
      */
     public static void sleep(long ms) {
-        if (ms <= 0) return;
+        if (ms <= 0) {
+            return;
+        }
         try {
             Thread.sleep(ms);
         } catch (InterruptedException e) {
@@ -38,13 +40,17 @@ public final class Timing {
 
     /** Inclusive on both ends. */
     public static long random(long min, long max) {
-        if (min >= max) return min;
+        if (min >= max) {
+            return min;
+        }
         return ThreadLocalRandom.current().nextLong(min, max + 1);
     }
 
     /** Inclusive on both ends. */
     public static int random(int min, int max) {
-        if (min >= max) return min;
+        if (min >= max) {
+            return min;
+        }
         return ThreadLocalRandom.current().nextInt(min, max + 1);
     }
 

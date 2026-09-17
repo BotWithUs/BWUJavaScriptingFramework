@@ -5,6 +5,7 @@ import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.entities.Npc;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.SceneObject;
@@ -53,6 +54,7 @@ public class DivinationScript implements BotScript {
         this.backpack = new Backpack(api);
         this.mapElements = new WorldMapElements(api);
         this.lastLevel = getDivinationLevel(api);
+        ctx.getScriptContext().annotation("divination_level", lastLevel);
 
         updateSpot(api);
     }
@@ -60,34 +62,45 @@ public class DivinationScript implements BotScript {
     @Override
     public int onLoop() {
         GameAPI api = ctx.getGameAPI();
+        ScriptContextPublisher publisher = ctx.getScriptContext();
 
         // Recompute spot on level-up
         int currentLevel = getDivinationLevel(api);
         if (currentLevel > lastLevel) {
             log.info("Divination level up! {} -> {}", lastLevel, currentLevel);
+            publisher.trace("INFO", "Divination level up: " + lastLevel + " -> " + currentLevel);
             lastLevel = currentLevel;
+            publisher.annotation("divination_level", lastLevel);
             updateSpot(api);
         }
 
-        if (spot == null) return -1;
+        if (spot == null) {
+            return -1;
+        }
 
         // Walk to spot if too far
-        if (distanceToSpot(api) > 30) {
+        int distance = distanceToSpot(api);
+        publisher.annotation("distance_to_spot", distance);
+        if (distance > 30) {
             log.info("Walking to divination spot...");
+            publisher.trace("INFO", "Walking to spot (distance " + distance + ")");
             ctx.getNavigation().walkWorldPath(spot.tileX(), spot.tileY());
             return 600;
         }
 
         // Convert memories at rift if backpack is full
         if (backpack.isFull()) {
+            publisher.annotation("phase", "convert");
             return convertMemories();
         }
 
         // Harvest if idle
         if (!isAnimating(api)) {
+            publisher.annotation("phase", "harvest");
             return harvest();
         }
 
+        publisher.annotation("phase", "wait_anim");
         return 600;
     }
 
@@ -104,8 +117,11 @@ public class DivinationScript implements BotScript {
 
         if (spot == null) {
             log.warn("No divination spot found for level {}!", level);
+            ctx.getScriptContext().trace("WARN", "No divination spot for level " + level);
         } else {
             log.info("Level {} — target: {} at ({}, {})", level, spot.description(), spot.tileX(), spot.tileY());
+            ctx.getScriptContext().annotation("target_spot",
+                    spot.description() + " at (" + spot.tileX() + "," + spot.tileY() + ")");
             spot.resources().forEach(s ->
                     log.info("  {} (items: {})", s.title(),
                             s.items().stream().map(i -> i.itemId() + " @lvl" + i.level()).toList()));

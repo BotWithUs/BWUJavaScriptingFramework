@@ -5,50 +5,73 @@ import java.util.List;
 /**
  * Describes a single configurable parameter that a script exposes.
  * Scripts return a list of these from {@link com.botwithus.bot.api.BotScript#getConfigFields()}.
+ *
+ * <p>A {@code ConfigField} is a sealed hierarchy of typed variants. Scripts construct
+ * them through the static factory methods ({@link #intField}, {@link #stringField},
+ * {@link #boolField}, {@link #choiceField}, {@link #itemIdField}); consumers dispatch
+ * over the variants with an exhaustive {@code switch} pattern match.
  */
-public final class ConfigField {
+public sealed interface ConfigField
+        permits ConfigField.IntField, ConfigField.StringField, ConfigField.BoolField,
+        ConfigField.ChoiceField, ConfigField.ItemIdField {
 
-    public enum Kind {
-        INT, STRING, BOOLEAN, CHOICE, ITEM_ID
+    /** @return the configuration key (used for lookup in {@link ScriptConfig}) */
+    String key();
+
+    /** @return the human-readable label shown in UIs */
+    String label();
+
+    /**
+     * @return the string form of this field's default value, in the same format
+     * the persistence layer stores on disk.
+     */
+    default String defaultAsString() {
+        return switch (this) {
+            case IntField f -> String.valueOf(f.value());
+            case StringField f -> String.valueOf(f.value());
+            case BoolField f -> String.valueOf(f.value());
+            case ChoiceField f -> f.value();
+            case ItemIdField f -> String.valueOf(f.value());
+        };
     }
 
-    private final String key;
-    private final String label;
-    private final Kind kind;
-    private final Object defaultValue;
-    private final List<String> choices;
+    /** An integer-valued field. */
+    record IntField(String key, String label, int value) implements ConfigField {}
 
-    private ConfigField(String key, String label, Kind kind, Object defaultValue, List<String> choices) {
-        this.key = key;
-        this.label = label;
-        this.kind = kind;
-        this.defaultValue = defaultValue;
-        this.choices = choices;
+    /** A free-text string-valued field. */
+    record StringField(String key, String label, String value) implements ConfigField {}
+
+    /** A boolean-valued field rendered as a checkbox. */
+    record BoolField(String key, String label, boolean value) implements ConfigField {}
+
+    /** A field whose value is one of an enumerated set of choices. */
+    record ChoiceField(String key, String label, List<String> choices, String value)
+            implements ConfigField {
+        public ChoiceField {
+            choices = List.copyOf(choices);
+        }
     }
 
-    public String key() { return key; }
-    public String label() { return label; }
-    public Kind kind() { return kind; }
-    public Object defaultValue() { return defaultValue; }
-    public List<String> choices() { return choices; }
+    /** An integer-valued field representing an item id. */
+    record ItemIdField(String key, String label, int value) implements ConfigField {}
 
-    public static ConfigField intField(String key, String label, int defaultValue) {
-        return new ConfigField(key, label, Kind.INT, defaultValue, List.of());
+    static ConfigField intField(String key, String label, int defaultValue) {
+        return new IntField(key, label, defaultValue);
     }
 
-    public static ConfigField stringField(String key, String label, String defaultValue) {
-        return new ConfigField(key, label, Kind.STRING, defaultValue, List.of());
+    static ConfigField stringField(String key, String label, String defaultValue) {
+        return new StringField(key, label, defaultValue);
     }
 
-    public static ConfigField boolField(String key, String label, boolean defaultValue) {
-        return new ConfigField(key, label, Kind.BOOLEAN, defaultValue, List.of());
+    static ConfigField boolField(String key, String label, boolean defaultValue) {
+        return new BoolField(key, label, defaultValue);
     }
 
-    public static ConfigField choiceField(String key, String label, List<String> choices, String defaultValue) {
-        return new ConfigField(key, label, Kind.CHOICE, defaultValue, List.copyOf(choices));
+    static ConfigField choiceField(String key, String label, List<String> choices, String defaultValue) {
+        return new ChoiceField(key, label, choices, defaultValue);
     }
 
-    public static ConfigField itemIdField(String key, String label, int defaultValue) {
-        return new ConfigField(key, label, Kind.ITEM_ID, defaultValue, List.of());
+    static ConfigField itemIdField(String key, String label, int defaultValue) {
+        return new ItemIdField(key, label, defaultValue);
     }
 }

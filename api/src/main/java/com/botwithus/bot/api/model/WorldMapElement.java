@@ -3,32 +3,37 @@ package com.botwithus.bot.api.model;
 import java.util.List;
 
 /**
- * A world map element (icon) from the game cache. These are static map features
- * such as banks, altars, dungeons, etc. with their absolute tile coordinates,
- * skill requirements, and level data.
+ * A world-map element from the game cache. These are static map features
+ * (banks, altars, divination spots, mining nodes, ...) with absolute tile
+ * coordinates, skill requirements, and resource breakdowns. Returned by
+ * {@link com.botwithus.bot.api.GameAPI#queryWorldMapElements queryWorldMapElements}
+ * and by the {@link com.botwithus.bot.api.entities.WorldMapElements} facade.
  *
- * @param id                the unique element ID
- * @param tileX             the absolute tile X coordinate
- * @param tileY             the absolute tile Y coordinate
- * @param plane             the plane (height level)
- * @param category          the category ID (e.g., 1159 for mining)
- * @param spriteId          the map sprite ID
- * @param elementId         the element definition ID
- * @param name              the display name (e.g., "Bank")
- * @param tooltip           the tooltip text (e.g., "Grand Exchange bank")
- * @param description       the description text (e.g., "Mining Guild"), may be empty
- * @param minLevel          the minimum level shown on the element, or -1 if none
- * @param levelTier1        the first level tier, or -1 if none
- * @param levelTier2        the second level tier, or -1 if none
- * @param levelTier3        the third level tier, or -1 if none
- * @param skillRequirements the skill requirements for this element, may be empty
- * @param resources         the resource sections available at this element (ores, fish, logs, etc.), may be empty
- * @param placements        every absolute tile placement for this element (an element may exist at multiple tiles)
- * @see SkillRequirement
- * @see ResourceSection
- * @see WorldMapPlacement
- * @see com.botwithus.bot.api.GameAPI#queryWorldMapElements
- * @see com.botwithus.bot.api.GameAPI#getWorldMapElement
+ * <p>Unlike {@link com.botwithus.bot.api.entities.SceneObject SceneObject}
+ * (live runtime data) this is cache-resident; queries hit the producer once
+ * and the result is stable until a game update changes the cache.</p>
+ *
+ * @param id                element id (cache-resident)
+ * @param tileX             absolute tile X (canonical placement)
+ * @param tileY             absolute tile Y
+ * @param plane             0..3
+ * @param category          category id (e.g. 3032 for divination)
+ * @param spriteId          minimap sprite id, or {@code 0} when none
+ * @param elementId         element definition id (separate from {@link #id} —
+ *                          the cache splits "where" from "what")
+ * @param name              display name (e.g. "Bank")
+ * @param tooltip           tooltip text (e.g. "Grand Exchange bank")
+ * @param description       free-form description (e.g. "Mining Guild");
+ *                          may be empty
+ * @param minLevel          minimum level shown on the element badge, or
+ *                          {@code -1} if none
+ * @param levelTier1        first level tier, or {@code -1} if none
+ * @param levelTier2        second level tier, or {@code -1}
+ * @param levelTier3        third level tier, or {@code -1}
+ * @param skillRequirements skill requirements; defensively copied
+ * @param resources         resource sections (ores/fish/logs/...); defensively copied
+ * @param placements        every absolute tile placement for this element;
+ *                          defensively copied
  */
 public record WorldMapElement(
         int id,
@@ -48,4 +53,10 @@ public record WorldMapElement(
         List<SkillRequirement> skillRequirements,
         List<ResourceSection> resources,
         List<WorldMapPlacement> placements
-) {}
+) {
+    public WorldMapElement {
+        skillRequirements = List.copyOf(skillRequirements);
+        resources         = List.copyOf(resources);
+        placements        = List.copyOf(placements);
+    }
+}

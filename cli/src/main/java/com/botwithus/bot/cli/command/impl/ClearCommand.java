@@ -9,6 +9,8 @@ import java.util.List;
 
 public class ClearCommand implements Command {
 
+    private static final int FALLBACK_BLANK_LINES = 50;
+
     @Override public String name() { return "clear"; }
     @Override public List<String> aliases() { return List.of("cls"); }
     @Override public String description() { return "Clear the screen"; }
@@ -20,7 +22,7 @@ public class ClearCommand implements Command {
             ctx.out().flush();
         } else {
             // Fallback: print blank lines
-            for (int i = 0; i < 50; i++) {
+            for (int i = 0; i < FALLBACK_BLANK_LINES; i++) {
                 ctx.out().println();
             }
         }

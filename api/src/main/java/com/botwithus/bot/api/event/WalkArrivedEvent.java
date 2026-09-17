@@ -2,20 +2,14 @@ package com.botwithus.bot.api.event;
 
 /**
  * Fired when the walker reaches its destination.
+ *
+ * @param targetX   the destination world X coordinate
+ * @param targetY   the destination world Y coordinate
+ * @param timestamp event creation time in milliseconds since epoch
  */
-public class WalkArrivedEvent extends GameEvent {
-    private final int targetX;
-    private final int targetY;
+public record WalkArrivedEvent(int targetX, int targetY, long timestamp) implements GameEvent {
 
     public WalkArrivedEvent(int targetX, int targetY) {
-        super("walk_arrived");
-        this.targetX = targetX;
-        this.targetY = targetY;
+        this(targetX, targetY, System.currentTimeMillis());
     }
-
-    /** Returns the destination world X coordinate. */
-    public int getTargetX() { return targetX; }
-
-    /** Returns the destination world Y coordinate. */
-    public int getTargetY() { return targetY; }
 }

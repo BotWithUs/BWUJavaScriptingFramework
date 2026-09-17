@@ -1,6 +1,8 @@
 package com.botwithus.bot.core.runtime;
 
-import com.botwithus.bot.api.*;
+import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.Navigation;
+import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
 import org.junit.jupiter.api.Test;

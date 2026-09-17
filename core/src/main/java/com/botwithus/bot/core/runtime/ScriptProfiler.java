@@ -8,6 +8,8 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public class ScriptProfiler {
 
+    public ScriptProfiler() {}
+
     private final LongAdder loopCount = new LongAdder();
     private final LongAdder totalLoopTimeNanos = new LongAdder();
     private final AtomicLong minLoopNanos = new AtomicLong(Long.MAX_VALUE);

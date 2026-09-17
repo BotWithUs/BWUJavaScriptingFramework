@@ -29,7 +29,7 @@ import java.util.List;
  *
  * <p>Annotate implementations with {@link ScriptManifest} to declare metadata.
  *
- * <h3>Quick start</h3>
+ * <h2>Quick start</h2>
  * <pre>{@code
  * @ScriptManifest(name = "GroupRotator", version = "1.0",
  *         description = "Rotates scripts across client groups")

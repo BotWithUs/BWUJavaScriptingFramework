@@ -1,15 +1,22 @@
+import org.gradle.api.artifacts.VersionCatalogsExtension
+
 plugins {
-    id("org.beryx.jlink") version "3.2.1" apply false
+    alias(libs.plugins.beryx.jlink) apply false
 }
 
+// Release builds pass `-PreleaseVersion=<x.y.z>`; the publish workflow derives
+// it from the git tag with the leading `v` stripped. Local builds and CI test
+// runs stay on the snapshot version, which is never published.
+val projectVersion = providers.gradleProperty("releaseVersion").getOrElse("1.0-SNAPSHOT")
+
 group = "com.botwithus"
-version = "1.0-SNAPSHOT"
+version = projectVersion
 
 subprojects {
     apply(plugin = "java")
 
     group = "com.botwithus"
-    version = "1.0-SNAPSHOT"
+    version = projectVersion
 
     configure<JavaPluginExtension> {
         toolchain {
@@ -22,15 +29,46 @@ subprojects {
         mavenCentral()
     }
 
+    // Type-safe `libs.*` accessors are not generated inside the root
+    // `subprojects { ... }` block, so look the catalog up by name and
+    // resolve aliases through `findLibrary` / `findBundle`.
+    val libs = rootProject.extensions
+        .getByType(VersionCatalogsExtension::class.java)
+        .named("libs")
+
     dependencies {
-        "testImplementation"(platform("org.junit:junit-bom:5.10.0"))
-        "testImplementation"("org.junit.jupiter:junit-jupiter")
-        "testImplementation"("org.mockito:mockito-core:5.20.0")
-        "testImplementation"("org.mockito:mockito-junit-jupiter:5.20.0")
-        "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
+        "testImplementation"(platform(libs.findLibrary("junit-bom").get()))
+        "testImplementation"(libs.findLibrary("junit-jupiter").get())
+        "testImplementation"(libs.findBundle("mockito").get())
+        "testRuntimeOnly"(libs.findLibrary("junit-platform-launcher").get())
+    }
+
+    tasks.withType<JavaCompile>().configureEach {
+        options.encoding = "UTF-8"
+        // -Werror is on. The three suppressed lints below are deliberate:
+        //   -restricted        — Panama (java.lang.foreign) is the SUPPORTED
+        //                        alternative to JNI per the project's rules;
+        //                        every native call to bwu / NXTCache / worldwalker
+        //                        is intentionally a restricted method.
+        //   -this-escape       — flagged on UI / native bridge constructors that
+        //                        publish `this` for callbacks (ImGui Application
+        //                        subclasses, downcall handle binding). Fixing is
+        //                        a constructor redesign, not a lint sweep.
+        //   -requires-automatic — module-info entries for msgpack-core and other
+        //                        automatic-module dependencies; addressed by
+        //                        extra-java-module-info shims where available.
+        options.compilerArgs.addAll(
+            listOf(
+                "-Xlint:all,-restricted,-this-escape,-requires-automatic,-requires-transitive-automatic,-text-blocks",
+                "-Werror",
+                "-parameters",
+            )
+        )
     }
 
     tasks.named<Test>("test") {
         useJUnitPlatform()
     }
 }
+
+tasks.register<CreateScript>("createScript")

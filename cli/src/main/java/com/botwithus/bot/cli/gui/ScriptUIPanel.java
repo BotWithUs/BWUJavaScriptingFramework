@@ -17,6 +17,8 @@ import java.util.List;
  */
 public class ScriptUIPanel implements GuiPanel {
 
+    public ScriptUIPanel() {}
+
     @Override
     public String title() {
         return "Script UI";
@@ -26,7 +28,7 @@ public class ScriptUIPanel implements GuiPanel {
     public void render(CliContext ctx) {
         var connections = ctx.getConnections();
         if (connections.isEmpty()) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+            ImGui.textColored(ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 1f,
                     "No active connections.");
             return;
         }
@@ -40,7 +42,9 @@ public class ScriptUIPanel implements GuiPanel {
 
                 for (ScriptRunner runner : runners) {
                     ScriptUI scriptUI = runner.getScript().getUI();
-                    if (scriptUI == null) continue;
+                    if (scriptUI == null) {
+                        continue;
+                    }
 
                     hasAnyUI = true;
                     String tabLabel = runner.getScriptName();
@@ -65,7 +69,7 @@ public class ScriptUIPanel implements GuiPanel {
         }
 
         if (!hasAnyUI) {
-            ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
+            ImGui.textColored(ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 1f,
                     "No scripts with custom UI are loaded. Scripts can provide UI by implementing ScriptUI and overriding getUI().");
         }
     }

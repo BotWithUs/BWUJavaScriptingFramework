@@ -7,6 +7,13 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 public final class Humanize {
 
+    /** Probability per loop tick that a "micro-break" pause is injected. */
+    private static final double MICRO_BREAK_PROBABILITY = 0.05;
+    /** Lower bound of the micro-break pause, inclusive (ms). */
+    private static final long MICRO_BREAK_MIN_MS = 2000L;
+    /** Upper bound of the micro-break pause, exclusive (ms). */
+    private static final long MICRO_BREAK_MAX_EXCLUSIVE_MS = 5001L;
+
     private Humanize() {}
 
     /**
@@ -44,9 +51,8 @@ public final class Humanize {
         long variance = (long) (baseMs * varianceFactor);
         long delay = Math.max(baseMs / 2, Timing.gaussianRandom(baseMs, variance));
 
-        // 5% chance of micro-break (2-5 seconds)
-        if (ThreadLocalRandom.current().nextDouble() < 0.05) {
-            delay += ThreadLocalRandom.current().nextLong(2000, 5001);
+        if (ThreadLocalRandom.current().nextDouble() < MICRO_BREAK_PROBABILITY) {
+            delay += ThreadLocalRandom.current().nextLong(MICRO_BREAK_MIN_MS, MICRO_BREAK_MAX_EXCLUSIVE_MS);
         }
 
         return (int) delay;

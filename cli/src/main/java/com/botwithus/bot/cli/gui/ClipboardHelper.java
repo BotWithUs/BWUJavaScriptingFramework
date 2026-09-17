@@ -2,6 +2,9 @@ package com.botwithus.bot.cli.gui;
 
 import imgui.ImGui;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
 
@@ -9,6 +12,8 @@ import java.awt.datatransfer.StringSelection;
  * Shared clipboard utilities for GUI panels.
  */
 final class ClipboardHelper {
+
+    private static final Logger log = LoggerFactory.getLogger(ClipboardHelper.class);
 
     static final float FEEDBACK_DURATION = 1.5f;
 
@@ -19,8 +24,9 @@ final class ClipboardHelper {
         try {
             Toolkit.getDefaultToolkit().getSystemClipboard()
                     .setContents(new StringSelection(text), null);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
             // Clipboard may be unavailable in headless environments
+            log.debug("Clipboard unavailable: {}", e.getMessage());
         }
     }
 

@@ -1,18 +1,27 @@
 package com.botwithus.bot.core;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.diag.StubGuard;
+import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.core.gameval.SqliteGamevalIndex;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
-import com.botwithus.bot.core.impl.EventDispatcher;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
+import com.botwithus.bot.core.impl.ScriptContextChannel;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
+import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
+import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
+import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.shm.SharedRegionEventPump;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,36 +31,68 @@ import java.util.List;
 /**
  * Entry point: connects the pipe, loads scripts, and starts the runtime.
  */
-public class JBotApplication {
+public final class JBotApplication {
+
+    private JBotApplication() {}
 
     private static final Logger log = LoggerFactory.getLogger(JBotApplication.class);
 
     public static void main(String[] args) {
-        log.info("Connecting to BotWithUs pipe...");
-        try (PipeClient pipe = new PipeClient()) {
+        // Producer publishes BotWithUs_<pid> per injected game — discover the
+        // first one rather than hard-coding the legacy single name. Failure
+        // here means no game has the DLL loaded, which we surface to the
+        // operator via the catch below.
+        String pipeName = PipeClient.firstAvailableOrThrow();
+        long pid = SharedRegion.parsePid(pipeName).orElseThrow(() ->
+                new IllegalStateException("Discovered pipe '" + pipeName + "' has no embedded pid"));
+        log.info("Connecting to pipe {} (pid={})", pipeName, pid);
+        try (PipeClient pipe = new PipeClient(pipeName)) {
             RpcClient rpc = new RpcClient(pipe);
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
-            GameAPIImpl gameAPI = new GameAPIImpl(rpc);
-            ClientProviderImpl clientProvider = new ClientProviderImpl();
-            clientProvider.putClient("BotWithUs", new ClientImpl("BotWithUs", gameAPI, eventBus, pipe::isOpen));
-            ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
+            NXTCache nxtCache = openNxtCacheOrNull();
+            GamevalIndex gamevals = SqliteGamevalIndex.openDefaultOrEmpty();
 
-            // Route pipe events to the typed event bus and enable auto-subscription
-            EventDispatcher dispatcher = new EventDispatcher(eventBus);
-            dispatcher.bindAutoSubscription(gameAPI);
-            rpc.setEventHandler(dispatcher::dispatch);
+            // Pump owns the SHM mapping; we open it before constructing
+            // GameAPIImpl so the entity facades (snapshot reads) can read from
+            // the same region. ClientImpl borrows the same region.
+            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+            GameAPIImpl gameAPI = new GameAPIImpl(rpc, nxtCache,
+                    () -> new GameSnapshotImpl(pump.region().snapshot()),
+                    new StubGuard(),
+                    eventBus::publish,
+                    gamevals);
+            ClientProviderImpl clientProvider = new ClientProviderImpl();
+            ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
+
             rpc.start();
 
-            // Discover scripts from scripts/ directory (drop JARs there)
-            List<BotScript> scripts = SDNScriptLoader.loadScripts();
+            ScriptContextChannel scriptCtxChannel = new ScriptContextChannel(rpc, pipeName);
+
+            clientProvider.putClient(pipeName,
+                    new ClientImpl(pipeName, gameAPI, eventBus, pipe::isOpen, pump.region()));
+
+            // Local scripts (drop JARs in scripts/) plus, when the launcher has
+            // enabled it (-Dbotwithus.sdn.disk=true), the SDN bundle delivered to
+            // disk by the launcher's file-courier. rpc is null here: the agent-RPC
+            // SDN path is a separate delivery design and is not used.
+            List<BotScript> scripts = SDNScriptLoader.loadAllScripts(null);
             log.info("Discovered {} script(s)", scripts.size());
 
-            ScriptRuntime runtime = new ScriptRuntime(context);
+            // Propagate the per-thread connection tag through ConnectionContext so
+            // the CLI's stdout interception sees the tag on script virtual threads.
+            ScriptRuntime runtime = new ScriptRuntime(context,
+                    ConnectionContext::set, ConnectionContext::clear);
+            runtime.setPublisherFactory(scriptCtxChannel::publisherFor);
 
-            // Wire up ScriptManager so scripts can manage other scripts
+            // One gate per connection, shared by the runtime (which tags script
+            // threads and revokes) and the RPC client (which enforces).
+            ScriptGate scriptGate = new ScriptGate();
+            runtime.setScriptGate(scriptGate);
+            rpc.setScriptGate(scriptGate);
+            gameAPI.setScriptGate(scriptGate);
+
             ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
-            context.setScriptManager(scriptManager);
 
             runtime.startAll(scripts);
 
@@ -60,7 +101,11 @@ public class JBotApplication {
                 log.info("Shutting down...");
                 scriptManager.shutdown();
                 runtime.stopAll();
+                scriptCtxChannel.close();
+                pump.close();
                 rpc.close();
+                gameAPI.closeWorldWalker();
+                gamevals.close();
             }));
 
             Thread.currentThread().join();
@@ -68,6 +113,21 @@ public class JBotApplication {
             Thread.currentThread().interrupt();
         } catch (Exception e) {
             log.error("Fatal error: {}", e.getMessage(), e);
+        }
+    }
+
+    private static NXTCache openNxtCacheOrNull() {
+        try {
+            NXTCache c = NXTCache.tryOpenFromSystemProperty();
+            if (c != null) {
+                log.info("NXTCache opened (config-type lookups now cache-backed)");
+            } else {
+                log.debug("NXTCache not configured — set -Dnxtcache.path=<dir> to enable config-type lookups");
+            }
+            return c;
+        } catch (Throwable t) {
+            log.warn("NXTCache failed to open: {}", t.getMessage());
+            return null;
         }
     }
 }

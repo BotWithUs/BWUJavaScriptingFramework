@@ -1,6 +1,7 @@
 package com.botwithus.bot.api;
 
 import com.botwithus.bot.api.event.EventBus;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
 
 /**
  * Represents a single connected game client with its associated API and event bus.
@@ -34,4 +35,15 @@ public interface Client {
      * @return {@code true} if the connection is active
      */
     boolean isConnected();
+
+    /**
+     * Returns a tick-scoped read view of the producer's current game state.
+     * Each call returns a fresh snapshot bound to the producer's currently
+     * published buffer; do not cache the result across ticks. Returns
+     * {@code null} when this client was constructed without a shared-memory
+     * binding (e.g. headless/test contexts).
+     *
+     * @return a {@link GameSnapshot}, or {@code null} when unbound
+     */
+    GameSnapshot snapshot();
 }

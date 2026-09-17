@@ -2,20 +2,14 @@ package com.botwithus.bot.api.event;
 
 /**
  * Fired when a walk fails (pathfinding failure, stuck timeout, context loss, etc.).
+ *
+ * @param targetX   the intended target world X coordinate
+ * @param targetY   the intended target world Y coordinate
+ * @param timestamp event creation time in milliseconds since epoch
  */
-public class WalkFailedEvent extends GameEvent {
-    private final int targetX;
-    private final int targetY;
+public record WalkFailedEvent(int targetX, int targetY, long timestamp) implements GameEvent {
 
     public WalkFailedEvent(int targetX, int targetY) {
-        super("walk_failed");
-        this.targetX = targetX;
-        this.targetY = targetY;
+        this(targetX, targetY, System.currentTimeMillis());
     }
-
-    /** Returns the intended target world X coordinate. */
-    public int getTargetX() { return targetX; }
-
-    /** Returns the intended target world Y coordinate. */
-    public int getTargetY() { return targetY; }
 }

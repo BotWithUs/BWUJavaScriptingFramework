@@ -2,9 +2,15 @@ package com.botwithus.bot.core.msgpack;
 
 import org.junit.jupiter.api.Test;
 
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MessagePackCodecTest {
 
@@ -31,7 +37,7 @@ class MessagePackCodecTest {
         map.put("i", 42);
         var decoded = MessagePackCodec.decode(MessagePackCodec.encode(map));
         // Small ints may decode as Integer or Long depending on msgpack internal representation
-        assertEquals(42, ((Number) decoded.get("i")).intValue());
+        assertEquals(42, assertInstanceOf(Number.class, decoded.get("i")).intValue());
     }
 
     @Test
@@ -53,7 +59,7 @@ class MessagePackCodecTest {
     void roundtripDouble() {
         var map = Map.<String, Object>of("d", 2.718281828);
         var decoded = MessagePackCodec.decode(MessagePackCodec.encode(new LinkedHashMap<>(map)));
-        assertEquals(2.718281828, (double) decoded.get("d"), 0.0001);
+        assertEquals(2.718281828, assertInstanceOf(Double.class, decoded.get("d")), 0.0001);
     }
 
     @Test
@@ -70,8 +76,7 @@ class MessagePackCodecTest {
         Map<String, Object> outer = new LinkedHashMap<>();
         outer.put("inner", inner);
         var decoded = MessagePackCodec.decode(MessagePackCodec.encode(outer));
-        @SuppressWarnings("unchecked")
-        var decodedInner = (Map<String, Object>) decoded.get("inner");
+        Map<?, ?> decodedInner = assertInstanceOf(Map.class, decoded.get("inner"));
         assertEquals("value", decodedInner.get("nested"));
     }
 
@@ -80,10 +85,9 @@ class MessagePackCodecTest {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("list", List.of(1, 2, 3));
         var decoded = MessagePackCodec.decode(MessagePackCodec.encode(map));
-        @SuppressWarnings("unchecked")
-        var list = (List<Object>) decoded.get("list");
+        List<?> list = assertInstanceOf(List.class, decoded.get("list"));
         assertEquals(3, list.size());
-        assertEquals(1, ((Number) list.get(0)).intValue());
+        assertEquals(1, assertInstanceOf(Number.class, list.get(0)).intValue());
     }
 
     @Test
@@ -122,9 +126,13 @@ class MessagePackCodecTest {
         };
 
         StringBuilder javaSb = new StringBuilder();
-        for (byte b : bytes) javaSb.append(String.format("%02x ", b & 0xff));
+        for (byte b : bytes) {
+            javaSb.append(String.format("%02x ", b & 0xff));
+        }
         StringBuilder pySb = new StringBuilder();
-        for (byte b : expected) pySb.append(String.format("%02x ", b & 0xff));
+        for (byte b : expected) {
+            pySb.append(String.format("%02x ", b & 0xff));
+        }
 
         assertEquals(pySb.toString().trim(), javaSb.toString().trim(),
             "Java msgpack encoding must match Python msgpack encoding");

@@ -4,6 +4,9 @@ package com.botwithus.bot.core.rpc;
  * Thrown when an RPC call exceeds its configured timeout.
  */
 public class RpcTimeoutException extends RpcException {
+
+    private static final long serialVersionUID = 1L;
+
     private final String method;
     private final long timeoutMs;
 
