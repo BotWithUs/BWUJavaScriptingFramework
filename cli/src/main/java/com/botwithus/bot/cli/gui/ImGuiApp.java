@@ -94,7 +94,6 @@ public class ImGuiApp extends Application {
                         Script Manager
 
               Type 'help' for available commands.
-              Press F2 to open the Blueprint Editor.
             """;
 
     private TextureManager textureManager;
@@ -529,7 +528,6 @@ public class ImGuiApp extends Application {
         ImGui.dummy(0f, fontH * 0.4f);
         renderBrandHeader(fontH, indent);
         renderNavigation(fontH, indent);
-        renderSidebarFooter(fontH, indent);
     }
 
     private static void renderBrandHeader(float fontH, float indent) {
@@ -639,22 +637,6 @@ public class ImGuiApp extends Application {
                     ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, activeT);
             draw.addRectFilled(x0 + indent * 0.25f, by0,
                     x0 + indent * 0.25f + bw, by0 + h, col, bw * 0.5f);
-        }
-    }
-
-    private static void renderSidebarFooter(float fontH, float indent) {
-        float footerH = ImGui.getFrameHeightWithSpacing() * 2.6f;
-        float bottomY = ImGui.getWindowHeight() - footerH;
-        if (bottomY > ImGui.getCursorPosY()) {
-            ImGui.setCursorPosY(bottomY);
-            GuiHelpers.subtleSeparator();
-            ImGui.dummy(0f, fontH * 0.25f);
-            ImGui.setCursorPosX(ImGui.getCursorPosX() + indent);
-            ImGui.textColored(
-                    ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.85f,
-                    Icons.DIAGRAM + "  Blueprint");
-            ImGui.sameLine(0, ImGui.getStyle().getItemSpacingX());
-            GuiHelpers.kbdHint("F2");
         }
     }
 
