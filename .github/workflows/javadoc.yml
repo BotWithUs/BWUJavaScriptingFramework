@@ -2,7 +2,11 @@ name: Deploy Javadoc to GitHub Pages
 
 on:
   push:
-    branches: [develop]
+    # The published docs track the release line. This sat on 'develop' only
+    # while master was five months stale; the develop -> master sync put the
+    # two trees back in step, so the site follows master again and a scripter
+    # reading it sees the API they can actually resolve a release artifact for.
+    branches: [master]
     # A release tag redeploys the docs so the published Javadoc matches the
     # version script authors just resolved. Both this and publish-api.yml fire
     # on a v* tag; the 'pages' concurrency group keeps deploys serialised.
