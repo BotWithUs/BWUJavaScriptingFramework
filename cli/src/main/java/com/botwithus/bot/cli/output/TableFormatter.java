@@ -19,7 +19,9 @@ public final class TableFormatter {
     }
 
     public String build() {
-        if (headers == null || headers.length == 0) return "";
+        if (headers == null || headers.length == 0) {
+            return "";
+        }
 
         int cols = headers.length;
         int[] widths = new int[cols];
@@ -66,7 +68,9 @@ public final class TableFormatter {
 
     private static String pad(String s, int width) {
         int visible = stripAnsi(s).length();
-        if (visible >= width) return s;
+        if (visible >= width) {
+            return s;
+        }
         return s + " ".repeat(width - visible);
     }
 

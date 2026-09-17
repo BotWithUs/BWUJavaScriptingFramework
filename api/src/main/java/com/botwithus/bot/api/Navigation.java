@@ -1,21 +1,27 @@
 package com.botwithus.bot.api;
 
-import com.botwithus.bot.api.model.*;
-
-import java.util.List;
+import com.botwithus.bot.api.domain.NavigationAPI;
+import com.botwithus.bot.api.model.PathResult;
+import com.botwithus.bot.api.model.WalkResult;
+import com.botwithus.bot.api.model.WalkStatus;
+import com.botwithus.bot.api.model.WorldPathConfig;
 
 /**
- * High-level navigation interface providing blocking walk operations,
- * navigation link management, teleport registration, and automatic cleanup.
+ * High-level navigation interface providing blocking walk operations.
  *
  * <p>Walk methods block the calling thread until the walk completes
  * (arrived, cancelled, failed, or timeout), but do <b>not</b> block
  * the pipe — other threads can still send RPC calls and receive events
  * while a walk is in progress.</p>
  *
- * <p>All link and teleport modifications made through this interface are
- * tracked. Call {@link #cleanup()} (or let the runtime call it when the
- * script stops) to undo every modification in reverse order.</p>
+ * <p><b>One script walks at a time.</b> A client has one character and one
+ * server-side action queue, so a walk requested while <em>another</em> script
+ * is walking is refused: the blocking call returns {@link WalkResult#FAILED}
+ * straight away rather than waiting, and the walk already in progress is left
+ * alone. Re-targeting your own walk is always allowed. {@link #cancelWalk()}
+ * and {@link #getWalkStatus()} are likewise scoped to the calling script, and
+ * the host and any managing {@code ManagementScript} keep override authority
+ * over every script's walk. The full contract is on {@link NavigationAPI}.</p>
  *
  * <p>Obtain an instance through {@link ScriptContext#getNavigation()}.</p>
  *
@@ -118,12 +124,15 @@ public interface Navigation {
     // ============================== Walk Control ==============================
 
     /**
-     * Cancels any active walk. Emits {@code walk_cancelled} if a walk was in progress.
+     * Cancels the walk this script started. Emits {@code walk_cancelled} if one
+     * was in progress. A no-op if the walk in progress belongs to another
+     * script; the host and management scripts may cancel any walk.
      */
     void cancelWalk();
 
     /**
-     * Returns the current walker state.
+     * Returns the walker state for the calling script — never a sibling
+     * script's. See {@link NavigationAPI#getWalkStatus()} for the state names.
      *
      * @return the walk status
      */
@@ -190,197 +199,6 @@ public interface Navigation {
      */
     PathResult findWorldPath(int fromX, int fromY, int toX, int toY);
 
-    // ============================== Nav Link Management ==============================
-
-    /**
-     * Adds a transport link to the navigation graph. Tracked for {@link #cleanup()}.
-     *
-     * @param transport the transport link to add
-     */
-    void addTransport(NavTransport transport);
-
-    /**
-     * Removes a transport link from the navigation graph.
-     *
-     * @param objectId game object ID
-     * @param x        world tile X
-     * @param y        world tile Y
-     * @param plane    plane
-     */
-    void removeTransport(int objectId, int x, int y, int plane);
-
-    /** Removes a transport link on plane 0. */
-    default void removeTransport(int objectId, int x, int y) {
-        removeTransport(objectId, x, y, 0);
-    }
-
-    /**
-     * Lists all transport links in the navigation graph.
-     *
-     * @return a list of transport links
-     */
-    List<NavTransport> listTransports();
-
-    /**
-     * Adds a door to the navigation graph. Tracked for {@link #cleanup()}.
-     *
-     * @param door the door to add
-     */
-    void addDoor(NavDoor door);
-
-    /**
-     * Removes a door from the navigation graph.
-     *
-     * @param objectId game object ID
-     * @param x        world tile X
-     * @param y        world tile Y
-     * @param plane    plane
-     */
-    void removeDoor(int objectId, int x, int y, int plane);
-
-    /** Removes a door on plane 0. */
-    default void removeDoor(int objectId, int x, int y) {
-        removeDoor(objectId, x, y, 0);
-    }
-
-    /**
-     * Lists all doors in the navigation graph.
-     *
-     * @return a list of doors
-     */
-    List<NavDoor> listDoors();
-
-    /**
-     * Adds an agility shortcut to the navigation graph. Tracked for {@link #cleanup()}.
-     *
-     * @param shortcut the shortcut to add
-     */
-    void addShortcut(NavShortcut shortcut);
-
-    /**
-     * Removes a shortcut from the navigation graph.
-     *
-     * @param objectId game object ID
-     * @param x        world tile X
-     * @param y        world tile Y
-     * @param plane    plane
-     */
-    void removeShortcut(int objectId, int x, int y, int plane);
-
-    /** Removes a shortcut on plane 0. */
-    default void removeShortcut(int objectId, int x, int y) {
-        removeShortcut(objectId, x, y, 0);
-    }
-
-    /**
-     * Adds a plane (floor level) transition. Tracked for {@link #cleanup()}.
-     *
-     * @param transition the plane transition to add
-     */
-    void addPlaneTransition(NavPlaneTransition transition);
-
-    /**
-     * Removes a plane transition from the navigation graph.
-     *
-     * @param objectId game object ID
-     * @param x        world tile X
-     * @param y        world tile Y
-     * @param plane    plane
-     */
-    void removePlaneTransition(int objectId, int x, int y, int plane);
-
-    /** Removes a plane transition on plane 0. */
-    default void removePlaneTransition(int objectId, int x, int y) {
-        removePlaneTransition(objectId, x, y, 0);
-    }
-
-    /**
-     * Adds a climbover obstacle. Tracked for {@link #cleanup()}.
-     *
-     * @param climbover the climbover to add
-     */
-    void addClimbover(NavClimbover climbover);
-
-    /**
-     * Removes a climbover from the navigation graph.
-     *
-     * @param objectId game object ID
-     * @param x        world tile X
-     * @param y        world tile Y
-     * @param plane    plane
-     */
-    void removeClimbover(int objectId, int x, int y, int plane);
-
-    /** Removes a climbover on plane 0. */
-    default void removeClimbover(int objectId, int x, int y) {
-        removeClimbover(objectId, x, y, 0);
-    }
-
-    // ============================== Batch Link Operations ==============================
-
-    /**
-     * Batch-adds transport links to the navigation graph.
-     * Not tracked for cleanup — use {@link #addTransport} individually for cleanup tracking.
-     *
-     * @param links the transport links to add
-     * @return the number of links added
-     */
-    int loadLinksJson(List<NavTransport> links);
-
-    /**
-     * Saves all navigation overrides (doors, shortcuts, transports, etc.) to a binary file.
-     *
-     * @param path output file path, or {@code null} for default {@code "nav_overrides.bin"}
-     */
-    void saveLinks(String path);
-
-    /**
-     * Loads navigation overrides from a binary file.
-     *
-     * @param path input file path, or {@code null} for default {@code "nav_overrides.bin"}
-     * @return the number of links loaded
-     */
-    int loadLinks(String path);
-
-    // ============================== Teleports ==============================
-
-    /**
-     * Registers custom teleports for the pathfinder using the {@code "item_teleports"} format.
-     * Tracked for {@link #cleanup()} — calling cleanup will remove all script-registered teleports.
-     *
-     * @param json JSON string containing teleport definitions
-     * @return the number of teleports added
-     */
-    default int registerTeleports(String json) {
-        return registerTeleports(json, "item_teleports");
-    }
-
-    /**
-     * Registers custom teleports for the pathfinder.
-     * Tracked for {@link #cleanup()} — calling cleanup will remove all script-registered teleports.
-     *
-     * @param json   JSON string containing teleport definitions
-     * @param format format: {@code "item_teleports"} or {@code "gibson"}
-     * @return the number of teleports added
-     */
-    int registerTeleports(String json, String format);
-
-    /**
-     * Removes all teleports registered via {@link #registerTeleports}.
-     * Built-in teleports (loaded from embedded resources) are preserved.
-     *
-     * @return the number of teleports removed
-     */
-    int clearScriptTeleports();
-
-    /**
-     * Lists registered teleports.
-     *
-     * @param scriptOnly if {@code true}, only list script-registered teleports
-     * @return a list of teleports
-     */
-    List<NavTeleport> listTeleports(boolean scriptOnly);
-
     // ============================== Region Cache ==============================
 
     /**
@@ -395,26 +213,12 @@ public interface Navigation {
      */
     void clearRegionCache();
 
-    // ============================== Stats ==============================
-
-    /**
-     * Returns navigation data statistics.
-     *
-     * @return the nav stats
-     */
-    NavStats getNavStats();
-
     // ============================== Cleanup ==============================
 
     /**
-     * Undoes all navigation modifications made through this instance.
-     *
-     * <p>In reverse order: removes all added links (transports, doors,
-     * shortcuts, plane transitions, climbovers), clears script-registered
-     * teleports, and cancels any active walk.</p>
-     *
-     * <p>Called automatically by the script runtime when a script stops.
-     * Scripts may also call this explicitly to reset their navigation state.</p>
+     * Cancels this script's active walk and waits for its walker to stop.
+     * Called automatically by the script runtime when a script stops. Scripts
+     * may also call this explicitly. A sibling script's walk is left running.
      */
     void cleanup();
 }

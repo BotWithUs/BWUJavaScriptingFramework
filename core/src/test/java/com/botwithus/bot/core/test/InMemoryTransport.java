@@ -2,7 +2,11 @@ package com.botwithus.bot.core.test;
 
 import com.botwithus.bot.core.msgpack.MessagePackCodec;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Map;
@@ -58,15 +62,27 @@ public class InMemoryTransport {
 
     private static byte[] readFramed(InputStream in) throws IOException {
         byte[] header = in.readNBytes(4);
-        if (header.length < 4) throw new IOException("Stream closed");
+        if (header.length < 4) {
+            throw new IOException("Stream closed");
+        }
         int length = ByteBuffer.wrap(header).order(ByteOrder.LITTLE_ENDIAN).getInt();
         byte[] payload = in.readNBytes(length);
-        if (payload.length < length) throw new IOException("Incomplete message");
+        if (payload.length < length) {
+            throw new IOException("Incomplete message");
+        }
         return payload;
     }
 
     public void close() {
-        try { clientToServer.close(); } catch (IOException ignored) {}
-        try { serverToClient.close(); } catch (IOException ignored) {}
+        try {
+            clientToServer.close();
+        } catch (IOException ignored) {
+            // best-effort close in test fixture
+        }
+        try {
+            serverToClient.close();
+        } catch (IOException ignored) {
+            // best-effort close in test fixture
+        }
     }
 }

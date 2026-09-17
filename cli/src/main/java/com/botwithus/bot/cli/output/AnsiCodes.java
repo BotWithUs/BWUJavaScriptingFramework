@@ -20,27 +20,37 @@ public final class AnsiCodes {
 
     public static boolean isSupported() {
         String term = System.getenv("TERM");
-        if (term != null && !term.equals("dumb")) return true;
+        if (term != null && !term.equals("dumb")) {
+            return true;
+        }
         // Windows Terminal and modern consoles support ANSI
         String wtSession = System.getenv("WT_SESSION");
-        if (wtSession != null) return true;
+        if (wtSession != null) {
+            return true;
+        }
         // ConEmu/Cmder
         String conEmu = System.getenv("ConEmuANSI");
         return "ON".equalsIgnoreCase(conEmu);
     }
 
     public static String colorize(String text, String color) {
-        if (!isSupported()) return text;
+        if (!isSupported()) {
+            return text;
+        }
         return color + text + RESET;
     }
 
     public static String bold(String text) {
-        if (!isSupported()) return text;
+        if (!isSupported()) {
+            return text;
+        }
         return BOLD + text + RESET;
     }
 
     public static String dim(String text) {
-        if (!isSupported()) return text;
+        if (!isSupported()) {
+            return text;
+        }
         return DIM + text + RESET;
     }
 }

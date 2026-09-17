@@ -27,15 +27,18 @@ class LogBufferAppenderTest {
     void setUp() {
         logBuffer = new LogBuffer(100);
 
+        // rule-exception: {rule:no-casts} — SLF4J/Logback binding boundary; same shape
+        // as ImGuiApp.wireLogBufferAppender. ILoggerFactory → LoggerContext narrowing
+        // is forced by the SDK and isolated at this one setup site.
         LoggerContext context = (LoggerContext) LoggerFactory.getILoggerFactory();
         appender = new LogBufferAppender();
         appender.setContext(context);
         appender.start();
-        LogBufferAppender.setLogBuffer(logBuffer);
+        appender.setLogBuffer(logBuffer);
 
         testLogger = context.getLogger("com.botwithus.test.TestClass");
         testLogger.addAppender(appender);
-        testLogger.setLevel(Level.ALL);
+        testLogger.setLevel(Level.TRACE);
         testLogger.setAdditive(false); // don't propagate to root
     }
 
@@ -43,7 +46,7 @@ class LogBufferAppenderTest {
     void tearDown() {
         testLogger.detachAppender(appender);
         appender.stop();
-        LogBufferAppender.setLogBuffer(null);
+        appender.setLogBuffer(null);
         MDC.clear();
     }
 
@@ -98,10 +101,10 @@ class LogBufferAppenderTest {
 
     @Test
     void dropsEventsWhenNoBuffer() {
-        LogBufferAppender.setLogBuffer(null);
+        appender.setLogBuffer(null);
         assertDoesNotThrow(() -> testLogger.info("should not throw"));
         // Re-set buffer and verify nothing was captured
-        LogBufferAppender.setLogBuffer(logBuffer);
+        appender.setLogBuffer(logBuffer);
         assertEquals(0, logBuffer.size());
     }
 

@@ -10,6 +10,11 @@ public interface SharedState {
     /**
      * Stores a value under the given key, replacing any existing value.
      *
+     * <p>The store holds a bounded number of distinct keys. Once full it keeps
+     * accepting overwrites of keys it already has but drops writes that would
+     * introduce a new one, so a runaway script cannot exhaust the host's heap.
+     * Reaching the bound is a bug in the writer, not a state to design around.</p>
+     *
      * @param key   the key to store the value under
      * @param value the value to store
      */
@@ -26,15 +31,18 @@ public interface SharedState {
     /**
      * Retrieves and casts the value stored under the given key.
      *
+     * <p>This is the prescribed typed-key recovery idiom for the script blackboard:
+     * the store remains heterogeneous-by-design, but the lookup recovers the narrow
+     * type at the call site via the supplied class token.</p>
+     *
      * @param <T>  the expected value type
      * @param key  the key to look up
      * @param type the expected class of the value
      * @return the stored value cast to {@code T}, or {@code null} if not present or not an instance of {@code type}
      */
-    @SuppressWarnings("unchecked")
     default <T> T get(String key, Class<T> type) {
         Object value = get(key);
-        return type.isInstance(value) ? (T) value : null;
+        return type.isInstance(value) ? type.cast(value) : null;
     }
 
     /**

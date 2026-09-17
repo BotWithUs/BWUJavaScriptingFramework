@@ -197,7 +197,9 @@ public final class AnsiOutputBuffer {
         }
 
         private void flushSegment() {
-            if (textBuffer.size() == 0) return;
+            if (textBuffer.size() == 0) {
+                return;
+            }
             String text = textBuffer.toString(StandardCharsets.UTF_8);
             textBuffer.reset();
 

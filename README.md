@@ -4,9 +4,9 @@ A modular Java 21 game scripting framework that communicates with a game server 
 
 ## Requirements
 
-- Java 21+
-- Windows (named pipe transport)
-- Gradle 8.14+ (included via wrapper)
+- Java 25 (auto-provisioned by Gradle's toolchain — no manual install needed if Gradle has network access)
+- Windows (named pipe + shared-memory transports)
+- Gradle 9.5+ (included via wrapper)
 
 ## Quick Start
 
@@ -22,20 +22,24 @@ The GUI provides a tabbed interface for connecting to the game server, managing 
 
 ## Module Architecture
 
-Four Gradle subprojects with strict dependency layering:
+Five Gradle subprojects with strict dependency layering:
 
 ```
-api                 (slf4j-api)      — Public interfaces, models, query builders
+api                 (slf4j-api)                — Public interfaces, models, snapshot view, query builders
   ↑ required by
-core                (api + msgpack + logback) — RPC client, pipe transport, script runtime
-  ↑ required by
-cli                 (api + core)     — Interactive GUI, command system
-example-script      (api only)       — Example BotScript implementations
+core                (api + msgpack + logback   — Pipe + SHM transport, RPC client, script runtime,
+                     + panama)                   cache + pathfinder bridges
+  ↑ required by                                ↑
+cli                 (api + core + imgui)       test-support  (api)
+                                               — Mocks for downstream script projects
+example-script      (api only)                 — Example BotScript implementations
 ```
 
 ### api
 
-Pure interface module whose only dependency is `slf4j-api` (exposed transitively so scripts get SLF4J for free). Contains `BotScript` (the SPI), `GameAPI` (100+ methods for game interaction), fluent entity query builders (`Npcs`, `Players`, `SceneObjects`, `GroundItems`), inventory wrappers (`Backpack`, `Bank`, `Equipment`), an event bus, and inter-script communication via `MessageBus`.
+Pure interface module whose only dependency is `slf4j-api` (exposed transitively so scripts get SLF4J for free). Contains `BotScript` (the SPI), `Client` / `ClientProvider`, `GameAPI` (slim RPC surface composed of `SystemAPI` / `ActionAPI` / `NavigationAPI` for mutations and state probes), `GameSnapshot` (the tick-scoped read view backed by shared memory), fluent entity query builders (`Npcs`, `Players`, `SceneObjects`, `GroundItems`, `WorldMapElements`), inventory wrappers (`Backpack`, `Bank`, `Equipment`), an event bus, and inter-script communication via `MessageBus`.
+
+> **Reads vs writes.** Live state (local player, NPCs, players, locations, inventories) is read from `Client.snapshot()` — a per-tick shared-memory view, no RPC round-trip. `GameAPI` is for mutations, login/break controls, client-script execution, and cache-type lookups.
 
 Key packages:
 - **`blueprint`** — Visual graph workflow model (`BlueprintGraph`, `NodeInstance`, `Link`, `PinDefinition`)
@@ -51,11 +55,11 @@ Key packages:
 
 ### core
 
-Runtime and communication layer. Handles Windows named pipe I/O (`PipeClient`), synchronous JSON-RPC with MessagePack serialization (`RpcClient`), script discovery from JAR files (`ScriptLoader`), and script lifecycle management on virtual threads (`ScriptRuntime`, `ScriptRunner`).
+Runtime and communication layer. Owns both transports: Windows named pipe I/O (`pipe/PipeClient`, `\\.\pipe\BotWithUs_<pid>`) for synchronous msgpack JSON-RPC (`rpc/RpcClient`), and the shared-memory mapping (`shm/SharedRegion`, `Local\nxt_snapshot_<pid>`) that exposes the producer's per-tick snapshot + event ring. Discovers script JARs from the `scripts/` directory (`runtime/LocalScriptLoader`) and runs each script on a virtual thread (`runtime/ScriptRuntime`, `runtime/ScriptRunner`).
 
 Key features:
 - **RPC timeouts** — Configurable per-call timeouts with `RpcTimeoutException`
-- **Retry & reconnect** — `RetryPolicy` with exponential backoff, `ReconnectablePipeClient` for auto-reconnect
+- **Retry** — `RetryPolicy` with exponential backoff for transient RPC failures
 - **Metrics** — `RpcMetrics` tracks call count, latency, and error rate per method
 - **Profiling** — `ScriptProfiler` tracks loop timing (avg/min/max/last)
 - **Error isolation** — Per-phase error handling in `ScriptRunner` (onStart/onLoop/onStop)
@@ -72,7 +76,7 @@ Commands:
 |---------|---------|-------------|
 | `connect` | | Connect to a game server pipe |
 | `disconnect` | | Disconnect from a pipe |
-| `scripts` | | List / start / stop scripts |
+| `scripts` | `s` | List / start / stop / restart scripts, view info / config / status |
 | `mgmt` | `management`, `m` | Manage management scripts (list, start, stop, restart, reload, info) |
 | `client` | `cm`, `clients` | Manage clients, groups, and cross-client script operations |
 | `stream` | `sv` | Start/stop live game video streaming with quality/fps/resolution options |
@@ -83,6 +87,7 @@ Commands:
 | `config` | | Persistent CLI configuration (`~/.botwithus/config.properties`) |
 | `actions` | | Inspect the game action queue, history, and blocked state |
 | `events` | | Monitor event bus subscriptions and publish counts |
+| `player` | `self`, `pos` | Print local player position and state from the snapshot (`player skills` for the skills table) |
 | `autostart` | | Manage per-account script auto-start profiles |
 | `reload` | | Reload scripts (supports `--watch` for auto-reload on JAR change) |
 | `mount` / `unmount` | | Mount/unmount script directories |
@@ -101,7 +106,11 @@ GUI panels:
 
 ### example-script
 
-Reference implementations (`ExampleScript`, `WoodcuttingFletcherScript`). `ExampleScript` demonstrates the custom Script UI system with status display, controls, and an entity summary table. Building this module automatically installs the JAR to the `scripts/` directory.
+Reference implementations: `ExampleScript` (Script UI demo with status display, controls, and entity summary table), `WoodcuttingFletcherScript`, `LocationProbeScript` (smoke test against the live producer's scene Locations table), `WalkToFlagScript`, and `DivinationScript`. Building this module automatically installs the JAR to the `scripts/` directory.
+
+### test-support
+
+Published as `bot-test-support`. Mocks for downstream script projects to unit-test against the API: `MockGameAPI`, `MockScriptContext`, `CannedSnapshot`, `InMemoryEventBus`.
 
 ## Writing a Script
 
@@ -132,9 +141,11 @@ public class MyScript implements BotScript {
     @Override
     public int onLoop() {
         GameAPI api = ctx.getGameAPI();
-        // Query entities, interact with the game
-        Npcs npcs = new Npcs(api);
-        // ...
+        GameSnapshot snap = api.snapshot();         // tick-scoped read view (SHM-backed)
+        // Read live state from the snapshot, mutate via api
+        if (snap != null && snap.self() != null) {
+            // ...
+        }
         return 1000; // delay in ms before next loop, or -1 to stop
     }
 
@@ -196,16 +207,32 @@ provides com.botwithus.bot.api.script.ManagementScript with my.script.GroupRotat
 
 ### Script Scheduling
 
-The `ScriptScheduler` enables deferred and recurring script execution:
+ManagementScripts schedule scripts through `ClientOrchestrator`. The orchestrator owns per-client targeting, so each call states *which* client(s) the schedule applies to. Single-client, group, and all-client variants exist for one-shot (`scheduleScript` / `scheduleScriptAt`) and recurring (`scheduleScriptEvery`) operations, each with optional `Map<String, Object>` config for the started script:
 
 ```java
-ScriptScheduler scheduler = ctx.getScriptManager().getScheduler();
+// One-shot in 10 minutes on a specific client
+orchestrator.scheduleScript("Account1", "Woodcutter", Duration.ofMinutes(10));
 
-scheduler.runAfter("Woodcutter", Duration.ofMinutes(10));       // one-shot after delay
-scheduler.runAt("Fisher", Instant.parse("2026-03-09T14:00:00Z")); // at specific time
-scheduler.runEvery("Miner", Duration.ofHours(2));               // recurring
-scheduler.runEvery("Crafter", Duration.ofMinutes(30), Duration.ofMinutes(5)); // recurring with auto-stop
+// Scheduled start at a specific instant on every client in a group
+orchestrator.scheduleScriptOnGroupAt("Skillers", "Fisher", Instant.parse("2026-03-09T14:00:00Z"));
+
+// Recurring every 2h across the whole fleet
+orchestrator.scheduleScriptOnAllEvery("Miner", Duration.ofHours(2));
+
+// Recurring with auto-stop after 5 min per cycle, group-wide
+orchestrator.scheduleScriptOnGroupEvery("Skillers", "Crafter",
+        Duration.ofMinutes(30), Duration.ofMinutes(5));
+
+// Cancel by id, or wipe everything
+orchestrator.cancelSchedule("Account1", scheduleId);
+orchestrator.cancelAllSchedules();
+
+// Observe scheduled state
+orchestrator.listScheduled().forEach(e ->
+        log.info("{}: {} next at {}", e.clientName(), e.scriptName(), e.nextRun()));
 ```
+
+`ScriptScheduler` itself remains a framework-internal type — each instance is bound to one Connection's runtime, and the orchestrator routes calls to the right one.
 
 ## Script UI
 
@@ -238,6 +265,39 @@ module my.script {
 ```
 
 The `render()` method is called every frame on the UI thread. Each script with a UI gets its own tab in the Script UI panel.
+
+## Live Config
+
+Scripts expose runtime-editable parameters by overriding two methods on `BotScript`:
+
+```java
+@Override
+public List<ConfigField> getConfigFields() {
+    return List.of(
+            ConfigField.intField("loopDelay", "Loop Delay (ms)", 5000),
+            ConfigField.boolField("verbose", "Verbose Logging", true),
+            ConfigField.choiceField("mode", "Operating Mode",
+                    List.of("Passive", "Active", "Aggressive"), "Passive"),
+            ConfigField.itemIdField("axeId", "Axe Item ID", 1351),
+            ConfigField.stringField("greeting", "Greeting Text", "hello"));
+}
+
+@Override
+public void onConfigUpdate(ScriptConfig config) {
+    this.loopDelay = config.getInt("loopDelay", 5000);
+    this.verbose = config.getBoolean("verbose", true);
+    this.mode = config.getString("mode", "Passive");
+}
+```
+
+`ConfigField` supports five kinds: `INT`, `STRING`, `BOOLEAN`, `CHOICE`, and `ITEM_ID`. The framework renders a typed widget per field — number spinner for `INT`/`ITEM_ID`, text input for `STRING`, checkbox for `BOOLEAN`, dropdown for `CHOICE`. Open the panel from the Scripts list (Configure button on each script card).
+
+`onConfigUpdate(ScriptConfig)` fires twice:
+
+1. **At startup** — once the saved config is loaded from disk (or the defaults if nothing is persisted yet). This happens before `onLoop` begins.
+2. **At runtime** — every time the user clicks "Apply" in the config panel. The script keeps running; treat this as a hot reload of your tuning knobs.
+
+Persistence: configs are written to `~/.botwithus/config/<scriptName>.json` after every "Apply". The same file is read at script start. Editing the JSON by hand works — the change picks up on next start. Delete the file to reset to declared defaults.
 
 ## Personality & Humanization
 
@@ -306,11 +366,25 @@ When enabled (`autostart on`), the app scans for new pipes in the background and
 
 ## Communication Flow
 
+The producer (an injected C++ DLL) exposes two transports under the same `<pid>` suffix; both bind together via `Client`:
+
 ```
-BotScript → GameAPI → RpcClient → PipeClient → Game Server (named pipe)
+                          ┌──────────────────────────────┐
+                          │  Injected NXTLibrary DLL     │
+                          │  (game process, per-pid)     │
+                          └─────────┬────────────────┬───┘
+                                    │                │
+              \\.\pipe\BotWithUs_<pid>      Local\nxt_snapshot_<pid>
+                  (msgpack JSON-RPC)        (per-tick snapshot + event ring)
+                                    │                │
+       ┌──── mutations / probes ────┘                └──── live reads ─────┐
+       ▼                                                                   ▼
+  BotScript → GameAPI → RpcClient → PipeClient                  Client.snapshot() → GameSnapshot
+                                                                                    (via SharedRegion)
 ```
 
-The pipe transport uses length-prefixed MessagePack frames over `\\.\pipe\BotWithUs`. The RPC client provides synchronous request/response semantics with async event dispatch.
+- **Pipe (RPC)**: length-prefixed MessagePack frames, synchronous request/response. Used for mutations, login/break control, action queueing, navigation, client-script execution, and cache-type lookups.
+- **SHM (snapshot + events)**: `core/shm/SharedRegion` maps the producer's double-buffered snapshot region; readers honour acquire-load on `frontIdx` and per-slot `seq` so reads tear-free. The event ring carries push-style notifications consumed by `EventBus`. `Layout.PROTOCOL_VERSION` must match the producer's `kProtocolVersion`.
 
 ## Testing
 
@@ -321,6 +395,54 @@ The pipe transport uses length-prefixed MessagePack frames over `\\.\pipe\BotWit
 
 Tests cover MessagePack codec, RPC metrics, event bus, message bus, script runner/runtime, script profiler, script profile persistence, auto-start command, connection groups, and end-to-end transport with a mock game server.
 
+## Using the API in your own project
+
+The `api` module is published as `com.botwithus:bot-api` to a static Maven
+repository hosted at [BotWithUs/maven](https://github.com/BotWithUs/maven) and
+served over GitHub Pages. It resolves anonymously — no token, no login:
+
+```kotlin
+repositories {
+    mavenCentral()
+    maven { url = uri("https://botwithus.github.io/maven") }
+}
+
+dependencies {
+    implementation("com.botwithus:bot-api:1.0.0")
+}
+```
+
+Sources and Javadoc jars are published alongside each release, so IDEs pick up
+documentation and step-through sources automatically.
+
+### Cutting a release
+
+Releases are tagged, and the tag drives the version:
+
+```bash
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+That tag does three things: publishes `bot-api` to the Maven repository,
+redeploys the Javadoc so the docs match the version just published, and cuts a
+[GitHub release](https://github.com/BotWithUs/BWUJavaScriptingFramework/releases)
+carrying the jar, sources, and javadoc. Builds without `-PreleaseVersion` stay on
+`1.0-SNAPSHOT`, which is never published. Published versions are immutable — the workflow fails rather than
+overwrite one, so a bad release is corrected by cutting the next version.
+
+
+### Contributing
+
+Day-to-day work happens on `develop`. `master` is protected: changes land through
+a pull request carrying one approving review and a green CI build, and cannot be
+force-pushed or deleted. CI builds and tests `api`, `core`, `test-support`,
+`quest-core` and `skilling-core` — the modules that compile from a bare clone;
+`cli` and the script modules need machine-specific paths in `local.properties`.
+
+Release tags cannot be moved or deleted once pushed, so a published version is
+never silently replaced.
+
 ## API Documentation
 
 Javadoc is generated for the API module and published to GitHub Pages. Build locally with:
@@ -328,3 +450,13 @@ Javadoc is generated for the API module and published to GitHub Pages. Build loc
 ```bash
 ./gradlew :api:javadoc
 ```
+
+## Troubleshooting
+
+**Pipe not found.** Connect fails with "no pipe matching `\\.\pipe\BotWithUs_*` found". The agent DLL hasn't injected, or it injected into a different client PID. Confirm the game client is running, the agent loaded successfully, and the PID matches. `PipeClient.firstAvailableOrThrow` walks `\\.\pipe\` and picks the first match — if multiple game clients are running, pass an explicit pipe name to `connect`.
+
+**Protocol-version mismatch.** Connect succeeds but reads fail immediately with "shared region protocol version X, expected Y" — the consumer (`Layout.PROTOCOL_VERSION`) and the producer (`kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h`) drifted. Rebuild both sides from matching commits; `SharedRegion.open()` refuses to map a region whose version byte doesn't match.
+
+**Missing `provides` clause.** A JAR is placed in `scripts/` but doesn't show up in the Scripts panel. The most common cause is forgetting `provides com.botwithus.bot.api.BotScript with my.script.MyScript;` in the script's `module-info.java`. `LocalScriptLoader` emits a WARN-level log line when a module-bearing JAR contains no `BotScript` provider — check the log to confirm.
+
+**Scripts folder discovery order.** `LocalScriptLoader.resolveScriptsDir()` checks the `botwithus.scripts.dir` system property first; if unset, it looks for a `scripts/` subdirectory of the current working directory; if that is missing, it falls back to `~/.botwithus/scripts`. Parent directories are **not** searched — every JAR found is loaded as fully-trusted code with no signature check, so searching upward would let a `scripts/` planted in any ancestor of the working directory take over. If your script JAR isn't being picked up, the most common cause is running the CLI from a different working directory — set `-Dbotwithus.scripts.dir=/absolute/path/to/scripts` or check the log for the resolved path.

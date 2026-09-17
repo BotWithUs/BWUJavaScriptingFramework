@@ -5,8 +5,9 @@ import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.ParsedCommand;
-import com.botwithus.bot.cli.command.impl.ExitCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
+import com.botwithus.bot.core.pipe.PipeException;
+import com.botwithus.bot.core.rpc.RpcException;
 
 import imgui.ImGui;
 import imgui.flag.ImGuiInputTextFlags;
@@ -73,7 +74,9 @@ public class ConsolePanel implements GuiPanel {
         List<OutputLine> snapshot = outputBuffer.snapshot();
         for (int i = 0; i < snapshot.size(); i++) {
             OutputLine line = snapshot.get(i);
-            if (line.isRemoved()) continue;
+            if (line.isRemoved()) {
+                continue;
+            }
 
             switch (line.getType()) {
                 case TEXT -> {
@@ -162,38 +165,42 @@ public class ConsolePanel implements GuiPanel {
     private void renderInputBar(CliContext ctx) {
         GuiHelpers.subtleSeparator();
         ImGui.spacing();
+        renderPrompt(ctx);
+        ImGui.sameLine();
+        renderInputField(ctx);
+    }
 
-        // Prompt
+    private static void renderPrompt(CliContext ctx) {
         boolean connected = ctx.hasActiveConnection();
         String connName = ctx.getActiveConnectionName();
         int count = ctx.getConnections().size();
         String mountedName = ctx.getMountedConnectionName();
 
-        if (connected && connName != null) {
-            ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.8f, ">");
-            ImGui.sameLine(0, 6);
-            GuiHelpers.textSecondary("bwu:");
-            ImGui.sameLine(0, 0);
-            ImGui.textColored(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G, ImGuiTheme.CYAN_B, 0.9f, connName);
-            if (count > 1) {
-                ImGui.sameLine(0, 2);
-                GuiHelpers.textMuted("[" + count + "]");
-            }
-            if (mountedName != null) {
-                ImGui.sameLine(0, 6);
-                ImGui.textColored(ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B, 0.7f, "[mounted]");
-            }
-            ImGui.sameLine(0, 2);
-            GuiHelpers.textMuted(">");
-        } else {
+        if (!connected || connName == null) {
             ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.6f, "o");
             ImGui.sameLine(0, 6);
             GuiHelpers.textMuted("bwu>");
+            return;
         }
 
-        ImGui.sameLine();
+        ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.8f, ">");
+        ImGui.sameLine(0, 6);
+        GuiHelpers.textSecondary("bwu:");
+        ImGui.sameLine(0, 0);
+        ImGui.textColored(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G, ImGuiTheme.CYAN_B, 0.9f, connName);
+        if (count > 1) {
+            ImGui.sameLine(0, 2);
+            GuiHelpers.textMuted("[" + count + "]");
+        }
+        if (mountedName != null) {
+            ImGui.sameLine(0, 6);
+            ImGui.textColored(ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G, ImGuiTheme.MAGENTA_B, 0.7f, "[mounted]");
+        }
+        ImGui.sameLine(0, 2);
+        GuiHelpers.textMuted(">");
+    }
 
-        // Input field
+    private void renderInputField(CliContext ctx) {
         ImGui.pushItemWidth(ImGui.getContentRegionAvailX());
         int flags = ImGuiInputTextFlags.EnterReturnsTrue | ImGuiInputTextFlags.CallbackHistory
                 | ImGuiInputTextFlags.CallbackCompletion;
@@ -215,35 +222,37 @@ public class ConsolePanel implements GuiPanel {
             scrollToBottom = true;
         }
 
-        // Handle history with arrow keys
         if (ImGui.isItemFocused()) {
-            if (ImGui.isKeyPressed(GLFW.GLFW_KEY_UP)) {
-                if (!history.isEmpty() && historyIndex > 0) {
-                    historyIndex--;
+            handleHistoryKeys();
+        }
+        ImGui.popItemWidth();
+    }
+
+    private void handleHistoryKeys() {
+        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_UP)) {
+            if (!history.isEmpty() && historyIndex > 0) {
+                historyIndex--;
+                inputBuffer.set(history.get(historyIndex));
+            }
+        }
+        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_DOWN)) {
+            if (historyIndex < history.size()) {
+                historyIndex++;
+                if (historyIndex == history.size()) {
+                    inputBuffer.set("");
+                } else {
                     inputBuffer.set(history.get(historyIndex));
                 }
             }
-            if (ImGui.isKeyPressed(GLFW.GLFW_KEY_DOWN)) {
-                if (historyIndex < history.size()) {
-                    historyIndex++;
-                    if (historyIndex == history.size()) {
-                        inputBuffer.set("");
-                    } else {
-                        inputBuffer.set(history.get(historyIndex));
-                    }
-                }
-            }
-            if (ImGui.isKeyPressed(GLFW.GLFW_KEY_TAB)) {
-                autoComplete();
-            }
         }
-
-        ImGui.popItemWidth();
+        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_TAB)) {
+            autoComplete();
+        }
     }
 
     private void handleCommand(String line, CliContext ctx) {
         PrintStream out = outputBuffer.getPrintStream();
-        out.println(AnsiCodes.colorize("> " + line, "\u001B[33m"));
+        out.println(AnsiCodes.colorize("> " + line, AnsiCodes.YELLOW));
 
         executor.submit(() -> {
             ParsedCommand parsed = CommandParser.parse(line);
@@ -254,14 +263,14 @@ public class ConsolePanel implements GuiPanel {
                 return;
             }
 
-            if (cmd instanceof ExitCommand) {
+            if (cmd.requestsShutdown()) {
                 shutdownHook.run();
                 return;
             }
 
             try {
                 cmd.execute(parsed, ctx);
-            } catch (com.botwithus.bot.core.pipe.PipeException | com.botwithus.bot.core.rpc.RpcException e) {
+            } catch (PipeException | RpcException e) {
                 out.println("Connection error: " + e.getMessage());
                 String connName = ctx.getActiveConnectionName();
                 if (connName != null) {
@@ -274,9 +283,13 @@ public class ConsolePanel implements GuiPanel {
     }
 
     private void autoComplete() {
-        if (registry == null) return;
+        if (registry == null) {
+            return;
+        }
         String prefix = inputBuffer.get().toLowerCase();
-        if (prefix.isEmpty()) return;
+        if (prefix.isEmpty()) {
+            return;
+        }
 
         List<String> matches = new ArrayList<>();
         for (var cmd : registry.all()) {
@@ -314,7 +327,9 @@ public class ConsolePanel implements GuiPanel {
 
     private static String extractLineText(OutputLine line) {
         List<OutputLine.Segment> segments = line.getSegments();
-        if (segments == null || segments.isEmpty()) return "";
+        if (segments == null || segments.isEmpty()) {
+            return "";
+        }
         StringBuilder sb = new StringBuilder();
         for (OutputLine.Segment seg : segments) {
             sb.append(seg.text());
@@ -326,7 +341,9 @@ public class ConsolePanel implements GuiPanel {
         List<OutputLine> lines = existing != null ? existing : outputBuffer.snapshot();
         StringBuilder sb = new StringBuilder();
         for (OutputLine line : lines) {
-            if (line.isRemoved()) continue;
+            if (line.isRemoved()) {
+                continue;
+            }
             if (line.getType() == OutputLine.Type.TEXT) {
                 sb.append(extractLineText(line)).append('\n');
             } else if (line.getType() == OutputLine.Type.PROGRESS) {

@@ -6,6 +6,8 @@ import java.util.Map;
 
 public class CommandRegistry {
 
+    public CommandRegistry() {}
+
     private final Map<String, Command> commands = new LinkedHashMap<>();
     private final Map<String, Command> aliasMap = new LinkedHashMap<>();
 
@@ -18,7 +20,9 @@ public class CommandRegistry {
 
     public Command resolve(String name) {
         Command cmd = commands.get(name.toLowerCase());
-        if (cmd != null) return cmd;
+        if (cmd != null) {
+            return cmd;
+        }
         return aliasMap.get(name.toLowerCase());
     }
 

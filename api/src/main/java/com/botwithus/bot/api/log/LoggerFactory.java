@@ -9,10 +9,12 @@ public final class LoggerFactory {
     private LoggerFactory() {}
 
     public static BotLogger getLogger(String name) {
+        // FQN intentional: this class shadows org.slf4j.LoggerFactory by name.
+        // Concentrated to one site; the Class overload delegates here.
         return new Slf4jBotLogger(org.slf4j.LoggerFactory.getLogger(name));
     }
 
     public static BotLogger getLogger(Class<?> clazz) {
-        return new Slf4jBotLogger(org.slf4j.LoggerFactory.getLogger(clazz));
+        return getLogger(clazz.getName());
     }
 }

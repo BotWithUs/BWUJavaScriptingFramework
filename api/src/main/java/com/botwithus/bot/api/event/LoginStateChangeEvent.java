@@ -4,20 +4,14 @@ package com.botwithus.bot.api.event;
  * Fired when the client login state changes (e.g., lobby to logged in).
  *
  * <p>Common states: {@code 10} = lobby, {@code 20} = loading, {@code 30} = logged in.</p>
+ *
+ * @param oldState  the previous login state value
+ * @param newState  the new login state value
+ * @param timestamp event creation time in milliseconds since epoch
  */
-public class LoginStateChangeEvent extends GameEvent {
-    private final int oldState;
-    private final int newState;
+public record LoginStateChangeEvent(int oldState, int newState, long timestamp) implements GameEvent {
 
     public LoginStateChangeEvent(int oldState, int newState) {
-        super("login_state_change");
-        this.oldState = oldState;
-        this.newState = newState;
+        this(oldState, newState, System.currentTimeMillis());
     }
-
-    /** Returns the previous login state value. */
-    public int getOldState() { return oldState; }
-
-    /** Returns the new login state value. */
-    public int getNewState() { return newState; }
 }

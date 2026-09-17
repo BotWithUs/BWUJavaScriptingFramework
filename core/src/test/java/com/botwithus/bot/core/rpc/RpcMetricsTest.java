@@ -45,7 +45,8 @@ class RpcMetricsTest {
 
     @Test
     void avgLatencyWithZeroCalls() {
-        RpcMetrics.MethodStats stats = new RpcMetrics.MethodStats(0, 0, 0);
+        RpcMetrics.MethodStats stats = new RpcMetrics.MethodStats(0, 0, 0,
+                new long[]{0L, 0L, 0L}, new int[]{50, 95, 99});
         assertEquals(0, stats.avgLatencyMs());
     }
 
@@ -59,5 +60,26 @@ class RpcMetricsTest {
         assertEquals(2, snapshot.size());
         assertNotNull(snapshot.get("method.a"));
         assertNotNull(snapshot.get("method.b"));
+    }
+
+    @Test
+    void capturedPercentilesReflectRecentSamples() {
+        RpcMetrics metrics = new RpcMetrics();
+        // 1ms, 2ms, ..., 100ms — p50 = 50ms, p95 = 95ms, p99 = 99ms (within tolerance)
+        for (int i = 1; i <= 100; i++) {
+            metrics.recordCall("perf.method", i * 1_000_000L, false);
+        }
+        RpcMetrics.MethodStats stats = metrics.snapshot().get("perf.method");
+        assertEquals(50, stats.percentileMs(50));
+        assertEquals(95, stats.percentileMs(95));
+        assertEquals(99, stats.percentileMs(99));
+    }
+
+    @Test
+    void percentilesEmptyForUnknownPercentile() {
+        RpcMetrics metrics = new RpcMetrics();
+        metrics.recordCall("perf.method", 1_000_000L, false);
+        RpcMetrics.MethodStats stats = metrics.snapshot().get("perf.method");
+        assertEquals(0L, stats.percentileMs(75));
     }
 }

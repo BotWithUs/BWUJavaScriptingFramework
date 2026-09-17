@@ -10,13 +10,20 @@ import imgui.type.ImBoolean;
 
 public class ScriptUIWindow {
 
+    public ScriptUIWindow() {}
+
+    /** Default width (px) for the script custom-UI window. */
+    private static final int CUSTOM_UI_WINDOW_DEFAULT_WIDTH = 925;
+    /** Default height (px) for the script custom-UI window. */
+    private static final int CUSTOM_UI_WINDOW_DEFAULT_HEIGHT = 690;
+
     private ScriptRunner runner;
     private final ImBoolean open = new ImBoolean(false);
 
     public void open(ScriptRunner runner) {
         this.runner = runner;
         open.set(true);
-        ImGui.setNextWindowSize(925, 690, ImGuiCond.FirstUseEver);
+        ImGui.setNextWindowSize(CUSTOM_UI_WINDOW_DEFAULT_WIDTH, CUSTOM_UI_WINDOW_DEFAULT_HEIGHT, ImGuiCond.FirstUseEver);
     }
 
     public boolean isOpen() {
@@ -24,7 +31,9 @@ public class ScriptUIWindow {
     }
 
     public void render() {
-        if (!open.get() || runner == null) return;
+        if (!open.get() || runner == null) {
+            return;
+        }
         if (runner.isDisposed()) {
             open.set(false);
             runner = null;
@@ -32,9 +41,12 @@ public class ScriptUIWindow {
         }
 
         ScriptUI ui = runner.getScript().getUI();
-        if (ui == null) { open.set(false); return; }
+        if (ui == null) {
+            open.set(false);
+            return;
+        }
 
-        ImGui.setNextWindowSize(925, 690, ImGuiCond.FirstUseEver);
+        ImGui.setNextWindowSize(CUSTOM_UI_WINDOW_DEFAULT_WIDTH, CUSTOM_UI_WINDOW_DEFAULT_HEIGHT, ImGuiCond.FirstUseEver);
         if (ImGui.begin(runner.getScriptName() + " Config###scriptUIWindow", open,
                 ImGuiWindowFlags.NoCollapse)) {
             try {

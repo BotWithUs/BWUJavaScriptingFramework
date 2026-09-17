@@ -12,7 +12,11 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.ServiceLoader;
+import java.util.Set;
 
 /**
  * Discovers {@link ManagementScript} implementations from JAR files
@@ -20,12 +24,28 @@ import java.util.*;
  *
  * <p>Each JAR must be a Java module declaring
  * {@code provides com.botwithus.bot.api.script.ManagementScript with <ClassName>}.
+ *
+ * <p>As with {@link LocalScriptLoader}, JARs are loaded from private copies
+ * taken by {@link ScriptJarStaging} so the management directory stays writable
+ * while the host is running.</p>
  */
 public final class ManagementScriptLoader {
 
     private static final Logger log = LoggerFactory.getLogger(ManagementScriptLoader.class);
     private static final String MANAGEMENT_DIR = "management";
-    private static final List<URLClassLoader> previousLoaders = new ArrayList<>();
+    private static final PreviousLoaderTracker previousLoaders = new PreviousLoaderTracker();
+    private static final ScriptJarStaging staging = new ScriptJarStaging(MANAGEMENT_DIR);
+
+    /**
+     * Pins the classloader that defined {@code script} so no later reload closes
+     * it. See {@link LocalScriptLoader#pinLoaderOf} — same contract, separate
+     * tracker, because each loader owns its own.
+     */
+    static void pinLoaderOf(ManagementScript script) {
+        if (script != null) {
+            previousLoaders.pin(script.getClass().getClassLoader());
+        }
+    }
 
     private ManagementScriptLoader() {}
 
@@ -44,35 +64,21 @@ public final class ManagementScriptLoader {
      */
     public static List<ManagementScript> loadScripts(Path managementDir) {
         if (!Files.isDirectory(managementDir)) {
-            try {
-                Files.createDirectories(managementDir);
-                log.info("Created: {}", managementDir.toAbsolutePath());
-            } catch (IOException e) {
-                log.error("Failed to create directory: {}", e.getMessage());
-            }
+            createDirectoryIfMissing(managementDir);
             return List.of();
         }
 
-        closePreviousLoaders();
+        previousLoaders.closeAll();
 
-        List<Path> jars;
-        try (var stream = Files.list(managementDir)) {
-            jars = stream.filter(p -> p.toString().endsWith(".jar")).toList();
-        } catch (IOException e) {
-            log.error("Failed to scan directory: {}", e.getMessage());
-            return List.of();
-        }
-
+        List<Path> jars = listJars(managementDir);
         if (jars.isEmpty()) {
             log.info("No JARs in {}", managementDir.toAbsolutePath());
             return List.of();
         }
-
         log.info("Found {} JAR(s) in {}", jars.size(), managementDir.toAbsolutePath());
 
-        ModuleFinder finder = ModuleFinder.of(managementDir);
+        ModuleFinder finder = ModuleFinder.of(staging.stage(jars, managementDir).dir());
         Set<ModuleReference> moduleReferences = finder.findAll();
-
         if (moduleReferences.isEmpty()) {
             log.info("No modules found in JARs.");
             return List.of();
@@ -80,41 +86,52 @@ public final class ManagementScriptLoader {
 
         List<ManagementScript> allScripts = new ArrayList<>();
         ModuleLayer bootLayer = ModuleLayer.boot();
-
         for (ModuleReference ref : moduleReferences) {
-            String name = ref.descriptor().name();
-            var location = ref.location();
-            if (location.isEmpty()) continue;
-
-            try {
-                URL jarURL = location.get().toURL();
-                Configuration cfg = bootLayer.configuration().resolve(
-                        finder, ModuleFinder.of(), Collections.singleton(name));
-                URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
-                previousLoaders.add(classLoader);
-                ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
-
-                ServiceLoader<ManagementScript> loader = ServiceLoader.load(layer, ManagementScript.class);
-                for (ManagementScript script : loader) {
-                    allScripts.add(script);
-                    log.info("Loaded: {}", script.getClass().getName());
-                }
-            } catch (Exception e) {
-                log.error("Failed to load module {}: {}", name, e.getMessage());
-            }
+            loadModuleScripts(ref, finder, bootLayer, allScripts);
         }
-
         return allScripts;
     }
 
-    private static void closePreviousLoaders() {
-        for (URLClassLoader loader : previousLoaders) {
-            try {
-                loader.close();
-            } catch (IOException e) {
-                log.error("Failed to close classloader: {}", e.getMessage());
-            }
+    private static void createDirectoryIfMissing(Path managementDir) {
+        try {
+            Files.createDirectories(managementDir);
+            log.info("Created: {}", managementDir.toAbsolutePath());
+        } catch (IOException e) {
+            log.error("Failed to create directory: {}", e.getMessage());
         }
-        previousLoaders.clear();
+    }
+
+    private static List<Path> listJars(Path managementDir) {
+        try (var stream = Files.list(managementDir)) {
+            return stream.filter(p -> p.toString().endsWith(".jar")).toList();
+        } catch (IOException e) {
+            log.error("Failed to scan directory: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    private static void loadModuleScripts(
+            ModuleReference ref, ModuleFinder finder, ModuleLayer bootLayer, List<ManagementScript> sink) {
+        String name = ref.descriptor().name();
+        var location = ref.location();
+        if (location.isEmpty()) {
+            return;
+        }
+        try {
+            URL jarURL = location.get().toURL();
+            Configuration cfg = bootLayer.configuration().resolve(
+                    finder, ModuleFinder.of(), Collections.singleton(name));
+            URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
+            previousLoaders.add(classLoader);
+            ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
+
+            ServiceLoader<ManagementScript> loader = ServiceLoader.load(layer, ManagementScript.class);
+            for (ManagementScript script : loader) {
+                sink.add(script);
+                log.info("Loaded: {}", script.getClass().getName());
+            }
+        } catch (Exception e) {
+            log.error("Failed to load module {}: {}", name, e.getMessage());
+        }
     }
 }

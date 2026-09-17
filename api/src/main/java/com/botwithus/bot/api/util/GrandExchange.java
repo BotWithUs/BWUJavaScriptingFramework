@@ -1,117 +1,130 @@
 package com.botwithus.bot.api.util;
 
 import com.botwithus.bot.api.GameAPI;
-import com.botwithus.bot.api.model.GrandExchangeOffer;
+import com.botwithus.bot.api.gameval.GamevalRef;
+import com.botwithus.bot.api.gameval.GamevalType;
+import com.botwithus.bot.api.inventory.ActionTypes;
+import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
 
 import java.util.List;
 
 /**
- * Convenience wrapper around the Grand Exchange offer system.
+ * Convenience wrapper around the Grand Exchange interface ({@code STOCKMARKET},
+ * iface 105) and its collect-all panel ({@code STOCKMARKET_COLLECTALL}, iface 651).
  *
- * @see GameAPI#getGrandExchangeOffers()
+ * <p>Only the interface probe and the button clicks live here. Offer state
+ * (per-slot item, status, progress) is not exposed yet: the producer RPC that
+ * used to publish it was removed and nothing replaces it, so there is no read
+ * that could answer truthfully.</p>
+ *
+ * <p>Every interface and component is addressed by its gameval name through
+ * {@link GameAPI#gamevals()}; the literal ids are the fallback for a host with
+ * no gameval index deployed.</p>
  */
 public final class GrandExchange {
 
-    /** Offer slot is empty. */
-    public static final int STATUS_EMPTY = 0;
-    /** Offer is actively buying. */
-    public static final int STATUS_BUYING = 2;
-    /** Offer is actively selling. */
-    public static final int STATUS_SELLING = 3;
-    /** Buy offer has completed. */
-    public static final int STATUS_BUY_COMPLETE = 5;
-    /** Sell offer has completed. */
-    public static final int STATUS_SELL_COMPLETE = 6;
+    /** GE interface id. */
+    public static final int INTERFACE_ID = Interfaces.GRAND_EXCHANGE;
+    /** Collect-all panel interface id. */
+    public static final int COLLECT_INTERFACE_ID = 651;
+    /** Number of offer slots. */
+    public static final int SLOT_COUNT = 8;
+
+    private static final GamevalRef GE_INTERFACE =
+            new GamevalRef(GamevalType.INTERFACE, "STOCKMARKET", INTERFACE_ID);
+    private static final GamevalRef COLLECT_TO_INVENTORY = new GamevalRef(GamevalType.COMPONENT,
+            "STOCKMARKET_COLLECTALL__SEND_TO_INV_ACTIVE_LAYER",
+            Interfaces.componentHash(COLLECT_INTERFACE_ID, 6));
+    private static final GamevalRef COLLECT_TO_BANK = new GamevalRef(GamevalType.COMPONENT,
+            "STOCKMARKET_COLLECTALL__SEND_TO_BANK_ACTIVE_LAYER",
+            Interfaces.componentHash(COLLECT_INTERFACE_ID, 14));
+    /** Per-slot abort buttons on the offer summary, indexed by 0-based slot. */
+    private static final List<GamevalRef> ABORT_BUTTONS = List.of(
+            abortButton(0, 27),
+            abortButton(1, 48),
+            abortButton(2, 69),
+            abortButton(3, 93),
+            abortButton(4, 117),
+            abortButton(5, 141),
+            abortButton(6, 165),
+            abortButton(7, 189));
+
+    /** Left-click op on a plain button. */
+    private static final int OP_CLICK = 1;
+    /** Sub-index for a plain button with no sub-component selection. */
+    private static final int NO_SUB_INDEX = -1;
 
     private final GameAPI api;
 
-    /**
-     * Creates a new Grand Exchange wrapper.
-     *
-     * @param api the game API instance
-     */
     public GrandExchange(GameAPI api) {
         this.api = api;
     }
 
-    /**
-     * Checks whether the Grand Exchange interface is open.
-     *
-     * @return {@code true} if the interface is open
-     */
+    // ---------------------------------------------------------------- State
+
+    /** True when the GE interface is open. */
     public boolean isOpen() {
-        return api.isInterfaceOpen(Interfaces.GRAND_EXCHANGE);
+        GameSnapshot snap = api.snapshot();
+        return snap != null && snap.isInterfaceOpen(GE_INTERFACE.resolve(api.gamevals()));
+    }
+
+    // ---------------------------------------------------------------- Mutations
+
+    /** Click "Collect to inventory" on the collect-all panel. No-op when the GE isn't open. */
+    public boolean collectAll() {
+        return clickWhenOpen(COLLECT_TO_INVENTORY);
+    }
+
+    /** Click "Collect to bank" on the collect-all panel. No-op when the GE isn't open. */
+    public boolean collectToBank() {
+        return clickWhenOpen(COLLECT_TO_BANK);
     }
 
     /**
-     * Returns all Grand Exchange offer slots.
-     *
-     * @return a list of offers
+     * Click the abort button of offer {@code slot} (0-based) on the offer
+     * summary. No-op when the GE isn't open or {@code slot} is out of range.
      */
-    public List<GrandExchangeOffer> getOffers() {
-        return api.getGrandExchangeOffers();
-    }
-
-    /**
-     * Returns the first non-empty offer matching the given item ID.
-     *
-     * @param itemId the item ID to search for
-     * @return the matching offer, or {@code null} if none found
-     */
-    public GrandExchangeOffer findOffer(int itemId) {
-        for (GrandExchangeOffer offer : getOffers()) {
-            if (offer.itemId() == itemId && offer.status() != STATUS_EMPTY) {
-                return offer;
-            }
+    public boolean abortOffer(int slot) {
+        if (slot < 0 || slot >= SLOT_COUNT) {
+            return false;
         }
-        return null;
+        return clickWhenOpen(ABORT_BUTTONS.get(slot));
     }
 
     /**
-     * Checks whether there is at least one empty offer slot.
-     *
-     * @return {@code true} if a free slot exists
+     * Click an arbitrary GE component by id with the given right-click option.
+     * Escape hatch for callers that know the exact button id; prefer the
+     * named helpers above where they exist.
      */
-    public boolean hasFreeSlot() {
-        for (GrandExchangeOffer offer : getOffers()) {
-            if (offer.status() == STATUS_EMPTY) return true;
+    public boolean queueComponentClick(int componentId, int optionIndex) {
+        if (!isOpen()) {
+            return false;
         }
-        return false;
-    }
-
-    /**
-     * Checks whether every non-empty slot is in a completed state.
-     *
-     * @return {@code true} if all active offers have completed
-     */
-    public boolean allCompleted() {
-        for (GrandExchangeOffer offer : getOffers()) {
-            int s = offer.status();
-            if (s != STATUS_EMPTY && s != STATUS_BUY_COMPLETE && s != STATUS_SELL_COMPLETE) {
-                return false;
-            }
-        }
+        api.queueAction(new GameAction(ActionTypes.COMPONENT, optionIndex, NO_SUB_INDEX,
+                Interfaces.componentHash(GE_INTERFACE.resolve(api.gamevals()), componentId)));
         return true;
     }
 
-    /**
-     * Returns the remaining quantity for an offer (total minus completed).
-     *
-     * @param offer the Grand Exchange offer
-     * @return the remaining quantity
-     */
-    public static int getRemainingQuantity(GrandExchangeOffer offer) {
-        return offer.count() - offer.completedCount();
+    // ---------------------------------------------------------------- Helpers
+
+    /** The {@code STOCKMARKET__ABORT<slot>} button, falling back to {@code componentId}. */
+    private static GamevalRef abortButton(int slot, int componentId) {
+        return new GamevalRef(GamevalType.COMPONENT, "STOCKMARKET__ABORT" + slot,
+                Interfaces.componentHash(INTERFACE_ID, componentId));
     }
 
     /**
-     * Returns the completion fraction for an offer as a value in [0.0, 1.0].
-     *
-     * @param offer the Grand Exchange offer
-     * @return the completion fraction
+     * Queue a left-click on a plain button when the GE is open. Wire shape
+     * mirrors {@link com.botwithus.bot.api.component.ComponentNode#interact(int)}:
+     * param2 = sub-index, param3 = packed {@code (iface<<16)|comp} hash.
      */
-    public static double getCompletionFraction(GrandExchangeOffer offer) {
-        if (offer.count() <= 0) return 0.0;
-        return (double) offer.completedCount() / offer.count();
+    private boolean clickWhenOpen(GamevalRef button) {
+        if (!isOpen()) {
+            return false;
+        }
+        api.queueAction(new GameAction(ActionTypes.COMPONENT, OP_CLICK, NO_SUB_INDEX,
+                button.resolve(api.gamevals())));
+        return true;
     }
 }

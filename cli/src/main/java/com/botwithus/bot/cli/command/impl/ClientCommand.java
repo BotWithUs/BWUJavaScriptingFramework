@@ -368,8 +368,12 @@ public class ClientCommand implements Command {
         StringBuilder sb = new StringBuilder();
         for (int i = startIndex; ; i++) {
             String arg = parsed.arg(i);
-            if (arg == null) break;
-            if (!sb.isEmpty()) sb.append(' ');
+            if (arg == null) {
+                break;
+            }
+            if (!sb.isEmpty()) {
+                sb.append(' ');
+            }
             sb.append(arg);
         }
         return sb.toString();

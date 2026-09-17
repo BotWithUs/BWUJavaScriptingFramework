@@ -1,0 +1,152 @@
+# Publishes the `api` module into BotWithUs/maven, a static Maven repository
+# served over GitHub Pages at https://botwithus.github.io/maven/. Static means
+# the tree is exactly what Gradle wrote — no server-side logic — so it resolves
+# anonymously, unlike GitHub Packages, which requires a token even to read a
+# public artifact.
+#
+# Cut a release by tagging: `git tag v1.2.0 && git push origin v1.2.0`. The tag
+# also fires javadoc.yml, which redeploys the API docs to Pages.
+name: Publish bot-api
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish, without the leading v (e.g. 1.2.0)'
+        required: true
+        type: string
+
+# contents: write is needed to create the GitHub release. The push to
+# BotWithUs/maven uses a deploy key, not this token.
+permissions:
+  contents: write
+
+# Two publishes racing would both push to BotWithUs/maven and one would be
+# rejected non-fast-forward, so serialise them.
+concurrency:
+  group: publish-bot-api
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@v4
+        with:
+          path: source
+
+      - name: Resolve the release version
+        id: release
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$version' is not a semantic version. Tag releases as v1.2.3."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Checked out BEFORE the publish so Gradle writes into this working copy:
+      # it merges maven-metadata.xml against the versions already published
+      # instead of replacing the version list with just this release.
+      - name: Check out the Maven repository
+        uses: actions/checkout@v4
+        with:
+          repository: BotWithUs/maven
+          # Write-enabled deploy key scoped to BotWithUs/maven alone — checkout
+          # leaves it configured, so the push step below authenticates with it.
+          ssh-key: ${{ secrets.MAVEN_DEPLOY_KEY }}
+          path: maven
+
+      - name: Refuse to overwrite a published version
+        run: |
+          dest="maven/com/botwithus/bot-api/${{ steps.release.outputs.version }}"
+          if [ -d "$dest" ]; then
+            echo "::error::bot-api ${{ steps.release.outputs.version }} is already published. Published versions are immutable — cut a new one."
+            exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: corretto
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Publish into the repository working copy
+        working-directory: source
+        run: |
+          chmod +x gradlew
+          ./gradlew :api:publishMavenJavaPublicationToStaticTreeRepository \
+            "-PreleaseVersion=${{ steps.release.outputs.version }}" \
+            "-PmavenRepoDir=${{ github.workspace }}/maven"
+
+      - name: Commit and push
+        working-directory: maven
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .
+          if git diff --cached --quiet; then
+            echo "::error::The publish produced no new files."
+            exit 1
+          fi
+          git commit -m "bot-api ${{ steps.release.outputs.version }}"
+          git push
+
+      # Only on a tag. A workflow_dispatch run has no tag to hang a release off,
+      # and --verify-tag keeps `gh` from inventing one from the default branch.
+      - name: Create the GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          cat > notes.md <<NOTES
+          \`com.botwithus:bot-api:$version\` is published to the
+          [BotWithUs Maven repository](https://botwithus.github.io/maven).
+
+          \`\`\`kotlin
+          repositories {
+              mavenCentral()
+              maven { url = uri("https://botwithus.github.io/maven") }
+          }
+
+          dependencies {
+              implementation("com.botwithus:bot-api:$version")
+          }
+          \`\`\`
+
+          [API documentation](https://botwithus.github.io/BWUJavaScriptingFramework/)
+          NOTES
+          gh release create "v$version" \
+            --title "bot-api $version" \
+            --notes-file notes.md \
+            --generate-notes \
+            --verify-tag \
+            maven/com/botwithus/bot-api/"$version"/*.jar
+
+      - name: Summarise
+        run: |
+          version="${{ steps.release.outputs.version }}"
+          {
+            echo "### bot-api $version published"
+            echo
+            echo '```kotlin'
+            echo 'repositories {'
+            echo '    mavenCentral()'
+            echo '    maven { url = uri("https://botwithus.github.io/maven") }'
+            echo '}'
+            echo
+            echo 'dependencies {'
+            echo "    implementation(\"com.botwithus:bot-api:$version\")"
+            echo '}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -23,6 +23,7 @@ import java.util.concurrent.TimeUnit;
 public class ScriptSchedulerImpl implements ScriptScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptSchedulerImpl.class);
+    private static final int SCHEDULE_ID_LENGTH = 8;
     private final ScriptManager manager;
     private final ScheduledExecutorService executor;
     private final ConcurrentHashMap<String, ScheduleState> schedules = new ConcurrentHashMap<>();
@@ -87,36 +88,9 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
     public String runEvery(String scriptName, Duration interval, Duration maxDuration) {
         String id = newId();
         Instant nextRun = Instant.now().plus(interval);
-
-        ScheduledFuture<?> future = executor.scheduleAtFixedRate(() -> {
-            try {
-                if (manager.isRunning(scriptName)) {
-                    manager.restart(scriptName);
-                } else {
-                    manager.start(scriptName);
-                }
-
-                // Schedule auto-stop if maxDuration is set
-                if (maxDuration != null) {
-                    ScheduledFuture<?> stopFuture = executor.schedule(() -> {
-                        if (manager.isRunning(scriptName)) {
-                            manager.stop(scriptName);
-                            log.info("Auto-stopped '{}' after {} (id={})", scriptName, maxDuration, id);
-                        }
-                    }, maxDuration.toMillis(), TimeUnit.MILLISECONDS);
-
-                    // Update state with stop future
-                    ScheduleState old = schedules.get(id);
-                    if (old != null) {
-                        schedules.put(id, new ScheduleState(
-                                old.scriptName, Instant.now().plus(interval),
-                                old.interval, old.maxDuration, old.future, stopFuture));
-                    }
-                }
-            } catch (Exception e) {
-                log.error("Error running '{}': {}", scriptName, e.getMessage());
-            }
-        }, interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
+        ScheduledFuture<?> future = executor.scheduleAtFixedRate(
+                () -> recurringTick(id, scriptName, interval, maxDuration),
+                interval.toMillis(), interval.toMillis(), TimeUnit.MILLISECONDS);
 
         schedules.put(id, new ScheduleState(scriptName, nextRun, interval, maxDuration, future, null));
         if (maxDuration != null) {
@@ -127,10 +101,43 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
         return id;
     }
 
+    private void recurringTick(String id, String scriptName, Duration interval, Duration maxDuration) {
+        try {
+            if (manager.isRunning(scriptName)) {
+                manager.restart(scriptName);
+            } else {
+                manager.start(scriptName);
+            }
+            if (maxDuration != null) {
+                scheduleAutoStop(id, scriptName, interval, maxDuration);
+            }
+        } catch (Exception e) {
+            log.error("Error running '{}': {}", scriptName, e.getMessage());
+        }
+    }
+
+    private void scheduleAutoStop(String id, String scriptName, Duration interval, Duration maxDuration) {
+        ScheduledFuture<?> stopFuture = executor.schedule(() -> {
+            if (manager.isRunning(scriptName)) {
+                manager.stop(scriptName);
+                log.info("Auto-stopped '{}' after {} (id={})", scriptName, maxDuration, id);
+            }
+        }, maxDuration.toMillis(), TimeUnit.MILLISECONDS);
+
+        ScheduleState old = schedules.get(id);
+        if (old != null) {
+            schedules.put(id, new ScheduleState(
+                    old.scriptName, Instant.now().plus(interval),
+                    old.interval, old.maxDuration, old.future, stopFuture));
+        }
+    }
+
     @Override
     public boolean cancel(String scheduleId) {
         ScheduleState state = schedules.remove(scheduleId);
-        if (state == null) return false;
+        if (state == null) {
+            return false;
+        }
 
         state.future.cancel(false);
         if (state.stopFuture != null) {
@@ -168,6 +175,6 @@ public class ScriptSchedulerImpl implements ScriptScheduler {
     }
 
     private static String newId() {
-        return UUID.randomUUID().toString().substring(0, 8);
+        return UUID.randomUUID().toString().substring(0, SCHEDULE_ID_LENGTH);
     }
 }

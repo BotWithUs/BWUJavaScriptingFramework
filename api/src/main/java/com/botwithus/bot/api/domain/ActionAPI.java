@@ -56,29 +56,6 @@ public interface ActionAPI {
     long getLastActionTime();
 
     /**
-     * Sets a behavior modifier value that adjusts action execution.
-     *
-     * @param modId the modifier identifier
-     * @param value the modifier value
-     */
-    void setBehaviorMod(int modId, float value);
-
-    /**
-     * Clears a previously set behavior modifier.
-     *
-     * @param modId the modifier identifier to clear
-     */
-    void clearBehaviorMod(int modId);
-
-    /**
-     * Returns the current value of a behavior modifier.
-     *
-     * @param modId the modifier identifier
-     * @return the modifier value, or {@code 0.0f} if not set
-     */
-    float getBehaviorMod(int modId);
-
-    /**
      * Checks whether action queuing is currently blocked.
      *
      * @return {@code true} if actions are blocked

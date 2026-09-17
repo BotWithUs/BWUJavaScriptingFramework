@@ -5,7 +5,18 @@ import com.botwithus.bot.api.model.VarbitValue;
 import java.util.List;
 
 /**
- * Game variable access: varps, varbits, and client variables.
+ * Game variable access: varps (player variables), varbits (bit-ranges of a
+ * base variable), and varcs (client variables, int- and string-valued).
+ *
+ * <p>These are on-demand reads of the live client state — each call is a pipe
+ * round-trip to the producer, which walks the relevant variable hashmap on the
+ * game thread. To <em>observe</em> changes instead of polling, subscribe to
+ * {@code VarChangeEvent} / {@code VarbitChangeEvent} / {@code VarcChangeEvent}
+ * on the {@code EventBus}.</p>
+ *
+ * <p>Varbit values are decoded consumer-side: the producer returns the raw base
+ * variable, and {@link #getVarbit(int)} shifts/masks it using the varbit type
+ * config from the cache.</p>
  *
  * @see com.botwithus.bot.api.GameAPI
  */
@@ -15,15 +26,16 @@ public interface VariableAPI {
      * Returns the value of a player variable (varp).
      *
      * @param varId the variable ID
-     * @return the variable value
+     * @return the variable value, or {@code -1} if not in-game / unset
      */
     int getVarp(int varId);
 
     /**
-     * Returns the value of a variable bit (varbit).
+     * Returns the value of a variable bit (varbit), decoded from its base
+     * variable and bit range.
      *
      * @param varbitId the varbit ID
-     * @return the varbit value
+     * @return the varbit value, or {@code -1} if the varbit is unknown
      */
     int getVarbit(int varbitId);
 
@@ -31,7 +43,7 @@ public interface VariableAPI {
      * Returns the value of an integer client variable (varc).
      *
      * @param varcId the varc ID
-     * @return the varc value
+     * @return the varc value, or {@code -1} if not set
      */
     int getVarcInt(int varcId);
 
@@ -39,15 +51,40 @@ public interface VariableAPI {
      * Returns the value of a string client variable (varc).
      *
      * @param varcId the varc ID
-     * @return the varc string value
+     * @return the varc string value, or the empty string if not set
      */
     String getVarcString(int varcId);
 
     /**
-     * Batch-queries multiple varbit values at once.
+     * Batch-resolves multiple varbit values.
      *
      * @param varbitIds the varbit IDs to query
-     * @return a list of varbit values
+     * @return one {@link VarbitValue} per input id, in order
      */
     List<VarbitValue> queryVarbits(List<Integer> varbitIds);
+
+    /**
+     * Batch counterpart of {@link #getVarp(int)}. One pipe round-trip and one
+     * game-thread visit for the whole batch, instead of one per id.
+     *
+     * @param varIds the varp IDs to read
+     * @return one value per input id, in order; unset entries are {@code -1}
+     */
+    List<Integer> getVarps(List<Integer> varIds);
+
+    /**
+     * Batch counterpart of {@link #getVarcInt(int)}.
+     *
+     * @param varcIds the varc IDs to read
+     * @return one value per input id, in order; unset entries are {@code -1}
+     */
+    List<Integer> getVarcInts(List<Integer> varcIds);
+
+    /**
+     * Batch counterpart of {@link #getVarcString(int)}.
+     *
+     * @param varcIds the varc IDs to read
+     * @return one string per input id, in order; unset entries are empty
+     */
+    List<String> getVarcStrings(List<Integer> varcIds);
 }

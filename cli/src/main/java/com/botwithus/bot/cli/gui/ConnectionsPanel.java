@@ -7,6 +7,7 @@ import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.CommandResult;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.command.impl.ConnectCommand;
+import com.botwithus.bot.core.impl.MapHelper;
 
 import imgui.ImGui;
 import imgui.flag.ImGuiTableFlags;
@@ -91,7 +92,9 @@ public class ConnectionsPanel implements GuiPanel {
         Thread.ofVirtual().name("pipe-scan").start(() -> {
             try {
                 String filter = scanFilter.get().trim();
-                if (filter.isEmpty()) filter = "BotWithUs";
+                if (filter.isEmpty()) {
+                    filter = "BotWithUs";
+                }
 
                 Command cmd = registry.resolve("connect");
                 if (cmd == null) {
@@ -102,7 +105,7 @@ public class ConnectionsPanel implements GuiPanel {
                 CommandResult result = cmd.executeWithResult(
                         new ParsedCommand("connect", List.of("scan", filter), Map.of()), ctx);
 
-                List<ConnectCommand.PipeInfo> infos = result.get("scanResults");
+                List<ConnectCommand.PipeInfo> infos = result.get(ConnectCommand.SCAN_RESULTS);
                 if (infos != null) {
                     scanResults = infos;
                     scanStatus = result.message();
@@ -196,7 +199,7 @@ public class ConnectionsPanel implements GuiPanel {
     private void renderConnectionsTable(CliContext ctx) {
         var connections = ctx.getConnections();
         if (connections.isEmpty()) {
-            GuiHelpers.textMuted("No active connections. Use Scan or Quick Connect above.");
+            GuiHelpers.textSecondary("No active connections. Use Scan or Quick Connect above.");
             return;
         }
 
@@ -215,77 +218,96 @@ public class ConnectionsPanel implements GuiPanel {
 
             int idx = 0;
             for (Connection conn : connections) {
-                ImGui.tableNextRow();
-                boolean isActive = conn.getName().equals(activeName);
-                boolean isMounted = conn.getName().equals(mountedName);
-
-                ImGui.tableSetColumnIndex(0);
-                if (isActive) {
-                    ImGui.textColored(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G, ImGuiTheme.CYAN_B, 1f, conn.getName());
-                } else {
-                    ImGui.text(conn.getName());
-                }
-
-                ImGui.tableSetColumnIndex(1);
-                String account = conn.getAccountName();
-                ImGui.text(account != null ? account : "-");
-
-                ImGui.tableSetColumnIndex(2);
-                Map<String, Object> info = conn.getAccountInfo();
-                if (info != null) {
-                    Object worldId = info.get("world_id");
-                    if (worldId instanceof Number n && n.intValue() > 0) {
-                        ImGui.text("W" + n.intValue());
-                    } else {
-                        ImGui.text("-");
-                    }
-                } else {
-                    ImGui.text("-");
-                }
-
-                ImGui.tableSetColumnIndex(3);
-                if (conn.isAlive()) {
-                    ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "Alive");
-                } else {
-                    ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f, "Dead");
-                }
-
-                ImGui.tableSetColumnIndex(4);
-                if (isActive) {
-                    ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "*");
-                }
-
-                ImGui.tableSetColumnIndex(5);
-                ImGui.pushID("conn_actions_" + idx);
-
-                if (!isActive) {
-                    if (ImGui.smallButton("Set Active")) {
-                        ctx.setActive(conn.getName());
-                    }
-                    ImGui.sameLine();
-                }
-
-                if (isMounted) {
-                    if (ImGui.smallButton("Unmount")) {
-                        ctx.unmount();
-                    }
-                } else {
-                    if (ImGui.smallButton("Mount")) {
-                        ctx.mount(conn.getName());
-                    }
-                }
-
-                ImGui.sameLine();
-                if (GuiHelpers.smallButtonDanger(Icons.POWER + " Disconnect")) {
-                    String name = conn.getName();
-                    executor.submit(() -> ctx.disconnect(name, true));
-                }
-
-                ImGui.popID();
-                idx++;
+                renderConnectionRow(ctx, conn, activeName, mountedName, idx++);
             }
 
             ImGui.endTable();
         }
+    }
+
+    private void renderConnectionRow(
+            CliContext ctx, Connection conn, String activeName, String mountedName, int idx) {
+        ImGui.tableNextRow();
+        boolean isActive = conn.getName().equals(activeName);
+        boolean isMounted = conn.getName().equals(mountedName);
+
+        renderNameCell(conn, isActive);
+        renderAccountCell(conn);
+        renderWorldCell(conn);
+        renderStatusCell(conn);
+        renderActiveCell(isActive);
+        renderActionsCell(ctx, conn, isActive, isMounted, idx);
+    }
+
+    private static void renderNameCell(Connection conn, boolean isActive) {
+        ImGui.tableSetColumnIndex(0);
+        if (isActive) {
+            ImGui.textColored(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G, ImGuiTheme.CYAN_B, 1f, conn.getName());
+        } else {
+            ImGui.text(conn.getName());
+        }
+    }
+
+    private static void renderAccountCell(Connection conn) {
+        ImGui.tableSetColumnIndex(1);
+        String account = conn.getAccountName();
+        ImGui.text(account != null ? account : "-");
+    }
+
+    private static void renderWorldCell(Connection conn) {
+        ImGui.tableSetColumnIndex(2);
+        Map<String, Object> info = conn.getAccountInfo();
+        if (info == null) {
+            ImGui.text("-");
+            return;
+        }
+        int worldId = MapHelper.getInt(info, "world_id");
+        ImGui.text(worldId > 0 ? "W" + worldId : "-");
+    }
+
+    private static void renderStatusCell(Connection conn) {
+        ImGui.tableSetColumnIndex(3);
+        if (conn.isAlive()) {
+            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "Alive");
+        } else {
+            ImGui.textColored(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f, "Dead");
+        }
+    }
+
+    private static void renderActiveCell(boolean isActive) {
+        ImGui.tableSetColumnIndex(4);
+        if (isActive) {
+            ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "*");
+        }
+    }
+
+    private void renderActionsCell(CliContext ctx, Connection conn, boolean isActive, boolean isMounted, int idx) {
+        ImGui.tableSetColumnIndex(5);
+        ImGui.pushID("conn_actions_" + idx);
+
+        if (!isActive) {
+            if (ImGui.smallButton("Set Active")) {
+                ctx.setActive(conn.getName());
+            }
+            ImGui.sameLine();
+        }
+
+        if (isMounted) {
+            if (ImGui.smallButton("Unmount")) {
+                ctx.unmount();
+            }
+        } else {
+            if (ImGui.smallButton("Mount")) {
+                ctx.mount(conn.getName());
+            }
+        }
+
+        ImGui.sameLine();
+        if (GuiHelpers.smallButtonDanger(Icons.POWER + " Disconnect")) {
+            String name = conn.getName();
+            executor.submit(() -> ctx.disconnect(name, true));
+        }
+
+        ImGui.popID();
     }
 }

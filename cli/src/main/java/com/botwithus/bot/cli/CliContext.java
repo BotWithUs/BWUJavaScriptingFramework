@@ -1,34 +1,56 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
-import com.botwithus.bot.api.blueprint.BlueprintGraph;
+import com.botwithus.bot.api.diag.StubGuard;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.stream.StreamManager;
-import com.botwithus.bot.core.blueprint.execution.BlueprintBotScript;
-import com.botwithus.bot.core.blueprint.serialization.BlueprintSerializer;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
+import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
+import com.botwithus.bot.core.impl.ScriptContextChannel;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
+import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
+import com.botwithus.bot.core.rpc.ReconnectController;
+import com.botwithus.bot.core.rpc.ReconnectPolicy;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
+import com.botwithus.bot.core.runtime.ConnectionContext;
+import com.botwithus.bot.core.runtime.LoadReport;
+import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
+import com.botwithus.bot.core.runtime.ScriptGate;
+import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.shm.SharedRegionEventPump;
 
 import com.botwithus.bot.core.runtime.ScriptRunner;
+import com.botwithus.bot.cli.watch.ScriptWatcher;
+import com.botwithus.bot.core.impl.ManagementContextImpl;
+import com.botwithus.bot.core.impl.SharedStateImpl;
+import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
+import com.botwithus.bot.core.runtime.ManagementScriptLoader;
+import com.botwithus.bot.api.script.ManagementScript;
+import com.botwithus.bot.core.cache.NXTCache;
+import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.core.gameval.SqliteGamevalIndex;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
 import java.awt.image.BufferedImage;
+import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -70,16 +92,75 @@ public class CliContext {
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
-    private com.botwithus.bot.cli.watch.ScriptWatcher scriptWatcher;
+    private Consumer<Connection> onConnect;
+    private LoadReport lastLoadReport = LoadReport.EMPTY;
+    private ScriptWatcher scriptWatcher;
     private ScriptProfileStore profileStore;
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
-    private com.botwithus.bot.core.runtime.ManagementScriptRuntime managementRuntime;
+    private ManagementScriptRuntime managementRuntime;
+    private NXTCache nxtCache;
+    private boolean nxtCacheInitAttempted;
+    private GamevalIndex gamevals;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this.logBuffer = logBuffer;
         this.logCapture = logCapture;
         this.clientManager = new ClientManager(this);
+    }
+
+    /**
+     * Lazy-init the process-wide NXTCache handle the first time a connection
+     * is made. The same handle is shared across all GameAPIImpl instances —
+     * sqlite is safe to read from one connection, and reopening it per
+     * connection would waste startup time. Returns {@code null} when the
+     * cache isn't configured ({@code -Dnxtcache.path} unset) or fails to
+     * open; callers (i.e. config-type lookups) will surface a clear error.
+     */
+    private synchronized NXTCache getOrInitNxtCache() {
+        if (nxtCacheInitAttempted) {
+            return nxtCache;
+        }
+        nxtCacheInitAttempted = true;
+        try {
+            nxtCache = NXTCache.tryOpenFromSystemProperty();
+            if (nxtCache != null) {
+                log.info("NXTCache opened (config-type lookups now cache-backed)");
+            } else {
+                log.debug("NXTCache not configured — set -Dnxtcache.path=<dir> to enable config-type lookups");
+            }
+        } catch (Throwable t) {
+            log.warn("NXTCache failed to open: {}", t.getMessage());
+        }
+        return nxtCache;
+    }
+
+    /**
+     * Lazy-init the process-wide gameval name index, sharing one handle across
+     * every GameAPIImpl for the same reason {@link #getOrInitNxtCache()} does.
+     * Never null and never throws: when no {@code gameval.sqlite} is deployed
+     * (or it fails to open) this is {@link GamevalIndex#empty()}, whose lookups
+     * all come back empty, so scripts degrade instead of crashing. No separate
+     * "attempted" flag is needed — the empty index is itself a valid result.
+     */
+    private synchronized GamevalIndex getOrInitGamevals() {
+        if (gamevals == null) {
+            gamevals = SqliteGamevalIndex.openDefaultOrEmpty();
+        }
+        return gamevals;
+    }
+
+    /**
+     * Release the shared gameval index. Called from the two shutdown paths
+     * (the {@code exit} command and the GUI's close handler) — not from
+     * {@link #disconnectAll(boolean)}, which is also a mid-session operation.
+     * Clears the field, so a later connection simply reopens the index.
+     */
+    public synchronized void closeGamevals() {
+        if (gamevals != null) {
+            gamevals.close();
+            gamevals = null;
+        }
     }
 
     public void setStreamManager(StreamManager sm) { this.streamManager = sm; }
@@ -93,7 +174,7 @@ public class CliContext {
 
     public ClientManager getClientManager() { return clientManager; }
 
-    public com.botwithus.bot.core.runtime.ManagementScriptRuntime getManagementRuntime() {
+    public ManagementScriptRuntime getManagementRuntime() {
         return managementRuntime;
     }
 
@@ -103,59 +184,99 @@ public class CliContext {
      * SharedState shared across all management scripts.
      */
     public void initManagementRuntime() {
-        if (managementRuntime != null) return;
+        if (managementRuntime != null) {
+            return;
+        }
         var messageBus = new MessageBusImpl();
-        var sharedState = new com.botwithus.bot.core.impl.SharedStateImpl();
-        var mgmtContext = new com.botwithus.bot.core.impl.ManagementContextImpl(
+        var sharedState = new SharedStateImpl();
+        var mgmtContext = new ManagementContextImpl(
                 clientManager, clientProvider, messageBus, sharedState);
-        managementRuntime = new com.botwithus.bot.core.runtime.ManagementScriptRuntime(mgmtContext);
+        managementRuntime = new ManagementScriptRuntime(mgmtContext);
     }
 
     /**
      * Loads management scripts from {@code scripts/management/} and registers
      * them in the management runtime.
      */
-    public List<com.botwithus.bot.api.script.ManagementScript> loadManagementScripts() {
-        if (managementRuntime == null) initManagementRuntime();
-        return com.botwithus.bot.core.runtime.ManagementScriptLoader.loadScripts();
+    public List<ManagementScript> loadManagementScripts() {
+        if (managementRuntime == null) {
+            initManagementRuntime();
+        }
+        return ManagementScriptLoader.loadScripts();
     }
 
     public void connect(String pipeName) {
-        String connName = pipeName != null ? pipeName : "BotWithUs";
-        if (connections.containsKey(connName)) {
-            out().println("Already connected to '" + connName + "'. Use 'use " + connName + "' to switch.");
+        String resolvedName = pipeName != null ? pipeName : PipeClient.firstAvailableOrThrow();
+        if (connections.containsKey(resolvedName)) {
+            out().println("Already connected to '" + resolvedName + "'. Use 'use " + resolvedName + "' to switch.");
             return;
         }
+        long pid = SharedRegion.parsePid(resolvedName).orElseThrow(() ->
+                new IllegalStateException("Pipe '" + resolvedName + "' has no embedded pid"));
         try {
-            PipeClient pipe = pipeName != null ? new PipeClient(pipeName) : new PipeClient();
+            PipeClient pipe = new PipeClient(resolvedName);
             RpcClient rpc = new RpcClient(pipe);
-            rpc.setConnectionName(connName);
+            rpc.setConnectionName(resolvedName);
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
-            GameAPIImpl gameAPI = new GameAPIImpl(rpc);
-            ClientImpl client = new ClientImpl(connName, gameAPI, eventBus, pipe::isOpen);
-            clientProvider.putClient(connName, client);
-            ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus, clientProvider);
 
-            var dispatcher = new com.botwithus.bot.core.impl.EventDispatcher(eventBus);
-            dispatcher.bindAutoSubscription(gameAPI);
-            rpc.setEventHandler(dispatcher::dispatch);
+            // Pump owns the SHM mapping; we open it before constructing
+            // GameAPIImpl so the entity facades (snapshot reads) can read from
+            // the same region. ClientImpl borrows the same region.
+            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+            GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
+                    () -> new GameSnapshotImpl(pump.region().snapshot()),
+                    new StubGuard(),
+                    eventBus::publish,
+                    getOrInitGamevals());
+            ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
+
             rpc.start();
 
-            ScriptRuntime runtime = new ScriptRuntime(context);
-            runtime.setConnectionName(connName);
+            ScriptContextChannel scriptCtxChannel = new ScriptContextChannel(rpc, resolvedName);
 
-            // Wire up ScriptManager so scripts can manage other scripts
-            var scriptManager = new com.botwithus.bot.core.impl.ScriptManagerImpl(runtime);
-            context.setScriptManager(scriptManager);
+            ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen, pump.region());
+            clientProvider.putClient(resolvedName, client);
 
-            Connection conn = new Connection(connName, pipe, rpc, runtime);
+            ScriptRuntime runtime = new ScriptRuntime(context,
+                    ConnectionContext::set, ConnectionContext::clear, eventBus::publish);
+            runtime.setConnectionName(resolvedName);
+            runtime.setPublisherFactory(scriptCtxChannel::publisherFor);
+
+            // One gate per connection, shared by the runtime (which tags script
+            // threads and revokes) and the RPC client (which enforces). Both
+            // sides must see the same instance or revocation is a no-op.
+            ScriptGate scriptGate = new ScriptGate();
+            runtime.setScriptGate(scriptGate);
+            rpc.setScriptGate(scriptGate);
+            gameAPI.setScriptGate(scriptGate);
+
+            ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
+
+            ReconnectController reconnect = new ReconnectController(rpc, pipe, resolvedName,
+                    resolvedName, ReconnectPolicy.DEFAULT,
+                    state -> { /* state is observable via Connection.currentReconnectState() */ },
+                    eventBus::publish);
+            reconnect.arm();
+
+            Connection conn = new Connection(resolvedName, pipe, rpc, runtime, scriptManager);
             conn.setEventBus(eventBus);
-            connections.put(connName, conn);
-            activeConnectionName = connName;
+            conn.setEventPump(pump);
+            conn.setReconnectController(reconnect);
+            conn.setGameAPI(gameAPI);
+            conn.setScriptContextChannel(scriptCtxChannel);
+            connections.put(resolvedName, conn);
+            activeConnectionName = resolvedName;
+            if (onConnect != null) {
+                try {
+                    onConnect.accept(conn);
+                } catch (RuntimeException e) {
+                    log.warn("onConnect hook threw for '{}': {}", resolvedName, e.getMessage());
+                }
+            }
             out().println("Connected to pipe: " + pipe.getPipePath());
             if (connections.size() > 1) {
-                out().println("Active connection set to '" + connName + "'.");
+                out().println("Active connection set to '" + resolvedName + "'.");
             }
         } catch (Exception e) {
             out().println("Connection failed: " + e.getMessage());
@@ -224,33 +345,55 @@ public class CliContext {
     }
 
     public boolean setActive(String name) {
-        if (!connections.containsKey(name)) return false;
+        if (!connections.containsKey(name)) {
+            return false;
+        }
         activeConnectionName = name;
         return true;
     }
 
     public List<BotScript> loadScripts() {
-        return SDNScriptLoader.loadScripts();
+        return loadScriptReport().scripts();
     }
 
     /**
-     * Scans the {@code scripts/blueprints/} directory for {@code *.blueprint.json} files,
-     * deserializes each into a {@link BlueprintGraph}, and wraps them as {@link BlueprintBotScript} instances.
+     * Loads scripts and returns the full {@link LoadReport} including per-JAR
+     * failures. As a side effect, publishes a {@link ScriptLoadFailedEvent}
+     * onto every active connection's event bus for each failure so the
+     * notification overlay and Scripts panel can surface it.
+     */
+    public LoadReport loadScriptReport() {
+        LoadReport report = SDNScriptLoader.loadLocalReport();
+        this.lastLoadReport = report;
+        for (ScriptLoadResult failure : report.failures()) {
+            ScriptLoadFailedEvent event = new ScriptLoadFailedEvent(
+                    failure.jar(), failure.error().orElse(new IllegalStateException("unknown")));
+            broadcastEvent(event);
+        }
+        return report;
+    }
+
+    /** Snapshot of the most recent {@link #loadScriptReport()} call. Never null. */
+    public LoadReport getLastLoadReport() {
+        return lastLoadReport;
+    }
+
+    private void broadcastEvent(GameEvent event) {
+        for (Connection conn : connections.values()) {
+            EventBusImpl bus = conn.getEventBus();
+            if (bus != null) {
+                bus.publish(event);
+            }
+        }
+    }
+
+    /**
+     * Stub: blueprint loading was removed in slice 3 (the blueprint
+     * subsystem depended on the legacy RPC-shaped read surface). Returns
+     * an empty list so callers don't need a guard.
      */
     public List<BotScript> loadBlueprints() {
-        Path dir = Path.of("scripts", "blueprints");
-        if (!Files.isDirectory(dir)) return List.of();
-        try {
-            List<BlueprintGraph> graphs = BlueprintSerializer.loadAllFromDirectory(dir);
-            List<BotScript> scripts = new ArrayList<>();
-            for (BlueprintGraph graph : graphs) {
-                scripts.add(new BlueprintBotScript(graph));
-            }
-            return scripts;
-        } catch (Exception e) {
-            log.error("Failed to load blueprints", e);
-            return List.of();
-        }
+        return List.of();
     }
 
     /**
@@ -301,9 +444,18 @@ public class CliContext {
     public void setProgressDisplay(ProgressDisplay d) { this.progressDisplay = d; }
     public ProgressDisplay getProgressDisplay() { return progressDisplay; }
 
+    /**
+     * Wiring hook for an observer that wants to react to a successful
+     * {@link #connect}, e.g. the notification overlay subscribing to the
+     * new connection's event bus.
+     */
+    public void setOnConnect(Consumer<Connection> hook) { this.onConnect = hook; }
+
     public void setConfigPanelOpener(Consumer<ScriptRunner> opener) { this.configPanelOpener = opener; }
     public void openConfigPanel(ScriptRunner runner) {
-        if (configPanelOpener != null) configPanelOpener.accept(runner);
+        if (configPanelOpener != null) {
+            configPanelOpener.accept(runner);
+        }
     }
 
     // --- Connection Group management & persistence ---
@@ -323,7 +475,9 @@ public class CliContext {
 
     /** Loads persisted groups from ~/.botwithus/groups.json. */
     public void loadGroups() {
-        if (!Files.exists(GROUPS_FILE)) return;
+        if (!Files.exists(GROUPS_FILE)) {
+            return;
+        }
         try {
             String json = Files.readString(GROUPS_FILE);
             Gson gson = new Gson();
@@ -334,8 +488,12 @@ public class CliContext {
                 for (var entry : data.entrySet()) {
                     ConnectionGroup group = new ConnectionGroup(entry.getKey());
                     GroupData gd = entry.getValue();
-                    if (gd.description != null) group.setDescription(gd.description);
-                    if (gd.members != null) gd.members.forEach(group::add);
+                    if (gd.description != null) {
+                        group.setDescription(gd.description);
+                    }
+                    if (gd.members != null) {
+                        gd.members.forEach(group::add);
+                    }
                     groups.put(entry.getKey(), group);
                 }
             }
@@ -367,7 +525,9 @@ public class CliContext {
 
     public boolean deleteGroup(String name) {
         boolean removed = groups.remove(name) != null;
-        if (removed) saveGroups();
+        if (removed) {
+            saveGroups();
+        }
         return removed;
     }
 
@@ -401,7 +561,9 @@ public class CliContext {
      */
     public List<Connection> getGroupConnections(String groupName) {
         ConnectionGroup group = groups.get(groupName);
-        if (group == null) return List.of();
+        if (group == null) {
+            return List.of();
+        }
         List<Connection> result = new ArrayList<>();
         for (String connName : group.getConnectionNames()) {
             Connection conn = connections.get(connName);
@@ -426,10 +588,20 @@ public class CliContext {
     public String getMountedConnectionName() { return mountedConnectionName; }
 
     public void startScriptWatcher() {
-        if (scriptWatcher != null && scriptWatcher.isRunning()) return;
-        java.nio.file.Path scriptsDir = java.nio.file.Path.of("scripts");
-        if (!java.nio.file.Files.isDirectory(scriptsDir)) return;
-        scriptWatcher = new com.botwithus.bot.cli.watch.ScriptWatcher(scriptsDir, () -> {
+        if (scriptWatcher != null && scriptWatcher.isRunning()) {
+            return;
+        }
+        // The directory the loader actually reads — not "scripts" relative to
+        // the working directory, which is a different place as soon as the
+        // -Dbotwithus.scripts.dir override or the ~/.botwithus fallback is in
+        // play. A watcher on the wrong directory never fires.
+        Path scriptsDir = LocalScriptLoader.scriptsDir();
+        if (!Files.isDirectory(scriptsDir)) {
+            out().println("Script watcher not started: " + scriptsDir.toAbsolutePath()
+                    + " does not exist.");
+            return;
+        }
+        scriptWatcher = new ScriptWatcher(scriptsDir, () -> {
             out().println("[ScriptWatcher] Script files changed — reloading...");
             for (Connection conn : connections.values()) {
                 if (conn.isAlive()) {
@@ -457,4 +629,5 @@ public class CliContext {
     public boolean isWatcherRunning() {
         return scriptWatcher != null && scriptWatcher.isRunning();
     }
+
 }

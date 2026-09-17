@@ -1,38 +1,37 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
-import com.botwithus.bot.api.event.*;
-import com.botwithus.bot.api.model.*;
+import com.botwithus.bot.api.Navigation;
+import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.WalkArrivedEvent;
+import com.botwithus.bot.api.event.WalkCancelledEvent;
+import com.botwithus.bot.api.event.WalkFailedEvent;
+import com.botwithus.bot.api.model.PathResult;
+import com.botwithus.bot.api.model.WalkResult;
+import com.botwithus.bot.api.model.WalkStatus;
+import com.botwithus.bot.api.model.WorldPathConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
- * Provides the full {@link com.botwithus.bot.api.Navigation} contract:
- * blocking walks, nav link management, teleport registration,
- * and automatic cleanup of every modification.
+ * Provides the {@link com.botwithus.bot.api.Navigation} contract:
+ * blocking walks with timeout, walk control, and path queries.
  *
- * <p>Every {@code add*} / {@code registerTeleports} call is recorded
- * in a cleanup list. {@link #cleanup()} replays that list in reverse,
- * cancels any active walk, and resets the tracking state.</p>
+ * <p>{@link #cleanup()} cancels any active walk; called automatically
+ * by the script runtime when a script stops.</p>
  */
-public class Walker implements com.botwithus.bot.api.Navigation {
+public class Walker implements Navigation {
 
     private static final Logger log = LoggerFactory.getLogger(Walker.class);
     private static final long DEFAULT_TIMEOUT_MS = 300_000; // 5 minutes
 
     private final GameAPI api;
     private final EventBusImpl eventBus;
-
-    /** Cleanup actions recorded in insertion order; replayed in reverse on cleanup(). */
-    private final List<Runnable> cleanupActions = new ArrayList<>();
-    private boolean registeredTeleports;
 
     public Walker(GameAPI api, EventBusImpl eventBus) {
         this.api = api;
@@ -115,117 +114,6 @@ public class Walker implements com.botwithus.bot.api.Navigation {
         return api.findWorldPath(fromX, fromY, toX, toY);
     }
 
-    // ============================== Nav Link Management ==============================
-
-    @Override
-    public void addTransport(NavTransport transport) {
-        api.navAddTransport(transport);
-        cleanupActions.add(() -> api.navRemoveTransport(
-                transport.objectId(), transport.x(), transport.y(), transport.plane()));
-    }
-
-    @Override
-    public void removeTransport(int objectId, int x, int y, int plane) {
-        api.navRemoveTransport(objectId, x, y, plane);
-    }
-
-    @Override
-    public List<NavTransport> listTransports() {
-        return api.navListTransports();
-    }
-
-    @Override
-    public void addDoor(NavDoor door) {
-        api.navAddDoor(door);
-        cleanupActions.add(() -> api.navRemoveDoor(
-                door.objectId(), door.x(), door.y(), door.plane()));
-    }
-
-    @Override
-    public void removeDoor(int objectId, int x, int y, int plane) {
-        api.navRemoveDoor(objectId, x, y, plane);
-    }
-
-    @Override
-    public List<NavDoor> listDoors() {
-        return api.navListDoors();
-    }
-
-    @Override
-    public void addShortcut(NavShortcut shortcut) {
-        api.navAddShortcut(shortcut);
-        cleanupActions.add(() -> api.navRemoveShortcut(
-                shortcut.objectId(), shortcut.x(), shortcut.y(), shortcut.plane()));
-    }
-
-    @Override
-    public void removeShortcut(int objectId, int x, int y, int plane) {
-        api.navRemoveShortcut(objectId, x, y, plane);
-    }
-
-    @Override
-    public void addPlaneTransition(NavPlaneTransition transition) {
-        api.navAddPlaneTransition(transition);
-        cleanupActions.add(() -> api.navRemovePlaneTransition(
-                transition.objectId(), transition.x(), transition.y(), transition.plane()));
-    }
-
-    @Override
-    public void removePlaneTransition(int objectId, int x, int y, int plane) {
-        api.navRemovePlaneTransition(objectId, x, y, plane);
-    }
-
-    @Override
-    public void addClimbover(NavClimbover climbover) {
-        api.navAddClimbover(climbover);
-        cleanupActions.add(() -> api.navRemoveClimbover(
-                climbover.objectId(), climbover.x(), climbover.y(), climbover.plane()));
-    }
-
-    @Override
-    public void removeClimbover(int objectId, int x, int y, int plane) {
-        api.navRemoveClimbover(objectId, x, y, plane);
-    }
-
-    // ============================== Batch Link Operations ==============================
-
-    @Override
-    public int loadLinksJson(List<NavTransport> links) {
-        return api.navLoadJson(links);
-    }
-
-    @Override
-    public void saveLinks(String path) {
-        api.navSaveLinks(path);
-    }
-
-    @Override
-    public int loadLinks(String path) {
-        return api.navLoadLinks(path);
-    }
-
-    // ============================== Teleports ==============================
-
-    @Override
-    public int registerTeleports(String json, String format) {
-        int added = api.navRegisterTeleports(json, format);
-        if (added > 0) {
-            registeredTeleports = true;
-        }
-        return added;
-    }
-
-    @Override
-    public int clearScriptTeleports() {
-        registeredTeleports = false;
-        return api.navClearScriptTeleports();
-    }
-
-    @Override
-    public List<NavTeleport> listTeleports(boolean scriptOnly) {
-        return api.navListTeleports(scriptOnly);
-    }
-
     // ============================== Region Cache ==============================
 
     @Override
@@ -238,45 +126,15 @@ public class Walker implements com.botwithus.bot.api.Navigation {
         api.clearRegionCache();
     }
 
-    // ============================== Stats ==============================
-
-    @Override
-    public NavStats getNavStats() {
-        return api.navGetStats();
-    }
-
     // ============================== Cleanup ==============================
 
     @Override
     public void cleanup() {
-        // Cancel any active walk first
         try {
             api.walkCancel();
         } catch (Exception e) {
             log.debug("Walk cancel during cleanup: {}", e.getMessage());
         }
-
-        // Clear script-registered teleports
-        if (registeredTeleports) {
-            try {
-                api.navClearScriptTeleports();
-                registeredTeleports = false;
-            } catch (Exception e) {
-                log.warn("Failed to clear script teleports during cleanup: {}", e.getMessage());
-            }
-        }
-
-        // Remove added links in reverse order
-        for (int i = cleanupActions.size() - 1; i >= 0; i--) {
-            try {
-                cleanupActions.get(i).run();
-            } catch (Exception e) {
-                log.debug("Cleanup action failed (link may already be removed): {}", e.getMessage());
-            }
-        }
-        cleanupActions.clear();
-
-        log.debug("Navigation cleanup complete");
     }
 
     // ============================== Internal ==============================
@@ -285,32 +143,26 @@ public class Walker implements com.botwithus.bot.api.Navigation {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<WalkResult> result = new AtomicReference<>();
 
-        Consumer<WalkArrivedEvent> arrivedListener = e -> {
-            result.set(WalkResult.ARRIVED);
-            latch.countDown();
-        };
-        Consumer<WalkCancelledEvent> cancelledListener = e -> {
-            result.set(WalkResult.CANCELLED);
-            latch.countDown();
-        };
-        Consumer<WalkFailedEvent> failedListener = e -> {
-            result.set(WalkResult.FAILED);
-            latch.countDown();
-        };
+        Subscription<WalkArrivedEvent> arrived = subscribeTerminal(WalkArrivedEvent.class, latch, result, WalkResult.ARRIVED);
+        Subscription<WalkCancelledEvent> cancelled = subscribeTerminal(WalkCancelledEvent.class, latch, result, WalkResult.CANCELLED);
+        Subscription<WalkFailedEvent> failed = subscribeTerminal(WalkFailedEvent.class, latch, result, WalkResult.FAILED);
 
-        eventBus.subscribe(WalkArrivedEvent.class, arrivedListener);
-        eventBus.subscribe(WalkCancelledEvent.class, cancelledListener);
-        eventBus.subscribe(WalkFailedEvent.class, failedListener);
+        long refusalsBefore = api.walkRefusalCount();
 
         try {
             startWalk.run();
-
+            if (api.walkRefusalCount() > refusalsBefore) {
+                // Another script holds the character. Nothing was started, so
+                // no terminal event is coming and awaiting one would park this
+                // caller for the whole timeout instead of failing fast.
+                log.warn("Walk refused: another script is already walking this character");
+                return WalkResult.FAILED;
+            }
             if (!latch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
                 log.warn("Walk timed out after {}ms", timeoutMs);
                 api.walkCancel();
                 return WalkResult.TIMEOUT;
             }
-
             return result.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -318,9 +170,31 @@ public class Walker implements com.botwithus.bot.api.Navigation {
             api.walkCancel();
             return WalkResult.TIMEOUT;
         } finally {
-            eventBus.unsubscribe(WalkArrivedEvent.class, arrivedListener);
-            eventBus.unsubscribe(WalkCancelledEvent.class, cancelledListener);
-            eventBus.unsubscribe(WalkFailedEvent.class, failedListener);
+            arrived.close();
+            cancelled.close();
+            failed.close();
+        }
+    }
+
+    private <E extends GameEvent> Subscription<E> subscribeTerminal(
+            Class<E> type, CountDownLatch latch, AtomicReference<WalkResult> result, WalkResult outcome) {
+        Consumer<E> listener = e -> {
+            result.set(outcome);
+            latch.countDown();
+        };
+        eventBus.subscribe(type, listener);
+        return new Subscription<>(type, listener);
+    }
+
+    private final class Subscription<E extends GameEvent> implements AutoCloseable {
+        private final Class<E> type;
+        private final Consumer<E> listener;
+        Subscription(Class<E> type, Consumer<E> listener) {
+            this.type = type;
+            this.listener = listener;
+        }
+        @Override public void close() {
+            eventBus.unsubscribe(type, listener);
         }
     }
 }
