@@ -6,7 +6,9 @@ import com.botwithus.bot.api.draw.Draw;
 import com.botwithus.bot.api.draw.DrawBatchResult;
 import com.botwithus.bot.api.draw.DrawCommand;
 import com.botwithus.bot.api.draw.DrawEntry;
+import com.botwithus.bot.api.draw.DrawFont;
 import com.botwithus.bot.api.draw.DrawFrame;
+import com.botwithus.bot.api.draw.DrawKind;
 import com.botwithus.bot.api.draw.DrawLimits;
 import com.botwithus.bot.api.draw.DrawStats;
 import com.botwithus.bot.core.pipe.PipeClient;
@@ -26,11 +28,13 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -260,6 +264,74 @@ class LiveDebugDrawSmokeTest {
      * the highlight, so it is asserted against the producer rather than assumed.
      */
     @Test
+    void captionsAndFonts_areAcceptedAndReadBack() {
+        String labelled = PREFIX + "labelled";
+        String number = PREFIX + "number";
+
+        draw.component(labelled, BACKPACK_INTERFACE, BACKPACK_SLOT_COMPONENT)
+                .label("Inventory")
+                .font(DrawFont.HEADING)
+                .ttl(SHORT_TTL_MS)
+                .submit();
+        draw.value(number, 40, 160, 1234, 2)
+                .font(DrawFont.LARGE)
+                .ttl(SHORT_TTL_MS)
+                .submit();
+
+        Map<String, DrawEntry> byKey = draw.list().stream()
+                .collect(Collectors.toMap(DrawEntry::key, entry -> entry));
+        DrawEntry highlight = byKey.get(labelled);
+        DrawEntry formatted = byKey.get(number);
+
+        assertAll(
+                () -> assertNotNull(highlight, () -> "no entry for " + labelled),
+                () -> assertNotNull(formatted, () -> "no entry for " + number),
+                // The label comes back in `text`, which is what made the old
+                // DrawEntry.text javadoc wrong as of the captions merge.
+                () -> assertEquals("Inventory", highlight.text()),
+                () -> assertSame(DrawKind.COMPONENT, highlight.kind()),
+                () -> assertSame(DrawFont.HEADING, highlight.font()),
+                // The producer formats the fixed point, because the wire has no float.
+                () -> assertEquals("12.34", formatted.text()),
+                () -> assertSame(DrawFont.LARGE, formatted.font()));
+    }
+
+    /**
+     * The producer refuses a caption or a font on a kind that draws no words. This
+     * host cannot express either — shapes have no caption field — so the check is
+     * that the raw call fails while the typed API has no way to make it.
+     */
+    @Test
+    void aCaptionOnAShape_isRefusedByTheProducerAndUnreachableFromTheApi() {
+        RpcException strayFont = assertThrows(RpcException.class,
+                () -> rpc.callSync(SET, Map.of("key", PREFIX + "badfont", "kind", "rect",
+                        "x", 0, "y", 0, "w", 10, "h", 10,
+                        "font", "large", "ttl_ms", SHORT_TTL_MS)));
+        RpcException strayLabel = assertThrows(RpcException.class,
+                () -> rpc.callSync(SET, Map.of("key", PREFIX + "badlabel", "kind", "rect",
+                        "x", 0, "y", 0, "w", 10, "h", 10,
+                        "label", "nope", "ttl_ms", SHORT_TTL_MS)));
+
+        assertAll(
+                () -> assertTrue(strayFont.getMessage().contains("take a font"),
+                        () -> "unexpected: " + strayFont.getMessage()),
+                () -> assertTrue(strayLabel.getMessage().contains("text, label or value"),
+                        () -> "unexpected: " + strayLabel.getMessage()));
+    }
+
+    /** A component's caption is spelled {@code label}; {@code text} is refused. */
+    @Test
+    void textOnAComponent_isRefusedByTheProducer() {
+        RpcException thrown = assertThrows(RpcException.class,
+                () -> rpc.callSync("highlight_component",
+                        Map.of("iface", BACKPACK_INTERFACE, "comp", BACKPACK_SLOT_COMPONENT,
+                                "text", "nope", "ttl_ms", SHORT_TTL_MS)));
+
+        assertTrue(thrown.getMessage().contains("names its caption"),
+                () -> "unexpected: " + thrown.getMessage());
+    }
+
+    @Test
     void componentAutoKey_matchesTheKeyTheProducerGenerates() {
         Map<String, Object> reply = rpc.callSync("highlight_component",
                 Map.of("iface", BACKPACK_INTERFACE, "comp", BACKPACK_SLOT_COMPONENT,
@@ -348,17 +420,42 @@ class LiveDebugDrawSmokeTest {
 
         Map<String, Object> surface = probe(OVERLAY_SURFACE);
         Map<String, Object> screen = probe(SCREEN);
-        log.info("probe: surface={} screen={}", surface, screen);
+        boolean isOccluded = MapHelper.getBool(screen, "occluded");
+        logScreenOutcome(screen, isOccluded);
 
         assertAll(
                 () -> assertEquals(before.presentFailures(), draw.stats().presentFailures(),
                         "the renderer failed a present while drawing this frame"),
                 () -> assertTrue(MapHelper.getInt(surface, "matched") > 0,
                         () -> "the renderer drew no magenta inside the box we filled: " + surface),
-                () -> assertTrue(MapHelper.getBool(screen, "occluded")
-                                || MapHelper.getInt(screen, "matched") > 0,
-                        () -> "client rect was not occluded, yet no magenta reached the "
-                                + "screen: " + screen));
+                () -> assertTrue(isOccluded || MapHelper.getInt(screen, "matched") > 0,
+                        () -> "the view was clear, yet no magenta reached the screen: " + screen));
+    }
+
+    /**
+     * Says in the run record whether the screen half actually asserted.
+     *
+     * <p>The screen assertion is gated on {@code occluded}, so on a run where
+     * something is in front of the client it passes without checking anything. That
+     * is correct — an occluded desktop is an environment fact, not a renderer bug —
+     * but a gate that quietly stops asserting while still reading as a screen check
+     * is the same shape as the {@code presentFailures} latch this test already had
+     * once. The problem was never the assertion; it was that its absence was
+     * indistinguishable from its success. So the absence is logged, by name.</p>
+     *
+     * <p>The producer reports <b>why</b> in {@code occluder} — a window class name,
+     * or a bracketed reason such as {@code (off-screen)} for the cases it cannot
+     * name. In a harness run the usual answer is the agent's own Debug console,
+     * which is why the harness stages the window before pixel scenarios; if that
+     * staging ever silently stops working, this line is where it shows up.</p>
+     */
+    private void logScreenOutcome(Map<String, Object> screen, boolean isOccluded) {
+        if (isOccluded) {
+            log.info("screen half GATED (not asserted) — occluder={} : {}",
+                    MapHelper.getString(screen, "occluder"), screen);
+        } else {
+            log.info("screen half ASSERTED — view was clear : {}", screen);
+        }
     }
 
     private Map<String, Object> probe(int source) {

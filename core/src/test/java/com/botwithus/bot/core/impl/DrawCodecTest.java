@@ -1,6 +1,9 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.draw.DrawCaption;
 import com.botwithus.bot.api.draw.DrawCommand;
+import com.botwithus.bot.api.draw.DrawFont;
+import com.botwithus.bot.api.draw.DrawKind;
 import com.botwithus.bot.api.draw.DrawSpace;
 import com.botwithus.bot.api.draw.DrawStyle;
 import org.junit.jupiter.api.Test;
@@ -10,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -63,7 +67,8 @@ class DrawCodecTest {
             "color", "thickness", "z", "ttl_ms",
             "key", "kind", "space",
             "filled", "closed",
-            "text", "points");
+            "text", "points",
+            "label", "value", "decimals", "font");
 
     private static final DrawStyle STYLE = DrawStyle.DEFAULT;
 
@@ -73,9 +78,15 @@ class DrawCodecTest {
                 new DrawCommand.Line("k-line", DrawSpace.SCREEN, STYLE, 1, 2, 3, 4),
                 new DrawCommand.Rect("k-rect", DrawSpace.SCREEN, STYLE, 1, 2, 3, 4),
                 new DrawCommand.Ellipse("k-ellipse", DrawSpace.SCREEN, STYLE, 1, 2, 3, 4),
-                new DrawCommand.Text("k-text", DrawSpace.SCREEN, STYLE, 1, 2, "hello"),
+                new DrawCommand.Text("k-text", DrawSpace.SCREEN, STYLE, 1, 2,
+                        DrawCaption.of("hello")),
+                new DrawCommand.Text("k-value", DrawSpace.SCREEN, STYLE, 1, 2,
+                        DrawCaption.of(1234, 2, DrawFont.LARGE)),
                 new DrawCommand.Poly("k-poly", DrawSpace.SCREEN, STYLE, List.of(1, 2, 3, 4)),
-                new DrawCommand.ComponentTarget("k-comp", DrawSpace.SCREEN, STYLE, 1473, 5),
+                new DrawCommand.ComponentTarget("k-comp", DrawSpace.SCREEN, STYLE, 1473, 5,
+                        DrawCaption.NONE),
+                new DrawCommand.ComponentTarget("k-labelled", DrawSpace.SCREEN, STYLE, 1473, 5,
+                        DrawCaption.of("Inventory", DrawFont.HEADING)),
                 new DrawCommand.Rect("k-world", DrawSpace.WORLD, STYLE, 1, 2, 3, 4));
     }
 
@@ -140,6 +151,71 @@ class DrawCodecTest {
     }
 
     /**
+     * A shape must never carry a caption or a font.
+     *
+     * <p>The producer rejects both on a {@code rect}, {@code ellipse}, {@code line}
+     * or {@code poly} — {@code only text and component commands take text, label or
+     * value} and {@code only text and component commands take a font} — and its own
+     * spec tells callers who build commands from a shared style object to strip
+     * {@code font} for the shapes.</p>
+     *
+     * <p>This host has nothing to strip, and that is the point: {@code font} lives
+     * on {@link DrawCaption}, a caption lives only on the two captioned variants,
+     * and shapes have no field for either. This test is the guard on that placement
+     * — put {@code font} on {@link DrawStyle} for convenience and it fails here
+     * rather than in a scripter's dropped count.</p>
+     */
+    @Test
+    void shapes_encodeNoCaptionAndNoFont() {
+        Set<String> captionKeys = Set.of("text", "label", "value", "decimals", "font");
+        for (DrawCommand command : everyVariant()) {
+            if (command.kind() == DrawKind.TEXT || command.kind() == DrawKind.COMPONENT) {
+                continue;
+            }
+            for (String key : DrawCodec.encode(command).keySet()) {
+                assertFalse(captionKeys.contains(key),
+                        () -> command.kind() + " encodes \"" + key
+                                + "\", which the producer refuses on a shape");
+            }
+        }
+    }
+
+    /** The captioned kinds use the spelling their own kind accepts, and no other. */
+    @Test
+    void captionedKinds_useTheSpellingTheirKindAccepts() {
+        Map<String, Object> literalText = DrawCodec.encode(
+                new DrawCommand.Text("k", DrawSpace.SCREEN, STYLE, 0, 0,
+                        DrawCaption.of("hi", DrawFont.SMALL)));
+        Map<String, Object> labelled = DrawCodec.encode(
+                new DrawCommand.ComponentTarget("k", DrawSpace.SCREEN, STYLE, 1, 2,
+                        DrawCaption.of("Inventory")));
+        Map<String, Object> number = DrawCodec.encode(
+                new DrawCommand.Text("k", DrawSpace.SCREEN, STYLE, 0, 0,
+                        DrawCaption.of(1234, 2)));
+        Map<String, Object> bare = DrawCodec.encode(
+                new DrawCommand.ComponentTarget("k", DrawSpace.SCREEN, STYLE, 1, 2,
+                        DrawCaption.NONE));
+
+        assertAll(
+                // A text command says "text"; sending "label" would be refused.
+                () -> assertEquals("hi", literalText.get("text")),
+                () -> assertEquals("small", literalText.get("font")),
+                () -> assertFalse(literalText.containsKey("label")),
+                // A component says "label"; sending "text" is an explicit producer error.
+                () -> assertEquals("Inventory", labelled.get("label")),
+                () -> assertFalse(labelled.containsKey("text")),
+                // A number is the third spelling and excludes the other two.
+                () -> assertEquals(1234L, number.get("value")),
+                () -> assertEquals(2, number.get("decimals")),
+                () -> assertFalse(number.containsKey("text")),
+                () -> assertFalse(number.containsKey("label")),
+                // No caption means no payload and no font at all.
+                () -> assertFalse(bare.containsKey("label")),
+                () -> assertFalse(bare.containsKey("font")),
+                () -> assertFalse(bare.containsKey("value")));
+    }
+
+    /**
      * Value types the producer's matchers accept. A mismatch here would be a soft
      * per-item refusal — visible in {@code dropped} rather than fatal — but it
      * would still mean the command never drew.
@@ -160,7 +236,7 @@ class DrawCodecTest {
     // as the decode-boundary waiver on RpcClient.callSync, and confined here.
     private static boolean isExpectedType(String key, Object value) {
         return switch (key) {
-            case "key", "kind", "space", "text" -> value instanceof String;
+            case "key", "kind", "space", "text", "label", "font" -> value instanceof String;
             case "filled", "closed" -> value instanceof Boolean;
             case "points" -> value instanceof List<?>;
             default -> value instanceof Number;

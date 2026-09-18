@@ -535,8 +535,13 @@ class GameAPIImplDrawTest {
      * <p>rule-exception: {@code {rule:no-casts}} — attaching an appender needs
      * logback's own {@code Logger}, and SLF4J's facade cannot express it. Confined
      * to this one helper, and logback is already this module's binding.</p>
+     *
+     * <p>Deliberately carries no {@code @SuppressWarnings}: the cast is a plain
+     * downcast rather than an unchecked conversion, so it warns about nothing.
+     * Verified by removing the annotation and rebuilding with the module's
+     * {@code -Xlint:all -Werror}, which stayed clean — an annotation suppressing a
+     * warning that cannot occur is noise that outlives whoever added it.</p>
      */
-    @SuppressWarnings("unchecked")
     private static List<String> captureWarnings(Runnable action) {
         Logger target = (Logger) LoggerFactory.getLogger(DrawFrame.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -560,7 +565,7 @@ class GameAPIImplDrawTest {
                 Map.entry("filled", false), Map.entry("closed", false),
                 Map.entry("geom", List.of(1, 2, 3, 4)), Map.entry("resolved", false),
                 Map.entry("rect", List.of(0, 0, 0, 0)), Map.entry("ttl_ms", 742),
-                Map.entry("text", ""));
+                Map.entry("text", ""), Map.entry("font", "normal"));
     }
 
     /** Typed captor for a wire parameter map. */

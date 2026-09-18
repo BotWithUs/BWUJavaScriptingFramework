@@ -50,6 +50,13 @@ public final class DrawLimits {
     /** Retained {@code poly} commands, across every connected client. */
     public static final int MAX_POLY_COMMANDS = 64;
 
+    /**
+     * Most decimal places a fixed-point caption may be scaled by. The producer
+     * rejects more with {@code "decimals" must be 0..9}, and rejects {@code decimals}
+     * with no {@code value} at all.
+     */
+    public static final int MAX_DECIMALS = 9;
+
     /** Fewest points a polyline may have. */
     public static final int MIN_POLY_POINTS = 2;
 

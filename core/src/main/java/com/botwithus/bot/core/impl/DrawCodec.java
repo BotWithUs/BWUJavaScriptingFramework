@@ -1,8 +1,10 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.draw.DrawBatchResult;
+import com.botwithus.bot.api.draw.DrawCaption;
 import com.botwithus.bot.api.draw.DrawCommand;
 import com.botwithus.bot.api.draw.DrawEntry;
+import com.botwithus.bot.api.draw.DrawFont;
 import com.botwithus.bot.api.draw.DrawKind;
 import com.botwithus.bot.api.draw.DrawSpace;
 import com.botwithus.bot.api.draw.DrawStats;
@@ -41,6 +43,10 @@ final class DrawCodec {
     private static final String POINTS = "points";
     private static final String IFACE = "iface";
     private static final String COMP = "comp";
+    private static final String LABEL = "label";
+    private static final String VALUE = "value";
+    private static final String DECIMALS = "decimals";
+    private static final String FONT = "font";
 
     private DrawCodec() {
     }
@@ -81,12 +87,46 @@ final class DrawCodec {
             case DrawCommand.Text text -> {
                 params.put("x", text.x());
                 params.put("y", text.y());
-                params.put(TEXT, text.text());
+                putCaption(params, text.caption(), TEXT);
             }
             case DrawCommand.Poly poly -> params.put(POINTS, poly.points());
             case DrawCommand.ComponentTarget target -> {
                 params.put(IFACE, target.interfaceId());
                 params.put(COMP, target.componentId());
+                putCaption(params, target.caption(), LABEL);
+            }
+        }
+    }
+
+    /**
+     * The caption, under whichever of the wire's three spellings applies.
+     *
+     * <p>{@code text} and {@code label} are two names for one producer-side
+     * buffer and a kind accepts exactly one of them — a {@code text} on a
+     * component is rejected with
+     * {@code component names its caption "label", not "text"} — so the caller's
+     * kind picks the key. {@code value} is the third spelling and cannot be
+     * combined with either; a sealed {@link DrawCaption} is what makes combining
+     * them unrepresentable rather than merely refused.</p>
+     *
+     * <p>Nothing is written for {@link DrawCaption.None}, and {@code font} rides
+     * with the caption rather than with the style — the producer rejects a
+     * {@code font} on a kind that draws no words, so it must never appear on a
+     * shape.</p>
+     */
+    private static void putCaption(Map<String, Object> params, DrawCaption caption, String key) {
+        switch (caption) {
+            case DrawCaption.Literal literal -> {
+                params.put(key, literal.text());
+                params.put(FONT, literal.font().wireName());
+            }
+            case DrawCaption.FixedPoint fixed -> {
+                params.put(VALUE, fixed.value());
+                params.put(DECIMALS, fixed.decimals());
+                params.put(FONT, fixed.font().wireName());
+            }
+            case DrawCaption.None ignored -> {
+                // No caption: send neither a payload nor a font.
             }
         }
     }
@@ -125,7 +165,8 @@ final class DrawCodec {
                 getBool(row, "resolved"),
                 getIntList(row, "rect"),
                 getLong(row, TTL_MS),
-                getString(row, TEXT));
+                getString(row, TEXT),
+                DrawFont.fromWireName(getString(row, FONT)));
     }
 
     /** A {@code debug_draw_stats} reply. */

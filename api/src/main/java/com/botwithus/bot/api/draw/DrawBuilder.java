@@ -35,6 +35,18 @@ public final class DrawBuilder {
         this.factory = factory;
     }
 
+    /**
+     * A builder held only for its styling state, by {@link DrawCaptionBuilder}.
+     *
+     * <p>It never builds a command of its own — the caption builder owns that —
+     * so it carries no factory, and {@link #build()} on it would be a programming
+     * error rather than a caller's mistake. Sharing it is what keeps one
+     * implementation of what {@code color} or {@code ttl} mean across both chains.</p>
+     */
+    static DrawBuilder styleOnly(DrawTarget target) {
+        return new DrawBuilder(target, null);
+    }
+
     /** Packed {@code 0xAARRGGBB}. See {@link Colors}. */
     public DrawBuilder color(int argb) {
         this.color = argb;
@@ -115,6 +127,16 @@ public final class DrawBuilder {
     public DrawBuilder world() {
         this.space = DrawSpace.WORLD;
         return this;
+    }
+
+    /** The space this builder will stamp on the command. Shared with {@link DrawCaptionBuilder}. */
+    DrawSpace currentSpace() {
+        return space;
+    }
+
+    /** The style this builder will stamp on the command. Shared with {@link DrawCaptionBuilder}. */
+    DrawStyle currentStyle() {
+        return new DrawStyle(color, thickness, isFilled, isClosed, z, ttlMs);
     }
 
     /** The command as configured, without sending it. */
