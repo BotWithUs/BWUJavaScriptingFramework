@@ -176,7 +176,7 @@ public final class DrawCaptionBuilder {
         return this;
     }
 
-    /** Game-world coordinates. Every submit in this space fails today. */
+    /** Game-world coordinates, projected by the producer. See {@link DrawSpace#WORLD}. */
     public DrawCaptionBuilder world() {
         styling.world();
         return this;
