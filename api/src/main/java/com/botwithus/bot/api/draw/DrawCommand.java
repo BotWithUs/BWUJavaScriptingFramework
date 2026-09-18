@@ -98,22 +98,19 @@ public sealed interface DrawCommand {
     }
 
     /**
-     * A string anchored at {@code (x, y)}.
+     * A caption anchored at {@code (x, y)}.
      *
-     * <p>The length cap is in UTF-16 code units because that is the buffer the
-     * producer converts into; text that will not fit is refused, not truncated.</p>
+     * <p>The caption is required here — a text command that draws nothing is not
+     * a thing worth sending. It may be literal text or a fixed-point number; see
+     * {@link DrawCaption}.</p>
      */
     record Text(String key, DrawSpace space, DrawStyle style,
-                int x, int y, String text) implements DrawCommand {
+                int x, int y, DrawCaption caption) implements DrawCommand {
 
         public Text {
             requireKey(key);
-            if (text == null || text.isEmpty()) {
-                throw new IllegalArgumentException("a text command needs non-empty text");
-            }
-            if (text.length() > DrawLimits.MAX_TEXT_LENGTH) {
-                throw new IllegalArgumentException("draw text exceeds "
-                        + DrawLimits.MAX_TEXT_LENGTH + " UTF-16 units (" + text.length() + ")");
+            if (caption == null || caption.isEmpty()) {
+                throw new IllegalArgumentException("a text command needs a caption");
             }
         }
 
@@ -158,15 +155,26 @@ public sealed interface DrawCommand {
      * the client recomputes a component's rect on every layout pass. A stored
      * rectangle would drift the moment the UI relaid out, the window resized, or a
      * scrollpane moved.</p>
+     *
+     * <p>The optional caption is the only way to tell highlights apart, and it has
+     * to travel with the command precisely <i>because</i> the caller never learns
+     * where the rect landed — with six highlights on screen there is nothing else
+     * to distinguish them by. The producer draws it against the resolved rect.
+     * {@link DrawCaption#NONE} for an uncaptioned highlight.</p>
      */
     record ComponentTarget(String key, DrawSpace space, DrawStyle style,
-                           int interfaceId, int componentId) implements DrawCommand {
+                           int interfaceId, int componentId,
+                           DrawCaption caption) implements DrawCommand {
 
         /** Prefix of the conventional auto key, as the producer spells it. */
         private static final String AUTO_KEY_PREFIX = "comp:";
 
         public ComponentTarget {
             requireKey(key);
+            if (caption == null) {
+                throw new IllegalArgumentException(
+                        "caption — use DrawCaption.NONE for an uncaptioned highlight");
+            }
         }
 
         /**

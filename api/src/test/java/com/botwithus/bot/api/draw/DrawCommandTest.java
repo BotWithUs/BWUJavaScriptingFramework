@@ -42,7 +42,23 @@ class DrawCommandTest {
     private static final int ACCENTS_OVER_THE_BYTE_LIMIT = 24;
 
     private static DrawCommand.Text text(String body) {
-        return new DrawCommand.Text("k", DrawSpace.SCREEN, STYLE, 0, 0, body);
+        return new DrawCommand.Text("k", DrawSpace.SCREEN, STYLE, 0, 0, DrawCaption.of(body));
+    }
+
+    /**
+     * The literal words a text command carries.
+     *
+     * <p>A sealed switch rather than a cast: the caption is one of three shapes and
+     * only one of them has literal text, so the compiler is what keeps this honest
+     * if a fourth ever arrives.</p>
+     */
+    private static String literalOf(DrawCommand.Text command) {
+        return switch (command.caption()) {
+            case DrawCaption.Literal literal -> literal.text();
+            case DrawCaption.FixedPoint fixed -> throw new AssertionError(
+                    "expected literal text, got a fixed-point caption: " + fixed);
+            case DrawCaption.None ignored -> throw new AssertionError("expected literal text");
+        };
     }
 
     private static DrawCommand.Rect rect(String key) {
@@ -89,7 +105,7 @@ class DrawCommandTest {
     @Test
     void text_atTheLimit_isAccepted() {
         assertEquals(DrawLimits.MAX_TEXT_LENGTH,
-                text(repeat("a", DrawLimits.MAX_TEXT_LENGTH)).text().length());
+                literalOf(text(repeat("a", DrawLimits.MAX_TEXT_LENGTH))).length());
     }
 
     @Test
@@ -106,7 +122,7 @@ class DrawCommandTest {
     @Test
     void text_isMeasuredInUtf16UnitsNotBytes() {
         String longInBytesShortInUnits = repeat("é", DrawLimits.MAX_TEXT_LENGTH);
-        assertEquals(DrawLimits.MAX_TEXT_LENGTH, text(longInBytesShortInUnits).text().length());
+        assertEquals(DrawLimits.MAX_TEXT_LENGTH, literalOf(text(longInBytesShortInUnits)).length());
     }
 
     @Test
@@ -216,7 +232,8 @@ class DrawCommandTest {
                         new DrawCommand.Poly("k", DrawSpace.SCREEN, STYLE, List.of(1, 2, 3, 4))
                                 .kind()),
                 () -> assertSame(DrawKind.COMPONENT,
-                        new DrawCommand.ComponentTarget("k", DrawSpace.SCREEN, STYLE, 1, 2).kind()));
+                        new DrawCommand.ComponentTarget("k", DrawSpace.SCREEN, STYLE, 1, 2,
+                                DrawCaption.NONE).kind()));
     }
 
     @Test

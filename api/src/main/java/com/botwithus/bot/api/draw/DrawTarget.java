@@ -41,10 +41,31 @@ public sealed interface DrawTarget permits Draw, DrawFrame {
                 (space, style) -> new DrawCommand.Ellipse(key, space, style, x, y, w, h));
     }
 
-    /** A string anchored at {@code (x, y)}. */
-    default DrawBuilder text(String key, int x, int y, String text) {
-        return new DrawBuilder(this,
-                (space, style) -> new DrawCommand.Text(key, space, style, x, y, text));
+    /**
+     * A caption anchored at {@code (x, y)}, drawn as-is.
+     *
+     * <p>Returns a {@link DrawCaptionBuilder}, so {@code font(...)} and
+     * {@code value(...)} are reachable here and nowhere a shape can see them.</p>
+     */
+    default DrawCaptionBuilder text(String key, int x, int y, String text) {
+        return captioned(key, x, y, DrawCaption.of(text));
+    }
+
+    /**
+     * A scaled number anchored at {@code (x, y)}:
+     * {@code value(key, x, y, 1234, 2)} draws {@code "12.34"}.
+     *
+     * <p>There is no float anywhere on this wire, deliberately. Send a scaled
+     * integer and say what you scaled it by.</p>
+     */
+    default DrawCaptionBuilder value(String key, int x, int y, long value, int decimals) {
+        return captioned(key, x, y, DrawCaption.of(value, decimals));
+    }
+
+    private DrawCaptionBuilder captioned(String key, int x, int y, DrawCaption caption) {
+        return new DrawCaptionBuilder(this, DrawBuilder.styleOnly(this),
+                (space, style, words) -> new DrawCommand.Text(key, space, style, x, y, words),
+                caption);
     }
 
     /** Polyline over a flat {@code [x, y, x, y, ...]} list. */
@@ -58,9 +79,11 @@ public sealed interface DrawTarget permits Draw, DrawFrame {
      * re-resolves the rect every tick, so the highlight follows the component
      * rather than drifting when the UI relays out.
      */
-    default DrawBuilder component(String key, int interfaceId, int componentId) {
-        return new DrawBuilder(this, (space, style) ->
-                new DrawCommand.ComponentTarget(key, space, style, interfaceId, componentId));
+    default DrawCaptionBuilder component(String key, int interfaceId, int componentId) {
+        return new DrawCaptionBuilder(this, DrawBuilder.styleOnly(this),
+                (space, style, caption) -> new DrawCommand.ComponentTarget(
+                        key, space, style, interfaceId, componentId, caption),
+                DrawCaption.NONE);
     }
 
     /**
@@ -73,7 +96,7 @@ public sealed interface DrawTarget permits Draw, DrawFrame {
      * {@link DrawCommand.ComponentTarget#autoKey(int, int)} is the same format,
      * exposed for anyone predicting it.</p>
      */
-    default DrawBuilder component(int interfaceId, int componentId) {
+    default DrawCaptionBuilder component(int interfaceId, int componentId) {
         return component(DrawCommand.ComponentTarget.autoKey(interfaceId, componentId),
                 interfaceId, componentId);
     }

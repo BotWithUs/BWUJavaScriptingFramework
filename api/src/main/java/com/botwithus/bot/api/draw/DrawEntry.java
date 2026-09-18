@@ -34,12 +34,20 @@ import java.util.List;
  * @param isResolved      a component target whose rect is current
  * @param rect            the last resolved rect {@code [x, y, w, h]}, in layout units
  * @param remainingTtlMs  milliseconds left, or {@code -1} for no expiry
- * @param text            the text of a {@link DrawKind#TEXT} entry, otherwise empty
+ * @param text            the words this entry draws. Populated for a
+ *                        {@link DrawKind#TEXT} entry and — since the producer gained
+ *                        captions — for a {@link DrawKind#COMPONENT} entry too, where
+ *                        it carries the highlight's label. Empty when the entry has no
+ *                        caption. A fixed-point caption arrives already formatted,
+ *                        because the producer does the formatting and this wire has no
+ *                        float to send back.
+ * @param font            the style the caption is drawn in; {@link DrawFont#NORMAL}
+ *                        when the entry has no caption
  */
 public record DrawEntry(String key, DrawKind kind, DrawSpace space, int color, int thickness,
                         int z, boolean isFilled, boolean isClosed, List<Integer> geometry,
                         boolean isResolved, List<Integer> rect, long remainingTtlMs,
-                        String text) {
+                        String text, DrawFont font) {
 
     /** Milliseconds reported for a command that never expires. */
     public static final long NO_EXPIRY = -1L;
@@ -48,6 +56,7 @@ public record DrawEntry(String key, DrawKind kind, DrawSpace space, int color, i
         geometry = geometry == null ? List.of() : List.copyOf(geometry);
         rect = rect == null ? List.of() : List.copyOf(rect);
         text = text == null ? "" : text;
+        font = font == null ? DrawFont.NORMAL : font;
     }
 
     /** True when this command has no expiry and lives until replaced or cleared. */
