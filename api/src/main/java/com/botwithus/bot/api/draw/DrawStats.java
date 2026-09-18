@@ -34,7 +34,10 @@ package com.botwithus.bot.api.draw;
  *                            the producer started. A malformed command, an over-long key
  *                            and an out-of-range coordinate are rejected before the store
  *                            is touched and do <b>not</b> land here — this counter is not
- *                            a way to detect them.
+ *                            a way to detect them. Not to be confused with
+ *                            {@link DrawBatchResult#dropped()}, which is per-call and
+ *                            <i>does</i> count those: same name, different scope, and
+ *                            different membership.
  * @param resolveFailures     component rects the game thread could not resolve
  * @param resolveOverflow     ticks on which more than
  *                            {@link DrawLimits#RESOLVED_COMPONENTS_PER_TICK} highlights

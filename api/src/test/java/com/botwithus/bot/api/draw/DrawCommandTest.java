@@ -18,9 +18,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>These limits are checked here so a script author sees the failure at the
  * call site rather than as a {@code dropped} count from a batch that has already
- * gone — and, for the key length in particular, because an over-long key is one
- * of the producer errors that does not increment {@code dropped} at all, so no
- * amount of reading the reply would have found it.</p>
+ * gone.</p>
+ *
+ * <p>{@link DrawStyle}'s {@code z} range is the one check with no producer-side
+ * counterpart at all: the producer narrows {@code z} to 16 bits with a plain
+ * cast, so an out-of-range paint order is silently truncated into a different
+ * one rather than refused. See {@link DrawLimits#MIN_Z}.</p>
  *
  * <p>Both length limits are deliberately measured the way the producer measures
  * them, which is not the same unit for both: a key is bytes, text is UTF-16
@@ -148,6 +151,39 @@ class DrawCommandTest {
                         () -> new DrawStyle(0, DrawLimits.MIN_THICKNESS - 1, false, false, 0, 1)),
                 () -> assertThrows(IllegalArgumentException.class,
                         () -> new DrawStyle(0, DrawLimits.MAX_THICKNESS + 1, false, false, 0, 1)));
+    }
+
+    /**
+     * The producer stores {@code z} in an {@code int16_t} and narrows to it with a
+     * plain cast, so an out-of-range paint order is <b>silently truncated</b> — no
+     * error, no {@code dropped}, and nothing in {@code debug_draw_list} to show for
+     * it. {@code z(100000)} would arrive as {@code -31072} and paint behind
+     * everything instead of in front.
+     *
+     * <p>That makes this the one limit with no producer-side refusal for the host
+     * check to agree with: the check is the only thing between a caller and a
+     * silently wrong result, so it has to reject rather than clamp.</p>
+     */
+    @Test
+    void z_pastTheProducersSixteenBitRange_isRejectedRatherThanSilentlyTruncated() {
+        int truncatesToADifferentOrder = 100_000;
+        assertAll(
+                () -> assertThrows(IllegalArgumentException.class,
+                        () -> new DrawStyle(0, 1, false, false, truncatesToADifferentOrder, 1)),
+                () -> assertThrows(IllegalArgumentException.class,
+                        () -> new DrawStyle(0, 1, false, false, DrawLimits.MAX_Z + 1, 1)),
+                () -> assertThrows(IllegalArgumentException.class,
+                        () -> new DrawStyle(0, 1, false, false, DrawLimits.MIN_Z - 1, 1)));
+    }
+
+    /** Both ends of the producer's actual range must still be usable. */
+    @Test
+    void z_atEitherEndOfTheRange_isAccepted() {
+        assertAll(
+                () -> assertEquals(DrawLimits.MAX_Z,
+                        new DrawStyle(0, 1, false, false, DrawLimits.MAX_Z, 1).z()),
+                () -> assertEquals(DrawLimits.MIN_Z,
+                        new DrawStyle(0, 1, false, false, DrawLimits.MIN_Z, 1).z()));
     }
 
     @Test

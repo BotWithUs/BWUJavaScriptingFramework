@@ -38,9 +38,7 @@ public sealed interface DrawCommand {
      *
      * <p>Rejected here rather than on the wire so a script author gets the failure
      * at the call site with a stack trace, instead of a {@code dropped} count from
-     * a batch that is already gone. An over-long key is also one of the producer
-     * errors that does <b>not</b> increment {@code dropped}, so the counter would
-     * not have caught it either.</p>
+     * a batch that is already gone.</p>
      *
      * <p>The producer measures a key in UTF-8 bytes, so that is what is measured
      * here; {@code String.length()} would wave through keys the producer refuses.</p>

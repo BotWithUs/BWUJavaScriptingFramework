@@ -77,31 +77,27 @@ class GameAPIImplDrawTest {
         draw = new GameAPIImpl(rpc).draw();
     }
 
-    /** A batch reply that accepted everything it was handed. */
-    private void batchAcceptsEverything() {
-        when(rpc.callSync(eq(BATCH), anyMap())).thenAnswer(call -> {
-            Map<String, Object> params = call.getArgument(1);
-            return Map.of("count", itemCount(params), "dropped", 0);
-        });
-    }
-
     /**
-     * How many items a captured {@code debug_draw_set_batch} parameter map carries.
-     *
-     * <p>rule-exception: {@code {rule:no-casts}} — the wire params are
-     * {@code Map<String, Object>} by the transport's own signature, so reading a
-     * list back out of one needs a reference cast. Confined to this one helper
-     * rather than repeated in every test that counts a batch.</p>
+     * One accepting batch reply per sub-batch the frame is expected to send, in
+     * order. Spelled out rather than derived from the captured item count: the
+     * sub-batch sizes are the thing under test, so a stub that read them back out
+     * of the call would be agreeing with whatever the code did.
      */
-    @SuppressWarnings("unchecked")
-    private static int itemCount(Map<String, Object> params) {
-        return ((List<Object>) params.get("items")).size();
+    private void batchAccepts(int... appliedPerSubBatch) {
+        var stub = when(rpc.callSync(eq(BATCH), anyMap()));
+        for (int applied : appliedPerSubBatch) {
+            stub = stub.thenReturn(Map.of("count", applied, "dropped", 0));
+        }
     }
 
     private static void fill(DrawFrame frame, int count) {
         for (int i = 0; i < count; i++) {
-            frame.rect("box-" + i, i, i, 1 + i, 1 + i).submit();
+            frame.rect(key(i), i, i, 1 + i, 1 + i).submit();
         }
+    }
+
+    private static String key(int index) {
+        return "box-" + index;
     }
 
     @Nested
@@ -110,7 +106,7 @@ class GameAPIImplDrawTest {
 
         @Test
         void frame_twentyPrimitives_issuesExactlyOneBatchCall() {
-            batchAcceptsEverything();
+            batchAccepts(FRAME_PRIMITIVES);
 
             try (DrawFrame frame = draw.frame()) {
                 fill(frame, FRAME_PRIMITIVES);
@@ -150,15 +146,21 @@ class GameAPIImplDrawTest {
 
         @Test
         void frame_carriesEveryPrimitiveItWasGiven() {
-            batchAcceptsEverything();
+            batchAccepts(FRAME_PRIMITIVES);
             ArgumentCaptor<Map<String, Object>> params = captor();
 
             try (DrawFrame frame = draw.frame()) {
                 fill(frame, FRAME_PRIMITIVES);
             }
 
+            List<Map<String, Object>> expected = new ArrayList<>();
+            for (int i = 0; i < FRAME_PRIMITIVES; i++) {
+                expected.add(DrawCodec.encode(draw.rect(key(i), i, i, 1 + i, 1 + i).build()));
+            }
+
             verify(rpc).callSync(eq(BATCH), params.capture());
-            assertEquals(FRAME_PRIMITIVES, itemCount(params.getValue()));
+            assertEquals(expected, params.getValue().get("items"),
+                    "the batch must carry every primitive, encoded, in submission order");
         }
 
         /**
@@ -168,7 +170,7 @@ class GameAPIImplDrawTest {
          */
         @Test
         void frame_pastTheBatchCap_splitsRatherThanTruncatingOrFailing() {
-            batchAcceptsEverything();
+            batchAccepts(DrawLimits.MAX_BATCH_ITEMS, 1);
             int overflowing = DrawLimits.MAX_BATCH_ITEMS + 1;
             DrawBatchResult result;
 
@@ -184,7 +186,7 @@ class GameAPIImplDrawTest {
 
         @Test
         void frame_exactlyAtTheBatchCap_stillIssuesOneCall() {
-            batchAcceptsEverything();
+            batchAccepts(DrawLimits.MAX_BATCH_ITEMS);
 
             try (DrawFrame frame = draw.frame()) {
                 fill(frame, DrawLimits.MAX_BATCH_ITEMS);
@@ -195,7 +197,7 @@ class GameAPIImplDrawTest {
 
         @Test
         void flush_thenClose_doesNotSendTheSameCommandsTwice() {
-            batchAcceptsEverything();
+            batchAccepts(2);
 
             try (DrawFrame frame = draw.frame()) {
                 fill(frame, 2);
@@ -561,11 +563,8 @@ class GameAPIImplDrawTest {
                 Map.entry("text", ""));
     }
 
-    // rule-exception: {rule:no-casts} — Mockito's ArgumentCaptor.forClass cannot
-    // express a generic type, so every captor of a parameterised type needs one
-    // unchecked conversion. Confined to this helper rather than repeated per test.
-    @SuppressWarnings("unchecked")
+    /** Typed captor for a wire parameter map. */
     private static ArgumentCaptor<Map<String, Object>> captor() {
-        return ArgumentCaptor.forClass(Map.class);
+        return ArgumentCaptor.captor();
     }
 }

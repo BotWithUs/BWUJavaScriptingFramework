@@ -335,7 +335,7 @@ class LiveDebugDrawSmokeTest {
      */
     @Test
     void filledRect_isRasterisedAndReachesTheScreenWhenVisible() {
-        long presentsBefore = draw.stats().backendPresents();
+        DrawStats before = draw.stats();
 
         draw.rect(PREFIX + "probe", PROBE_ORIGIN, PROBE_ORIGIN, PROBE_BOX_W, PROBE_BOX_H)
                 .color(Colors.MAGENTA)
@@ -343,7 +343,7 @@ class LiveDebugDrawSmokeTest {
                 .ttl(SHORT_TTL_MS)
                 .submit();
 
-        Assumptions.assumeTrue(awaitPresentAfter(presentsBefore),
+        Assumptions.assumeTrue(awaitPresentAfter(before.backendPresents()),
                 "overlay presented no frame after the submit — headless or minimised client");
 
         Map<String, Object> surface = probe(OVERLAY_SURFACE);
@@ -351,6 +351,8 @@ class LiveDebugDrawSmokeTest {
         log.info("probe: surface={} screen={}", surface, screen);
 
         assertAll(
+                () -> assertEquals(before.presentFailures(), draw.stats().presentFailures(),
+                        "the renderer failed a present while drawing this frame"),
                 () -> assertTrue(MapHelper.getInt(surface, "matched") > 0,
                         () -> "the renderer drew no magenta inside the box we filled: " + surface),
                 () -> assertTrue(MapHelper.getBool(screen, "occluded")
@@ -366,10 +368,23 @@ class LiveDebugDrawSmokeTest {
                         "color", Colors.MAGENTA, "source", source));
     }
 
+    /**
+     * Waits for a present that happened after the submit.
+     *
+     * <p>Deliberately does <b>not</b> look at {@code presentFailures}. That counter
+     * is a process-lifetime latch — the producer only ever increments it and never
+     * resets it — so gating this on {@code presentFailures == 0} would mean a
+     * single failed present at any earlier point in the client's life permanently
+     * turned the pixel assertions below into a skip, and reported it as "headless
+     * or minimised". A broken renderer and a minimised window would have produced
+     * byte-identical output. The failure count is compared before and after the
+     * submit by the caller instead, where it is a hard assertion rather than a
+     * gate.</p>
+     */
     private boolean awaitPresentAfter(long presentsBefore) {
         for (int attempt = 0; attempt < PRESENT_POLL_ATTEMPTS; attempt++) {
             DrawStats stats = draw.stats();
-            if (stats.backendPresents() > presentsBefore && stats.presentFailures() == 0) {
+            if (stats.backendPresents() > presentsBefore) {
                 return true;
             }
             try {

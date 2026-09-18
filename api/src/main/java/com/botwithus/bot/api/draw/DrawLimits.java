@@ -18,9 +18,14 @@ public final class DrawLimits {
 
     /**
      * Longest key the producer stores, in <b>UTF-8 bytes</b> — its buffer is 48
-     * bytes including the NUL. A longer key is rejected before the store is
-     * touched, so it errors <i>without</i> incrementing the {@code dropped}
-     * counter: that counter is not a way to detect an over-long key.
+     * bytes including the NUL.
+     *
+     * <p>Two different counters are called {@code dropped} and an over-long key
+     * lands in one but not the other, so be specific about which you are reading:
+     * the producer rejects the key before its store is touched, so it never
+     * reaches {@link DrawStats#dropped()} (the store's process-lifetime counter),
+     * but inside a batch it does count into {@link DrawBatchResult#dropped()},
+     * because the batch tallies every non-OK item whatever the reason.</p>
      */
     public static final int MAX_KEY_BYTES = 47;
 
@@ -56,6 +61,24 @@ public final class DrawLimits {
 
     /** Thickest stroke. */
     public static final int MAX_THICKNESS = 64;
+
+    /**
+     * Lowest paint order.
+     *
+     * <p>Unlike every other limit here, this one is <b>not</b> a producer-side
+     * error — and that is exactly why the host checks it. The producer stores
+     * {@code z} in an {@code int16_t} and narrows to it with a plain cast, so an
+     * out-of-range order is silently truncated rather than refused:
+     * {@code z(100000)} arrives as {@code -31072} and quietly paints behind
+     * everything instead of in front of it, with nothing in the reply, nothing in
+     * {@link DrawStats#dropped()}, and nothing in {@link Draw#list()} to show for
+     * it. There is no producer error for this check to agree with; the check is
+     * the only thing between a caller and a silent reorder.</p>
+     */
+    public static final int MIN_Z = Short.MIN_VALUE;
+
+    /** Highest paint order. See {@link #MIN_Z} for why this is enforced host-side. */
+    public static final int MAX_Z = Short.MAX_VALUE;
 
     /** Largest absolute value any coordinate may take. Out of range is an error, not a clamp. */
     public static final int MAX_COORDINATE = 1 << 20;
