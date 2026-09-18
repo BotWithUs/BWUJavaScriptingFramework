@@ -12,6 +12,13 @@ package com.botwithus.bot.api.draw;
  * warning rather than swallowing it — a script that believes it has a highlight
  * it does not have is the worst outcome available.</p>
  *
+ * <p>The mirror of that is worth knowing too: <b>a batch that <i>does</i> fail at
+ * the envelope level is not a clean failure.</b> The producer applies items to its
+ * store as it walks them, so you get no result at all while part of the batch may
+ * already be drawn. There is deliberately no {@code DrawBatchResult} for that case,
+ * because the wire carries no count with the error — see {@link DrawFrame#flush()}
+ * for what is recoverable and how.</p>
+ *
  * @param applied    commands the producer accepted
  * @param dropped    commands the producer refused
  * @param firstError the producer's message for the first refusal, or {@code ""}

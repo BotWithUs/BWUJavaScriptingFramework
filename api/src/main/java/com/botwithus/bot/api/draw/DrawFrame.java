@@ -65,15 +65,47 @@ public final class DrawFrame implements DrawTarget, AutoCloseable {
      * the wire reports per-item refusals inside a <i>successful</i> reply, so a
      * frame that drew nothing does not throw. Anything refused is also logged at
      * WARN, so a caller that ignores this return is still told.</p>
+     *
+     * <p><b>If this throws, the store is in an unknown state — not a clean one.</b></p>
+     *
+     * <p>The producer applies each item to its store <i>as it walks the array</i>,
+     * so a batch that fails at the envelope level may still have drawn part of what
+     * it carried, and the error reply says nothing about how far it got. Splitting
+     * sharpens that: when a later sub-batch fails, every command in an earlier one
+     * is definitely drawn.</p>
+     *
+     * <p>Two things make it recoverable, and both are deliberate:</p>
+     * <ul>
+     *   <li>The pending commands are <b>kept</b> rather than cleared, so the keys
+     *       are still in hand and calling {@code flush()} again is safe — setting a
+     *       key replaces rather than appends, so a redelivered command is a no-op
+     *       rather than a duplicate.</li>
+     *   <li>{@link Draw#list()} reports what the producer actually retained, and
+     *       {@link Draw#clearAll()} removes all of it without needing any keys at
+     *       all.</li>
+     * </ul>
+     *
+     * <p>In practice a content-level rejection is not reachable from this API — see
+     * {@code DrawCodecTest} for why the encoder cannot emit an item the producer
+     * would refuse structurally — so a throw here is a transport or script-lifecycle
+     * failure. When it is severe enough to close the pipe, the producer drops
+     * everything this connection drew, which leaves the store clean rather than
+     * half-full; a revoked script is the case where earlier sub-batches stay drawn
+     * until their TTL expires.</p>
      */
     public DrawBatchResult flush() {
         if (pending.isEmpty()) {
             return DrawBatchResult.EMPTY;
         }
         DrawBatchResult total = DrawBatchResult.EMPTY;
-        for (int from = 0; from < pending.size(); from += DrawLimits.MAX_BATCH_ITEMS) {
-            int to = Math.min(from + DrawLimits.MAX_BATCH_ITEMS, pending.size());
-            total = total.merge(api.drawSetBatch(List.copyOf(pending.subList(from, to))));
+        try {
+            for (int from = 0; from < pending.size(); from += DrawLimits.MAX_BATCH_ITEMS) {
+                int to = Math.min(from + DrawLimits.MAX_BATCH_ITEMS, pending.size());
+                total = total.merge(api.drawSetBatch(List.copyOf(pending.subList(from, to))));
+            }
+        } catch (RuntimeException e) {
+            warnPartiallyApplied(total);
+            throw e;
         }
         pending.clear();
         warnIfIncomplete(total);
@@ -91,9 +123,15 @@ public final class DrawFrame implements DrawTarget, AutoCloseable {
     }
 
     /**
-     * Flush. Never throws for refused commands — a debug overlay must not be able
-     * to take a script's tick down — but every refusal is logged at WARN. Call
+     * Flush. Never throws for <i>refused</i> commands — a debug overlay must not be
+     * able to take a script's tick down — but every refusal is logged at WARN. Call
      * {@link #flush()} instead when the script wants to act on the result.
+     *
+     * <p>A transport failure does still propagate, because it is not the overlay
+     * failing: swallowing it would hide a dead pipe. Note that a throw from here
+     * inside try-with-resources is <b>suppressed</b> when the block's own body
+     * already threw, so the WARN {@link #flush()} logs is the reliable record that
+     * the store may hold part of this frame.</p>
      */
     @Override
     public void close() {
@@ -106,5 +144,18 @@ public final class DrawFrame implements DrawTarget, AutoCloseable {
         }
         log.warn("debug draw frame: producer refused {} of {} commands; first error: {}",
                 result.dropped(), result.submitted(), result.firstError());
+    }
+
+    /**
+     * An envelope failure means unknown store state, so say so rather than let the
+     * exception imply nothing was drawn. The count is what the producer confirmed
+     * it stored in sub-batches that completed; the failing one is the unknown.
+     */
+    private void warnPartiallyApplied(DrawBatchResult confirmed) {
+        log.warn("debug draw frame failed part-way: the producer confirmed {} of {} commands "
+                        + "stored, and whether the rest reached the store is unknown. The frame "
+                        + "keeps its commands, so re-flushing is safe (a key replaces); "
+                        + "draw.list() reports what is retained and draw.clearAll() removes it.",
+                confirmed.applied(), pending.size());
     }
 }

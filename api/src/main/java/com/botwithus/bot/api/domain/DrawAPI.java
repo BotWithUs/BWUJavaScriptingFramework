@@ -72,6 +72,15 @@ public interface DrawAPI {
      * {@link DrawLimits#MAX_BATCH_ITEMS} is a hard
      * error on the producer, not a truncation, and it loses the whole batch —
      * {@link DrawFrame} splits rather than risk that.</p>
+     *
+     * <p><b>An exception from this call means the store is in an unknown state,
+     * not a clean one.</b> The producer applies each item as it walks the array,
+     * so an envelope-level failure part-way through leaves everything before it
+     * already drawn, and the error reply carries no count. The two exceptions are
+     * an over-size {@code items} array, which is refused before the walk begins,
+     * and a failure that closes the pipe, after which the producer drops
+     * everything this connection drew. {@link Draw#list()} is the way to find out
+     * what is actually retained.</p>
      */
     DrawBatchResult drawSetBatch(List<DrawCommand> commands);
 

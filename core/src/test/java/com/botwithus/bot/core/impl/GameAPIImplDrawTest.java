@@ -11,6 +11,12 @@ import com.botwithus.bot.api.draw.DrawLimits;
 import com.botwithus.bot.api.draw.DrawSpace;
 import com.botwithus.bot.api.draw.DrawStats;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.rpc.RpcException;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -448,6 +454,103 @@ class GameAPIImplDrawTest {
         }
     }
 
+
+    @Nested
+    @DisplayName("a failure part-way through a split frame")
+    class PartialApplication {
+
+        /**
+         * The producer applies each item to its store as it walks the array, so a
+         * batch that errors at the envelope level may still have drawn some of
+         * what it carried — and a split frame makes that concrete: an earlier
+         * sub-batch is fully applied before a later one fails.
+         *
+         * <p>Characterises the two things a caller can rely on: the exception is
+         * not swallowed, and the frame keeps its pending commands so the keys are
+         * still recoverable (and a retry is safe, since setting a key again
+         * replaces rather than appends).</p>
+         */
+        @Test
+        void flush_whenALaterSubBatchFails_propagatesAndKeepsThePendingCommands() {
+            when(rpc.callSync(eq(BATCH), anyMap()))
+                    .thenReturn(Map.of("count", DrawLimits.MAX_BATCH_ITEMS, "dropped", 0))
+                    .thenThrow(new RpcException("RPC error: debug_draw_set_batch: malformed items"));
+
+            DrawFrame frame = draw.frame();
+            fill(frame, DrawLimits.MAX_BATCH_ITEMS + 1);
+
+            assertAll(
+                    () -> assertThrows(RpcException.class, frame::flush),
+                    () -> verify(rpc, times(2)).callSync(eq(BATCH), anyMap()),
+                    () -> assertEquals(DrawLimits.MAX_BATCH_ITEMS + 1, frame.pendingCount(),
+                            "pending must survive so the caller can still name the keys"));
+        }
+
+        /**
+         * Same shape through try-with-resources. {@code close()} must not swallow
+         * the failure: a frame that vanished silently would leave a scripter with
+         * drawings they never learned about.
+         */
+        @Test
+        void close_whenASubBatchFails_doesNotSwallowTheFailure() {
+            when(rpc.callSync(eq(BATCH), anyMap()))
+                    .thenThrow(new RpcException("RPC error: transport gone"));
+
+            DrawFrame frame = draw.frame();
+            fill(frame, 2);
+
+            assertThrows(RpcException.class, frame::close);
+        }
+
+        /**
+         * The WARN is the only thing that reaches a scripter who used
+         * try-with-resources and never touched the return value — and, when the
+         * block's own body threw, the only thing that reaches them at all, because
+         * {@code close()}'s exception is suppressed. So it is asserted rather than
+         * assumed.
+         */
+        @Test
+        void flush_whenALaterSubBatchFails_warnsWithTheConfirmedCount() {
+            when(rpc.callSync(eq(BATCH), anyMap()))
+                    .thenReturn(Map.of("count", DrawLimits.MAX_BATCH_ITEMS, "dropped", 0))
+                    .thenThrow(new RpcException("RPC error: transport gone"));
+
+            DrawFrame frame = draw.frame();
+            fill(frame, DrawLimits.MAX_BATCH_ITEMS + 1);
+
+            List<String> warnings = captureWarnings(() -> assertThrows(RpcException.class, frame::flush));
+
+            assertEquals(1, warnings.size(), () -> "expected one WARN, got " + warnings);
+            assertTrue(warnings.getFirst().contains("confirmed " + DrawLimits.MAX_BATCH_ITEMS
+                            + " of " + (DrawLimits.MAX_BATCH_ITEMS + 1)),
+                    () -> "WARN does not name how far the frame got: " + warnings.getFirst());
+        }
+    }
+
+    /**
+     * WARN messages the {@link DrawFrame} logger emitted while {@code action} ran.
+     *
+     * <p>rule-exception: {@code {rule:no-casts}} — attaching an appender needs
+     * logback's own {@code Logger}, and SLF4J's facade cannot express it. Confined
+     * to this one helper, and logback is already this module's binding.</p>
+     */
+    @SuppressWarnings("unchecked")
+    private static List<String> captureWarnings(Runnable action) {
+        Logger target = (Logger) LoggerFactory.getLogger(DrawFrame.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        target.addAppender(appender);
+        try {
+            action.run();
+        } finally {
+            target.detachAppender(appender);
+            appender.stop();
+        }
+        return appender.list.stream()
+                .filter(event -> event.getLevel() == Level.WARN)
+                .map(ILoggingEvent::getFormattedMessage)
+                .toList();
+    }
     private static Map<String, Object> row(String key) {
         return Map.ofEntries(
                 Map.entry("key", key), Map.entry("kind", "rect"), Map.entry("space", "screen"),
