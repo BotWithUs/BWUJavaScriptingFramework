@@ -273,6 +273,14 @@ class LiveDebugDrawSmokeTest {
                 .font(DrawFont.HEADING)
                 .ttl(SHORT_TTL_MS)
                 .submit();
+        // Do not rewrite this leg to use label() or text(). A fixed-point caption
+        // sends `value` and `decimals` and NO `text` key at all, and the producer
+        // only accepts that because BuildSetRequest runs ResolveStyling — which
+        // formats `value` into the text slot — BEFORE FillGeometry, whose
+        // FillTextGeometry rejects an empty text slot with
+        // `text needs a non-empty "text" or a "value"`. Nothing on the producer
+        // side pins that ordering yet, so until it does, this submit is the only
+        // thing in either repo that would notice the two being swapped.
         draw.value(number, 40, 160, 1234, 2)
                 .font(DrawFont.LARGE)
                 .ttl(SHORT_TTL_MS)
@@ -343,17 +351,70 @@ class LiveDebugDrawSmokeTest {
     }
 
     /**
-     * World space is on the wire and rejected until projection lands. The
-     * signature ships now; this pins that the rejection is the specific documented
-     * one rather than a generic parse failure, so the day it starts working is
-     * detectable.
+     * World space works, for every primitive that can be projected.
+     *
+     * <p>This is the inverse of the assertion that used to live here. Through
+     * phases 1 and 2 world space was refused, and a live test pinned that refusal
+     * so the day it started working would be detectable. It was — as an
+     * {@code assertThrows} that stopped throwing, because
+     * {@code draw.tile(key, 3200, 3200)} is byte-for-byte a call the phase-3
+     * producer now accepts. The feature landing is what made the old test fail,
+     * which is the guard working rather than the guard being wrong.</p>
      */
     @Test
-    void worldSpace_isRejectedWithItsOwnError() {
-        RpcException thrown = assertThrows(RpcException.class,
-                () -> draw.tile(PREFIX + "world", 3200, 3200).ttl(SHORT_TTL_MS).submit());
+    void worldSpace_nowSucceedsForEveryProjectablePrimitive() {
+        int x = 3200 * DrawLimits.SUBTILE_SCALE;
+        int y = 3200 * DrawLimits.SUBTILE_SCALE;
 
-        assertTrue(thrown.getMessage().contains("world space"),
+        assertAll(
+                () -> assertEquals(PREFIX + "w-tile",
+                        draw.tile(PREFIX + "w-tile", 3200, 3200).ttl(SHORT_TTL_MS).submit()),
+                () -> assertEquals(PREFIX + "w-line",
+                        draw.line(PREFIX + "w-line", x, y, x + 256, y + 256)
+                                .world().ttl(SHORT_TTL_MS).submit()),
+                () -> assertEquals(PREFIX + "w-ellipse",
+                        draw.ellipse(PREFIX + "w-ellipse", x, y, 256, 256)
+                                .world().ttl(SHORT_TTL_MS).submit()),
+                () -> assertEquals(PREFIX + "w-text",
+                        draw.text(PREFIX + "w-text", x, y, "here")
+                                .world().ttl(SHORT_TTL_MS).submit()));
+    }
+
+    /**
+     * The property the retired test actually protected: an unsupported space fails
+     * with its <b>own</b> message rather than a generic parse error.
+     *
+     * <p>World space is no longer the subject, so {@code poly} is — the producer
+     * refuses it there for a specific, stated reason: its points live in a side
+     * slot with no room for a projected copy. If a later phase makes polylines
+     * projectable this will fail the same way the world-space assertion just did,
+     * and that is the point of keeping it.</p>
+     */
+    @Test
+    void anUnsupportedSpaceForAKind_isRejectedWithItsOwnError() {
+        RpcException thrown = assertThrows(RpcException.class,
+                () -> draw.poly(PREFIX + "w-poly", List.of(0, 0, 256, 256))
+                        .world().ttl(SHORT_TTL_MS).submit());
+
+        assertAll(
+                () -> assertTrue(thrown.getMessage().contains("poly"),
+                        () -> "the refusal must name the primitive: " + thrown.getMessage()),
+                () -> assertTrue(thrown.getMessage().contains("side slot"),
+                        () -> "the refusal must give its reason: " + thrown.getMessage()));
+    }
+
+    /**
+     * A component highlight is already on screen, so it has no world position, and
+     * the producer says so rather than projecting a rect it re-resolves anyway.
+     */
+    @Test
+    void worldSpaceOnAComponent_isRejectedWithItsOwnError() {
+        RpcException thrown = assertThrows(RpcException.class,
+                () -> draw.component(PREFIX + "w-comp", BACKPACK_INTERFACE,
+                                BACKPACK_SLOT_COMPONENT)
+                        .world().ttl(SHORT_TTL_MS).submit());
+
+        assertTrue(thrown.getMessage().contains("no world position"),
                 () -> "unexpected producer message: " + thrown.getMessage());
     }
 

@@ -102,34 +102,41 @@ public sealed interface DrawTarget permits Draw, DrawFrame {
     }
 
     /**
-     * A world-space box over an NPC's tile.
+     * A world-space box over an NPC's tile, as it stood when this was called.
      *
-     * <p><b>This fails today.</b> World space is accepted and validated by the
-     * producer and then rejected with
-     * {@code "world space requires projection - not yet implemented"}; the
-     * projection is a later phase. The signature ships now so that the code a
-     * script writes today is the code that works when projection lands.</p>
+     * <p>The fixed-point encoding is settled: {@code tile * }{@link
+     * DrawLimits#SUBTILE_SCALE}{@code  + subtile}. The signature promise made when
+     * world space was still refused has held — this is the same call it was, and it
+     * now draws.</p>
      *
-     * <p>The fixed-point encoding of the box itself is provisional and may be
-     * refined when the producer defines world geometry precisely; the shape of
-     * this call will not.</p>
+     * <p><b>Two limits worth knowing, both of which the producer can fix and this
+     * helper cannot.</b> It marks a <i>position</i>, not an entity: the tile is read
+     * once, so the box stays put when the NPC walks away. And it does not send a
+     * plane, so the box lands on plane 0 — an NPC upstairs is marked on the ground
+     * floor. Both are what the producer's semantic world highlights exist to solve,
+     * the way a component highlight solves a rect that would otherwise drift;
+     * binding those is the follow-up, and it changes what this sends rather than how
+     * it is called.</p>
      */
     default DrawBuilder npc(String key, Npc npc) {
-        return tile(key, npc.tileX(), npc.tileY()).world();
+        return tile(key, npc.tileX(), npc.tileY());
     }
 
     /**
-     * A world-space box over a player's tile. Fails today for the same reason as
-     * {@link #npc(String, Npc)}.
+     * A world-space box over a player's tile. Carries the same two limits as
+     * {@link #npc(String, Npc)}: a position rather than an entity, and no plane.
      */
     default DrawBuilder player(String key, Player player) {
-        return tile(key, player.tileX(), player.tileY()).world();
+        return tile(key, player.tileX(), player.tileY());
     }
 
     /**
      * A world-space box over one game tile, in fixed point
-     * ({@link DrawLimits#SUBTILE_SCALE} sub-tiles per tile). Fails today for the
-     * same reason as {@link #npc(String, Npc)}.
+     * ({@link DrawLimits#SUBTILE_SCALE} sub-tiles per tile).
+     *
+     * <p>Bounded by {@link DrawLimits#MAX_WORLD_COORDINATE}, which is the whole
+     * {@code int16} tile space at this scale — so a tile taken from a snapshot can
+     * never exceed it. No plane is sent, so the box lands on plane 0.</p>
      */
     default DrawBuilder tile(String key, int tileX, int tileY) {
         return rect(key,

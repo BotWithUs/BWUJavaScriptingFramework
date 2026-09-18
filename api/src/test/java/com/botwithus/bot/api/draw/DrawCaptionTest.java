@@ -76,7 +76,28 @@ class DrawCaptionTest {
         assertAll(
                 () -> assertThrows(IllegalArgumentException.class, () -> DrawCaption.of("")),
                 () -> assertThrows(IllegalArgumentException.class,
-                        () -> DrawCaption.of((String) null)));
+                        () -> DrawCaption.of(null)));
+    }
+
+    /**
+     * A null style is rejected by the builder rather than carried.
+     *
+     * <p>It would otherwise survive the {@link DrawCaption#NONE} path, because
+     * {@code None.withFont} ignores its argument, and surface later from inside
+     * {@code label()} — naming the wrong call.</p>
+     */
+    @Test
+    void font_null_isRejectedAtTheCallThatSetIt() {
+        assertThrows(IllegalArgumentException.class, () -> captionBuilder().font(null));
+    }
+
+    /**
+     * A font with no caption sends nothing, and that is not an error: setting the
+     * style up front and the caption conditionally is a reasonable thing to write.
+     */
+    @Test
+    void font_withoutACaption_leavesTheCaptionEmpty() {
+        assertSame(DrawCaption.NONE, captionBuilder().font(DrawFont.HEADING).caption());
     }
 
     @Test

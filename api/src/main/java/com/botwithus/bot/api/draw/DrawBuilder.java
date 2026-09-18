@@ -120,9 +120,9 @@ public final class DrawBuilder {
     }
 
     /**
-     * Game-world coordinates. <b>Every submit in this space fails today</b> with
-     * the producer's {@code "world space requires projection - not yet implemented"};
-     * see {@link DrawSpace#WORLD}.
+     * Game-world coordinates, projected to the screen by the producer. Bounded by
+     * {@link DrawLimits#MAX_WORLD_COORDINATE} rather than the screen bound, and
+     * refused for a {@link DrawKind#POLY}. See {@link DrawSpace#WORLD}.
      */
     public DrawBuilder world() {
         this.space = DrawSpace.WORLD;

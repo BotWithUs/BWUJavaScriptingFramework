@@ -18,9 +18,16 @@
  *       {@link com.botwithus.bot.api.draw.DrawCommand.ComponentTarget#autoKey(int, int)}.</li>
  * </ul>
  *
- * <p>World space ({@link com.botwithus.bot.api.draw.DrawSpace#WORLD}) is on the
- * wire and rejected by the producer until the world-to-screen projection lands.
- * The signatures that will use it ship now so a script written today is the script
- * that works then.</p>
+ * <p>World space ({@link com.botwithus.bot.api.draw.DrawSpace#WORLD}) now works:
+ * the producer projects it to the screen on its own thread. The signatures shipped
+ * before it did, deliberately, and none of them had to change when it landed —
+ * which was the whole point of putting the field on the wire early. Two carve-outs
+ * remain: a polyline is refused in world space, and a component highlight is
+ * already on screen so it has no world position.</p>
+ *
+ * <p>World coordinates are bounded by
+ * {@link com.botwithus.bot.api.draw.DrawLimits#MAX_WORLD_COORDINATE}, which is a
+ * different and larger limit than the screen one — the two gate what you send and
+ * what it projects to, respectively.</p>
  */
 package com.botwithus.bot.api.draw;

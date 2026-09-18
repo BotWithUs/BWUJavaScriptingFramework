@@ -87,8 +87,40 @@ public final class DrawLimits {
     /** Highest paint order. See {@link #MIN_Z} for why this is enforced host-side. */
     public static final int MAX_Z = Short.MAX_VALUE;
 
-    /** Largest absolute value any coordinate may take. Out of range is an error, not a clamp. */
-    public static final int MAX_COORDINATE = 1 << 20;
+    /**
+     * Largest absolute value a <b>screen</b> coordinate may take. Out of range is
+     * an error, not a clamp.
+     *
+     * <p>This is also the bound a world command's <i>projected</i> coordinates must
+     * land inside, which the producer checks a tick later — so a world command can
+     * be accepted and still fail to draw, if what it projects to is off this scale.
+     * A point behind the camera projects to a saturated sentinel rather than being
+     * clamped, so you learn the point is not on screen instead of getting a line to
+     * nowhere.</p>
+     */
+    public static final int MAX_SCREEN_COORDINATE = 1 << 20;
+
+    /**
+     * Largest absolute value a <b>world</b> coordinate may take, in wire sub-tiles.
+     *
+     * <p>Deliberately larger than {@link #MAX_SCREEN_COORDINATE}, because the two
+     * gate different quantities: this one bounds what a caller <i>sends</i>, while
+     * the screen bound applies to what those coordinates <i>project to</i>. Reusing
+     * one number for both would have refused legal world positions — anything past
+     * tile 4096 — for failing a limit that is about pixels.</p>
+     *
+     * <p><b>Where the number comes from, because it is not round.</b> Every absolute
+     * world tile the producer publishes in its snapshot — NPC, player, location,
+     * ground item, projectile — is an {@code int16_t}. So the widest tile magnitude
+     * any consumer can be holding is {@code |Short.MIN_VALUE|} = 32768, and at
+     * {@link #SUBTILE_SCALE} sub-tiles per tile that is 2^23. A bound below this
+     * would refuse a coordinate the same producer published a tick earlier.</p>
+     *
+     * <p>The practical consequence: a tile taken from a snapshot can never exceed
+     * this, because the snapshot cannot express one that does. Underground content,
+     * which sits at {@code y + 6400}, is nowhere near it.</p>
+     */
+    public static final int MAX_WORLD_COORDINATE = 1 << 23;
 
     /** Largest width or height a rect or ellipse may have. */
     public static final int MAX_EXTENT = 1 << 14;
