@@ -273,6 +273,14 @@ class LiveDebugDrawSmokeTest {
                 .font(DrawFont.HEADING)
                 .ttl(SHORT_TTL_MS)
                 .submit();
+        // Do not rewrite this leg to use label() or text(). A fixed-point caption
+        // sends `value` and `decimals` and NO `text` key at all, and the producer
+        // only accepts that because BuildSetRequest runs ResolveStyling — which
+        // formats `value` into the text slot — BEFORE FillGeometry, whose
+        // FillTextGeometry rejects an empty text slot with
+        // `text needs a non-empty "text" or a "value"`. Nothing on the producer
+        // side pins that ordering yet, so until it does, this submit is the only
+        // thing in either repo that would notice the two being swapped.
         draw.value(number, 40, 160, 1234, 2)
                 .font(DrawFont.LARGE)
                 .ttl(SHORT_TTL_MS)

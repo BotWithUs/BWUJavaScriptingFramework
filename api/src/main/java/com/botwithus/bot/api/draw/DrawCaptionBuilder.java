@@ -8,7 +8,8 @@ import java.time.Duration;
  *
  * <pre>{@code
  * draw.component(1473, 5).color(Colors.CYAN).label("Inventory").submit();
- * draw.text("dps", 40, 160).value(1234, 2).font(DrawFont.LARGE).submit();
+ * draw.text("state", 40, 140, "banking").font(DrawFont.SMALL).submit();
+ * draw.value("dps", 40, 160, 1234, 2).font(DrawFont.LARGE).submit();   // "12.34"
  * }</pre>
  *
  * <p><b>Why this is a separate type from {@link DrawBuilder}.</b> A caption and a
@@ -76,8 +77,30 @@ public final class DrawCaptionBuilder {
      * before {@code label(...)} and after it mean the same thing — which they would
      * not if the style lived only on the caption value, because
      * {@link DrawCaption#NONE} has nowhere to keep it.</p>
+     *
+     * <p>A font on a command that never gains a caption draws nothing and sends
+     * nothing: a highlight with no label has no words to style. That is deliberately
+     * <b>not</b> an error, because setting the style up front and the caption
+     * conditionally is a reasonable thing to write:</p>
+     *
+     * <pre>{@code
+     * DrawCaptionBuilder box = draw.component(iface, comp).font(DrawFont.HEADING);
+     * if (showName) {
+     *     box.label(npcName);
+     * }
+     * box.submit();
+     * }</pre>
+     *
+     * @throws IllegalArgumentException if {@code font} is null. Rejected here rather
+     *         than carried, because a null survives the {@link DrawCaption#NONE}
+     *         path — {@code None.withFont} ignores its argument — and would
+     *         otherwise surface from inside a later {@code label()} or
+     *         {@code value()}, naming the wrong call.
      */
     public DrawCaptionBuilder font(DrawFont font) {
+        if (font == null) {
+            throw new IllegalArgumentException("font — use a DrawFont constant, not null");
+        }
         this.font = font;
         this.caption = caption.withFont(font);
         return this;
