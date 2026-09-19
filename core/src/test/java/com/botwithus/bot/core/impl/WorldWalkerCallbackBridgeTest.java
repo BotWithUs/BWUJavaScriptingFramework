@@ -42,6 +42,9 @@ class WorldWalkerCallbackBridgeTest {
     // is the documented "no goal info" sentinel and skips the overshoot check.
     private static final WwGoal NO_GOAL = null;
 
+    // Magic's StatType.id, the skill the test players carry.
+    private static final int MAGIC_SKILL_TYPE = 6;
+
     private GameAPI api;
     private GameSnapshot snapshot;
     private GameSnapshot.Locations locationsTable;
@@ -170,9 +173,37 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void readCapabilityIsEmpty() {
+    void readCapabilityIsEmptyWithNoPlayer() {
+        when(snapshot.self()).thenReturn(null);
+
+        assertTrue(bridge.readCapability().isEmpty());
+    }
+
+    @Test
+    void readCapabilityCarriesSkillLevels() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+
         CapabilitySnapshot caps = bridge.readCapability();
-        assertTrue(caps.isEmpty());
+
+        assertEquals(73, caps.skills().get(MAGIC_SKILL_TYPE));
+    }
+
+    // A boosted level admits a gate the player cannot still meet when the walk
+    // arrives, so the snapshot carries the base level and the planner routes
+    // through what the player actually has.
+    @Test
+    void readCapabilityCarriesBaseLevelNotBoosted() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 70, 99));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(70, caps.skills().get(MAGIC_SKILL_TYPE));
+    }
+
+    private LocalPlayer playerWithSkill(int typeId, int actualLevel, int boostedLevel) {
+        Skill skill = new Skill(typeId, 0, actualLevel, boostedLevel);
+        return new LocalPlayer(0, 0, 3000, 3000, 0, 0, -1, -1, 0, -1, 0, false, -1,
+                LocalPlayer.HEALTH_UNKNOWN, LocalPlayer.HEALTH_UNKNOWN, List.of(skill));
     }
 
     @Test
