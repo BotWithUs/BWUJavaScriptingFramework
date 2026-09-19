@@ -147,7 +147,18 @@ public sealed interface DrawCommand {
             return tile;
         }
 
-        /** A footprint side, in tiles: positive and inside the world. */
+        /**
+         * A footprint side, in tiles: positive and inside the world.
+         *
+         * <p>Unlike {@link #requireTile}, this is <b>stricter than the producer rather
+         * than identical to it</b>, and only the direction is guaranteed safe — this host
+         * never accepts an extent the producer would refuse. The producer's own extent
+         * check is kind-dependent: {@code IsGeometryInRange} waves an {@code Entity}
+         * footprint through unconditionally, while {@code Tile} and {@code Area} bound the
+         * <i>far corner</i> ({@code a + c}) rather than the extent alone. Reproducing that
+         * split here would mean duplicating a producer-side rule per variant to buy
+         * nothing: a footprint wide enough to matter is a caller mistake either way.</p>
+         */
         static int requireExtentTiles(int tiles, String name) {
             if (tiles <= 0) {
                 throw new IllegalArgumentException(

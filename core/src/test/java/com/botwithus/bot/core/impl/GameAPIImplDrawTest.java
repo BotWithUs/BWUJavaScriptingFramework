@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -874,7 +875,7 @@ class GameAPIImplDrawTest {
         void aTransportFailure_propagatesRatherThanBecomingADroppedCount() {
             when(rpc.callSync(eq(HIGHLIGHT_ENTITY), anyMap()))
                     .thenThrow(new RpcException("RPC call failed: " + HIGHLIGHT_ENTITY,
-                            new java.io.IOException("pipe closed")));
+                            new IOException("pipe closed")));
 
             DrawFrame frame = draw.frame();
             frame.npc("n", npc()).submit();

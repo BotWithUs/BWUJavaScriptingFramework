@@ -65,7 +65,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>The other thing that would make it lie is an NPC that did not move. The snapshot's
  * own tile is the independent witness, so a rect that failed to change can be told apart
- * from a quiet afternoon.</p>
+ * from a quiet afternoon. <b>That witness is read at the first sample, not when the
+ * candidate was picked</b> — the two are up to four seconds apart while the overlay
+ * resolves, and measuring from the pick would admit a window on movement that had already
+ * finished. See {@link #measureAgainstAWanderer}, which carries the full argument: the
+ * wrong baseline fails in both directions, and the false-green direction is the one
+ * {@link #TILES_MOVED_FOR_A_CLEAR_READING} exists to prevent.</p>
+ *
+ * <p><b>One unstated precondition, worth knowing before running this next to a busy
+ * debugger.</b> "The same resolve pass" holds because the producer collects resolve
+ * targets round-robin under a store-wide cap of {@code kMaxResolveTargets} (64), shared
+ * across <i>every</i> connected client. Above that many live world commands the two rects
+ * in a sample can carry projections from different ticks, and the camera-static check
+ * stops meaning what it says. Two commands against an otherwise quiet store is nowhere
+ * near it; an NXTDebugger session driving its own overlay could be.</p>
  *
  * <p>{@link #aFixedWorldRect_doesNotFollowTheNpc} is the control that makes a positive
  * reading mean something: the same measurement, against the command shape this change
@@ -233,8 +246,10 @@ class LiveHighlightTrackingTest {
                     .color(Colors.CYAN).ttl(TTL_MS).submit();
         }, tracked, pinned);
 
-        log.info("npc {} moved {} tiles; tracked rect {} -> {}; camera reference {} (static)",
+        log.info("npc {} moved {} tiles IN-WINDOW ({} more before the first sample, not "
+                        + "counted); tracked rect {} -> {}; camera reference {} (static)",
                 measured.npc().serverIndex(), measured.tilesMoved(),
+                measured.driftBeforeFirstSample(),
                 measured.first().trackedRect(), measured.second().trackedRect(),
                 measured.first().referenceRect());
 
@@ -281,8 +296,10 @@ class LiveHighlightTrackingTest {
                     .color(Colors.CYAN).ttl(TTL_MS).submit();
         }, pinnedRect, reference);
 
-        log.info("control: npc {} moved {} tiles; pinned world rect {} -> {}",
+        log.info("control: npc {} moved {} tiles IN-WINDOW ({} more before the first "
+                        + "sample); pinned world rect {} -> {}",
                 measured.npc().serverIndex(), measured.tilesMoved(),
+                measured.driftBeforeFirstSample(),
                 measured.first().trackedRect(), measured.second().trackedRect());
 
         assertEquals(measured.first().trackedRect(), measured.second().trackedRect(),
@@ -316,15 +333,41 @@ class LiveHighlightTrackingTest {
         requireInTheWorld();
         String lastRejection = "no candidate was tried";
         for (int attempt = 0; attempt < CANDIDATE_NPCS; attempt++) {
-            Npc start = nextWanderer();
-            drawBoth.accept(start);
+            Npc candidate = nextWanderer();
+            drawBoth.accept(candidate);
             Sample first = awaitBothResolved(trackedKey, referenceKey);
+
+            // THE MOVEMENT BASELINE IS RE-READ HERE, AFTER THE FIRST SAMPLE, AND THAT
+            // IS THE WHOLE POINT. The assertion is about movement between the two
+            // samples, so the gate admitting the window has to measure from the instant
+            // the first sample was taken -- not from when the candidate was picked,
+            // which is up to RESOLVE_POLL_ATTEMPTS * POLL_SLEEP_MS earlier. Measuring
+            // from the pick admits a window on movement that already finished, and it
+            // fails in both directions: a walk-then-idle NPC returns from awaitMovement
+            // immediately, so `second` is read microseconds after `first` and the rects
+            // are equal against a perfectly good binding; and an NPC mid-step at the
+            // first sample can complete that step by the second, so the rects differ by
+            // sub-tile interpolation and the test passes having measured animation
+            // rather than the two-tile walk it reports. The second is the one
+            // TILES_MOVED_FOR_A_CLEAR_READING exists to prevent.
+            Optional<Npc> atFirstSample = snapshot().npcs().byServerIndex(
+                    candidate.serverIndex());
+            if (atFirstSample.isEmpty()) {
+                lastRejection = rejectWindow(candidate, "npc " + candidate.serverIndex()
+                        + " left the scene before the first sample");
+                continue;
+            }
+            Npc start = atFirstSample.orElseThrow();
+            // Reported so the distinction stays visible rather than trusted. A non-zero
+            // drift here is movement that happened while the overlay was resolving — the
+            // movement the old, wrong baseline would have counted towards the window.
+            int driftBeforeFirstSample = tilesBetween(candidate, start);
+
             OptionalInt moved = awaitMovement(start);
             if (moved.isEmpty()) {
-                lastRejection = "npc " + start.serverIndex() + " stalled before covering "
-                        + TILES_MOVED_FOR_A_CLEAR_READING + " tiles";
-                log.info("{}; trying another candidate", lastRejection);
-                attempted.add(start.serverIndex());
+                lastRejection = rejectWindow(start, "npc " + start.serverIndex()
+                        + " stalled before covering " + TILES_MOVED_FOR_A_CLEAR_READING
+                        + " tiles from where it stood at the first sample");
                 continue;
             }
             Sample second = readBoth(trackedKey, referenceKey);
@@ -333,22 +376,34 @@ class LiveHighlightTrackingTest {
                 // rect under a moving camera changes exactly as much as a tracking one.
                 // Rejecting the window is the only honest option — asserting anyway would
                 // pass or fail on where the camera happened to swing.
-                lastRejection = "the camera moved during npc " + start.serverIndex()
-                        + "'s window (fixed reference " + first.referenceRect() + " -> "
-                        + second.referenceRect() + ")";
-                log.info("{}; trying another candidate", lastRejection);
-                attempted.add(start.serverIndex());
+                lastRejection = rejectWindow(start, "the camera moved during npc "
+                        + start.serverIndex() + "'s window (fixed reference "
+                        + first.referenceRect() + " -> " + second.referenceRect() + ")");
                 continue;
             }
-            return new Measurement(start, moved.getAsInt(), first, second);
+            return new Measurement(start, moved.getAsInt(), driftBeforeFirstSample,
+                    first, second);
         }
         throw new TestAbortedException(
                 "SKIPPED, not passed: none of " + CANDIDATE_NPCS + " candidate NPCs gave a "
                         + "usable window, so the tracking measurement never ran and nothing "
                         + "was concluded. Last reason: " + lastRejection + ". A usable window "
                         + "needs an NPC that covers " + TILES_MOVED_FOR_A_CLEAR_READING
-                        + " tiles within " + (MOVEMENT_POLL_ATTEMPTS * POLL_SLEEP_MS)
-                        + "ms while the camera holds still.");
+                        + " tiles after the first sample, within "
+                        + (MOVEMENT_POLL_ATTEMPTS * POLL_SLEEP_MS)
+                        + "ms, while the camera holds still.");
+    }
+
+    /** Manhattan tile distance between two sightings of one NPC. */
+    private static int tilesBetween(Npc from, Npc to) {
+        return Math.abs(to.tileX() - from.tileX()) + Math.abs(to.tileY() - from.tileY());
+    }
+
+    /** Log a rejected window, take the candidate out of the pool, and echo the reason. */
+    private String rejectWindow(Npc candidate, String reason) {
+        log.info("{}; trying another candidate", reason);
+        attempted.add(candidate.serverIndex());
+        return reason;
     }
 
     /**
@@ -358,8 +413,20 @@ class LiveHighlightTrackingTest {
      * the snapshot <b>and</b> the fixed reference rect was byte-identical across the two
      * samples, so the camera provably did not move. Only then is a change in the tracked
      * rect attributable to the entity rather than the viewpoint.</p>
+     *
+     * @param npc        the candidate as it stood at the <b>first sample</b>, not when it
+     *                   was picked
+     * @param tilesMoved tiles covered <b>between the two samples</b> — the interval the
+     *                   assertion is actually about
+     * @param driftBeforeFirstSample tiles the NPC covered while the overlay was resolving,
+     *                   i.e. BEFORE the window being measured. Reported rather than used:
+     *                   the old, wrong baseline counted this towards the window, so a
+     *                   non-zero value here is that bug's precondition made visible
+     * @param first      both rects, read from one {@code debug_draw_list} page
+     * @param second     both rects again, after the movement
      */
-    private record Measurement(Npc npc, int tilesMoved, Sample first, Sample second) {
+    private record Measurement(Npc npc, int tilesMoved, int driftBeforeFirstSample,
+                               Sample first, Sample second) {
     }
 
     /** Both keys, once both have a resolved projection. */
@@ -469,8 +536,7 @@ class LiveHighlightTrackingTest {
                 return OptionalInt.empty();
             }
             Npc npc = now.orElseThrow();
-            int moved = Math.abs(npc.tileX() - start.tileX())
-                    + Math.abs(npc.tileY() - start.tileY());
+            int moved = tilesBetween(start, npc);
             if (moved >= TILES_MOVED_FOR_A_CLEAR_READING) {
                 return OptionalInt.of(moved);
             }

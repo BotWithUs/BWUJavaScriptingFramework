@@ -184,7 +184,15 @@ public final class DrawCaptionBuilder {
 
     // --------------------------------------------------------------- terminals
 
-    /** The command as configured, without sending it. */
+    /**
+     * The command as configured, without sending it.
+     *
+     * <p><b>The return type narrowed from {@link DrawCommand} to
+     * {@link DrawCommand.Primitive}</b>, for the same reason and with the same
+     * consequences as {@link DrawBuilder#build()}: source-compatible, not binary
+     * compatible, so a script compiled against an older {@code bot-api} needs a
+     * rebuild.</p>
+     */
     public DrawCommand.Primitive build() {
         return factory.create(styling.currentSpace(), styling.currentStyle(), caption);
     }

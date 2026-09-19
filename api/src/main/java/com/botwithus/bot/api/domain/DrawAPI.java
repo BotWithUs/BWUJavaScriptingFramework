@@ -34,6 +34,27 @@ import java.util.List;
  * {@code NXTLibrary/src/rpc/Handlers.cpp}. The group is additive over the RPC pipe
  * and does <b>not</b> move {@code Layout.PROTOCOL_VERSION}, which gates the shared
  * memory snapshot layout only.</p>
+ *
+ * <p><b>Migrating past the highlight binding.</b> Additive on the wire, but not on this
+ * interface — binding the semantic highlights changed it in three ways, all of which break
+ * a third-party <i>implementor</i> and none of which break a caller of
+ * {@link #draw()}:</p>
+ *
+ * <ul>
+ *   <li>{@link #drawSet} and {@link #drawSetBatch} narrowed their parameters to
+ *       {@link DrawCommand.Primitive}. That narrowing is the point: it is what makes a
+ *       batched highlight a compile error rather than a producer-side
+ *       {@code unknown kind}.</li>
+ *   <li>{@link #drawHighlight} and {@link #drawHighlights} are new abstract methods, so an
+ *       existing implementation of this interface no longer compiles until it supplies
+ *       them. {@code MockGameAPI} in {@code bot-test-support} shows the shape: throw, since
+ *       a producer-side overlay has no in-memory analogue and a mock that silently "drew"
+ *       nothing is worse than one that says so.</li>
+ * </ul>
+ *
+ * <p>Scripts that only call {@code api.draw()} and the fluent surface behind it are
+ * unaffected except for {@link com.botwithus.bot.api.draw.DrawTarget#npc}'s return type —
+ * see its javadoc.</p>
  */
 public interface DrawAPI {
 

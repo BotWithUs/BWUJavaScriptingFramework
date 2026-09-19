@@ -160,8 +160,14 @@ public final class DrawFrame implements DrawTarget, AutoCloseable {
                 total = total.merge(api.drawSetBatch(
                         List.copyOf(pendingPrimitives.subList(from, to))));
             }
-            if (!pendingHighlights.isEmpty()) {
-                total = total.merge(api.drawHighlights(List.copyOf(pendingHighlights)));
+            // One at a time, deliberately. drawHighlights already makes one call per
+            // highlight, so this costs nothing — but when it throws on transport it
+            // loses the count it had accumulated, and that count is what
+            // warnPartiallyApplied reports. Merging per highlight keeps `total` holding
+            // every one that actually landed, so the warning's "confirmed N of M" is
+            // true for this half too rather than only for the batched one.
+            for (DrawCommand.Highlight highlight : pendingHighlights) {
+                total = total.merge(api.drawHighlights(List.of(highlight)));
             }
         } catch (RuntimeException e) {
             warnPartiallyApplied(total);
@@ -210,9 +216,14 @@ public final class DrawFrame implements DrawTarget, AutoCloseable {
     }
 
     /**
-     * An envelope failure means partly-known store state, so say so rather than let
-     * the exception imply nothing was drawn. The count is what the producer confirmed
-     * it stored in calls that completed; the failing one is the unknown.
+     * An envelope failure means partly-known store state, so say so rather than let the
+     * exception imply nothing was drawn. The count is what the producer confirmed it
+     * stored in calls that completed; the failing one is the unknown.
+     *
+     * <p>That sentence is true for both halves only because {@link #flush()} merges each
+     * highlight's result as it goes. Sending them as one {@code drawHighlights} call would
+     * discard the count it had accumulated when it threw, and this warning would then
+     * under-report the highlights by however many had already landed.</p>
      */
     private void warnPartiallyApplied(DrawBatchResult confirmed) {
         log.warn("debug draw frame failed part-way: the producer confirmed {} of {} commands "

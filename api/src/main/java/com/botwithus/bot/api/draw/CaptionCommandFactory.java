@@ -10,6 +10,13 @@ package com.botwithus.bot.api.draw;
 @FunctionalInterface
 public interface CaptionCommandFactory {
 
-    /** Build the command this factory was created for. */
+    /**
+     * Build the command this factory was created for.
+     *
+     * <p><b>The return type narrowed from {@link DrawCommand} to
+     * {@link DrawCommand.Primitive}</b>, with the same consequence for an explicit
+     * implementor as {@link DrawCommandFactory#create}: lambdas are unaffected, a declared
+     * {@code DrawCommand} return must narrow.</p>
+     */
     DrawCommand.Primitive create(DrawSpace space, DrawStyle style, DrawCaption caption);
 }

@@ -118,8 +118,18 @@ public sealed interface DrawTarget permits Draw, DrawFrame {
      * put once the NPC moved, and it carried no plane, so an NPC upstairs was
      * marked on the ground floor. Its javadoc promised that binding the producer's
      * semantic highlight would "change what this sends rather than how it is
-     * called". This is that change, and the promise held — same name, same
+     * called". This is that change, and the promise held for the name and the
      * arguments.</p>
+     *
+     * <p><b>Migrating: the return type moved from {@link DrawBuilder} to
+     * {@link HighlightBuilder}.</b> A chained call is unaffected —
+     * {@code draw.npc(key, npc).color(...).ttl(...).submit()} compiles and reads
+     * exactly as before. What no longer compiles is assigning the result to a
+     * {@code DrawBuilder} variable, and calling {@code screen()}, {@code world()} or
+     * {@code closed()} on it: a highlight's space is not a caller's choice, so
+     * offering it would be offering a decision that does not exist. Where you held
+     * the builder in a local, change its type; the fluent methods you were calling
+     * are all still there.</p>
      *
      * <p>Footprint defaults to one tile. Use
      * {@link #npc(String, Npc, int, int)} for a big NPC, or the box will sit inside

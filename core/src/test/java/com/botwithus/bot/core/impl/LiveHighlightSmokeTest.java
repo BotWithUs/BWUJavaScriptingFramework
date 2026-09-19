@@ -195,13 +195,21 @@ class LiveHighlightSmokeTest {
      * <p>The two tests above pin the producer's generator; this pins that the helpers
      * reach the same string, which is what makes {@code draw.clear(draw.npc(npc).submit())}
      * a thing that works.</p>
+     *
+     * <p><b>There is no npc or player leg here, deliberately.</b> Those keyless overloads
+     * take a snapshot row, and this class does not open a snapshot — it runs from the login
+     * screen, which is the whole reason it is split from
+     * {@code LiveHighlightTrackingTest}. An earlier version passed a hand-built
+     * {@code "npc:42"} to the keyed {@code entity(...)} overload, which only checked that
+     * the producer echoes the key it was given; it read like auto-key coverage and was not.
+     * The entity formats are pinned by {@code HighlightTest} and checked against the
+     * producer's own generator by
+     * {@link #entityAutoKey_matchesTheKeyTheProducerGenerates()}, so nothing is uncovered —
+     * a leg that looked like it added coverage was worse than no leg.</p>
      */
     @Test
     void theKeylessHelpers_landOnTheProducersOwnKeys() {
         assertAll(
-                () -> assertEquals("npc:" + NPC_INDEX,
-                        draw.entity("npc:" + NPC_INDEX, EntityRef.NPC, NPC_INDEX)
-                                .ttl(TTL_MS).submit()),
                 () -> assertEquals("self", draw.self().ttl(TTL_MS).submit()),
                 () -> assertEquals(DrawCommand.Tile.autoKey(TILE_X, TILE_Y, PLANE),
                         draw.tile(TILE_X, TILE_Y, PLANE).ttl(TTL_MS).submit()),

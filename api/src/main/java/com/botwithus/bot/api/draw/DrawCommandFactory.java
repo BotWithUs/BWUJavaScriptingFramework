@@ -11,6 +11,15 @@ package com.botwithus.bot.api.draw;
 @FunctionalInterface
 public interface DrawCommandFactory {
 
-    /** Build the command this factory was created for. */
+    /**
+     * Build the command this factory was created for.
+     *
+     * <p><b>The return type narrowed from {@link DrawCommand} to
+     * {@link DrawCommand.Primitive}.</b> A lambda is unaffected, since its return type is
+     * inferred; an explicit {@code implements DrawCommandFactory} whose {@code create}
+     * was declared to return {@code DrawCommand} no longer overrides this and must
+     * narrow. The narrowing is what makes a batch unable to carry a highlight — see
+     * {@link DrawCommand.Highlight}.</p>
+     */
     DrawCommand.Primitive create(DrawSpace space, DrawStyle style);
 }
