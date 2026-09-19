@@ -140,7 +140,7 @@ public final class DrawBuilder {
     }
 
     /** The command as configured, without sending it. */
-    public DrawCommand build() {
+    public DrawCommand.Primitive build() {
         return factory.create(space, new DrawStyle(color, thickness, isFilled, isClosed, z, ttlMs));
     }
 

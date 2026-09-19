@@ -12,6 +12,7 @@ import java.util.List;
  * Draw draw = api.draw();
  * draw.rect("target-box", x, y, w, h).color(Colors.GREEN).thickness(2).ttl(1200).submit();
  * draw.component("inv-slot", 1473, 5).color(Colors.CYAN).submit();
+ * draw.npc(npc).color(Colors.RED).label(name).submit();   // follows the NPC
  * draw.clear("target-box");
  *
  * try (DrawFrame frame = draw.frame()) {      // one round-trip on close
@@ -23,7 +24,17 @@ import java.util.List;
  * <p><b>Use {@link #frame()} for anything more than a couple of commands a tick.</b>
  * Each {@link DrawBuilder#submit()} straight off this facade is its own round-trip;
  * twenty primitives a tick over twenty round-trips is not a reasonable thing to do
- * to the pipe. A frame collapses them into one {@code debug_draw_set_batch}.</p>
+ * to the pipe. A frame collapses the primitives into one
+ * {@code debug_draw_set_batch}. Highlights stay one call each wherever they are
+ * submitted — no batch on this wire can carry one — so a frame saves nothing on
+ * those; see {@link DrawFrame#flush()}.</p>
+ *
+ * <p><b>Marking something that moves is a highlight, not a rect.</b>
+ * {@link DrawTarget#npc(com.botwithus.bot.api.snapshot.Npc)} and its siblings send
+ * the producer's semantic highlights, which re-resolve the thing they mark every
+ * tick — so the box follows a walking NPC and sits at its real height. A
+ * world-space rect at the same tile looks identical on the first frame and is wrong
+ * on the second.</p>
  *
  * <p>Keys are the identity here — there is no handle to leak and nothing to free.
  * They are scoped to this connection, so two scripts on two clients may both use
@@ -41,23 +52,34 @@ public final class Draw implements DrawTarget {
     /**
      * {@inheritDoc}
      *
-     * <p>One round-trip, straight to {@code debug_draw_set}. A command the producer
-     * refuses raises the transport's unchecked RPC error, carrying the producer's
-     * message — unlike a batched submit, which reports refusals as a count.</p>
+     * <p>One round-trip. A command the producer refuses raises the transport's
+     * unchecked RPC error, carrying the producer's message — unlike a batched submit,
+     * which reports refusals as a count. The two failure shapes differ because the
+     * wire's do.</p>
+     *
+     * <p><b>Which method carries it is decided here, by type.</b> This is the one
+     * place the two families of {@link DrawCommand} meet a wire call, and it is an
+     * exhaustive switch rather than a flag so a third family could not be added
+     * without this seam being told about it.</p>
      */
     @Override
     public String submit(DrawCommand command) {
-        return api.drawSet(command);
+        return switch (command) {
+            case DrawCommand.Primitive primitive -> api.drawSet(primitive);
+            case DrawCommand.Highlight highlight -> api.drawHighlight(highlight);
+        };
     }
 
     /**
-     * Open a batch. Every command submitted to the returned frame is held until it
-     * is flushed or closed, and then sent as <b>one</b> {@code debug_draw_set_batch}.
+     * Open a batch. Every command submitted to the returned frame is held until it is
+     * flushed or closed, and then sent as <b>one</b> {@code debug_draw_set_batch} —
+     * plus one {@code highlight_*} call per highlight, which no batch can carry.
      *
      * <p>Use it in try-with-resources; closing flushes. A frame carrying more than
-     * {@link DrawLimits#MAX_BATCH_ITEMS} commands is split across the fewest whole
+     * {@link DrawLimits#MAX_BATCH_ITEMS} primitives is split across the fewest whole
      * batches that will hold it rather than truncated or refused — see
-     * {@link DrawFrame#flush()}.</p>
+     * {@link DrawFrame#flush()}, which also states exactly what is applied when a
+     * flush fails part-way.</p>
      */
     public DrawFrame frame() {
         return new DrawFrame(api);

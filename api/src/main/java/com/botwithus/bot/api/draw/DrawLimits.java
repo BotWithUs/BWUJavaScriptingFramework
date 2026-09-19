@@ -70,22 +70,39 @@ public final class DrawLimits {
     public static final int MAX_THICKNESS = 64;
 
     /**
-     * Lowest paint order.
+     * Lowest paint order. The producer stores {@code z} in an {@code int16_t} and
+     * refuses anything outside it with {@code z must be -32768..32767}.
      *
-     * <p>Unlike every other limit here, this one is <b>not</b> a producer-side
-     * error — and that is exactly why the host checks it. The producer stores
-     * {@code z} in an {@code int16_t} and narrows to it with a plain cast, so an
-     * out-of-range order is silently truncated rather than refused:
-     * {@code z(100000)} arrives as {@code -31072} and quietly paints behind
-     * everything instead of in front of it, with nothing in the reply, nothing in
-     * {@link DrawStats#dropped()}, and nothing in {@link Draw#list()} to show for
-     * it. There is no producer error for this check to agree with; the check is
-     * the only thing between a caller and a silent reorder.</p>
+     * <p><b>It did not always.</b> Through phase 1 it was
+     * {@code static_cast<int16_t>(ClampToI32(p.z))}, so {@code z(100000)} arrived
+     * as {@code -31072} and quietly painted behind everything instead of in front
+     * of it — nothing in the reply, nothing in {@link DrawStats#dropped()}, nothing
+     * in {@link Draw#list()} to show for it. The host check was written as the only
+     * thing standing between a caller and that silent reorder; the producer has
+     * since made it an explicit error, alongside the same treatment for
+     * {@code color}. So this now agrees with a producer-side refusal rather than
+     * substituting for a missing one, and what it buys is the failure arriving at
+     * the call site with a stack trace instead of after a round-trip. Same bound,
+     * same rejection, one tick earlier.</p>
      */
     public static final int MIN_Z = Short.MIN_VALUE;
 
-    /** Highest paint order. See {@link #MIN_Z} for why this is enforced host-side. */
+    /** Highest paint order. See {@link #MIN_Z}. */
     public static final int MAX_Z = Short.MAX_VALUE;
+
+    /** Lowest plane a world highlight may name. */
+    public static final int MIN_PLANE = 0;
+
+    /**
+     * Highest plane a world highlight may name.
+     *
+     * <p>Mirrors {@code overlay::kMaxPlane}. A plane is accepted <b>only</b> in
+     * world space — on a screen command the producer refuses it with
+     * {@code only world space takes a plane} rather than ignoring it — and for
+     * anything but an entity it is honoured by <i>refusal</i>: see
+     * {@link DrawCommand.Tile}.</p>
+     */
+    public static final int MAX_PLANE = 3;
 
     /**
      * Largest absolute value a <b>screen</b> coordinate may take. Out of range is
@@ -153,6 +170,31 @@ public final class DrawLimits {
 
     /** Fixed-point sub-tile divisions per tile, for {@link DrawSpace#WORLD} geometry. */
     public static final int SUBTILE_SCALE = 256;
+
+    /**
+     * Largest absolute value a <b>tile</b> coordinate or tile extent may take, for
+     * the {@code highlight_*} calls that speak whole tiles rather than sub-tiles.
+     *
+     * <p>Derived rather than written down, because it is {@link #MAX_WORLD_COORDINATE}
+     * expressed in the other unit: the producer's {@code TileToWire} is the single
+     * place the two meet, and it refuses a tile outside this before multiplying. A
+     * separate literal here could disagree with the bound it is supposed to be the
+     * same number as.</p>
+     *
+     * <p><b>The tile helpers speak TILES; raw {@code space: "world"} primitives
+     * speak sub-tiles.</b> {@code draw.tile(key, 3200, 3200)} sends {@code 3200},
+     * while {@code draw.rect(...).world()} at the same place sends
+     * {@code 3200 * }{@link #SUBTILE_SCALE}. That is the producer's split, not a
+     * host convention, and the handler is the one place they meet — so nothing
+     * downstream of it ever sees two units.</p>
+     */
+    public static final int MAX_WORLD_TILE = MAX_WORLD_COORDINATE / SUBTILE_SCALE;
+
+    /**
+     * The footprint a highlighted entity or tile gets when the caller names none,
+     * in tiles. The producer's own default for {@code w}/{@code h}.
+     */
+    public static final int DEFAULT_FOOTPRINT_TILES = 1;
 
     private DrawLimits() {
     }

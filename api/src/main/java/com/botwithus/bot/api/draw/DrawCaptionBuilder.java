@@ -185,7 +185,7 @@ public final class DrawCaptionBuilder {
     // --------------------------------------------------------------- terminals
 
     /** The command as configured, without sending it. */
-    public DrawCommand build() {
+    public DrawCommand.Primitive build() {
         return factory.create(styling.currentSpace(), styling.currentStyle(), caption);
     }
 

@@ -40,6 +40,11 @@ final class DrawCodec {
     private static final String Z = "z";
     private static final String TTL_MS = "ttl_ms";
     private static final String TEXT = "text";
+    private static final String X = "x";
+    private static final String Y = "y";
+    private static final String W = "w";
+    private static final String H = "h";
+    private static final String PLANE = "plane";
     private static final String POINTS = "points";
     private static final String IFACE = "iface";
     private static final String COMP = "comp";
@@ -59,7 +64,7 @@ final class DrawCodec {
      * out of {@code debug_draw_list} rather than being invisible producer-side
      * behaviour.</p>
      */
-    static Map<String, Object> encode(DrawCommand command) {
+    static Map<String, Object> encode(DrawCommand.Primitive command) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put(KEY, command.key());
         params.put(KIND, command.kind().wireName());
@@ -74,19 +79,105 @@ final class DrawCodec {
         return params;
     }
 
-    private static void putGeometry(DrawCommand command, Map<String, Object> params) {
+    /**
+     * The {@code highlight_*} method one highlight rides.
+     *
+     * <p>Chosen from the variant rather than stored on it, so the method name lives
+     * beside every other wire string in this file. Note {@code highlight_tile} and
+     * {@code highlight_area} are two methods over one producer-side kind — which is
+     * why {@link DrawCommand.Area#kind()} reports {@link DrawKind#TILE} and the method
+     * cannot be derived from the kind.</p>
+     */
+    static String highlightMethod(DrawCommand.Highlight highlight) {
+        return switch (highlight) {
+            case DrawCommand.Entity ignored -> "highlight_entity";
+            case DrawCommand.Tile ignored -> "highlight_tile";
+            case DrawCommand.Area ignored -> "highlight_area";
+        };
+    }
+
+    /**
+     * One highlight as its handler's parameter map.
+     *
+     * <p><b>No {@code kind} and no {@code space}.</b> The handler forces both — it
+     * sets the kind itself because {@code entity} and {@code tile} are deliberately
+     * unspellable, and overwrites {@code space} with {@code world} before validating
+     * anything. Sending either would be noise the producer discards, and sending a
+     * {@code space} would read like a choice the caller does not have.</p>
+     *
+     * <p>No {@code closed} either: that is a polyline's flag, and a highlight is never
+     * a polyline.</p>
+     *
+     * <p><b>Coordinates and extents here are whole TILES</b>, not the sub-tiles a
+     * {@code space: "world"} primitive sends. The handler is the single place the two
+     * units meet, so nothing downstream of it ever sees both.</p>
+     */
+    static Map<String, Object> encodeHighlight(DrawCommand.Highlight highlight) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put(KEY, highlight.key());
+        params.put(COLOR, highlight.style().color());
+        params.put(THICKNESS, highlight.style().thickness());
+        params.put(FILLED, highlight.style().isFilled());
+        params.put(Z, highlight.style().z());
+        params.put(TTL_MS, highlight.style().ttlMs());
+        putHighlightTarget(highlight, params);
+        putCaption(params, highlight.caption(), LABEL);
+        return params;
+    }
+
+    /**
+     * What the highlight marks.
+     *
+     * <p><b>An entity sends no {@code plane}</b>, deliberately. It is the one world
+     * kind that carries its own height, so the producer resolves it from the entity's
+     * live scene position and never consults {@code plane} — sending one would be a
+     * parameter accepted and ignored, which is the specific mistake the rest of this
+     * wire's design goes out of its way to avoid.</p>
+     *
+     * <p>{@code self} is a bool and is written only when true: a {@code self: false}
+     * is read as a named reference by the producer's counter and would collide with
+     * {@code npc} or {@code player} rather than being ignored.</p>
+     */
+    private static void putHighlightTarget(DrawCommand.Highlight highlight,
+                                           Map<String, Object> params) {
+        switch (highlight) {
+            case DrawCommand.Entity entity -> {
+                if (entity.ref().hasIndex()) {
+                    params.put(entity.ref().wireName(), entity.serverIndex());
+                } else {
+                    params.put(entity.ref().wireName(), true);
+                }
+                params.put(W, entity.widthTiles());
+                params.put(H, entity.heightTiles());
+            }
+            case DrawCommand.Tile tile -> {
+                params.put(X, tile.tileX());
+                params.put(Y, tile.tileY());
+                params.put(PLANE, tile.plane());
+            }
+            case DrawCommand.Area area -> {
+                params.put(X, area.tileX());
+                params.put(Y, area.tileY());
+                params.put(W, area.widthTiles());
+                params.put(H, area.heightTiles());
+                params.put(PLANE, area.plane());
+            }
+        }
+    }
+
+    private static void putGeometry(DrawCommand.Primitive command, Map<String, Object> params) {
         switch (command) {
             case DrawCommand.Line line -> {
-                params.put("x1", line.x1());
-                params.put("y1", line.y1());
-                params.put("x2", line.x2());
-                params.put("y2", line.y2());
+                params.put(X + "1", line.x1());
+                params.put(Y + "1", line.y1());
+                params.put(X + "2", line.x2());
+                params.put(Y + "2", line.y2());
             }
             case DrawCommand.Rect rect -> putBox(params, rect.x(), rect.y(), rect.w(), rect.h());
             case DrawCommand.Ellipse e -> putBox(params, e.x(), e.y(), e.w(), e.h());
             case DrawCommand.Text text -> {
-                params.put("x", text.x());
-                params.put("y", text.y());
+                params.put(X, text.x());
+                params.put(Y, text.y());
                 putCaption(params, text.caption(), TEXT);
             }
             case DrawCommand.Poly poly -> params.put(POINTS, poly.points());
@@ -132,10 +223,10 @@ final class DrawCodec {
     }
 
     private static void putBox(Map<String, Object> params, int x, int y, int w, int h) {
-        params.put("x", x);
-        params.put("y", y);
-        params.put("w", w);
-        params.put("h", h);
+        params.put(X, x);
+        params.put(Y, y);
+        params.put(W, w);
+        params.put(H, h);
     }
 
     /**

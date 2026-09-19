@@ -57,6 +57,7 @@ import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.rpc.RpcRemoteException;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
@@ -1557,13 +1558,13 @@ public class GameAPIImpl implements GameAPI {
     public Draw draw() { return drawFacade; }
 
     @Override
-    public String drawSet(DrawCommand command) {
+    public String drawSet(DrawCommand.Primitive command) {
         Map<String, Object> r = rpc.callSync("debug_draw_set", DrawCodec.encode(command));
         return getString(r, "key");
     }
 
     @Override
-    public DrawBatchResult drawSetBatch(List<DrawCommand> commands) {
+    public DrawBatchResult drawSetBatch(List<DrawCommand.Primitive> commands) {
         if (commands.isEmpty()) {
             return DrawBatchResult.EMPTY;
         }
@@ -1573,11 +1574,52 @@ public class GameAPIImpl implements GameAPI {
                     + "; use Draw.frame(), which splits");
         }
         List<Map<String, Object>> items = new ArrayList<>(commands.size());
-        for (DrawCommand command : commands) {
+        for (DrawCommand.Primitive command : commands) {
             items.add(DrawCodec.encode(command));
         }
         return DrawCodec.decodeBatch(
                 rpc.callSync("debug_draw_set_batch", Map.of("items", items)));
+    }
+
+    @Override
+    public String drawHighlight(DrawCommand.Highlight highlight) {
+        Map<String, Object> r = rpc.callSync(DrawCodec.highlightMethod(highlight),
+                DrawCodec.encodeHighlight(highlight));
+        // The producer echoes the key it actually used, which for a caller who let
+        // this host compute an auto key is how the two are checked against each other
+        // rather than assumed to agree.
+        return getString(r, "key");
+    }
+
+    @Override
+    public DrawBatchResult drawHighlights(List<DrawCommand.Highlight> highlights) {
+        // One call each. There is no highlight batch on this wire: a batch item goes
+        // through the ordinary debug_draw_set path, whose `kind` field cannot name a
+        // semantic highlight. Nothing to split and no cap to respect.
+        DrawBatchResult total = DrawBatchResult.EMPTY;
+        for (DrawCommand.Highlight highlight : highlights) {
+            total = total.merge(sendOneHighlight(highlight));
+        }
+        return total;
+    }
+
+    /**
+     * One highlight, with a producer refusal reported as a count rather than thrown —
+     * the contract a frame's caller already has for a refused primitive.
+     *
+     * <p>Catches {@link RpcRemoteException} and nothing wider, on purpose. That one
+     * means the agent received the call and answered with an error: this highlight was
+     * refused and the pipe is fine. Every other {@code RpcException} is a transport
+     * failure and propagates, because a dead pipe is not the overlay failing and
+     * turning it into a silent {@code dropped} is precisely how it would be hidden.</p>
+     */
+    private DrawBatchResult sendOneHighlight(DrawCommand.Highlight highlight) {
+        try {
+            drawHighlight(highlight);
+            return new DrawBatchResult(1, 0, "");
+        } catch (RpcRemoteException e) {
+            return new DrawBatchResult(0, 1, e.producerMessage());
+        }
     }
 
     @Override

@@ -360,15 +360,27 @@ class LiveDebugDrawSmokeTest {
      * {@code draw.tile(key, 3200, 3200)} is byte-for-byte a call the phase-3
      * producer now accepts. The feature landing is what made the old test fail,
      * which is the guard working rather than the guard being wrong.</p>
+     *
+     * <p><b>The rect leg was {@code draw.tile(...)} and is now a plain
+     * {@code rect(...).world()}.</b> Not a cosmetic edit: {@code draw.tile} has since
+     * been bound to {@code highlight_tile}, so it is no longer a primitive and no longer
+     * goes through {@code debug_draw_set} at all. It kept passing here — a highlight
+     * also answers its key — which is exactly why it had to be replaced rather than
+     * left: a test named "every projectable primitive" would have been silently
+     * covering five primitives and one semantic highlight, and would have stopped
+     * covering the world-space rect without anything going red. The highlights have
+     * their own coverage in {@code LiveHighlightSmokeTest}.</p>
      */
     @Test
     void worldSpace_nowSucceedsForEveryProjectablePrimitive() {
         int x = 3200 * DrawLimits.SUBTILE_SCALE;
         int y = 3200 * DrawLimits.SUBTILE_SCALE;
+        int oneTile = DrawLimits.SUBTILE_SCALE;
 
         assertAll(
-                () -> assertEquals(PREFIX + "w-tile",
-                        draw.tile(PREFIX + "w-tile", 3200, 3200).ttl(SHORT_TTL_MS).submit()),
+                () -> assertEquals(PREFIX + "w-rect",
+                        draw.rect(PREFIX + "w-rect", x, y, oneTile, oneTile)
+                                .world().ttl(SHORT_TTL_MS).submit()),
                 () -> assertEquals(PREFIX + "w-line",
                         draw.line(PREFIX + "w-line", x, y, x + 256, y + 256)
                                 .world().ttl(SHORT_TTL_MS).submit()),

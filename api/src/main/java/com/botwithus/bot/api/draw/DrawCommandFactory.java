@@ -12,5 +12,5 @@ package com.botwithus.bot.api.draw;
 public interface DrawCommandFactory {
 
     /** Build the command this factory was created for. */
-    DrawCommand create(DrawSpace space, DrawStyle style);
+    DrawCommand.Primitive create(DrawSpace space, DrawStyle style);
 }

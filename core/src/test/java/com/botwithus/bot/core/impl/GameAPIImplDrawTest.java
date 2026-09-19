@@ -11,7 +11,10 @@ import com.botwithus.bot.api.draw.DrawLimits;
 import com.botwithus.bot.api.draw.DrawSpace;
 import com.botwithus.bot.api.draw.DrawStats;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.api.snapshot.Npc;
+import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.core.rpc.RpcException;
+import com.botwithus.bot.core.rpc.RpcRemoteException;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -221,7 +224,7 @@ class GameAPIImplDrawTest {
 
         @Test
         void drawSetBatch_overTheCap_refusesRatherThanLosingTheWholeBatch() {
-            List<DrawCommand> tooMany = new ArrayList<>();
+            List<DrawCommand.Primitive> tooMany = new ArrayList<>();
             for (int i = 0; i <= DrawLimits.MAX_BATCH_ITEMS; i++) {
                 tooMany.add(draw.rect("box-" + i, 0, 0, 1, 1).build());
             }
@@ -303,17 +306,34 @@ class GameAPIImplDrawTest {
                     () -> assertEquals("rect", params.getValue().get("kind")));
         }
 
+        /**
+         * A world-space primitive puts {@code world} on the wire and sends its
+         * coordinates in <b>sub-tiles</b>, which is the unit {@code debug_draw_set}
+         * reads for a world command.
+         *
+         * <p><b>This used to be written against {@code draw.tile(...)}, and that leg was
+         * moved deliberately.</b> The tile helper is no longer a world-space rect: it
+         * sends {@code highlight_tile}, which speaks whole tiles and carries a plane.
+         * The property this test protects — a world helper puts the space on the wire
+         * rather than failing locally, and does the fixed-point conversion — still
+         * belongs to the primitives, so it is asserted here against the one call that
+         * still owns it. The tile helper's own unit is pinned in
+         * {@code Highlights.theTileHelper_sendsTilesWhileAWorldRectSendsSubTiles},
+         * which asserts the two side by side precisely because they now differ.</p>
+         */
         @Test
-        void worldSpaceHelpers_putWorldOnTheWireRatherThanFailingLocally() {
+        void worldSpacePrimitives_putWorldOnTheWireInSubTiles() {
             when(rpc.callSync(eq(SET), anyMap())).thenReturn(Map.of("key", "t"));
             ArgumentCaptor<Map<String, Object>> params = captor();
+            int tile = 3200;
 
-            draw.tile("t", 3200, 3200).submit();
+            draw.rect("t", tile * DrawLimits.SUBTILE_SCALE, tile * DrawLimits.SUBTILE_SCALE,
+                    DrawLimits.SUBTILE_SCALE, DrawLimits.SUBTILE_SCALE).world().submit();
 
             verify(rpc).callSync(eq(SET), params.capture());
             assertAll(
                     () -> assertEquals("world", params.getValue().get("space")),
-                    () -> assertEquals(3200 * DrawLimits.SUBTILE_SCALE,
+                    () -> assertEquals(tile * DrawLimits.SUBTILE_SCALE,
                             params.getValue().get("x")));
         }
 
@@ -571,5 +591,314 @@ class GameAPIImplDrawTest {
     /** Typed captor for a wire parameter map. */
     private static ArgumentCaptor<Map<String, Object>> captor() {
         return ArgumentCaptor.captor();
+    }
+
+    /**
+     * Highlights: which method carries them, and what a frame does with one.
+     *
+     * <p>Two claims here would each pass a purely functional test while being wrong in
+     * a way that matters, so both are asserted as <b>call counts against a named
+     * method</b>:</p>
+     *
+     * <ul>
+     *   <li><b>{@code draw.npc(...)} must not send {@code debug_draw_set}.</b> The
+     *       helper used to send a world-space rect at the NPC's tile, which draws an
+     *       identical box on the first frame and then stops following the NPC. Nothing
+     *       about the shape of the reply distinguishes the two; only the method name
+     *       does. The positive control for the {@code times(0)} is in
+     *       {@code Batching}, which shows {@code debug_draw_set} is reachable from
+     *       this same fixture.</li>
+     *   <li><b>A frame must batch the primitives and not the highlights.</b> A frame
+     *       that quietly sent everything one at a time would draw correctly and pass
+     *       every functional assertion; a frame that tried to batch a highlight would
+     *       be refused by the producer as {@code unknown kind}, which this fixture's
+     *       mock would never show.</li>
+     * </ul>
+     */
+    @Nested
+    @DisplayName("highlights ride their own methods and are never batched")
+    class Highlights {
+
+        private static final String HIGHLIGHT_ENTITY = "highlight_entity";
+        private static final String HIGHLIGHT_TILE = "highlight_tile";
+        private static final String HIGHLIGHT_AREA = "highlight_area";
+
+        private static final int NPC_INDEX = 7;
+        private static final int PLAYER_INDEX = 11;
+        private static final int TILE_X = 3200;
+        private static final int TILE_Y = 3213;
+        private static final int PLANE = 1;
+
+        /** A snapshot row is all these helpers read: an index and, for the old path, a tile. */
+        private Npc npc() {
+            return new Npc(NPC_INDEX, 1, TILE_X, TILE_Y, PLANE, 1, -1, -1, 0, 10, 10, -1);
+        }
+
+        private Player player() {
+            return new Player(PLAYER_INDEX, TILE_X, TILE_Y, PLANE, 0, -1, -1, 0, 3, -1);
+        }
+
+        /** Every highlight method answers something, for tests that do not read the key. */
+        private void highlightsAccept() {
+            when(rpc.callSync(eq(HIGHLIGHT_ENTITY), anyMap())).thenReturn(Map.of("key", "e"));
+            when(rpc.callSync(eq(HIGHLIGHT_TILE), anyMap())).thenReturn(Map.of("key", "t"));
+            when(rpc.callSync(eq(HIGHLIGHT_AREA), anyMap())).thenReturn(Map.of("key", "a"));
+        }
+
+        /** Echo the key back, as the producer does, for tests that read the reply. */
+        private void echoTheKeySent(String method) {
+            when(rpc.callSync(eq(method), anyMap())).thenAnswer(call ->
+                    Map.of("key", call.<Map<String, Object>>getArgument(1).get("key")));
+        }
+
+        /**
+         * The headline of the whole change: {@code draw.npc(key, npc)} sends
+         * {@code highlight_entity} and nothing else.
+         */
+        @Test
+        void npc_sendsHighlightEntityAndNotASet() {
+            highlightsAccept();
+
+            draw.npc("target", npc()).color(Colors.RED).submit();
+
+            assertAll(
+                    () -> verify(rpc, times(1)).callSync(eq(HIGHLIGHT_ENTITY), anyMap()),
+                    () -> verify(rpc, times(0)).callSync(eq(SET), anyMap()),
+                    () -> verify(rpc, times(0)).callSync(eq(BATCH), anyMap()));
+        }
+
+        /** Each of the four helpers reaches the one method that can carry it. */
+        @Test
+        void eachHelper_reachesItsOwnMethod() {
+            highlightsAccept();
+
+            draw.npc("n", npc()).submit();
+            draw.player("p", player()).submit();
+            draw.self("s").submit();
+            draw.tile("t", TILE_X, TILE_Y, PLANE).submit();
+            draw.area("a", TILE_X, TILE_Y, 5, 7, PLANE).submit();
+
+            assertAll(
+                    // npc, player and self are three spellings of one method.
+                    () -> verify(rpc, times(3)).callSync(eq(HIGHLIGHT_ENTITY), anyMap()),
+                    () -> verify(rpc, times(1)).callSync(eq(HIGHLIGHT_TILE), anyMap()),
+                    () -> verify(rpc, times(1)).callSync(eq(HIGHLIGHT_AREA), anyMap()),
+                    () -> verify(rpc, times(0)).callSync(eq(SET), anyMap()));
+        }
+
+        /**
+         * A snapshot row is read for its <b>server index</b>, not its tile.
+         *
+         * <p>This is the assertion that separates a tracked highlight from the position
+         * marker it replaced. Both would send a world-space something at the right
+         * place on the first frame; only one of them names the entity.</p>
+         */
+        @Test
+        void npc_sendsTheServerIndexRatherThanTheTile() {
+            highlightsAccept();
+            ArgumentCaptor<Map<String, Object>> params = captor();
+
+            draw.npc("target", npc()).submit();
+            verify(rpc).callSync(eq(HIGHLIGHT_ENTITY), params.capture());
+
+            assertAll(
+                    () -> assertEquals(NPC_INDEX, params.getValue().get("npc")),
+                    () -> assertFalse(params.getValue().containsKey("x"),
+                            () -> "an entity highlight sends no coordinates: "
+                                    + params.getValue()),
+                    () -> assertFalse(params.getValue().containsKey("y")));
+        }
+
+        /**
+         * A player row is read as a {@code player}, not an {@code npc}.
+         *
+         * <p>Worth its own case because the two are the same integer on the wire and a
+         * copy-paste between the two helpers would be invisible otherwise — npc 11 and
+         * player 11 are different entities in different lists.</p>
+         */
+        @Test
+        void player_sendsThePlayerListRatherThanTheNpcList() {
+            highlightsAccept();
+            ArgumentCaptor<Map<String, Object>> params = captor();
+
+            draw.player("target", player()).submit();
+            verify(rpc).callSync(eq(HIGHLIGHT_ENTITY), params.capture());
+
+            assertAll(
+                    () -> assertEquals(PLAYER_INDEX, params.getValue().get("player")),
+                    () -> assertFalse(params.getValue().containsKey("npc")));
+        }
+
+        /**
+         * The tile helpers speak <b>tiles</b> while a world-space primitive speaks
+         * sub-tiles, and the two differ by a factor of 256.
+         *
+         * <p>Sending sub-tiles to {@code highlight_tile} would be accepted — 819200 is a
+         * legal tile coordinate as far as the parser is concerned — and would mark a
+         * tile 256 times further out. Nothing would report an error. So this asserts
+         * the literal number, against the same call's world-space sibling.</p>
+         */
+        @Test
+        void theTileHelper_sendsTilesWhileAWorldRectSendsSubTiles() {
+            highlightsAccept();
+            when(rpc.callSync(eq(SET), anyMap())).thenReturn(Map.of("key", "r"));
+            ArgumentCaptor<Map<String, Object>> tile = captor();
+            ArgumentCaptor<Map<String, Object>> rect = captor();
+
+            draw.tile("t", TILE_X, TILE_Y, PLANE).submit();
+            draw.rect("r", TILE_X * DrawLimits.SUBTILE_SCALE, TILE_Y * DrawLimits.SUBTILE_SCALE,
+                    DrawLimits.SUBTILE_SCALE, DrawLimits.SUBTILE_SCALE).world().submit();
+
+            verify(rpc).callSync(eq(HIGHLIGHT_TILE), tile.capture());
+            verify(rpc).callSync(eq(SET), rect.capture());
+
+            assertAll(
+                    () -> assertEquals(TILE_X, tile.getValue().get("x")),
+                    () -> assertEquals(PLANE, tile.getValue().get("plane")),
+                    () -> assertEquals(TILE_X * DrawLimits.SUBTILE_SCALE,
+                            rect.getValue().get("x")),
+                    () -> assertEquals("world", rect.getValue().get("space")));
+        }
+
+        /**
+         * The keyless overloads submit under the format the producer would have
+         * generated, and {@code submit()} answers it.
+         *
+         * <p>The stub <b>echoes the key it was sent</b>, which is what the producer does.
+         * That matters: {@code drawHighlight} returns the reply's key rather than the
+         * one it computed, so a fixed stub would have made this assert the stub's
+         * constant instead of the host's format. The agreement between this format and
+         * the producer's own generator is what {@code LiveHighlightSmokeTest} checks, by
+         * omitting the key and reading back what the producer chose.</p>
+         */
+        @Test
+        void theKeylessOverloads_useTheProducersAutoKeyFormat() {
+            echoTheKeySent(HIGHLIGHT_ENTITY);
+            echoTheKeySent(HIGHLIGHT_TILE);
+            echoTheKeySent(HIGHLIGHT_AREA);
+
+            assertAll(
+                    () -> assertEquals("npc:7", draw.npc(npc()).submit()),
+                    () -> assertEquals("player:11", draw.player(player()).submit()),
+                    () -> assertEquals("self", draw.self().submit()),
+                    () -> assertEquals("tile:3200:3213:1",
+                            draw.tile(TILE_X, TILE_Y, PLANE).submit()),
+                    () -> assertEquals("area:3200:3213:5:7:1",
+                            draw.area(TILE_X, TILE_Y, 5, 7, PLANE).submit()));
+        }
+
+        /**
+         * A frame batches the primitives and sends each highlight on its own — the
+         * honest version of "a frame is one round-trip".
+         */
+        @Test
+        void aFrame_batchesThePrimitivesAndSendsEachHighlightSeparately() {
+            batchAccepts(FRAME_PRIMITIVES);
+            highlightsAccept();
+
+            DrawBatchResult result;
+            try (DrawFrame frame = draw.frame()) {
+                fill(frame, FRAME_PRIMITIVES);
+                frame.npc("n", npc()).submit();
+                frame.tile("t", TILE_X, TILE_Y, PLANE).submit();
+                assertEquals(2, frame.pendingHighlightCount());
+                result = frame.flush();
+            }
+
+            assertAll(
+                    () -> verify(rpc, times(1)).callSync(eq(BATCH), anyMap()),
+                    () -> verify(rpc, times(1)).callSync(eq(HIGHLIGHT_ENTITY), anyMap()),
+                    () -> verify(rpc, times(1)).callSync(eq(HIGHLIGHT_TILE), anyMap()),
+                    // Never as batch items: the producer would refuse those outright.
+                    () -> verify(rpc, times(0)).callSync(eq(SET), anyMap()),
+                    // Exactly three calls, so twenty-two primitives cost one of them.
+                    // Without this, a frame that sent every primitive individually and
+                    // happened to also send one batch would still pass above.
+                    () -> verifyNoMoreInteractions(rpc),
+                    () -> assertEquals(FRAME_PRIMITIVES + 2, result.applied()),
+                    () -> assertTrue(result.isComplete()));
+        }
+
+        /** A flushed frame does not re-send its highlights on close. */
+        @Test
+        void flushThenClose_doesNotSendAHighlightTwice() {
+            highlightsAccept();
+
+            DrawFrame frame = draw.frame();
+            frame.npc("n", npc()).submit();
+            frame.flush();
+            frame.close();
+
+            assertEquals(0, frame.pendingCount());
+            verify(rpc, times(1)).callSync(eq(HIGHLIGHT_ENTITY), anyMap());
+        }
+
+        /**
+         * <b>A refused highlight is counted, not thrown</b> — the same contract a frame
+         * already gives for a refused primitive.
+         *
+         * <p>This is what {@link com.botwithus.bot.core.rpc.RpcRemoteException} exists
+         * for. A highlight is its own call, so the producer reports a refusal as an
+         * error envelope rather than as a {@code dropped} count; folding it into the
+         * count is what keeps {@code close()}'s promise that a debug overlay cannot take
+         * a script's tick down.</p>
+         */
+        @Test
+        void aRefusedHighlight_isCountedRatherThanThrown() {
+            batchAccepts(1);
+            when(rpc.callSync(eq(HIGHLIGHT_ENTITY), anyMap()))
+                    .thenThrow(new RpcRemoteException(HIGHLIGHT_ENTITY, "draw store full"));
+
+            DrawFrame frame = draw.frame();
+            frame.rect("box", 0, 0, 1, 1).submit();
+            frame.npc("n", npc()).submit();
+            DrawBatchResult result = frame.flush();
+
+            assertAll(
+                    () -> assertEquals(1, result.applied()),
+                    () -> assertEquals(1, result.dropped()),
+                    () -> assertFalse(result.isComplete()),
+                    () -> assertEquals("draw store full", result.firstError()));
+        }
+
+        /**
+         * A transport failure still propagates, and the frame keeps its commands.
+         *
+         * <p>The negative control for the test above: if {@code drawHighlights} caught
+         * {@link com.botwithus.bot.core.rpc.RpcException} broadly instead of only the
+         * remote-error subclass, a dead pipe would come back as a silent
+         * {@code dropped} and this would fail. The two cases differ only in the
+         * exception type, which is the whole reason that type was added.</p>
+         */
+        @Test
+        void aTransportFailure_propagatesRatherThanBecomingADroppedCount() {
+            when(rpc.callSync(eq(HIGHLIGHT_ENTITY), anyMap()))
+                    .thenThrow(new RpcException("RPC call failed: " + HIGHLIGHT_ENTITY,
+                            new java.io.IOException("pipe closed")));
+
+            DrawFrame frame = draw.frame();
+            frame.npc("n", npc()).submit();
+
+            assertAll(
+                    () -> assertThrows(RpcException.class, frame::flush),
+                    // Kept, so the keys are still in hand and re-flushing is safe.
+                    () -> assertEquals(1, frame.pendingCount()));
+        }
+
+        /**
+         * A highlight submitted straight off the facade propagates a refusal, because
+         * that is the single-call contract {@code drawSet} already has.
+         *
+         * <p>The difference from a frame is the wire's, not a policy choice: one call
+         * reports a refusal as an error and a batch reports it as a count.</p>
+         */
+        @Test
+        void aRefusedHighlightOffTheFacade_throws() {
+            when(rpc.callSync(eq(HIGHLIGHT_TILE), anyMap()))
+                    .thenThrow(new RpcRemoteException(HIGHLIGHT_TILE, "draw store full"));
+
+            assertThrows(RpcException.class,
+                    () -> draw.tile("t", TILE_X, TILE_Y, PLANE).submit());
+        }
     }
 }

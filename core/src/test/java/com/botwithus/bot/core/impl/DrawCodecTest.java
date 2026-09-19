@@ -6,6 +6,9 @@ import com.botwithus.bot.api.draw.DrawFont;
 import com.botwithus.bot.api.draw.DrawKind;
 import com.botwithus.bot.api.draw.DrawSpace;
 import com.botwithus.bot.api.draw.DrawStyle;
+import com.botwithus.bot.api.draw.EntityRef;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -68,12 +71,15 @@ class DrawCodecTest {
             "key", "kind", "space",
             "filled", "closed",
             "text", "points",
-            "label", "value", "decimals", "font");
+            "label", "value", "decimals", "font",
+            // The highlight_* parameters. Same table, same handler — the semantic
+            // calls reuse MatchDrawParam wholesale rather than parsing their own.
+            "plane", "npc", "player", "self");
 
     private static final DrawStyle STYLE = DrawStyle.DEFAULT;
 
     /** One of every sealed variant, including a world-space one. */
-    private static List<DrawCommand> everyVariant() {
+    private static List<DrawCommand.Primitive> everyPrimitive() {
         return List.of(
                 new DrawCommand.Line("k-line", DrawSpace.SCREEN, STYLE, 1, 2, 3, 4),
                 new DrawCommand.Rect("k-rect", DrawSpace.SCREEN, STYLE, 1, 2, 3, 4),
@@ -96,7 +102,7 @@ class DrawCodecTest {
      */
     @Test
     void everyVariant_encodesToANonEmptyMap() {
-        for (DrawCommand command : everyVariant()) {
+        for (DrawCommand.Primitive command : everyPrimitive()) {
             Map<String, Object> encoded = DrawCodec.encode(command);
             assertAll(command.key(),
                     () -> assertNotNull(encoded),
@@ -110,7 +116,7 @@ class DrawCodecTest {
      */
     @Test
     void everyVariant_encodesOnlyNonEmptyStringKeys() {
-        for (DrawCommand command : everyVariant()) {
+        for (DrawCommand.Primitive command : everyPrimitive()) {
             for (String key : DrawCodec.encode(command).keySet()) {
                 assertAll(command.key() + " -> " + key,
                         () -> assertNotNull(key),
@@ -128,7 +134,7 @@ class DrawCodecTest {
      */
     @Test
     void everyVariant_encodesNoNullValues() {
-        for (DrawCommand command : everyVariant()) {
+        for (DrawCommand.Primitive command : everyPrimitive()) {
             DrawCodec.encode(command).forEach((key, value) ->
                     assertNotNull(value, () -> command.key() + " encoded a null " + key));
         }
@@ -141,7 +147,7 @@ class DrawCodecTest {
      */
     @Test
     void everyVariant_encodesOnlyKeysTheProducerParses() {
-        for (DrawCommand command : everyVariant()) {
+        for (DrawCommand.Primitive command : everyPrimitive()) {
             for (String key : DrawCodec.encode(command).keySet()) {
                 assertTrue(PRODUCER_KEYS.contains(key),
                         () -> command.kind() + " encodes \"" + key
@@ -168,7 +174,7 @@ class DrawCodecTest {
     @Test
     void shapes_encodeNoCaptionAndNoFont() {
         Set<String> captionKeys = Set.of("text", "label", "value", "decimals", "font");
-        for (DrawCommand command : everyVariant()) {
+        for (DrawCommand.Primitive command : everyPrimitive()) {
             if (command.kind() == DrawKind.TEXT || command.kind() == DrawKind.COMPONENT) {
                 continue;
             }
@@ -222,7 +228,7 @@ class DrawCodecTest {
      */
     @Test
     void everyVariant_encodesTheValueTypesTheProducerReads() {
-        for (DrawCommand command : everyVariant()) {
+        for (DrawCommand.Primitive command : everyPrimitive()) {
             DrawCodec.encode(command).forEach((key, value) ->
                     assertTrue(isExpectedType(key, value),
                             () -> command.kind() + " encodes " + key + " as "
@@ -237,9 +243,237 @@ class DrawCodecTest {
     private static boolean isExpectedType(String key, Object value) {
         return switch (key) {
             case "key", "kind", "space", "text", "label", "font" -> value instanceof String;
-            case "filled", "closed" -> value instanceof Boolean;
+            // "self" is a bool on the producer's table, not an index. It is the one
+            // entity spelling that carries no number, because the local player has no
+            // stable slot.
+            case "filled", "closed", "self" -> value instanceof Boolean;
             case "points" -> value instanceof List<?>;
             default -> value instanceof Number;
         };
+    }
+
+    /**
+     * The three {@code highlight_*} encodings.
+     *
+     * <p>These go through a different function from {@link DrawCodec#encode} and a
+     * different handler, so the properties the tests above pin for a primitive have to
+     * be pinned again here rather than inherited. The interesting assertions are the
+     * <b>absences</b>: a highlight must not send a {@code kind}, a {@code space}, or —
+     * for an entity — a {@code plane}, because each of those would be a parameter the
+     * producer discards or a choice the caller does not actually have.</p>
+     */
+    @Nested
+    @DisplayName("highlight encoding")
+    class Highlights {
+
+        private static final int NPC_INDEX = 42;
+        private static final int TILE_X = 3200;
+        private static final int TILE_Y = 3213;
+        private static final int PLANE = 2;
+
+        private DrawCommand.Entity entity(EntityRef ref) {
+            return new DrawCommand.Entity("k", STYLE, ref, NPC_INDEX, 3, 4, DrawCaption.NONE);
+        }
+
+        private List<DrawCommand.Highlight> everyHighlight() {
+            return List.of(
+                    entity(EntityRef.NPC),
+                    entity(EntityRef.PLAYER),
+                    entity(EntityRef.SELF),
+                    new DrawCommand.Tile("k", STYLE, TILE_X, TILE_Y, PLANE, DrawCaption.NONE),
+                    new DrawCommand.Tile("k", STYLE, TILE_X, TILE_Y, PLANE,
+                            DrawCaption.of("here")),
+                    new DrawCommand.Area("k", STYLE, TILE_X, TILE_Y, 5, 7, PLANE,
+                            DrawCaption.of(1234, 2)));
+        }
+
+        /**
+         * Each variant reaches the method that can carry it.
+         *
+         * <p>{@code highlight_tile} and {@code highlight_area} are two methods over one
+         * producer-side kind, so this mapping genuinely cannot be derived from
+         * {@link DrawCommand#kind()} — which is why it is a switch over the variant and
+         * why it is worth asserting.</p>
+         */
+        @Test
+        void eachVariant_ridesItsOwnMethod() {
+            assertAll(
+                    () -> assertEquals("highlight_entity",
+                            DrawCodec.highlightMethod(entity(EntityRef.NPC))),
+                    () -> assertEquals("highlight_tile", DrawCodec.highlightMethod(
+                            new DrawCommand.Tile("k", STYLE, TILE_X, TILE_Y, PLANE,
+                                    DrawCaption.NONE))),
+                    () -> assertEquals("highlight_area", DrawCodec.highlightMethod(
+                            new DrawCommand.Area("k", STYLE, TILE_X, TILE_Y, 5, 7, PLANE,
+                                    DrawCaption.NONE))));
+        }
+
+        /**
+         * No {@code kind} and no {@code space} on any highlight.
+         *
+         * <p>The handler forces both — it sets the kind itself because {@code entity}
+         * and {@code tile} are not spellable, and overwrites {@code space} with
+         * {@code world} before validating anything. Sending them would be discarded
+         * noise, and a {@code space} in particular would read like a choice the caller
+         * has. This is also the guard against the obvious lazy implementation: reusing
+         * {@link DrawCodec#encode} for a highlight would put {@code kind: "entity"} on
+         * the wire, which {@code debug_draw_set} refuses outright.</p>
+         */
+        @Test
+        void noHighlight_sendsAKindOrASpace() {
+            for (DrawCommand.Highlight highlight : everyHighlight()) {
+                Map<String, Object> encoded = DrawCodec.encodeHighlight(highlight);
+                assertAll(
+                        () -> assertFalse(encoded.containsKey("kind"),
+                                () -> highlight + " sends a kind the handler forces"),
+                        () -> assertFalse(encoded.containsKey("space"),
+                                () -> highlight + " sends a space the handler forces"),
+                        () -> assertFalse(encoded.containsKey("closed"),
+                                () -> highlight + " sends a polyline flag"));
+            }
+        }
+
+        /**
+         * An entity names exactly one list, sends its footprint in tiles, and sends no
+         * plane.
+         *
+         * <p>The plane omission is deliberate and is the one thing here a reader might
+         * mistake for an oversight: an entity is the single world kind that carries its
+         * own height, so the producer resolves it from the entity's live scene position
+         * and never reads {@code plane}. Sending one would be accepted and ignored,
+         * which is the exact mistake this wire's design keeps refusing to make.</p>
+         */
+        @Test
+        void anEntity_namesOneListAndSendsNoPlane() {
+            Map<String, Object> npc = DrawCodec.encodeHighlight(entity(EntityRef.NPC));
+            Map<String, Object> player = DrawCodec.encodeHighlight(entity(EntityRef.PLAYER));
+            Map<String, Object> self = DrawCodec.encodeHighlight(entity(EntityRef.SELF));
+
+            assertAll(
+                    () -> assertEquals(NPC_INDEX, npc.get("npc")),
+                    () -> assertFalse(npc.containsKey("player")),
+                    () -> assertFalse(npc.containsKey("self")),
+                    () -> assertEquals(NPC_INDEX, player.get("player")),
+                    () -> assertFalse(player.containsKey("npc")),
+                    // self is a bool and carries no index; sending self:false would be
+                    // counted as a named reference and collide rather than be ignored.
+                    () -> assertEquals(Boolean.TRUE, self.get("self")),
+                    () -> assertFalse(self.containsKey("npc")),
+                    () -> assertFalse(self.containsKey("player")),
+                    // Footprint in TILES, as the handler reads it.
+                    () -> assertEquals(3, npc.get("w")),
+                    () -> assertEquals(4, npc.get("h")),
+                    () -> assertFalse(npc.containsKey("plane"),
+                            "an entity carries its own height and never reads plane"));
+        }
+
+        /**
+         * A tile sends a plane and <b>no extent</b>; an area sends both.
+         *
+         * <p>{@code highlight_tile} refuses a {@code w} rather than dropping it, so an
+         * extent leaking onto a tile would be a hard refusal rather than a bigger box.
+         * That refusal is unreachable from this API because the two are different
+         * records with different fields, and this is the guard on that.</p>
+         */
+        @Test
+        void aTileSendsNoExtentAndAnAreaSendsOne() {
+            Map<String, Object> tile = DrawCodec.encodeHighlight(
+                    new DrawCommand.Tile("k", STYLE, TILE_X, TILE_Y, PLANE, DrawCaption.NONE));
+            Map<String, Object> area = DrawCodec.encodeHighlight(
+                    new DrawCommand.Area("k", STYLE, TILE_X, TILE_Y, 5, 7, PLANE,
+                            DrawCaption.NONE));
+
+            assertAll(
+                    // Whole tiles, not sub-tiles: the handler is where the units meet.
+                    () -> assertEquals(TILE_X, tile.get("x")),
+                    () -> assertEquals(TILE_Y, tile.get("y")),
+                    () -> assertEquals(PLANE, tile.get("plane")),
+                    () -> assertFalse(tile.containsKey("w"),
+                            "highlight_tile refuses an extent rather than ignoring it"),
+                    () -> assertFalse(tile.containsKey("h")),
+                    () -> assertEquals(5, area.get("w")),
+                    () -> assertEquals(7, area.get("h")),
+                    () -> assertEquals(PLANE, area.get("plane")));
+        }
+
+        /**
+         * A highlight's caption is spelled {@code label}, never {@code text}.
+         *
+         * <p>The producer refuses {@code text} on an entity or a tile with
+         * {@code entity names its caption "label", not "text"}. The spelling is chosen
+         * by the encoder from the command's kind rather than by the caller, so that
+         * refusal is unreachable — this is what makes that claim checkable.</p>
+         */
+        @Test
+        void aCaption_isSpelledLabelAndAFixedPointIsSpelledValue() {
+            Map<String, Object> labelled = DrawCodec.encodeHighlight(
+                    new DrawCommand.Tile("k", STYLE, TILE_X, TILE_Y, PLANE,
+                            DrawCaption.of("here", DrawFont.LARGE)));
+            Map<String, Object> number = DrawCodec.encodeHighlight(
+                    entityWithCaption(DrawCaption.of(1234, 2)));
+            Map<String, Object> bare = DrawCodec.encodeHighlight(entity(EntityRef.NPC));
+
+            assertAll(
+                    () -> assertEquals("here", labelled.get("label")),
+                    () -> assertEquals("large", labelled.get("font")),
+                    () -> assertFalse(labelled.containsKey("text")),
+                    () -> assertEquals(1234L, number.get("value")),
+                    () -> assertEquals(2, number.get("decimals")),
+                    () -> assertFalse(number.containsKey("label")),
+                    () -> assertFalse(number.containsKey("text")),
+                    // No caption means no payload and no font.
+                    () -> assertFalse(bare.containsKey("label")),
+                    () -> assertFalse(bare.containsKey("font")));
+        }
+
+        private DrawCommand.Entity entityWithCaption(DrawCaption caption) {
+            return new DrawCommand.Entity("k", STYLE, EntityRef.NPC, NPC_INDEX, 1, 1, caption);
+        }
+
+        /** Every styling parameter a highlight honours is actually sent. */
+        @Test
+        void everyHighlight_sendsTheStylingTheProducerResolves() {
+            for (DrawCommand.Highlight highlight : everyHighlight()) {
+                Map<String, Object> encoded = DrawCodec.encodeHighlight(highlight);
+                assertAll(
+                        () -> assertEquals(highlight.key(), encoded.get("key")),
+                        () -> assertEquals(highlight.style().color(), encoded.get("color")),
+                        () -> assertEquals(highlight.style().thickness(),
+                                encoded.get("thickness")),
+                        () -> assertEquals(highlight.style().isFilled(), encoded.get("filled")),
+                        () -> assertEquals(highlight.style().z(), encoded.get("z")),
+                        // TTL always goes on the wire, so debug_draw_list reports the
+                        // lifetime a highlight actually got rather than a hidden default.
+                        () -> assertEquals(highlight.style().ttlMs(), encoded.get("ttl_ms")));
+            }
+        }
+
+        /** Same lockstep guard as the primitives: no key the handler would skip. */
+        @Test
+        void everyHighlight_encodesOnlyKeysTheProducerParses() {
+            for (DrawCommand.Highlight highlight : everyHighlight()) {
+                for (String key : DrawCodec.encodeHighlight(highlight).keySet()) {
+                    assertTrue(PRODUCER_KEYS.contains(key),
+                            () -> highlight.kind() + " encodes \"" + key
+                                    + "\", which MatchDrawParam does not read");
+                }
+            }
+        }
+
+        /** Same three malformed-item properties: map, string keys, non-null values. */
+        @Test
+        void everyHighlight_encodesStringKeysAndNoNullValues() {
+            for (DrawCommand.Highlight highlight : everyHighlight()) {
+                Map<String, Object> encoded = DrawCodec.encodeHighlight(highlight);
+                assertFalse(encoded.isEmpty(), () -> highlight + " encodes nothing");
+                encoded.forEach((key, value) -> assertAll(
+                        () -> assertNotNull(key),
+                        () -> assertFalse(key.isEmpty()),
+                        () -> assertNotNull(value, () -> "null value for " + key),
+                        () -> assertTrue(isExpectedType(key, value),
+                                () -> highlight.kind() + " encodes " + key + " as "
+                                        + value.getClass().getSimpleName())));
+            }
+        }
     }
 }

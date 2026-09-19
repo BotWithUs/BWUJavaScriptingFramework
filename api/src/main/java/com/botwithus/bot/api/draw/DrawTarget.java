@@ -101,46 +101,167 @@ public sealed interface DrawTarget permits Draw, DrawFrame {
                 interfaceId, componentId);
     }
 
+    // ---------------------------------------------------------------- highlights
+    //
+    // The four calls that mark a THING rather than a place. Each is its own
+    // highlight_* round-trip and none of them can ride debug_draw_set_batch — see
+    // DrawCommand.Highlight for why, and DrawFrame.flush() for what a frame does
+    // with one.
+
     /**
-     * A world-space box over an NPC's tile, as it stood when this was called.
+     * Highlight an NPC, tracked. The box follows the NPC as it walks, and sits at
+     * the NPC's own height rather than the local player's.
      *
-     * <p>The fixed-point encoding is settled: {@code tile * }{@link
-     * DrawLimits#SUBTILE_SCALE}{@code  + subtile}. The signature promise made when
-     * world space was still refused has held — this is the same call it was, and it
-     * now draws.</p>
+     * <p><b>This is the call the older, worse version of this helper was a
+     * placeholder for.</b> It used to send a world-space rect at the tile the NPC
+     * occupied when it was called, which marked a <i>position</i>: the box stayed
+     * put once the NPC moved, and it carried no plane, so an NPC upstairs was
+     * marked on the ground floor. Its javadoc promised that binding the producer's
+     * semantic highlight would "change what this sends rather than how it is
+     * called". This is that change, and the promise held — same name, same
+     * arguments.</p>
      *
-     * <p><b>Two limits worth knowing, both of which the producer can fix and this
-     * helper cannot.</b> It marks a <i>position</i>, not an entity: the tile is read
-     * once, so the box stays put when the NPC walks away. And it does not send a
-     * plane, so the box lands on plane 0 — an NPC upstairs is marked on the ground
-     * floor. Both are what the producer's semantic world highlights exist to solve,
-     * the way a component highlight solves a rect that would otherwise drift;
-     * binding those is the follow-up, and it changes what this sends rather than how
-     * it is called.</p>
+     * <p>Footprint defaults to one tile. Use
+     * {@link #npc(String, Npc, int, int)} for a big NPC, or the box will sit inside
+     * it.</p>
      */
-    default DrawBuilder npc(String key, Npc npc) {
-        return tile(key, npc.tileX(), npc.tileY());
+    default HighlightBuilder npc(String key, Npc npc) {
+        return entity(key, EntityRef.NPC, npc.serverIndex());
+    }
+
+    /** Highlight an NPC, tracked, with a footprint in <b>tiles</b>. */
+    default HighlightBuilder npc(String key, Npc npc, int widthTiles, int heightTiles) {
+        return entity(key, EntityRef.NPC, npc.serverIndex(), widthTiles, heightTiles);
     }
 
     /**
-     * A world-space box over a player's tile. Carries the same two limits as
-     * {@link #npc(String, Npc)}: a position rather than an entity, and no plane.
+     * Highlight an NPC under the conventional auto key {@code npc:<index>}.
+     *
+     * <p>The key is computed here rather than left to the producer, so it is known
+     * before the command is sent and {@link HighlightBuilder#submit()} can answer
+     * it — a caller who never learns the key cannot clear the highlight.
+     * {@link DrawCommand.Entity#autoKey(EntityRef, int)} is the same format, exposed
+     * for anyone predicting it.</p>
      */
-    default DrawBuilder player(String key, Player player) {
-        return tile(key, player.tileX(), player.tileY());
+    default HighlightBuilder npc(Npc npc) {
+        return npc(DrawCommand.Entity.autoKey(EntityRef.NPC, npc.serverIndex()), npc);
+    }
+
+    /** Highlight another player, tracked. Same contract as {@link #npc(String, Npc)}. */
+    default HighlightBuilder player(String key, Player player) {
+        return entity(key, EntityRef.PLAYER, player.serverIndex());
+    }
+
+    /** Highlight another player under the conventional auto key {@code player:<index>}. */
+    default HighlightBuilder player(Player player) {
+        return player(DrawCommand.Entity.autoKey(EntityRef.PLAYER, player.serverIndex()),
+                player);
     }
 
     /**
-     * A world-space box over one game tile, in fixed point
-     * ({@link DrawLimits#SUBTILE_SCALE} sub-tiles per tile).
+     * Highlight the local player, tracked.
      *
-     * <p>Bounded by {@link DrawLimits#MAX_WORLD_COORDINATE}, which is the whole
-     * {@code int16} tile space at this scale — so a tile taken from a snapshot can
-     * never exceed it. No plane is sent, so the box lands on plane 0.</p>
+     * <p>Takes no index and stores none: the producer re-resolves the local player's
+     * list slot every tick, so this survives a world hop that would leave a stored
+     * index pointing at whoever took the seat.</p>
      */
-    default DrawBuilder tile(String key, int tileX, int tileY) {
-        return rect(key,
-                tileX * DrawLimits.SUBTILE_SCALE, tileY * DrawLimits.SUBTILE_SCALE,
-                DrawLimits.SUBTILE_SCALE, DrawLimits.SUBTILE_SCALE).world();
+    default HighlightBuilder self(String key) {
+        return entity(key, EntityRef.SELF, 0);
+    }
+
+    /** Highlight the local player under the conventional auto key {@code self}. */
+    default HighlightBuilder self() {
+        return self(DrawCommand.Entity.autoKey(EntityRef.SELF, 0));
+    }
+
+    /**
+     * Highlight an entity by list and server index — the general form the three
+     * named entity helpers funnel through, for a caller holding an index without a
+     * snapshot row to go with it.
+     *
+     * <p>Exactly one list is named, which is why {@link EntityRef} is a parameter
+     * rather than two nullable ones: the producer refuses both {@code npc} and
+     * {@code player} together and refuses neither, because "which wins" is not a
+     * rule a caller could guess from a reply that succeeded. NPC 42 and player 42
+     * are different entities.</p>
+     */
+    default HighlightBuilder entity(String key, EntityRef ref, int serverIndex) {
+        return entity(key, ref, serverIndex,
+                DrawLimits.DEFAULT_FOOTPRINT_TILES, DrawLimits.DEFAULT_FOOTPRINT_TILES);
+    }
+
+    /** {@link #entity(String, EntityRef, int)} with a footprint in <b>tiles</b>. */
+    default HighlightBuilder entity(String key, EntityRef ref, int serverIndex,
+                                    int widthTiles, int heightTiles) {
+        return new HighlightBuilder(this, (style, caption) -> new DrawCommand.Entity(
+                key, style, ref, serverIndex, widthTiles, heightTiles, caption));
+    }
+
+    /**
+     * Highlight one game tile on the ground floor, in whole <b>tiles</b>.
+     *
+     * <p>Kept at this signature because it already had it — this is the same call,
+     * now sending {@code highlight_tile} instead of a world-space rect, which is
+     * what its old javadoc said binding the highlight would do. It still lands on
+     * plane 0 for the same reason it did before: no plane was ever sent. Prefer
+     * {@link #tile(String, int, int, int)} and pass the plane you mean.</p>
+     *
+     * <p>Note the unit change against the primitives: this takes <b>tiles</b>, while
+     * {@code rect(...).world()} at the same place takes
+     * {@code tile * }{@link DrawLimits#SUBTILE_SCALE}. That split is the producer's
+     * and its handler is the one place the two meet.</p>
+     */
+    default HighlightBuilder tile(String key, int tileX, int tileY) {
+        return tile(key, tileX, tileY, DrawLimits.MIN_PLANE);
+    }
+
+    /**
+     * Highlight one game tile on a named plane, in whole <b>tiles</b>.
+     *
+     * <p><b>A plane other than the one the local player is standing on draws
+     * nothing.</b> Not an error — the call is accepted and stored — but it resolves
+     * {@code unavailable}, because the producer's only ground-height source is the
+     * player's own elevation and it refuses rather than placing a marker
+     * convincingly wrong on the player's floor. {@link #npc(String, Npc)} and the
+     * other entity highlights are the exemption, because an entity carries its own
+     * height. See {@link DrawCommand.Tile}.</p>
+     */
+    default HighlightBuilder tile(String key, int tileX, int tileY, int plane) {
+        return new HighlightBuilder(this, (style, caption) ->
+                new DrawCommand.Tile(key, style, tileX, tileY, plane, caption));
+    }
+
+    /**
+     * Highlight one game tile under the conventional auto key
+     * {@code tile:<x>:<y>:<plane>}.
+     */
+    default HighlightBuilder tile(int tileX, int tileY, int plane) {
+        return tile(DrawCommand.Tile.autoKey(tileX, tileY, plane), tileX, tileY, plane);
+    }
+
+    /**
+     * Highlight a {@code widthTiles} by {@code heightTiles} block of ground,
+     * anchored at its minimum corner, all in whole <b>tiles</b>.
+     *
+     * <p>The separate call rather than a {@code w}/{@code h} on {@link #tile}, because
+     * {@code highlight_tile} <b>refuses</b> an extent rather than dropping one — a
+     * silently-ignored {@code w} is how a caller ends up convinced a 5x5 highlight
+     * rendered as 1x1 because of a projection bug. Carries the same plane rule as
+     * {@link #tile(String, int, int, int)}.</p>
+     */
+    default HighlightBuilder area(String key, int tileX, int tileY,
+                                  int widthTiles, int heightTiles, int plane) {
+        return new HighlightBuilder(this, (style, caption) -> new DrawCommand.Area(
+                key, style, tileX, tileY, widthTiles, heightTiles, plane, caption));
+    }
+
+    /**
+     * Highlight a block of ground under the conventional auto key
+     * {@code area:<x>:<y>:<w>:<h>:<plane>}.
+     */
+    default HighlightBuilder area(int tileX, int tileY, int widthTiles, int heightTiles,
+                                  int plane) {
+        return area(DrawCommand.Area.autoKey(tileX, tileY, widthTiles, heightTiles, plane),
+                tileX, tileY, widthTiles, heightTiles, plane);
     }
 }

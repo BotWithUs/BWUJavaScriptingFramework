@@ -57,7 +57,45 @@ public interface DrawAPI {
      *         producer refuses the command — a full store, an exhausted text or
      *         polyline slot, an out-of-range coordinate, or world space
      */
-    String drawSet(DrawCommand command);
+    String drawSet(DrawCommand.Primitive command);
+
+    /**
+     * Set one highlight, answering the key it is stored under — one round-trip to
+     * {@code highlight_entity}, {@code highlight_tile} or {@code highlight_area},
+     * chosen from the command's own variant.
+     *
+     * <p>Separate from {@link #drawSet} because these are separate wire methods, and
+     * the parameter type is {@link DrawCommand.Highlight} rather than
+     * {@link DrawCommand} so the two cannot be crossed: a highlight has no
+     * {@code kind} a {@code debug_draw_set} would accept, and a primitive has no
+     * {@code highlight_*} call that would take it.</p>
+     *
+     * @throws RuntimeException the transport's unchecked RPC error when the producer
+     *         refuses the highlight — a full store, an out-of-range tile, or an
+     *         entity reference it will not take
+     */
+    String drawHighlight(DrawCommand.Highlight highlight);
+
+    /**
+     * Set several highlights, answering the aggregate the way a batch does.
+     *
+     * <p><b>This is N round-trips, not one.</b> There is no highlight batch on the
+     * wire: {@code debug_draw_set_batch} applies {@code debug_draw_set} items, whose
+     * {@code kind} field cannot name a semantic highlight, so one call per highlight
+     * is the only shape available. It is here as the path {@link DrawFrame} takes,
+     * and it is named plurally rather than {@code drawHighlightBatch} so nobody
+     * reads it as a wire primitive it is not.</p>
+     *
+     * <p>It reports refusals the way a batch does — counted into
+     * {@link DrawBatchResult#dropped()} with the first message kept — rather than
+     * throwing, because that is the contract a frame's caller already has and a
+     * debug overlay must not be able to take a script's tick down. <b>A transport
+     * failure still propagates</b>, because a dead pipe is not the overlay failing
+     * and swallowing it would hide it. Unlike a batch, each highlight is a single
+     * store operation, so every one before a propagated failure is applied and the
+     * failing one is not — there is no half-applied call.</p>
+     */
+    DrawBatchResult drawHighlights(List<DrawCommand.Highlight> highlights);
 
     /**
      * Set many commands in one round-trip ({@code debug_draw_set_batch}).
@@ -81,8 +119,14 @@ public interface DrawAPI {
      * and a failure that closes the pipe, after which the producer drops
      * everything this connection drew. {@link Draw#list()} is the way to find out
      * what is actually retained.</p>
+     *
+     * <p>The parameter is {@code List<}{@link DrawCommand.Primitive}{@code >} rather
+     * than {@code List<DrawCommand>} deliberately: a {@link DrawCommand.Highlight}
+     * cannot be applied by a batch item, so the type system refuses one here rather
+     * than the producer refusing it as {@code unknown kind} after the round-trip.
+     * {@link #drawHighlights} is where those go.</p>
      */
-    DrawBatchResult drawSetBatch(List<DrawCommand> commands);
+    DrawBatchResult drawSetBatch(List<DrawCommand.Primitive> commands);
 
     /** Remove the named commands ({@code debug_draw_clear}), answering how many went. */
     int drawClear(List<String> keys);

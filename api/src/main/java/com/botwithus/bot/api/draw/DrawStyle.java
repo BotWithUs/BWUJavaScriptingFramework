@@ -36,9 +36,8 @@ public record DrawStyle(int color, int thickness, boolean isFilled, boolean isCl
         if (z < DrawLimits.MIN_Z || z > DrawLimits.MAX_Z) {
             throw new IllegalArgumentException("z must be "
                     + DrawLimits.MIN_Z + ".." + DrawLimits.MAX_Z
-                    + " — the producer narrows it to 16 bits with a plain cast, so a "
-                    + "larger value is silently truncated into a different paint order "
-                    + "rather than refused. Got " + z);
+                    + " — the producer stores paint order in 16 bits and refuses "
+                    + "anything wider, so a larger value is not a deeper layer. Got " + z);
         }
     }
 }

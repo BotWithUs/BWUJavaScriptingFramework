@@ -406,13 +406,23 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
-    public String drawSet(DrawCommand command) {
+    public String drawSet(DrawCommand.Primitive command) {
         throw notStubbed("drawSet");
     }
 
     @Override
-    public DrawBatchResult drawSetBatch(List<DrawCommand> commands) {
+    public DrawBatchResult drawSetBatch(List<DrawCommand.Primitive> commands) {
         throw notStubbed("drawSetBatch");
+    }
+
+    @Override
+    public String drawHighlight(DrawCommand.Highlight highlight) {
+        throw notStubbed("drawHighlight");
+    }
+
+    @Override
+    public DrawBatchResult drawHighlights(List<DrawCommand.Highlight> highlights) {
+        throw notStubbed("drawHighlights");
     }
 
     @Override
