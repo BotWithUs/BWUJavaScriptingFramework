@@ -95,7 +95,7 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
 
     /** Filter by type/definition id. */
     public Q withId(int typeId) {
-        return filter(t -> rawTypeId(t) == typeId);
+        return filter(t -> hasTypeId(t, typeId));
     }
 
     /**
@@ -127,9 +127,8 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
             return withId(ids[0]);
         }
         return filter(t -> {
-            int id = rawTypeId(t);
             for (int candidate : ids) {
-                if (candidate == id) {
+                if (hasTypeId(t, candidate)) {
                     return true;
                 }
             }
@@ -252,6 +251,16 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
 
     /** Type/definition id from the snapshot record (no defn lookup). */
     protected abstract int rawTypeId(T t);
+
+    /**
+     * Whether {@code t} is of type {@code typeId}. Every id-based filter on this query —
+     * {@link #withId(int)} and the gameval forms — decides through here, so an entity that
+     * legitimately answers to more than one id overrides this one method rather than each
+     * call site. The default is the single {@link #rawTypeId(Object)}.
+     */
+    protected boolean hasTypeId(T t, int typeId) {
+        return rawTypeId(t) == typeId;
+    }
 
     /**
      * Display name for {@code named()} / {@code nameMatching()}; resolved

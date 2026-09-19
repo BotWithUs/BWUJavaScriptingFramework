@@ -102,6 +102,14 @@ class LiveLocationsSmokeTest {
                             assertEquals(-1, l.animationId(),
                                     "section animationId must be -1 (Phase A design): " + l);
                         }
+                        // v20: resolvedId is contractually always a usable id, never a
+                        // sentinel -- it falls back to the base id whenever the producer
+                        // declines to resolve. A -1 here means the producer published a
+                        // sentinel after all, which every consumer is written not to expect.
+                        if (l.baseId() > 0) {
+                            assertTrue(l.resolvedId() > 0,
+                                    "resolvedId must never be a sentinel: " + l);
+                        }
                     }));
 
             // Two reads within the same Java tick should agree on the count
@@ -113,11 +121,22 @@ class LiveLocationsSmokeTest {
 
             // Sample log: first row gives a quick eyeball check in CI logs.
             Location first = snap.locations().at(0);
-            log.info("first row: type={} interact={} anim={} tile=({},{},p{}) shape={} rot={} flags=0x{}",
-                    first.typeId(), first.interactId(), first.animationId(),
+            log.info("first row: type={} interact={} resolved={} anim={} tile=({},{},p{}) "
+                            + "shape={} rot={} flags=0x{}",
+                    first.typeId(), first.interactId(), first.resolvedId(), first.animationId(),
                     first.tileX(), first.tileY(), first.plane(),
                     first.shape(), first.rotation(),
                     Integer.toHexString(first.flags()));
+
+            // How much of the scene the producer actually transformed. Logged rather than
+            // asserted: a scene with no multilocs in it is a legitimate place to stand, so a
+            // threshold here would be flaky. The agent-side scenario
+            // (NXTLibrary tests/scenarios/loc-morph-resolution.json) is where that assertion
+            // lives, because the harness controls where the character is.
+            long morphed = snap.locations().stream()
+                    .filter(l -> l.baseId() > 0 && l.resolvedId() != l.baseId())
+                    .count();
+            log.info("morph-resolved rows: {} of {}", morphed, snap.locations().count());
         }
     }
 }

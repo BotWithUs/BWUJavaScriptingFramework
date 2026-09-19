@@ -583,8 +583,13 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         // tile, then the nearest. We return the loc's own tile so the
         // (typeId, worldX, worldY) action targets where the loc actually sits,
         // even when approached from the far side.
+        //
+        // The resolvedId arm is additive: a morph ("multiloc") loc answers to both its base
+        // and its resolved id, and a caller holding either should find it. It deliberately
+        // does not replace the typeId arm -- matching a direct LOCATION on typeId rather than
+        // on baseId() is a separate pre-existing narrowing, not a v20 concern.
         return snap.locations().stream()
-                .filter(loc -> loc.typeId() == objectId
+                .filter(loc -> (loc.typeId() == objectId || loc.resolvedId() == objectId)
                         && loc.plane() == tile.plane()
                         && chebyshev(loc, tile) <= 1
                         && !loc.isDeleted())

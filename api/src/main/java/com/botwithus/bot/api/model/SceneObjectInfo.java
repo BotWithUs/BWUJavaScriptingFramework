@@ -10,8 +10,14 @@ import java.util.List;
  * the full {@link LocationType} (size, varbits, params) on demand.
  *
  * @param handle      opaque server-side handle for action queueing
- * @param typeId      LocationType id (use {@link com.botwithus.bot.api.GameAPI#getLocationType
- *                    getLocationType} to resolve full definition)
+ * @param typeId      the loc id the server sent — what identity, hardcoded id sets and
+ *                    interaction are keyed on
+ * @param resolvedId  the loc id a definition lookup must use: {@code typeId} with the
+ *                    morphvarp ("multiloc") transform applied by the producer. Equal to
+ *                    {@code typeId} for a loc that does not morph. Use
+ *                    {@link com.botwithus.bot.api.GameAPI#getLocationType getLocationType}
+ *                    on <em>this</em> id — a morph loc's base definition has an empty name
+ *                    and no options at all.
  * @param tileX       absolute world tile X
  * @param tileY       absolute world tile Y
  * @param plane       0..3
@@ -21,6 +27,7 @@ import java.util.List;
 public record SceneObjectInfo(
         int handle,
         int typeId,
+        int resolvedId,
         int tileX,
         int tileY,
         int plane,

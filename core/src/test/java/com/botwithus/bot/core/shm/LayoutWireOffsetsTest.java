@@ -23,22 +23,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LayoutWireOffsetsTest {
 
     @Test
-    void protocolVersionIsNineteen() {
-        assertEquals(19, Layout.PROTOCOL_VERSION,
+    void protocolVersionIsTwenty() {
+        assertEquals(20, Layout.PROTOCOL_VERSION,
                 "PROTOCOL_VERSION must equal kProtocolVersion in SharedLayout.h");
     }
 
+    /**
+     * v20 widened {@code LocationEntry} from 20 to 24 bytes, which is the whole reason every
+     * offset below moved. Pinning the stride and the new field separately means a future edit
+     * that changes one without the other cannot pass by cancelling out.
+     */
     @Test
-    void gameCycleStaysWhereV18PutIt() {
-        assertEquals(300164, Layout.SNAP_GAMECYCLE_OFFSET,
-                "v19 appends after gameCycle; gameCycle itself must not move");
+    void locationEntryIsTwentyFourBytesWithResolvedIdLast() {
+        assertEquals(24, Layout.LOCATION_ENTRY_SIZE, "sizeof(ipc::LocationEntry)");
+        assertEquals(20, Layout.LOC_RESOLVEDID_OFFSET, "offsetof(LocationEntry, resolvedId)");
+        assertEquals(Layout.LOCATION_ENTRY_SIZE, Layout.LOC_RESOLVEDID_OFFSET + 4,
+                "resolvedId is the last field; the row ends immediately after it");
+    }
+
+    @Test
+    void gameCycleMovedByExactlyTheLocationRowGrowth() {
+        assertEquals(332932, Layout.SNAP_GAMECYCLE_OFFSET,
+                "v20 widened the location row; gameCycle shifts with everything after it");
+        assertEquals(300164 + Layout.LOCATION_CAP * 4, Layout.SNAP_GAMECYCLE_OFFSET,
+                "the shift must be exactly kLocationCap * 4 -- the cost of resolvedId");
     }
 
     @Test
     void dynamicRegionBlockOffsetsArePinned() {
-        assertEquals(300168, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
-        assertEquals(300204, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
-        assertEquals(300208, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
+        assertEquals(332936, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
+        assertEquals(332972, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
+        assertEquals(332976, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
     }
 
     @Test
@@ -81,7 +96,7 @@ class LayoutWireOffsetsTest {
 
     @Test
     void snapshotSizeIsPinned() {
-        assertEquals(365744, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
+        assertEquals(398512, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
     }
 
     /**

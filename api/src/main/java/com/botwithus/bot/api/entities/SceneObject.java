@@ -33,12 +33,30 @@ public final class SceneObject implements EntityContext {
     public SceneObjectInfo raw() { return raw; }
 
     public int handle()  { return raw.handle(); }
+
+    /**
+     * The loc id the server sent. This is what identity and hardcoded id sets are keyed on,
+     * and what an interaction is addressed to — it is deliberately <em>not</em> the id whose
+     * definition carries the name, which is {@link #resolvedId()}.
+     */
     public int typeId()  { return raw.typeId(); }
+
+    /**
+     * The loc id whose definition carries this object's name and right-click options, with the
+     * morphvarp ("multiloc") transform already applied by the producer.
+     *
+     * <p>Equal to {@link #typeId()} for a loc that does not morph, so it is always usable. For
+     * one that does — a Range, a bonfire, a bank chest, a construction hotspot, most instanced
+     * scenery — the server publishes a base id whose definition has an empty name and no
+     * options, and only this id resolves to the real thing.</p>
+     */
+    public int resolvedId() { return raw.resolvedId(); }
 
     /**
      * Display name. Prefers the pre-resolved {@code raw.name} from the RPC
      * (cheap, no defn fetch) and falls back to the LocationType when the
-     * producer didn't fill it in.
+     * producer didn't fill it in — which, since that LocationType is looked up on
+     * {@link #resolvedId()}, is the real name even for a morph loc.
      */
     public String name() {
         if (raw.name() != null && !raw.name().isEmpty()) {
@@ -62,9 +80,12 @@ public final class SceneObject implements EntityContext {
         return lp == null ? Integer.MAX_VALUE : distanceTo(lp.tileX(), lp.tileY());
     }
     /**
-     * The producer now resolves morphvarp transforms server-side before
-     * publishing the snapshot, so the script-side transform-resolution call is
-     * a no-op identity. Kept so pre-rewrite scripts compile unchanged.
+     * The producer resolves morphvarp transforms before publishing the snapshot and the
+     * result rides on the row as {@link #resolvedId()}, so this is a no-op identity. Kept so
+     * pre-rewrite scripts compile unchanged.
+     *
+     * <p>That claim was aspirational until wire v20 and is now true: {@link #getType()},
+     * {@link #name()} and {@link #getOptions()} all resolve through the morph-resolved id.</p>
      */
     public SceneObject resolveTransform() { return this; }
     /**
@@ -74,18 +95,24 @@ public final class SceneObject implements EntityContext {
      */
     public void interact(int optionIndex, int unusedSubOption) { interact(optionIndex); }
 
-    /** Cached LocationType for this object's typeId. {@code null} if lookup fails. */
+    /**
+     * Cached LocationType for this object. Resolved off {@link #resolvedId()}, never
+     * {@link #typeId()}: a morph loc's base definition has an empty name and no options, so
+     * looking up the base id is what made Ranges, bonfires, bank chests and construction
+     * hotspots invisible to every name- or option-based query. {@code null} if lookup fails.
+     */
     public LocationType getType() {
         if (cachedType == null) {
-            cachedType = typeLookup.apply(typeId());
+            cachedType = typeLookup.apply(resolvedId());
         }
         return cachedType;
     }
 
     /**
      * Right-click options. Prefers the pre-resolved {@code raw.options} from
-     * the RPC (already covers transform-resolution server-side); falls back
-     * to {@link LocationType#options()} when raw came back empty.
+     * the RPC; falls back to {@link LocationType#options()} when raw came back empty — and
+     * that LocationType is the morph-resolved one, so the options are the ones the player
+     * actually sees.
      */
     public List<String> getOptions() {
         if (!raw.options().isEmpty()) {

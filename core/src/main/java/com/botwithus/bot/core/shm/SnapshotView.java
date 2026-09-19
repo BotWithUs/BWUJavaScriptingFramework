@@ -160,7 +160,8 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_BYTE,  base + Layout.LOC_PLANE_OFFSET),
                 seg.get(ValueLayout.JAVA_BYTE,  base + Layout.LOC_SHAPE_OFFSET) & 0xFF,
                 seg.get(ValueLayout.JAVA_BYTE,  base + Layout.LOC_ROTATION_OFFSET) & 0xFF,
-                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.LOC_FLAGS_OFFSET) & 0xFF);
+                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.LOC_FLAGS_OFFSET) & 0xFF,
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.LOC_RESOLVEDID_OFFSET));
     }
 
     /**

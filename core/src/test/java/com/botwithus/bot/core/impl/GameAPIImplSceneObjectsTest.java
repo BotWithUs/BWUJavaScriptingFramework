@@ -144,6 +144,85 @@ class GameAPIImplSceneObjectsTest {
         assertEquals(0, api.objects().query().count());
     }
 
+    /**
+     * The v20 morph fix, stated as behaviour rather than as a version number.
+     *
+     * <p>A morphvarp ("multiloc") loc is published by the server as a base id whose definition
+     * is genuinely empty — no name, no options — and the real definition sits behind a
+     * var-selected id. This is the measured Fort Forinthry range: base {@code 125195} carries
+     * nothing, {@code 125205} is "Range" with "Cook-at".</p>
+     *
+     * <p>Both definitions are seeded here, the empty one included, so the assertion is not
+     * satisfiable by a lookup miss: resolve the base id and you get the empty definition and
+     * an empty name, which is exactly the shipped bug. Only a lookup through
+     * {@link SceneObject#resolvedId()} answers "Range".</p>
+     */
+    @Test
+    void morphLocResolvesNameAndOptionsThroughResolvedId() {
+        build();
+        snap.locs.add(morphLoc(RANGE_BASE_ID, RANGE_RESOLVED_ID, 10, 10, 0));
+        // The base definition as the cache really holds it: present, and empty.
+        locTypes.put(RANGE_BASE_ID, makeLoc(RANGE_BASE_ID, "", List.of()));
+        locTypes.put(RANGE_RESOLVED_ID, makeLoc(RANGE_RESOLVED_ID, "Range", List.of("Cook-at")));
+
+        SceneObject range = api.objects().query().first();
+
+        assertEquals("Range", range.name(),
+                "name must come from the morph-resolved definition, not the empty base one");
+        assertTrue(range.hasOption("Cook-at"),
+                "options must come from the morph-resolved definition");
+        assertEquals(RANGE_RESOLVED_ID, range.getType().id(),
+                "the LocationType lookup must be keyed on resolvedId");
+    }
+
+    /**
+     * The other half of the contract: resolving the appearance must not move the id identity
+     * and interaction are keyed on. Script repos hardcode base ids — trees, ore rocks — and
+     * those are morph bases, so republishing the resolved id in {@code typeId} would have
+     * broken every one of them.
+     */
+    @Test
+    void morphLocKeepsTheBaseIdForIdentityAndInteraction() {
+        build();
+        snap.locs.add(morphLoc(RANGE_BASE_ID, RANGE_RESOLVED_ID, 10, 10, 0));
+        locTypes.put(RANGE_RESOLVED_ID, makeLoc(RANGE_RESOLVED_ID, "Range", List.of("Cook-at")));
+
+        SceneObject range = api.objects().query().first();
+
+        assertEquals(RANGE_BASE_ID, range.typeId(), "typeId stays the id the server sent");
+        assertEquals(RANGE_BASE_ID, range.handle(), "handle is the action param1 -- the base id");
+        assertEquals(RANGE_RESOLVED_ID, range.resolvedId());
+    }
+
+    /** A morph loc answers to both of its ids, so a hardcoded base and a gameval both find it. */
+    @Test
+    void morphLocIsFoundByEitherOfItsIds() {
+        build();
+        snap.locs.add(morphLoc(RANGE_BASE_ID, RANGE_RESOLVED_ID, 10, 10, 0));
+        locTypes.put(RANGE_RESOLVED_ID, makeLoc(RANGE_RESOLVED_ID, "Range", List.of("Cook-at")));
+
+        assertEquals(1, api.objects().query().withId(RANGE_BASE_ID).count(),
+                "a script hardcoding the base id must still match");
+        assertEquals(1, api.objects().query().withId(RANGE_RESOLVED_ID).count(),
+                "a lookup that resolved a name to the morph target must also match");
+        assertEquals(0, api.objects().query().withId(RANGE_BASE_ID + 1).count(),
+                "and an unrelated id must not");
+    }
+
+    /** A loc that does not morph publishes resolvedId == baseId, and nothing changes for it. */
+    @Test
+    void nonMorphLocResolvesToItself() {
+        build();
+        snap.locs.add(directLoc(50, 0, 0, 0));
+        locTypes.put(50, makeLoc(50, "Door", List.of("Open")));
+
+        SceneObject door = api.objects().query().first();
+
+        assertEquals(50, door.typeId());
+        assertEquals(50, door.resolvedId(), "a non-multiloc resolves to itself, never a sentinel");
+        assertEquals("Door", door.name());
+    }
+
     @Test
     void objectsHasOptionUsesLocationType() {
         build();
@@ -330,6 +409,19 @@ class GameAPIImplSceneObjectsTest {
     private static LocalPlayer makeSelf(int x, int y, int plane) {
         return new LocalPlayer(0, 100, x, y, plane, 0, -1, -1, 0, -1, 0, true, -1,
                 LocalPlayer.HEALTH_UNKNOWN, LocalPlayer.HEALTH_UNKNOWN, List.of());
+    }
+
+    /**
+     * The Fort Forinthry range, measured on a live client: the server publishes the loc as
+     * {@code 125195}, whose definition has no name and no options, and the definition the
+     * player actually sees is {@code 125205} "Range" — selected by varbit 33400.
+     */
+    private static final int RANGE_BASE_ID     = 125195;
+    private static final int RANGE_RESOLVED_ID = 125205;
+
+    /** Direct LOCATION row whose morphvarp transform resolved to a different definition. */
+    private static Location morphLoc(int baseId, int resolvedId, int tileX, int tileY, int plane) {
+        return new Location(baseId, baseId, -1, tileX, tileY, plane, 10, 0, 0, resolvedId);
     }
 
     /** Direct LOCATION row — typeId is irrelevant (entity classifier); the

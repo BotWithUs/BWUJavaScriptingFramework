@@ -25,6 +25,10 @@ package com.botwithus.bot.core.shm;
  * @param flags        bitset; see {@link Layout#LOC_FLAG_HIDDEN},
  *                     {@link Layout#LOC_FLAG_COMBINED_SECTION},
  *                     {@link Layout#LOC_FLAG_DELETED}
+ * @param resolvedId   v20+. The morph-resolved ("multiloc") loc id — the appearance
+ *                     definition carrying the name and the right-click options. Equals
+ *                     {@link #baseId()} when the loc is not a multiloc, so it is always a
+ *                     usable id and never a sentinel.
  */
 public record LocationEntry(
         int typeId,
@@ -35,8 +39,19 @@ public record LocationEntry(
         int plane,
         int shape,
         int rotation,
-        int flags
+        int flags,
+        int resolvedId
 ) {
+    /**
+     * The id the server sent for this row — the one identity, hardcoded id sets and
+     * interaction are keyed on. A combined section carries it in {@code typeId}; a direct
+     * LOCATION carries it in {@code interactId}. Use this for anything but a name or option
+     * lookup, and {@link #resolvedId()} for those.
+     */
+    public int baseId() {
+        return isCombinedSection() ? typeId : interactId;
+    }
+
     public boolean isHidden() {
         return (flags & Layout.LOC_FLAG_HIDDEN) != 0;
     }
