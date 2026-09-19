@@ -212,7 +212,7 @@ public class RpcClient implements AutoCloseable {
         Map<String, Object> response = doCallWithRetry(method, params);
 
         if (response.containsKey("error") && response.get("error") != null) {
-            throw new RpcException("RPC error: " + response.get("error"));
+            throw new RpcRemoteException(method, String.valueOf(response.get("error")));
         }
         Object result = response.get("result");
         // rule-exception: {rule:no-instanceof} and {rule:no-casts} — wire-decode boundary.
@@ -232,7 +232,7 @@ public class RpcClient implements AutoCloseable {
         Map<String, Object> response = doCallWithRetry(method, params);
 
         if (response.containsKey("error") && response.get("error") != null) {
-            throw new RpcException("RPC error: " + response.get("error"));
+            throw new RpcRemoteException(method, String.valueOf(response.get("error")));
         }
         return response.get("result");
     }

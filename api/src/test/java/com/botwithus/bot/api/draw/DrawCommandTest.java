@@ -20,10 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * call site rather than as a {@code dropped} count from a batch that has already
  * gone.</p>
  *
- * <p>{@link DrawStyle}'s {@code z} range is the one check with no producer-side
- * counterpart at all: the producer narrows {@code z} to 16 bits with a plain
- * cast, so an out-of-range paint order is silently truncated into a different
- * one rather than refused. See {@link DrawLimits#MIN_Z}.</p>
+ * <p>{@link DrawStyle}'s {@code z} range used to be the one check with no
+ * producer-side counterpart, because the producer narrowed {@code z} to 16 bits
+ * with a plain cast and silently repainted in a different order. The producer now
+ * refuses the same range explicitly, so this check buys the earlier failure rather
+ * than the only one. See {@link DrawLimits#MIN_Z}.</p>
  *
  * <p>Both length limits are deliberately measured the way the producer measures
  * them, which is not the same unit for both: a key is bytes, text is UTF-16
@@ -170,15 +171,20 @@ class DrawCommandTest {
     }
 
     /**
-     * The producer stores {@code z} in an {@code int16_t} and narrows to it with a
-     * plain cast, so an out-of-range paint order is <b>silently truncated</b> — no
-     * error, no {@code dropped}, and nothing in {@code debug_draw_list} to show for
-     * it. {@code z(100000)} would arrive as {@code -31072} and paint behind
-     * everything instead of in front.
+     * The producer stores {@code z} in an {@code int16_t} and refuses anything wider
+     * with {@code z must be -32768..32767}. This host refuses the same range at the
+     * call site, so the failure arrives with a stack trace rather than after a
+     * round-trip.
      *
-     * <p>That makes this the one limit with no producer-side refusal for the host
-     * check to agree with: the check is the only thing between a caller and a
-     * silently wrong result, so it has to reject rather than clamp.</p>
+     * <p><b>It used to be the one limit with no producer-side refusal to agree
+     * with.</b> Through phase 1 the producer narrowed with a plain cast, so
+     * {@code z(100000)} arrived as {@code -31072} and painted behind everything
+     * instead of in front — no error, no {@code dropped}, nothing in
+     * {@code debug_draw_list} to show for it. The producer has since made it an
+     * explicit error, alongside the same treatment for {@code color}. The test name
+     * still says what this check does; what changed is that the producer now does it
+     * too. The local name below is kept as the historical value that was silently
+     * mangled.</p>
      */
     @Test
     void z_pastTheProducersSixteenBitRange_isRejectedRatherThanSilentlyTruncated() {

@@ -21,6 +21,33 @@ import java.util.List;
  *       {@link #isResolved()}.</li>
  * </ul>
  *
+ * <p><b>{@link #isResolved()} means two different things and this row does not say
+ * which.</b> Read it against {@link #kind()} and {@link #space()}, never on its own:</p>
+ *
+ * <ul>
+ *   <li>For a <b>screen-space primitive</b> — a rect, line, ellipse, poly or text in
+ *       {@link DrawSpace#SCREEN} — it is permanently {@code false}, and the command is
+ *       perfectly fine. Nothing was resolved because nothing needed resolving: the
+ *       coordinates were already pixels. A consumer that reads {@code false} here as "my
+ *       drawing is broken" will be wrong about every screen command it ever sends.</li>
+ *   <li>For a <b>component highlight</b>, and for anything in {@link DrawSpace#WORLD} —
+ *       which includes every {@link DrawKind#ENTITY} and {@link DrawKind#TILE} row, since
+ *       the semantic highlights are world-space by construction — it <i>is</i> a health
+ *       bit. {@code false} means the producer has no usable screen position for what the
+ *       command marks: no scene, no window, behind the camera, or a plane it cannot
+ *       height. Nothing is drawn, and {@link #rect()} is <b>zeroed</b> rather than left
+ *       holding the last good value, so a stale-but-plausible rectangle can never be read
+ *       back at the moment a marker goes invalid.</li>
+ * </ul>
+ *
+ * <p>Two further traps on the world side. {@code isResolved() == true} does not promise a
+ * paintable area — a footprint far enough away that all four projected corners round to
+ * one pixel, and every {@code text} command, legitimately report a zero extent — so code
+ * that needs somewhere to draw must check the extent, not only the flag. And the flag
+ * cannot distinguish "outside the viewport but real and clampable" from "behind the
+ * camera, no usable position exists"; the producer's {@code project} field carries that
+ * distinction in five states and this record does not surface it yet.</p>
+ *
  * @param key             the command's key within its connection
  * @param kind            the primitive, or {@code null} if this build does not know the
  *                        name the producer used
@@ -31,7 +58,12 @@ import java.util.List;
  * @param isFilled        filled rather than stroked
  * @param isClosed        polyline closed
  * @param geometry        the command's four raw geometry slots, as the producer stores them
- * @param isResolved      a component target whose rect is current
+ * @param isResolved      whether the producer currently holds a screen position for what
+ *                        this command marks. <b>Permanently false, and harmless, for a
+ *                        screen-space primitive</b>; a health bit only for a component
+ *                        highlight and for world-space commands, entity and tile
+ *                        highlights included. See the class javadoc before branching on
+ *                        it
  * @param rect            the last resolved rect {@code [x, y, w, h]}, in layout units
  * @param remainingTtlMs  milliseconds left, or {@code -1} for no expiry
  * @param text            the words this entry draws. Populated for a

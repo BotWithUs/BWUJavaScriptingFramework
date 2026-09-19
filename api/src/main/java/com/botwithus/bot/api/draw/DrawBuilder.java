@@ -139,8 +139,17 @@ public final class DrawBuilder {
         return new DrawStyle(color, thickness, isFilled, isClosed, z, ttlMs);
     }
 
-    /** The command as configured, without sending it. */
-    public DrawCommand build() {
+    /**
+     * The command as configured, without sending it.
+     *
+     * <p><b>The return type narrowed from {@link DrawCommand} to
+     * {@link DrawCommand.Primitive}.</b> Source-compatible — a {@code Primitive} is a
+     * {@code DrawCommand}, so every existing use still compiles — but not binary
+     * compatible, so a script compiled against an older {@code bot-api} needs a rebuild.
+     * The narrowing is what lets {@code drawSetBatch} take {@code List<Primitive>} and
+     * so refuse a highlight at compile time; this builder never built anything else.</p>
+     */
+    public DrawCommand.Primitive build() {
         return factory.create(space, new DrawStyle(color, thickness, isFilled, isClosed, z, ttlMs));
     }
 
