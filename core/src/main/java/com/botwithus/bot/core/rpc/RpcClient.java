@@ -64,6 +64,21 @@ public class RpcClient implements AutoCloseable {
     private String connectionName;
     private volatile ScriptGate scriptGate;
 
+    /**
+     * Latches on the first transport-level failure of a connection generation
+     * so a script ticking against a dead pipe raises one disconnect, not one
+     * per tick. Cleared by {@link #reconnect} when a new transport is swapped
+     * in.
+     */
+    private final AtomicBoolean transportBroken = new AtomicBoolean(false);
+
+    /**
+     * Set by {@link #close()} so a deliberate shutdown is not reported as a
+     * disconnect. Without it, closing the client would trip the reader loop's
+     * exit path and fire a spurious reconnect.
+     */
+    private volatile boolean closed;
+
     /** Default per-call deadline before doCall gives up and throws RpcException. */
     private static final long DEFAULT_TIMEOUT_MS = 10_000L;
 
@@ -132,6 +147,17 @@ public class RpcClient implements AutoCloseable {
      * remote agent comes back. Acquires {@link #pipeLock} for the duration of
      * the swap so no concurrent send/read can observe a half-open transport.
      *
+     * <p><b>Invariant — {@code pipeName} must carry the same pid this
+     * connection was built on.</b> Only the RPC transport is swapped here.
+     * The shared-memory snapshot mapping ({@code Local\nxt_snapshot_<pid>}),
+     * the {@code connections} map key, the {@code ClientImpl} and every entity
+     * flyweight a running script holds are all bound to the original pid and
+     * are NOT rebuilt. Pointing this at another game would leave reads
+     * resolving against a dead mapping — plausible wrong numbers rather than
+     * an exception. {@link SamePidPipeResolver} is what enforces this, and
+     * {@code ReconnectController} is the only caller; keep it that way, or
+     * move the check in here.</p>
+     *
      * @throws com.botwithus.bot.core.pipe.PipeException if the new transport
      *         fails to open; the previous transport remains untouched.
      */
@@ -146,6 +172,9 @@ public class RpcClient implements AutoCloseable {
             // a stale reply landing on a reused id, which the 32-bit counter
             // makes reachable on a long-lived host.
             idCounter.addAndGet(ID_RECONNECT_STRIDE);
+            // New transport, new generation: re-arm the once-only disconnect
+            // latch so a later break on this connection is reported too.
+            transportBroken.set(false);
         } finally {
             pipeLock.unlock();
         }
@@ -183,7 +212,7 @@ public class RpcClient implements AutoCloseable {
         Map<String, Object> response = doCallWithRetry(method, params);
 
         if (response.containsKey("error") && response.get("error") != null) {
-            throw new RpcException("RPC error: " + response.get("error"));
+            throw new RpcRemoteException(method, String.valueOf(response.get("error")));
         }
         Object result = response.get("result");
         // rule-exception: {rule:no-instanceof} and {rule:no-casts} — wire-decode boundary.
@@ -203,7 +232,7 @@ public class RpcClient implements AutoCloseable {
         Map<String, Object> response = doCallWithRetry(method, params);
 
         if (response.containsKey("error") && response.get("error") != null) {
-            throw new RpcException("RPC error: " + response.get("error"));
+            throw new RpcRemoteException(method, String.valueOf(response.get("error")));
         }
         return response.get("result");
     }
@@ -225,6 +254,7 @@ public class RpcClient implements AutoCloseable {
 
     @Override
     public void close() {
+        closed = true;
         running = false;
         watchdog.shutdownNow();
         pipe.close();
@@ -270,11 +300,32 @@ public class RpcClient implements AutoCloseable {
             }
         }
 
-        boolean wasRunning = running;
         running = false;
-        if (wasRunning) {
-            notifyDisconnect(disconnectCause);
+        reportTransportFailure(disconnectCause);
+    }
+
+    /**
+     * Single funnel for "this transport is gone". Fires the disconnect handler
+     * at most once per connection generation, after stopping the reader and
+     * closing the pipe so {@code isOpen()} — and therefore
+     * {@code Connection.isAlive()} — stops claiming the connection is healthy.
+     *
+     * <p>Both failure routes land here: the reader loop breaking out, and a
+     * {@link PipeException} raised by an RPC's send or read. The second route
+     * is not redundant. On Windows a broken pipe is invisible to
+     * {@link PipeClient#available()} — the JDK's {@code handleNonSeekAvailable}
+     * turns every {@code PeekNamedPipe} failure into "0 bytes readable" rather
+     * than an error — so the reader can poll a dead handle indefinitely without
+     * noticing. An RPC's {@code WriteFile} failing with {@code ERROR_NO_DATA}
+     * is the first observable evidence the peer has hung up.</p>
+     */
+    private void reportTransportFailure(Throwable cause) {
+        if (closed || !transportBroken.compareAndSet(false, true)) {
+            return;
         }
+        running = false;
+        pipe.close();
+        notifyDisconnect(cause);
     }
 
     /**
@@ -341,6 +392,13 @@ public class RpcClient implements AutoCloseable {
             pipe.send(MessagePackCodec.encode(request));
             watchdogTask = scheduleWatchdog(settled);
             return awaitMatchingResponse(method, id, settled);
+        } catch (PipeException e) {
+            // The transport itself failed — most often a write rejected with
+            // ERROR_NO_DATA because the agent already closed its handle. The
+            // reader thread cannot see this (see reportTransportFailure), so
+            // if it is not reported here nothing ever starts reconnection.
+            reportTransportFailure(e);
+            throw new RpcException("RPC call failed: " + method, e);
         } catch (RpcException e) {
             throw e;
         } catch (Exception e) {
@@ -429,6 +487,13 @@ public class RpcClient implements AutoCloseable {
             } catch (RpcException e) {
                 error = true;
                 lastException = e;
+                // A broken transport cannot be retried into working, and the
+                // call may already have reached the agent before the break —
+                // replaying a mutating method (queue_action and friends) would
+                // click twice. Surface it now and let reconnect do its job.
+                if (transportBroken.get()) {
+                    throw e;
+                }
                 if (i < attempts - 1) {
                     long delay = retryPolicy.delayForAttempt(i + 1);
                     try { Thread.sleep(delay); } catch (InterruptedException ie) {

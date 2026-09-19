@@ -23,6 +23,16 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v20 widened {@code LocationEntry} from 20 to 24 bytes with a trailing
+     *  {@link #LOC_RESOLVEDID_OFFSET resolvedId} — the loc id after the producer applies the
+     *  morphvarp ("multiloc") transform. A scene loc whose look and menu are chosen by a var is
+     *  published by the server as a base id whose definition has an empty name and no options at
+     *  all, so every consumer matching a Range, a bonfire, a bank chest, a construction hotspot or
+     *  most instanced scenery by name or option matched nothing. The base id is unchanged in
+     *  {@code typeId}/{@code interactId} because identity, hardcoded id sets and interaction are
+     *  keyed on it; {@code resolvedId} sits beside it and is what a definition lookup must use.
+     *  Growing the row shifted every offset past {@code locations[]} (hard version bump) —
+     *  {@link #SNAPSHOT_SIZE} went from 365744 to 398512.
      *  v19 appended the {@code dynRegion} tail block — the client's dynamic-region (instance)
      *  chunk-descriptor grid. RS3 assembles instances (player-owned houses, Dungeoneering floors,
      *  boss rooms) by stamping 8x8-tile chunks copied out of ordinary static regions, driven by a
@@ -63,7 +73,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 19;
+    public static final int PROTOCOL_VERSION = 20;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -151,12 +161,20 @@ public final class Layout {
     public static final int NPC_SPOTANIMID_OFFSET     = 32;   // i32  first active spot anim id; -1 if none
 
     // ------------------------------------------------------------------
-    // LocationEntry (20 bytes) — mirrors ipc::LocationEntry in SharedLayout.h.
+    // LocationEntry (24 bytes) — mirrors ipc::LocationEntry in SharedLayout.h.
     // typeId/interactId/animationId are -1 when not applicable. interactId is
     // always -1 on COMBINED_LOCATION_SECTION rows (see Location.h::InteractId).
+    //
+    // The row carries TWO ids and they answer different questions. The base id
+    // is what the server sent — typeId on a combined-section row, interactId on
+    // a direct row — and is where identity, hardcoded id sets and interaction
+    // are keyed. resolvedId (v20+) is the appearance id: the definition that
+    // actually carries the name and the right-click options, morphvarp
+    // transform already applied by the producer. Use resolvedId for every name
+    // or option lookup and the base id for everything else.
     // ------------------------------------------------------------------
 
-    public static final int LOCATION_ENTRY_SIZE = 20;
+    public static final int LOCATION_ENTRY_SIZE = 24;
 
     public static final int LOC_TYPEID_OFFSET      = 0;    // i32
     public static final int LOC_INTERACTID_OFFSET  = 4;    // i32
@@ -167,6 +185,12 @@ public final class Layout {
     public static final int LOC_SHAPE_OFFSET       = 17;   // u8
     public static final int LOC_ROTATION_OFFSET    = 18;   // u8
     public static final int LOC_FLAGS_OFFSET       = 19;   // u8
+
+    /** v20+. The morph-resolved ("multiloc") loc id — the one a name or option lookup must use.
+     *  Always a usable id and never a sentinel: it equals the row's base id when the loc is not a
+     *  multiloc, and also when the producer declines to resolve (no transform table, an unreadable
+     *  var, or a transform entry of -1). No null handling and no second lookup is needed. */
+    public static final int LOC_RESOLVEDID_OFFSET  = 20;   // i32
 
     // ------------------------------------------------------------------
     // GroundItemEntry (16 bytes) — mirrors ipc::GroundItemEntry in

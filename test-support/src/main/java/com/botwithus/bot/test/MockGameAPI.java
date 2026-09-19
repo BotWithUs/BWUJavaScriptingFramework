@@ -2,6 +2,11 @@ package com.botwithus.bot.test;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.Components;
+import com.botwithus.bot.api.draw.Draw;
+import com.botwithus.bot.api.draw.DrawBatchResult;
+import com.botwithus.bot.api.draw.DrawCommand;
+import com.botwithus.bot.api.draw.DrawEntry;
+import com.botwithus.bot.api.draw.DrawStats;
 import com.botwithus.bot.api.entities.GroundItems;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
@@ -389,6 +394,65 @@ final class MockGameAPI implements GameAPI {
     @Override
     public Components components() {
         throw notStubbed("components");
+    }
+
+    // Debug drawing is a producer-side overlay with no in-memory analogue, so
+    // every method here is loud rather than a no-op: a script under test that
+    // silently "drew" nothing would be worse than one that stops and says so.
+
+    @Override
+    public Draw draw() {
+        throw notStubbed("draw");
+    }
+
+    @Override
+    public String drawSet(DrawCommand.Primitive command) {
+        throw notStubbed("drawSet");
+    }
+
+    @Override
+    public DrawBatchResult drawSetBatch(List<DrawCommand.Primitive> commands) {
+        throw notStubbed("drawSetBatch");
+    }
+
+    @Override
+    public String drawHighlight(DrawCommand.Highlight highlight) {
+        throw notStubbed("drawHighlight");
+    }
+
+    @Override
+    public DrawBatchResult drawHighlights(List<DrawCommand.Highlight> highlights) {
+        throw notStubbed("drawHighlights");
+    }
+
+    @Override
+    public int drawClear(List<String> keys) {
+        throw notStubbed("drawClear");
+    }
+
+    @Override
+    public int drawClearAll() {
+        throw notStubbed("drawClearAll");
+    }
+
+    @Override
+    public List<DrawEntry> drawList() {
+        throw notStubbed("drawList");
+    }
+
+    @Override
+    public boolean isDrawEnabled() {
+        throw notStubbed("isDrawEnabled");
+    }
+
+    @Override
+    public boolean setDrawEnabled(boolean enabled) {
+        throw notStubbed("setDrawEnabled");
+    }
+
+    @Override
+    public DrawStats drawStats() {
+        throw notStubbed("drawStats");
     }
 
     @Override

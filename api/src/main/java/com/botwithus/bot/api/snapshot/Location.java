@@ -22,6 +22,13 @@ package com.botwithus.bot.api.snapshot;
  * @param rotation     {@code 0..3}
  * @param flags        bitset; inspect via {@link #isHidden()},
  *                     {@link #isCombinedSection()}, {@link #isDeleted()}
+ * @param resolvedId   v20+. The morph-resolved ("multiloc") loc id — the appearance
+ *                     definition carrying the name and the right-click options. A loc whose
+ *                     look and menu are chosen by a var (a Range, a bonfire, a bank chest, a
+ *                     construction hotspot, most instanced scenery) is published by the server
+ *                     as a base id whose definition has an empty name and no options, so a
+ *                     name or option lookup must use this id. Equals {@link #baseId()} when
+ *                     the loc is not a multiloc — always usable, never a sentinel.
  */
 public record Location(
         int typeId,
@@ -32,8 +39,31 @@ public record Location(
         int plane,
         int shape,
         int rotation,
-        int flags
+        int flags,
+        int resolvedId
 ) {
+
+    /**
+     * Builds a row that is <em>not</em> a multiloc, deriving {@code resolvedId} from the base
+     * id. This is the wire's own default — the producer publishes {@code resolvedId == baseId}
+     * for every loc it does not transform — so it is the honest shape for a synthetic row.
+     * Use the canonical constructor to model a loc that really does morph.
+     */
+    public Location(int typeId, int interactId, int animationId, int tileX, int tileY,
+                    int plane, int shape, int rotation, int flags) {
+        this(typeId, interactId, animationId, tileX, tileY, plane, shape, rotation, flags,
+                (flags & FLAG_COMBINED_SECTION) != 0 ? typeId : interactId);
+    }
+
+    /**
+     * The id the server sent for this row — what identity, hardcoded id sets and interaction
+     * are keyed on. A combined section carries it in {@code typeId}; a direct LOCATION carries
+     * it in {@code interactId}. Use this for everything except a name or option lookup, which
+     * must use {@link #resolvedId()}.
+     */
+    public int baseId() {
+        return isCombinedSection() ? typeId : interactId;
+    }
 
     /** Bit 0; mirrors {@code LOC_FLAG_HIDDEN} on the wire. */
     private static final int FLAG_HIDDEN            = 1 << 0;

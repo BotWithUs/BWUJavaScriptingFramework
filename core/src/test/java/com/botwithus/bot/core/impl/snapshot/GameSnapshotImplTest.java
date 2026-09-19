@@ -333,6 +333,41 @@ class GameSnapshotImplTest {
         }
     }
 
+    /**
+     * v20's new column, decoded off the real byte offsets rather than asserted as a constant.
+     * Row 0 is a morph loc whose resolved id differs from its base; row 1 is a section that
+     * does not morph. Both base-id picks are exercised, because the field a row's base id
+     * lives in depends on the combined-section flag.
+     */
+    @Test
+    void locationRowsCarryTheMorphResolvedId() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_LOCATIONCOUNT_OFFSET, 2);
+            // Direct row: base id in interactId, resolving to a different definition.
+            writeLocation(seg, 0, /* typeId */ 3, /* interactId */ 125195,
+                    /* animationId */ -1, (short) 3200, (short) 3300,
+                    /* plane */ (byte) 0, /* shape */ 10, /* rotation */ 0,
+                    /* flags */ 0, /* resolvedId */ 125205);
+            // Section row: base id in typeId, not a multiloc.
+            writeLocation(seg, 1, /* typeId */ 38782, /* interactId */ -1,
+                    /* animationId */ -1, (short) 3201, (short) 3300,
+                    (byte) 0, 10, 0, Layout.LOC_FLAG_COMBINED_SECTION, 38782);
+
+            GameSnapshot.Locations locs = build(seg).locations();
+
+            Location morph = locs.at(0);
+            assertEquals(125195, morph.interactId());
+            assertEquals(125195, morph.baseId(), "a direct row's base id is its interactId");
+            assertEquals(125205, morph.resolvedId());
+
+            Location section = locs.at(1);
+            assertEquals(38782, section.baseId(), "a section's base id is its typeId");
+            assertEquals(section.baseId(), section.resolvedId(),
+                    "a loc that does not morph resolves to itself");
+        }
+    }
+
     @Test
     void locationsAtBuildsRecordAndFlagsRoundTrip() {
         try (Arena arena = Arena.ofConfined()) {
@@ -870,6 +905,15 @@ class GameSnapshotImplTest {
                                       int typeId, int interactId, int animationId,
                                       short tileX, short tileY, byte plane,
                                       int shape, int rotation, int flags) {
+        int baseId = (flags & Layout.LOC_FLAG_COMBINED_SECTION) != 0 ? typeId : interactId;
+        writeLocation(seg, index, typeId, interactId, animationId, tileX, tileY, plane,
+                shape, rotation, flags, baseId);
+    }
+
+    private static void writeLocation(MemorySegment seg, int index,
+                                      int typeId, int interactId, int animationId,
+                                      short tileX, short tileY, byte plane,
+                                      int shape, int rotation, int flags, int resolvedId) {
         long base = Layout.SNAP_LOCATIONS_OFFSET + (long) index * Layout.LOCATION_ENTRY_SIZE;
         seg.set(ValueLayout.JAVA_INT,   base + Layout.LOC_TYPEID_OFFSET,      typeId);
         seg.set(ValueLayout.JAVA_INT,   base + Layout.LOC_INTERACTID_OFFSET,  interactId);
@@ -880,6 +924,7 @@ class GameSnapshotImplTest {
         seg.set(ValueLayout.JAVA_BYTE,  base + Layout.LOC_SHAPE_OFFSET,       (byte) shape);
         seg.set(ValueLayout.JAVA_BYTE,  base + Layout.LOC_ROTATION_OFFSET,    (byte) rotation);
         seg.set(ValueLayout.JAVA_BYTE,  base + Layout.LOC_FLAGS_OFFSET,       (byte) flags);
+        seg.set(ValueLayout.JAVA_INT,   base + Layout.LOC_RESOLVEDID_OFFSET,  resolvedId);
     }
 
     private static void writeInvHeader(MemorySegment seg, int index, int invId,

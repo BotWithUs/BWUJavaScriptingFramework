@@ -2,6 +2,12 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.Components;
+import com.botwithus.bot.api.draw.Draw;
+import com.botwithus.bot.api.draw.DrawBatchResult;
+import com.botwithus.bot.api.draw.DrawCommand;
+import com.botwithus.bot.api.draw.DrawEntry;
+import com.botwithus.bot.api.draw.DrawLimits;
+import com.botwithus.bot.api.draw.DrawStats;
 import com.botwithus.bot.api.diag.StubGuard;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.WalkArrivedEvent;
@@ -51,6 +57,7 @@ import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.rpc.RpcRemoteException;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
@@ -94,6 +101,13 @@ public class GameAPIImpl implements GameAPI {
      * brackets keep it out of the namespace of real script names.
      */
     private static final String HOST_OWNER = "<host>";
+
+    /**
+     * Rows per {@code debug_draw_list} request. The producer defaults to and caps
+     * at this, so asking for more is not an error but buys nothing; {@link #drawList()}
+     * pages with it rather than assuming one request sees the whole store.
+     */
+    private static final int DRAW_LIST_PAGE = 128;
 
     /**
      * How long a cancel waits for the walk executor to drain before taking the
@@ -148,6 +162,7 @@ public class GameAPIImpl implements GameAPI {
     private final Projectiles projectilesFacade = new Projectiles(this);
     private final WorldMapElements mapElementsFacade = new WorldMapElements(this);
     private final Components componentsFacade = new Components(this);
+    private final Draw drawFacade = new Draw(this);
 
     /**
      * Where terminal walk events ({@link WalkArrivedEvent},
@@ -1532,4 +1547,133 @@ public class GameAPIImpl implements GameAPI {
         return out;
     }
 
+
+    // ------------------------------------------------------------------ DrawAPI
+    //
+    // Producer-side coupling: one handler per method in
+    // NXTLibrary/src/rpc/Handlers.cpp. Additive over the RPC pipe — this group does
+    // NOT move Layout.PROTOCOL_VERSION, which gates the SHM snapshot layout only.
+
+    @Override
+    public Draw draw() { return drawFacade; }
+
+    @Override
+    public String drawSet(DrawCommand.Primitive command) {
+        Map<String, Object> r = rpc.callSync("debug_draw_set", DrawCodec.encode(command));
+        return getString(r, "key");
+    }
+
+    @Override
+    public DrawBatchResult drawSetBatch(List<DrawCommand.Primitive> commands) {
+        if (commands.isEmpty()) {
+            return DrawBatchResult.EMPTY;
+        }
+        if (commands.size() > DrawLimits.MAX_BATCH_ITEMS) {
+            throw new IllegalArgumentException("a debug draw batch holds at most "
+                    + DrawLimits.MAX_BATCH_ITEMS + " commands, got " + commands.size()
+                    + "; use Draw.frame(), which splits");
+        }
+        List<Map<String, Object>> items = new ArrayList<>(commands.size());
+        for (DrawCommand.Primitive command : commands) {
+            items.add(DrawCodec.encode(command));
+        }
+        return DrawCodec.decodeBatch(
+                rpc.callSync("debug_draw_set_batch", Map.of("items", items)));
+    }
+
+    @Override
+    public String drawHighlight(DrawCommand.Highlight highlight) {
+        Map<String, Object> r = rpc.callSync(DrawCodec.highlightMethod(highlight),
+                DrawCodec.encodeHighlight(highlight));
+        // The producer echoes the key it actually used, which for a caller who let
+        // this host compute an auto key is how the two are checked against each other
+        // rather than assumed to agree.
+        return getString(r, "key");
+    }
+
+    @Override
+    public DrawBatchResult drawHighlights(List<DrawCommand.Highlight> highlights) {
+        // One call each. There is no highlight batch on this wire: a batch item goes
+        // through the ordinary debug_draw_set path, whose `kind` field cannot name a
+        // semantic highlight. Nothing to split and no cap to respect.
+        DrawBatchResult total = DrawBatchResult.EMPTY;
+        for (DrawCommand.Highlight highlight : highlights) {
+            total = total.merge(sendOneHighlight(highlight));
+        }
+        return total;
+    }
+
+    /**
+     * One highlight, with a producer refusal reported as a count rather than thrown —
+     * the contract a frame's caller already has for a refused primitive.
+     *
+     * <p>Catches {@link RpcRemoteException} and nothing wider, on purpose. That one
+     * means the agent received the call and answered with an error: this highlight was
+     * refused and the pipe is fine. Every other {@code RpcException} is a transport
+     * failure and propagates, because a dead pipe is not the overlay failing and
+     * turning it into a silent {@code dropped} is precisely how it would be hidden.</p>
+     */
+    private DrawBatchResult sendOneHighlight(DrawCommand.Highlight highlight) {
+        try {
+            drawHighlight(highlight);
+            return new DrawBatchResult(1, 0, "");
+        } catch (RpcRemoteException e) {
+            return new DrawBatchResult(0, 1, e.producerMessage());
+        }
+    }
+
+    @Override
+    public int drawClear(List<String> keys) {
+        if (keys.isEmpty()) {
+            return 0;
+        }
+        Map<String, Object> r = rpc.callSync("debug_draw_clear", Map.of("keys", keys));
+        return getInt(r, "removed");
+    }
+
+    @Override
+    public int drawClearAll() {
+        // Scope is pinned to "mine". The producer also accepts "all", which would
+        // erase every other connected client's drawings; that is not a thing a
+        // script gets to do, so it is not reachable from this API.
+        Map<String, Object> r = rpc.callSync("debug_draw_clear_all", Map.of("scope", "mine"));
+        return getInt(r, "removed");
+    }
+
+    @Override
+    public List<DrawEntry> drawList() {
+        List<DrawEntry> out = new ArrayList<>();
+        int offset = 0;
+        int total;
+        do {
+            Map<String, Object> r = rpc.callSync("debug_draw_list",
+                    Map.of("offset", offset, "limit", DRAW_LIST_PAGE));
+            total = getInt(r, "total");
+            List<Map<String, Object>> rows = getMapList(r, "items");
+            for (Map<String, Object> row : rows) {
+                out.add(DrawCodec.decodeEntry(row));
+            }
+            if (rows.isEmpty()) {
+                break;
+            }
+            offset += rows.size();
+        } while (offset < total);
+        return out;
+    }
+
+    @Override
+    public boolean isDrawEnabled() {
+        // No "enabled" param means read rather than write.
+        return getBool(rpc.callSync("debug_draw_enable", Map.of()), "enabled");
+    }
+
+    @Override
+    public boolean setDrawEnabled(boolean enabled) {
+        return getBool(rpc.callSync("debug_draw_enable", Map.of("enabled", enabled)), "enabled");
+    }
+
+    @Override
+    public DrawStats drawStats() {
+        return DrawCodec.decodeStats(rpc.callSync("debug_draw_stats", Map.of()));
+    }
 }

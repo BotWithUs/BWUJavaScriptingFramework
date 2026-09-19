@@ -192,8 +192,13 @@ tasks.register<Test>("harnessTest") {
     // Same native-access and cache-locator forwarding as liveSmokeTest: the
     // harness may point these at a dev build rather than ~/.botwithus/native.
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // botwithus.harness.pid scopes LiveProtocolLockstepTest to the one client
+    // the rest of the run is testing. Without it that gate would attach to
+    // whichever agent it found first, and could certify a different process
+    // than the run then exercises.
     listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live",
-           "worldwalker.dll", "worldwalker.artifact").forEach { key ->
+           "worldwalker.dll", "worldwalker.artifact",
+           "botwithus.harness.pid").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {

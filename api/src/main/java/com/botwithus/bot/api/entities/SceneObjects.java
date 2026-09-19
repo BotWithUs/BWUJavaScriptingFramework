@@ -5,6 +5,7 @@ import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.Location;
 import com.botwithus.bot.api.snapshot.LocationFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -129,39 +130,51 @@ public final class SceneObjects {
 
         @Override
         protected Stream<SceneObject> source() {
-            // Both LOCATION variants are interactable scene entries:
-            //   - Direct LOCATION: the loc id (cache key + action param1)
-            //     lives in interactId; typeId on this variant is a small
-            //     entity-kind classifier and not useful.
-            //   - Combined section: each section is one tile of a
-            //     multi-tile loc (most trees, rocks, posts). interactId is
-            //     -1; the loc id lives in typeId (resolved from the
-            //     section's own ConfigType shared_ptr on the producer).
-            // Either way we surface the row and use whichever field
-            // carries the real loc id. Hidden / deleted rows are dropped.
+            // Both LOCATION variants are interactable scene entries, and they carry the loc
+            // id in different fields -- Location.baseId() makes that pick once. Hidden /
+            // deleted rows are dropped.
+            //
+            // Two ids reach the SceneObject and they are not interchangeable. The base id is
+            // the action param1 and the identity every hardcoded id set is written against;
+            // resolvedId is the morph ("multiloc") target and the only id whose definition
+            // carries a name and options. Passing the base id as the cache key is exactly the
+            // bug wire v20 exists to fix.
             GameSnapshot snap = api.snapshot();
             if (snap == null) {
                 return Stream.empty();
             }
             return snap.locations().stream()
                     .filter(LocationFilter.visible())
-                    .map(l -> {
-                        int locId = l.isCombinedSection() ? l.typeId() : l.interactId();
-                        if (locId <= 0) return null;
-                        return new SceneObject(
-                                api,
-                                new SceneObjectInfo(
-                                        locId,                // handle (action param1)
-                                        locId,                // typeId → cache lookup
-                                        l.tileX(), l.tileY(), l.plane(),
-                                        "",
-                                        List.of()),
-                                typeLookup);
-                    })
+                    .map(this::toSceneObject)
                     .filter(java.util.Objects::nonNull);
         }
 
+        private SceneObject toSceneObject(Location l) {
+            int baseId = l.baseId();
+            if (baseId <= 0) {
+                return null;
+            }
+            return new SceneObject(
+                    api,
+                    new SceneObjectInfo(
+                            baseId,          // handle (action param1)
+                            baseId,          // typeId  -> identity, hardcoded id sets
+                            l.resolvedId(),  // resolvedId -> the definition lookup
+                            l.tileX(), l.tileY(), l.plane(),
+                            "",
+                            List.of()),
+                    typeLookup);
+        }
+
+        // A morph loc answers to BOTH of its ids. Scripts hardcode base ids (trees, ore
+        // rocks) while a gameval name resolves to the morph target, because only the
+        // resolved definition has a name to be found under. Matching either is what lets
+        // both styles of query work against the same row.
         @Override protected int rawTypeId(SceneObject t) { return t.typeId(); }
+
+        @Override protected boolean hasTypeId(SceneObject t, int typeId) {
+            return t.typeId() == typeId || t.resolvedId() == typeId;
+        }
         @Override protected String nameOf(SceneObject t) { return t.name(); }
     }
 }

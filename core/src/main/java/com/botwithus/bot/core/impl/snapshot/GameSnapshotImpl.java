@@ -245,7 +245,8 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.plane(),
                 e.shape(),
                 e.rotation(),
-                e.flags());
+                e.flags(),
+                e.resolvedId());
     }
 
     private final class NpcsImpl implements Npcs {
