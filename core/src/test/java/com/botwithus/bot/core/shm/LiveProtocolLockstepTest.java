@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <pre>
  * javap -c -p com.botwithus.bot.core.shm.SharedRegion   # validateMagicAndVersion
- *     66: bipush        19
+ *     66: bipush        20
  *     68: if_icmpeq     85
  * </pre>
  *
