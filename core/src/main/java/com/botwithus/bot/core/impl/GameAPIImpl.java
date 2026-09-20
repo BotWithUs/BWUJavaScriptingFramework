@@ -473,11 +473,22 @@ public class GameAPIImpl implements GameAPI {
         return null;
     }
 
+    /**
+     * The host resolves its own cache source, so reaching this throw means the
+     * open itself failed rather than that nobody passed a flag — most often a
+     * missing {@code NXTCache.dll}, or live JS5 being unreachable on a machine
+     * with no local game cache. The message names those, because naming
+     * {@code -Dnxtcache.path} sent the last reader looking for a flag that has
+     * not been required since {@code NXTCache.openForHost()} landed.
+     */
     private NXTCache requireCache() {
         if (cache == null) {
             throw new IllegalStateException(
-                    "Config-type lookup requires NXTCache. Pass -Dnxtcache.path=<cache dir> "
-                            + "and -Dnxtcache.dll=<NXTCache.dll path> when launching.");
+                    "Config-type lookup requires NXTCache, and this host failed to open one. "
+                            + "Check the startup log for the NXTCache line: the usual causes are "
+                            + "a missing NXTCache.dll in ~/.botwithus/native/ and live JS5 being "
+                            + "unreachable on a machine with no local game cache. "
+                            + "-Dnxtcache.path=<cache dir> overrides the discovered source.");
         }
         return cache;
     }

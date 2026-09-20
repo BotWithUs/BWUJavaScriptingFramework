@@ -116,17 +116,18 @@ public final class JBotApplication {
         }
     }
 
+    /**
+     * Opens the process-wide cache handle. See
+     * {@link NXTCache#openForHost()} for the source precedence — this path
+     * needs no {@code -D} flag, and the one it took is logged there. Null only
+     * on a genuine open failure, which leaves config-type lookups throwing the
+     * same clear error they did before.
+     */
     private static NXTCache openNxtCacheOrNull() {
         try {
-            NXTCache c = NXTCache.tryOpenFromSystemProperty();
-            if (c != null) {
-                log.info("NXTCache opened (config-type lookups now cache-backed)");
-            } else {
-                log.debug("NXTCache not configured — set -Dnxtcache.path=<dir> to enable config-type lookups");
-            }
-            return c;
+            return NXTCache.openForHost();
         } catch (Throwable t) {
-            log.warn("NXTCache failed to open: {}", t.getMessage());
+            log.warn("NXTCache failed to open, config-type lookups will throw: {}", t.getMessage());
             return null;
         }
     }
