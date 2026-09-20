@@ -94,9 +94,25 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         return new WwTile(lp.tileX(), lp.tileY(), lp.plane());
     }
 
+    /**
+     * The player's base skill levels. Skills are the one capability class the executor cannot pull
+     * by itself: it batches every varbit and item id the artifact's requirements reference, but
+     * nothing tells it which skills matter, and an absent id reads 0 — so a level gate is denied
+     * outright and the transitions behind it are never planned. Base rather than boosted level, so
+     * a route is not planned through a gate whose boost has lapsed by the time the player gets
+     * there.
+     */
     @Override
     public CapabilitySnapshot readCapability() {
-        return CapabilitySnapshot.empty();
+        LocalPlayer lp = currentPlayer();
+        if (lp == null) {
+            return CapabilitySnapshot.empty();
+        }
+        CapabilitySnapshot.Builder caps = CapabilitySnapshot.builder();
+        for (Skill s : lp.skills()) {
+            caps.skill(s.typeId(), s.actualLevel());
+        }
+        return caps.build();
     }
 
     @Override
