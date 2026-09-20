@@ -1,3 +1,7 @@
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
+
 plugins {
     application
     alias(libs.plugins.beryx.jlink)
@@ -14,7 +18,19 @@ dependencies {
     implementation(project(":api"))
     implementation(project(":core"))
     implementation(libs.gson)
-    implementation(libs.imgui.java.app)
+
+    // imgui-java-app is the "runs anywhere" convenience artifact: its POM pulls
+    // LWJGL's natives for *every* platform, which is how 9 undeclared
+    // natives-linux / natives-macos / natives-macos-arm64 jars were reaching a
+    // Windows-only product's runtime classpath and its shipped runtime image.
+    // We want its classes (imgui.app.Application, which ImGuiApp extends), not
+    // its platform set, so LWJGL is excluded here and declared deliberately
+    // below: the base artifacts for the classes, one classifier for the natives.
+    implementation(libs.imgui.java.app) {
+        exclude(group = "org.lwjgl")
+    }
+    implementation(libs.bundles.lwjgl.base)
+
     runtimeOnly(libs.imgui.java.natives.windows)
     runtimeOnly("${libs.lwjgl.core.get().module}:$lwjglVersion:$lwjglNatives")
     runtimeOnly("${libs.lwjgl.glfw.get().module}:$lwjglVersion:$lwjglNatives")
@@ -421,3 +437,90 @@ val renameMsi by tasks.registering {
 }
 
 tasks.named("jpackage").configure { finalizedBy(renameMsi) }
+
+// The imgui native ships for all three platforms inside a single artifact
+// (imgui-java-app's `io/imgui/java/native-bin/`), so unlike LWJGL's per-platform
+// classifier jars it cannot be reached by a dependency exclusion — dropping the
+// dependency would drop imgui.app.Application, which ImGuiApp extends. It is
+// stripped out of the merged module instead.
+//
+// The hook is `prepareModulesDir`, and getting that wrong is the whole story of
+// this block. `createMergedModule` does not read the jars staged in
+// `jlinkbase/nonmodjars`; it unpacks the runtime classpath itself and packs
+// `jlinkbase/tmpmerged` during its own action. So neither stripping the staged
+// jars nor deleting unpacked files in a `doLast` changes the linked image — both
+// run, both report bytes dropped, and both leave the natives in `lib/modules`.
+// Only `prepareModulesDir`'s output in `jlinkbase/jlinkjars` is late enough to
+// matter and early enough for jlink to read. The check at the end of this block
+// exists because that failure is silent: two earlier versions "worked" and
+// shipped an unchanged image, and only `jimage list` on the built artifact
+// caught it.
+//
+// Within the merged module the filter is by extension rather than by path, so a
+// future dependency bump cannot quietly reintroduce a foreign binary — this is a
+// Windows-only product, so a Linux or macOS library in its runtime image is dead
+// weight whoever adds it. It is scoped to the merged module, which holds only the
+// non-modular GUI dependencies, so it cannot reach sqlite-jdbc's own bundled
+// natives (that module links as itself, and trimming it is a separate question).
+val foreignNativeExtensions = setOf("so", "dylib")
+val mergedModuleMarker = ".merged.module"
+val imguiWindowsNative = "io/imgui/java/native-bin/imgui-java64.dll"
+
+/** Rewrites [jar] without its non-Windows native entries; returns the bytes dropped. */
+fun stripForeignNatives(jar: File): Long {
+    val rewritten = File(jar.parentFile, "${jar.name}.stripped")
+    var dropped = 0L
+    ZipFile(jar).use { source ->
+        ZipOutputStream(rewritten.outputStream().buffered()).use { out ->
+            for (entry in source.entries()) {
+                if (entry.name.substringAfterLast('.', "") in foreignNativeExtensions) {
+                    dropped += entry.size
+                    logger.info("merged module: dropping non-Windows native {}", entry.name)
+                    continue
+                }
+                out.putNextEntry(ZipEntry(entry.name))
+                source.getInputStream(entry).use { it.copyTo(out) }
+                out.closeEntry()
+            }
+        }
+    }
+    if (dropped == 0L) {
+        rewritten.delete()
+    } else {
+        check(jar.delete()) { "cannot replace $jar while stripping non-Windows natives" }
+        check(rewritten.renameTo(jar)) { "cannot rename $rewritten to $jar" }
+    }
+    return dropped
+}
+
+/** Fails the build unless [jar] lost every foreign native and kept the Windows one. */
+fun verifyWindowsOnlyNatives(jar: File) {
+    ZipFile(jar).use { merged ->
+        val names = merged.entries().toList().map { it.name }
+        val foreign = names.filter { it.substringAfterLast('.', "") in foreignNativeExtensions }
+        check(foreign.isEmpty()) {
+            "$jar still carries non-Windows natives after stripping: $foreign"
+        }
+        check(names.contains(imguiWindowsNative)) {
+            "$jar lost $imguiWindowsNative — the GUI cannot start without it"
+        }
+    }
+}
+
+tasks.named("prepareModulesDir") {
+    doLast {
+        val linkedJars = layout.buildDirectory.dir("jlinkbase/jlinkjars").get().asFile
+        val mergedModules = (linkedJars.listFiles { file: File -> file.extension == "jar" }
+            ?: emptyArray()).filter { it.name.contains(mergedModuleMarker) }
+        check(mergedModules.isNotEmpty()) {
+            "no merged module jar in $linkedJars — the jlink plugin's layout changed, " +
+                    "and the non-Windows natives this strips would otherwise ship unnoticed"
+        }
+        mergedModules.forEach { merged ->
+            val dropped = stripForeignNatives(merged)
+            verifyWindowsOnlyNatives(merged)
+            logger.lifecycle("merged module: dropped {} bytes of non-Windows natives from {}",
+                dropped, merged.name)
+        }
+    }
+}
