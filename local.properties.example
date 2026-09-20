@@ -13,6 +13,12 @@
 # NXTCache native DLL + cache directory for cache-backed config-type lookups
 # at runtime (item/npc/loc/quest/...). Also settable via the NXTCACHE_DLL /
 # NXTCACHE_PATH environment variables.
+#
+# Both are OVERRIDES and neither is required: the host discovers the NXT
+# client's own cache directory (Jagex-launcher and Steam installs alike) and
+# falls back to live JS5 when it finds none, and it picks up NXTCache.dll from
+# ~/.botwithus/native/. Set nxtcache.path only to pin a specific cache -- a
+# patched one, or a second install's.
 # nxtcache.dll=C:/path/to/NXTCache.dll
 # nxtcache.path=C:/path/to/rs3/cache
 

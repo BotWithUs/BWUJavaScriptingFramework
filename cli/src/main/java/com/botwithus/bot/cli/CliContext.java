@@ -113,9 +113,15 @@ public class CliContext {
      * Lazy-init the process-wide NXTCache handle the first time a connection
      * is made. The same handle is shared across all GameAPIImpl instances —
      * sqlite is safe to read from one connection, and reopening it per
-     * connection would waste startup time. Returns {@code null} when the
-     * cache isn't configured ({@code -Dnxtcache.path} unset) or fails to
-     * open; callers (i.e. config-type lookups) will surface a clear error.
+     * connection would waste startup time.
+     *
+     * <p>{@link NXTCache#openForHost()} resolves its own source — an explicit
+     * {@code -Dnxtcache.path} / {@code -Dnxtcache.live} override, else the
+     * client's discovered cache directory, else live JS5 — so a shipped
+     * install needs no flag. It logs which of those it took. Returns
+     * {@code null} only when opening genuinely fails (no {@code NXTCache.dll},
+     * or live JS5 unreachable with no local cache), in which case config-type
+     * lookups surface a clear error as before.</p>
      */
     private synchronized NXTCache getOrInitNxtCache() {
         if (nxtCacheInitAttempted) {
@@ -123,14 +129,9 @@ public class CliContext {
         }
         nxtCacheInitAttempted = true;
         try {
-            nxtCache = NXTCache.tryOpenFromSystemProperty();
-            if (nxtCache != null) {
-                log.info("NXTCache opened (config-type lookups now cache-backed)");
-            } else {
-                log.debug("NXTCache not configured — set -Dnxtcache.path=<dir> to enable config-type lookups");
-            }
+            nxtCache = NXTCache.openForHost();
         } catch (Throwable t) {
-            log.warn("NXTCache failed to open: {}", t.getMessage());
+            log.warn("NXTCache failed to open, config-type lookups will throw: {}", t.getMessage());
         }
         return nxtCache;
     }

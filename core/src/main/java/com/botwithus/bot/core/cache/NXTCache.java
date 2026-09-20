@@ -163,23 +163,97 @@ public final class NXTCache implements AutoCloseable {
      * </ul>
      * Returns {@code null} when neither is set, so callers can degrade
      * gracefully. Throws on actual open failure.
+     *
+     * <p>This is the properties-only half, and stays that way. Host wiring
+     * wants {@link #openForHost()}, which uses this for the override leg and
+     * then discovers or falls back instead of returning {@code null}.</p>
      */
     public static NXTCache tryOpenFromSystemProperty() throws IOException {
-        String path = System.getProperty("nxtcache.path");
+        String path = System.getProperty(CacheSourceResolver.PATH_PROPERTY);
         if (path != null && !path.isBlank()) {
-            NXTCache c = openLocal(Path.of(path));
-            try {
-                c.enableLiveFallback();
-            } catch (IOException e) {
-                // Fallback is best-effort — the local cache is still usable
-                // for entries it has. Swallow but leave a trail.
-            }
-            return c;
+            return openLocalWithFallback(Path.of(path));
         }
-        if (Boolean.getBoolean("nxtcache.live")) {
+        if (Boolean.getBoolean(CacheSourceResolver.LIVE_PROPERTY)) {
             return openLive();
         }
         return null;
+    }
+
+    /**
+     * Opens the cache a host process should run against, without requiring
+     * anyone to pass a {@code -D} flag. Never returns {@code null}: an
+     * explicit override wins, else a discovered NXT client cache directory,
+     * else the live JS5 service. See {@link CacheSourceResolver} for the
+     * precedence and for why a discovered directory has to hold index files
+     * rather than merely exist.
+     *
+     * <p>This is the entry point host wiring should call.
+     * {@link #tryOpenFromSystemProperty()} remains what its name says — the
+     * properties-only half — and is what this delegates to for the override
+     * leg. Widening that method in place would have made a {@code null} return
+     * mean "no override" to one caller and "no cache anywhere" to another,
+     * which is the kind of ambiguity a return type cannot carry.</p>
+     *
+     * <p>The live fallback is deliberately silent to the script: a network
+     * dependency and slower lookups beat every config-type lookup throwing.
+     * It is logged at {@code info} so the mode is legible in a log we are
+     * sent, and never at {@code error} — it is a working state.</p>
+     *
+     * @throws IOException if the resolved source cannot be opened. An explicit
+     *         override that names a bad directory fails here rather than
+     *         degrading, so the operator sees their own typo.
+     */
+    public static NXTCache openForHost() throws IOException {
+        return open(new CacheSourceResolver().resolve());
+    }
+
+    /** Opens an already-decided {@link CacheSource}, logging which mode was taken. */
+    public static NXTCache open(CacheSource source) throws IOException {
+        Objects.requireNonNull(source, "source");
+        return switch (source) {
+            case CacheSource.LocalDirectory local -> openLocalReporting(local);
+            case CacheSource.Live live -> openLiveReporting(live);
+        };
+    }
+
+    private static NXTCache openLocalReporting(CacheSource.LocalDirectory local) throws IOException {
+        NXTCache cache = openLocalWithFallback(local.directory());
+        if (local.isExplicit()) {
+            log.info("NXTCache: local cache {} named by -D{}",
+                    local.directory(), CacheSourceResolver.PATH_PROPERTY);
+        } else {
+            log.info("NXTCache: discovered the client's local cache at {}", local.directory());
+        }
+        return cache;
+    }
+
+    private static NXTCache openLiveReporting(CacheSource.Live live) throws IOException {
+        if (live.isExplicit()) {
+            log.info("NXTCache: live JS5 only, named by -D{}", CacheSourceResolver.LIVE_PROPERTY);
+        } else {
+            log.info("NXTCache: no local NXT cache found; using live JS5 instead. Config-type "
+                            + "lookups work, but each archive is fetched over the network. Pass "
+                            + "-D{}=<cache dir> to read a local cache instead.",
+                    CacheSourceResolver.PATH_PROPERTY);
+        }
+        return openLive();
+    }
+
+    /**
+     * Opens a local cache and turns on live-JS5 fallback for archives it does
+     * not hold. The fallback is best-effort: a local cache that answers most
+     * lookups is worth keeping even when the network leg is unavailable, so a
+     * failure there is reported and swallowed rather than failing the open.
+     */
+    private static NXTCache openLocalWithFallback(Path directory) throws IOException {
+        NXTCache cache = openLocal(directory);
+        try {
+            cache.enableLiveFallback();
+        } catch (IOException e) {
+            log.info("NXTCache: live-JS5 fallback unavailable for {} ({}); lookups are limited "
+                    + "to archives already cached locally", directory, e.getMessage());
+        }
+        return cache;
     }
 
     /** Opens a sqlite-backed cache from the given directory. */

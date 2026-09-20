@@ -80,6 +80,37 @@ tasks.register<JavaExec>("eventPumpProbe") {
     mainClass = "com.botwithus.bot.core.shm.EventPumpProbe"
 }
 
+tasks.register<Test>("nxtCacheResolutionTest") {
+    description = "Proves a host with no -D flag opens a usable NXTCache and answers a " +
+            "real config-type lookup (requires a deployed NXTCache.dll)"
+    group = "verification"
+    useJUnitPlatform()
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // Opt in to the one case that reaches the network, so the CI-run `test`
+    // task stays offline while this task covers the leg a machine with no
+    // local game cache actually lands on.
+    systemProperty("nxtcache.smoke.live", "true")
+    // Forward only what the invoking command line sets. With nothing set the
+    // discovery case runs; with -Dnxtcache.path=<dir> the override case runs.
+    // Deliberately NOT wired to local.properties: a dev override baked in here
+    // would mean the discovery leg never got exercised on a dev box, which is
+    // the one leg a shipped install depends on.
+    listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.cache.NXTCacheHostResolutionLiveTest")
+    }
+    // The verdict depends on what is on disk, not on inputs Gradle can see.
+    outputs.upToDateWhen { false }
+}
+
 tasks.register<Test>("worldwalkerE2ETest") {
     description = "End-to-end Panama upcall test against a real worldwalker.dll + artifact"
     group = "verification"
