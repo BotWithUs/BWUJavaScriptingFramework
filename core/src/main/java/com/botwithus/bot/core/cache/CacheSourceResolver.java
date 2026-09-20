@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 /**
@@ -17,6 +19,10 @@ import java.util.function.UnaryOperator;
  * <ol>
  *   <li>{@code -Dnxtcache.path=<dir>} — an operator-named local cache.</li>
  *   <li>{@code -Dnxtcache.live=true} — an operator-named live-only cache.</li>
+ *   <li>The cache directory named by the <b>running client's own</b>
+ *       {@code preferences.cfg}, when a pid was supplied — see
+ *       {@link RunningClientCache}. This is the authoritative answer and it is
+ *       the only tier that is right for a user who relocated their cache.</li>
  *   <li>A discovered NXT client cache directory: the first
  *       {@linkplain #defaultCandidates candidate} that actually holds
  *       {@code js5-*.jcache} files.</li>
@@ -36,9 +42,22 @@ import java.util.function.UnaryOperator;
  * shape. Opening an empty one yields a handle that answers "not found" to every
  * lookup — a worse outcome than the live fallback, and a silent one.</p>
  *
- * <p>Resolution is pure apart from that probe: the property reader and the
- * candidate list are both injected, so the precedence chain is testable without
- * mutating process-global state or owning a game install.</p>
+ * <p><b>The running-client tier is a {@link Supplier} rather than a resolved
+ * value, and that is load-bearing.</b> It defers the {@link ProcessHandle} call
+ * until the two override tiers have declined, so naming
+ * {@code -Dnxtcache.path} costs no process inspection at all and the override
+ * leg stays free of side effects.</p>
+ *
+ * <p><b>A pid being available is not the same as that tier answering.</b> The
+ * client can exit between pipe discovery and this call, its executable path can
+ * be unreadable, and its {@code cache_folder} can name a directory that no
+ * longer exists — so the candidate list below it covers the running-client
+ * tier's <em>failure</em>, not merely its absence.</p>
+ *
+ * <p>Resolution is pure apart from that probe: the property reader, the
+ * candidate list and the running-client lookup are all injected, so the
+ * precedence chain is testable without mutating process-global state, owning a
+ * game install, or having a client running.</p>
  */
 public final class CacheSourceResolver {
 
@@ -62,21 +81,57 @@ public final class CacheSourceResolver {
 
     private final List<Path> candidates;
     private final UnaryOperator<String> systemProperties;
+    private final Supplier<Optional<Path>> runningClientCache;
 
-    /** Resolver over the platform's standard locations and the real system properties. */
+    /**
+     * Resolver with no running client to ask: overrides, then the platform's
+     * standard locations, then live. Callers that hold the client's pid should
+     * prefer {@link #CacheSourceResolver(long)}, which is strictly better
+     * informed.
+     */
     public CacheSourceResolver() {
-        this(GameCacheCandidates.forEnvironment(System::getenv), System::getProperty);
+        this(GameCacheCandidates.forEnvironment(System::getenv), System::getProperty,
+                Optional::empty);
     }
 
     /**
-     * Resolver over an explicit candidate list and property reader.
+     * Resolver that asks the client running as {@code clientPid} where its cache
+     * is before falling back to the known locations.
+     *
+     * @param clientPid the game client's process id, as carried by the agent's
+     *                  pipe and shared-memory names
+     */
+    public CacheSourceResolver(long clientPid) {
+        this(GameCacheCandidates.forEnvironment(System::getenv), System::getProperty,
+                () -> RunningClientCache.forPid(clientPid));
+    }
+
+    /**
+     * Resolver over an explicit candidate list and property reader, with no
+     * running client to ask.
      *
      * @param candidates       directories to probe, in preference order
      * @param systemProperties reads a system property by name, {@code null} when unset
      */
     public CacheSourceResolver(List<Path> candidates, UnaryOperator<String> systemProperties) {
+        this(candidates, systemProperties, Optional::empty);
+    }
+
+    /**
+     * Resolver over an explicit candidate list, property reader and
+     * running-client lookup.
+     *
+     * @param candidates         directories to probe, in preference order
+     * @param systemProperties   reads a system property by name, {@code null} when unset
+     * @param runningClientCache the running client's own cache directory, consulted
+     *                           only once both overrides have declined
+     */
+    public CacheSourceResolver(List<Path> candidates, UnaryOperator<String> systemProperties,
+                               Supplier<Optional<Path>> runningClientCache) {
         this.candidates = List.copyOf(Objects.requireNonNull(candidates, "candidates"));
         this.systemProperties = Objects.requireNonNull(systemProperties, "systemProperties");
+        this.runningClientCache =
+                Objects.requireNonNull(runningClientCache, "runningClientCache");
     }
 
     /** Applies the precedence documented on this class. Never {@code null}. */
@@ -88,8 +143,14 @@ public final class CacheSourceResolver {
         if (Boolean.parseBoolean(systemProperties.apply(LIVE_PROPERTY))) {
             return new CacheSource.Live(true);
         }
+        Optional<Path> fromRunningClient = runningClientCache.get();
+        if (fromRunningClient.isPresent()) {
+            return new CacheSource.LocalDirectory(fromRunningClient.get(), false);
+        }
         for (Path candidate : candidates) {
             if (holdsGameCache(candidate)) {
+                log.info("NXTCache: {} is a known install location holding a cache; no running "
+                        + "client named one of its own", candidate);
                 return new CacheSource.LocalDirectory(candidate, false);
             }
         }

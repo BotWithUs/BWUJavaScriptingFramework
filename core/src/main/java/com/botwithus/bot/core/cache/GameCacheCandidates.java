@@ -64,10 +64,16 @@ public final class GameCacheCandidates {
 
     private static final Logger log = LoggerFactory.getLogger(GameCacheCandidates.class);
 
-    /** The live client game name, and so the leaf of every cache directory. */
-    private static final String GAME_NAME = "RuneScape";
+    /**
+     * The live client's game name, and so the leaf of an ordinary cache
+     * directory. Public because {@link RunningClientCache} tries it as one of
+     * the leaves under a running client's {@code cache_folder}, and a game name
+     * spelled in two places would be two things to keep in step.
+     */
+    public static final String DEFAULT_GAME_NAME = "RuneScape";
 
-    private static final String PREFERENCES_FILE = "preferences.cfg";
+    /** The client preferences file's name, wherever it sits. */
+    public static final String PREFERENCES_FILE = "preferences.cfg";
     private static final String CACHE_FOLDER_KEY = "cache_folder=";
     private static final String LAUNCHER_DIR = "launcher";
 
@@ -101,7 +107,7 @@ public final class GameCacheCandidates {
         jagexLauncherRoot(environment).ifPresent(root -> addInstall(candidates, root));
         for (Path library : steamLibraries(environment)) {
             addInstall(candidates, library.resolve(STEAM_APPS_DIR)
-                    .resolve(STEAM_COMMON_DIR).resolve(GAME_NAME));
+                    .resolve(STEAM_COMMON_DIR).resolve(DEFAULT_GAME_NAME));
         }
         return List.copyOf(new LinkedHashSet<>(candidates));
     }
@@ -130,6 +136,17 @@ public final class GameCacheCandidates {
     }
 
     /**
+     * The preferences file as it sits inside {@code directory}. The client keeps
+     * one beside its executable for an ordinary install and one directory above
+     * it for beta, so the two callers resolve it against different directories
+     * and neither should spell the file name itself.
+     */
+    public static Path preferencesIn(Path directory) {
+        Objects.requireNonNull(directory, "directory");
+        return directory.resolve(PREFERENCES_FILE);
+    }
+
+    /**
      * Every Steam library root: the default install, plus each {@code "path"}
      * entry in its {@code libraryfolders.vdf}. Order is preserved and
      * duplicates dropped, since the default library is itself listed there.
@@ -147,9 +164,9 @@ public final class GameCacheCandidates {
     /** Adds the preference-named cache directory then the default one, for one install root. */
     private static void addInstall(List<Path> candidates, Path installRoot) {
         cacheFolder(installRoot.resolve(LAUNCHER_DIR).resolve(PREFERENCES_FILE))
-                .map(folder -> folder.resolve(GAME_NAME))
+                .map(folder -> folder.resolve(DEFAULT_GAME_NAME))
                 .ifPresent(candidates::add);
-        candidates.add(installRoot.resolve(GAME_NAME));
+        candidates.add(installRoot.resolve(DEFAULT_GAME_NAME));
     }
 
     private static Optional<Path> jagexLauncherRoot(UnaryOperator<String> environment) {
@@ -182,8 +199,13 @@ public final class GameCacheCandidates {
         return toPath(root).map(path -> path.resolve(child));
     }
 
-    /** A value read out of a config file this host does not own may not be a path at all. */
-    private static Optional<Path> toPath(String value) {
+    /**
+     * A value read out of a config file this host does not own may not be a path
+     * at all. Package-private rather than private because
+     * {@link RunningClientCache} needs the same guard for the executable path the
+     * OS hands back, and a second copy of it would be a second thing to get wrong.
+     */
+    static Optional<Path> toPath(String value) {
         if (value.isBlank()) {
             return Optional.empty();
         }
