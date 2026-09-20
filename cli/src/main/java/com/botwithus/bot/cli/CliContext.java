@@ -115,21 +115,32 @@ public class CliContext {
      * sqlite is safe to read from one connection, and reopening it per
      * connection would waste startup time.
      *
-     * <p>{@link NXTCache#openForHost()} resolves its own source — an explicit
-     * {@code -Dnxtcache.path} / {@code -Dnxtcache.live} override, else the
-     * client's discovered cache directory, else live JS5 — so a shipped
-     * install needs no flag. It logs which of those it took. Returns
-     * {@code null} only when opening genuinely fails (no {@code NXTCache.dll},
-     * or live JS5 unreachable with no local cache), in which case config-type
-     * lookups surface a clear error as before.</p>
+     * <p>{@link NXTCache#openForHost(long)} resolves its own source — an
+     * explicit {@code -Dnxtcache.path} / {@code -Dnxtcache.live} override, else
+     * the cache the client running as {@code clientPid} names in its own
+     * {@code preferences.cfg}, else a known install location, else live JS5 —
+     * so a shipped install needs no flag. It logs which of those it took.
+     * Returns {@code null} only when opening genuinely fails (no
+     * {@code NXTCache.dll}, or live JS5 unreachable with no local cache), in
+     * which case config-type lookups surface a clear error as before.</p>
+     *
+     * <p><b>The first connection's pid decides for the process.</b> This is
+     * one-shot by design — the handle is shared across every connection, as it
+     * was before — so a second client connected afterwards reads the first
+     * one's cache. That is right for the ordinary case of several accounts on
+     * one install and wrong for the rare one of a live and a beta client side
+     * by side; it is a pre-existing property of the shared handle rather than
+     * something the pid introduced.</p>
+     *
+     * @param clientPid the pid of the connection triggering this lazy init
      */
-    private synchronized NXTCache getOrInitNxtCache() {
+    private synchronized NXTCache getOrInitNxtCache(long clientPid) {
         if (nxtCacheInitAttempted) {
             return nxtCache;
         }
         nxtCacheInitAttempted = true;
         try {
-            nxtCache = NXTCache.openForHost();
+            nxtCache = NXTCache.openForHost(clientPid);
         } catch (Throwable t) {
             log.warn("NXTCache failed to open, config-type lookups will throw: {}", t.getMessage());
         }
@@ -138,7 +149,7 @@ public class CliContext {
 
     /**
      * Lazy-init the process-wide gameval name index, sharing one handle across
-     * every GameAPIImpl for the same reason {@link #getOrInitNxtCache()} does.
+     * every GameAPIImpl for the same reason {@link #getOrInitNxtCache(long)} does.
      * Never null and never throws: when no {@code gameval.sqlite} is deployed
      * (or it fails to open) this is {@link GamevalIndex#empty()}, whose lookups
      * all come back empty, so scripts degrade instead of crashing. No separate
@@ -225,7 +236,7 @@ public class CliContext {
             // GameAPIImpl so the entity facades (snapshot reads) can read from
             // the same region. ClientImpl borrows the same region.
             SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
-            GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(),
+            GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(pid),
                     () -> new GameSnapshotImpl(pump.region().snapshot()),
                     new StubGuard(),
                     eventBus::publish,

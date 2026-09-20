@@ -207,6 +207,30 @@ public final class NXTCache implements AutoCloseable {
         return open(new CacheSourceResolver().resolve());
     }
 
+    /**
+     * Opens the cache for a host process that knows which client it is serving.
+     * Same precedence as {@link #openForHost()} with one tier inserted: after
+     * the {@code -D} overrides and before the known install locations, the
+     * client running as {@code clientPid} is asked where its own cache is. That
+     * is the only answer that stays correct for a user who relocated their
+     * cache, since {@code cache_folder} is a preference nothing recomputes once
+     * moved.
+     *
+     * <p>An overload rather than a widened signature, and rather than a resolver
+     * that finds the pid itself. Both host call sites already hold the pid as a
+     * local — they parsed it out of the agent's pipe name to open the shared
+     * memory — so passing it costs nothing, whereas self-discovery would have to
+     * re-enumerate pipes and could answer with a <em>different</em> client than
+     * the one being connected. A silently wrong cache is worse than no pid.</p>
+     *
+     * @param clientPid the game client's process id, as carried by the agent's
+     *                  pipe and shared-memory names
+     * @throws IOException if the resolved source cannot be opened
+     */
+    public static NXTCache openForHost(long clientPid) throws IOException {
+        return open(new CacheSourceResolver(clientPid).resolve());
+    }
+
     /** Opens an already-decided {@link CacheSource}, logging which mode was taken. */
     public static NXTCache open(CacheSource source) throws IOException {
         Objects.requireNonNull(source, "source");

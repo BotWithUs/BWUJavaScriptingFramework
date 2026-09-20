@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.UnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -33,6 +35,13 @@ class CacheSourceResolverTest {
     private static CacheSourceResolver resolver(List<Path> candidates, Map<String, String> properties) {
         UnaryOperator<String> reader = properties::get;
         return new CacheSourceResolver(candidates, reader);
+    }
+
+    /** Resolver whose running-client tier answers with {@code fromClient}. */
+    private static CacheSourceResolver resolver(List<Path> candidates, Map<String, String> properties,
+                                                Path fromClient) {
+        UnaryOperator<String> reader = properties::get;
+        return new CacheSourceResolver(candidates, reader, () -> Optional.ofNullable(fromClient));
     }
 
     // ------------------------------------------------------- The predicate
@@ -140,6 +149,78 @@ class CacheSourceResolverTest {
                 .resolve();
 
         assertEquals(new CacheSource.LocalDirectory(populated, false), source);
+    }
+
+    // --------------------------------------------- The running-client tier
+
+    @Test
+    void theRunningClientBeatsAPopulatedCandidate(@TempDir Path dir) throws IOException {
+        Path candidate = Files.createDirectory(dir.resolve("a-known-install-location"));
+        Files.createFile(candidate.resolve(AN_INDEX_FILE));
+        Path fromClient = Files.createDirectory(dir.resolve("where-the-client-actually-reads"));
+        Files.createFile(fromClient.resolve(AN_INDEX_FILE));
+
+        CacheSource source = resolver(List.of(candidate), NO_PROPERTIES, fromClient).resolve();
+
+        assertEquals(new CacheSource.LocalDirectory(fromClient, false), source,
+                "a user who relocated their cache has a populated cache at a location the "
+                        + "candidate list also matches; the client's own answer is the only "
+                        + "one that stays right, so it must win");
+    }
+
+    @Test
+    void aRunningClientThatAnswersNothingFallsThroughToTheCandidates(@TempDir Path dir)
+            throws IOException {
+        Files.createFile(dir.resolve(AN_INDEX_FILE));
+
+        CacheSource source = resolver(List.of(dir), NO_PROPERTIES, null).resolve();
+
+        assertEquals(new CacheSource.LocalDirectory(dir, false), source,
+                "the pid tier can be present but fruitless — an exited client, an "
+                        + "unreadable exe path, a cache_folder naming a deleted directory — "
+                        + "and the candidate list is what covers that failure");
+    }
+
+    @Test
+    void thePathOverrideWinsOverTheRunningClient(@TempDir Path dir) throws IOException {
+        Path fromClient = Files.createDirectory(dir.resolve("the-clients-own-cache"));
+        Files.createFile(fromClient.resolve(AN_INDEX_FILE));
+        Path named = dir.resolve("what-the-dev-asked-for");
+
+        CacheSource source = resolver(List.of(), Map.of(
+                CacheSourceResolver.PATH_PROPERTY, named.toString()), fromClient).resolve();
+
+        assertEquals(new CacheSource.LocalDirectory(named, true), source,
+                "an explicit override still beats the authoritative answer — a dev "
+                        + "pointing at a patched cache outranks the running client");
+    }
+
+    @Test
+    void theLiveOverrideWinsOverTheRunningClient(@TempDir Path dir) throws IOException {
+        Files.createFile(dir.resolve(AN_INDEX_FILE));
+
+        CacheSource source = resolver(List.of(), Map.of(
+                CacheSourceResolver.LIVE_PROPERTY, "true"), dir).resolve();
+
+        assertEquals(new CacheSource.Live(true), source);
+    }
+
+    @Test
+    void anOverrideResolvesWithoutConsultingTheRunningClient(@TempDir Path dir) {
+        AtomicBoolean consulted = new AtomicBoolean();
+        CacheSourceResolver resolver = new CacheSourceResolver(List.of(),
+                Map.of(CacheSourceResolver.PATH_PROPERTY, dir.toString())::get,
+                () -> {
+                    consulted.set(true);
+                    return Optional.of(dir);
+                });
+
+        resolver.resolve();
+
+        assertFalse(consulted.get(),
+                "the running-client tier is a Supplier so that naming -Dnxtcache.path "
+                        + "costs no process inspection; an eager lookup would reintroduce "
+                        + "the side effect the override leg is meant to avoid");
     }
 
     @Test
