@@ -44,9 +44,20 @@ public interface WwCallbacks {
     WwTile readPosition();
 
     /**
-     * Live capability snapshot at the start of every (re-)plan. Return
-     * {@code null} or {@link CapabilitySnapshot#empty()} to admit every
-     * requirement-gated transition.
+     * Live capability snapshot at the start of every (re-)plan.
+     *
+     * <p>Return {@code null} or {@link CapabilitySnapshot#empty()} only when every skill,
+     * item, varbit and varp should read as {@code 0}. On this path an empty snapshot is
+     * <em>not</em> permissive: an id the snapshot does not carry looks up as {@code 0}, and
+     * the executor evaluates each requirement against whatever snapshot it is handed, so a
+     * gate with a non-zero threshold is denied. Returning empty here is what left every
+     * skill-gated transition unreachable until this callback carried the player's levels.</p>
+     *
+     * <p>The "admit every requirement-gated transition" behaviour belongs to
+     * {@link WorldWalker#query(WwTile, WwGoal, CapabilitySnapshot)}, which supplies no
+     * snapshot at all when given an empty one. This callback cannot express that: it fills a
+     * snapshot rather than choosing whether to supply one, so "everything is zero" is the
+     * most permissive thing it can say.</p>
      */
     CapabilitySnapshot readCapability();
 
