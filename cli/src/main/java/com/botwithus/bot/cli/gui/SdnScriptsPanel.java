@@ -5,6 +5,7 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
+import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnCatalogueSource;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
@@ -16,12 +17,19 @@ import imgui.flag.ImGuiCol;
 import imgui.type.ImBoolean;
 import imgui.type.ImString;
 
+import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Browses the scripts the signed-in account owns or subscribes to, and installs
@@ -31,6 +39,13 @@ import java.util.concurrent.ExecutorService;
  * holds local scripts, so from the moment they land they are started, stopped and
  * configured from the Scripts panel like anything else. This panel is the shop
  * front only: it deliberately owns no run controls of its own.
+ *
+ * <p>The catalogue refreshes itself while the host runs ({@link SdnCatalogueRefresher}), so a
+ * script published or updated on the account appears without pressing Refresh. Each frame the
+ * panel is on screen asks the refresher whether a fetch is due, which also covers coming back
+ * to the tab after the interval passed; a background ticker asks while the tab is hidden.
+ * Fetches run on their own virtual thread, never on the render thread or the shared command
+ * executor, because each can wait seconds for the launcher.</p>
  */
 public class SdnScriptsPanel implements GuiPanel {
 
@@ -45,17 +60,19 @@ public class SdnScriptsPanel implements GuiPanel {
     private static final float ACCENT_BAR_W = 3f;
     private static final float SEARCH_CHARS = 14f;
     private static final float WRAP_CHARS = 30f;
+    /** How often the hidden-tab ticker asks whether a fetch is due; a tick is cheap. */
+    private static final long BACKGROUND_TICK_SECONDS = 15;
 
     private final ExecutorService executor;
-    private final SdnCatalogueSource catalogue;
     private final SdnInstaller installer;
+    private final SdnCatalogueRefresher refresher;
+    private final ScheduledExecutorService ticker;
 
     private final ImString searchQuery = new ImString(128);
     private final Set<String> selected = new LinkedHashSet<>();
     private final ImBoolean checkboxState = new ImBoolean(false);
 
-    private volatile SdnCatalogueResult result;
-    private volatile boolean loading;
+    private SdnCatalogueResult lastPruned;
     private volatile boolean installing;
     private volatile String statusLine = "";
     private int filter = FILTER_ALL;
@@ -67,8 +84,22 @@ public class SdnScriptsPanel implements GuiPanel {
 
     SdnScriptsPanel(ExecutorService executor, SdnCatalogueSource catalogue, SdnInstaller installer) {
         this.executor = executor;
-        this.catalogue = catalogue;
         this.installer = installer;
+        this.refresher = new SdnCatalogueRefresher(catalogue::fetch, virtualThreadPerFetch(),
+                InstantSource.system(), new Random()::nextDouble);
+        this.ticker = Executors.newSingleThreadScheduledExecutor(
+                Thread.ofVirtual().name("sdn-catalogue-ticker").factory());
+        ticker.scheduleWithFixedDelay(refresher::tick,
+                BACKGROUND_TICK_SECONDS, BACKGROUND_TICK_SECONDS, TimeUnit.SECONDS);
+    }
+
+    private static Executor virtualThreadPerFetch() {
+        return task -> Thread.ofVirtual().name("sdn-catalogue-fetch").start(task);
+    }
+
+    /** Stops the background ticker; the host calls this on shutdown. */
+    public void close() {
+        ticker.shutdownNow();
     }
 
     @Override
@@ -79,21 +110,60 @@ public class SdnScriptsPanel implements GuiPanel {
     @Override
     public void render(CliContext ctx) {
         spinnerPhase += ImGui.getIO().getDeltaTime();
-        if (result == null && !loading) {
-            refresh();
-        }
+        refresher.tick();
 
         renderToolbar();
         ImGui.spacing();
         GuiHelpers.subtleSeparator();
         ImGui.spacing();
 
-        SdnCatalogueResult current = result;
+        SdnCatalogueResult current = refresher.shown().orElse(null);
         if (current == null) {
-            renderBusy(statusLine);
+            renderBusy("Asking the launcher for your scripts...");
             return;
         }
+        pruneSelection(current);
+        renderRefreshError();
         renderResult(ctx, current);
+    }
+
+    /**
+     * Drops ticks on scripts that a refresh removed from the catalogue, so Install never counts
+     * a script that is no longer offered. Ticks on scripts still listed are kept.
+     */
+    private void pruneSelection(SdnCatalogueResult current) {
+        if (current == lastPruned) {
+            return;
+        }
+        lastPruned = current;
+        switch (current) {
+            case SdnCatalogueResult.Delivered delivered -> selected.retainAll(delivered.entries()
+                    .stream().map(SdnCatalogueEntry::id).collect(Collectors.toSet()));
+            case SdnCatalogueResult.CourierUnavailable ignored -> { }
+            case SdnCatalogueResult.NotSignedIn ignored -> { }
+            case SdnCatalogueResult.SubscriptionRequired ignored -> { }
+            case SdnCatalogueResult.Failed ignored -> { }
+        }
+    }
+
+    /** A failed refresh while an older good list is still shown: say so, keep the list. */
+    private void renderRefreshError() {
+        refresher.lastError().ifPresent(error -> {
+            ImGui.textColored(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 0.9f,
+                    Icons.CLOCK + "  Could not refresh (" + describe(error)
+                            + "). Showing the last list; retrying automatically.");
+            ImGui.spacing();
+        });
+    }
+
+    private static String describe(SdnCatalogueResult error) {
+        return switch (error) {
+            case SdnCatalogueResult.Delivered ignored -> "the launcher did not answer";
+            case SdnCatalogueResult.CourierUnavailable ignored -> "the launcher did not answer";
+            case SdnCatalogueResult.NotSignedIn ignored -> "no account is signed in";
+            case SdnCatalogueResult.SubscriptionRequired ignored -> "a subscription is required";
+            case SdnCatalogueResult.Failed failed -> failed.reason();
+        };
     }
 
     private void renderResult(CliContext ctx, SdnCatalogueResult current) {
@@ -119,16 +189,14 @@ public class SdnScriptsPanel implements GuiPanel {
     // Toolbar ---------------------------------------------------------------
 
     private void renderToolbar() {
-        if (loading || installing) {
+        if (installing) {
             ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f,
                     spinnerGlyph());
             ImGui.sameLine(0, 8);
             GuiHelpers.textSecondary(statusLine);
             return;
         }
-        if (GuiHelpers.buttonPrimary(Icons.ROTATE + "  Refresh")) {
-            refresh();
-        }
+        renderRefreshControl();
         ImGui.sameLine(0, 8);
         ImGui.pushItemWidth(ImGui.getFontSize() * SEARCH_CHARS);
         ImGui.inputTextWithHint("##sdnSearch", Icons.SEARCH + "  Filter scripts...", searchQuery);
@@ -140,6 +208,21 @@ public class SdnScriptsPanel implements GuiPanel {
         renderFilterPill("Available here", FILTER_AVAILABLE);
         ImGui.sameLine(0, 4);
         renderFilterPill("Yours", FILTER_OWNED);
+    }
+
+    /**
+     * Refresh button, or a spinner in its place while a fetch runs. The search box and filters
+     * stay put either way, so a background refresh never moves them or takes their focus.
+     */
+    private void renderRefreshControl() {
+        if (refresher.isFetching()) {
+            ImGui.textColored(ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f,
+                    spinnerGlyph() + "  Refreshing");
+            return;
+        }
+        if (GuiHelpers.buttonPrimary(Icons.ROTATE + "  Refresh")) {
+            refresher.requestNow();
+        }
     }
 
     private void renderFilterPill(String label, int value) {
@@ -342,7 +425,7 @@ public class SdnScriptsPanel implements GuiPanel {
         ImGui.popTextWrapPos();
         ImGui.spacing();
         if (GuiHelpers.buttonPrimary(Icons.ROTATE + "  Try again")) {
-            refresh();
+            refresher.requestNow();
         }
     }
 
@@ -363,18 +446,6 @@ public class SdnScriptsPanel implements GuiPanel {
     }
 
     // Work, off the render thread -------------------------------------------
-
-    private void refresh() {
-        loading = true;
-        statusLine = "Asking the launcher for your scripts...";
-        executor.submit(() -> {
-            try {
-                result = catalogue.fetch();
-            } finally {
-                loading = false;
-            }
-        });
-    }
 
     private void install(CliContext ctx, List<String> ids) {
         installing = true;
