@@ -55,4 +55,7 @@ local.properties
 ### Runtime/Generated ###
 imgui.ini
 scripts/**/*.jar
+# Script sets parked aside by hand (scripts-stale-<date>/ and the like). These
+# are private script binaries; this repo is public, so they must never be added.
+scripts-*/
 jre.zip
