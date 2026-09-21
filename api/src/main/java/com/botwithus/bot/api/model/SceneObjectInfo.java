@@ -23,6 +23,11 @@ import java.util.List;
  * @param plane       0..3
  * @param name        pre-resolved display name (may be empty)
  * @param options     pre-resolved right-click options (may be empty)
+ * @param shape       scenery shape code as published on the wire (wall, wall decoration,
+ *                    ground decoration, centrepiece, ...), or {@link #UNKNOWN_SHAPE} when the
+ *                    source of this row did not carry one
+ * @param rotation    quarter turns {@code 0..3} applied to the loc's model, or
+ *                    {@link #UNKNOWN_ROTATION} when the source of this row did not carry one
  */
 public record SceneObjectInfo(
         int handle,
@@ -32,9 +37,28 @@ public record SceneObjectInfo(
         int tileY,
         int plane,
         String name,
-        List<String> options
+        List<String> options,
+        int shape,
+        int rotation
 ) {
+
+    /** {@link #shape()} for a row built without one. Never published by the producer. */
+    public static final int UNKNOWN_SHAPE = -1;
+
+    /** {@link #rotation()} for a row built without one. Never published by the producer. */
+    public static final int UNKNOWN_ROTATION = -1;
+
     public SceneObjectInfo {
         options = List.copyOf(options);
+    }
+
+    /**
+     * Builds a row that carries no shape or rotation. Kept so callers written before those
+     * fields existed compile unchanged; both read back as their {@code UNKNOWN_*} sentinel.
+     */
+    public SceneObjectInfo(int handle, int typeId, int resolvedId, int tileX, int tileY,
+                           int plane, String name, List<String> options) {
+        this(handle, typeId, resolvedId, tileX, tileY, plane, name, options,
+                UNKNOWN_SHAPE, UNKNOWN_ROTATION);
     }
 }

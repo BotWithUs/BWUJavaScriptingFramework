@@ -70,6 +70,33 @@ public final class SceneObject implements EntityContext {
     @Override public int tileY() { return raw.tileY(); }
     @Override public int plane() { return raw.plane(); }
 
+    /**
+     * How far this loc's model is turned, in quarter turns {@code 0..3}, exactly as the
+     * producer published it.
+     *
+     * <p>This is <em>not</em> a compass heading. It turns the loc away from its model's own
+     * default pose, and that pose is chosen per model, so the value is only meaningful when
+     * compared against another rotation of the same loc, or read together with
+     * {@link #shape()} to work out which tile edge a wall occupies.</p>
+     *
+     * <p>Inside an instance the chunk the tile was copied from may itself be rotated, by
+     * {@link com.botwithus.bot.api.snapshot.SourceTile#rotation()}; anything directional read
+     * from the source region has to account for both.</p>
+     *
+     * @return {@code 0..3}, or {@link SceneObjectInfo#UNKNOWN_ROTATION} for a row built
+     *         without one
+     */
+    public int rotation() { return raw.rotation(); }
+
+    /**
+     * The scenery shape code as published on the wire, which says what kind of placement
+     * this loc is: a wall, a wall decoration, a ground decoration, a centrepiece and so on.
+     *
+     * @return the shape code, or {@link SceneObjectInfo#UNKNOWN_SHAPE} for a row built
+     *         without one
+     */
+    public int shape() { return raw.shape(); }
+
     // ---------------- Convenience shims (kept for scripts that pre-date the rewrite) ----------------
 
     /** The snapshot only carries visible objects; this stub always returns {@code false}. */
@@ -165,6 +192,7 @@ public final class SceneObject implements EntityContext {
     @Override
     public String toString() {
         return "SceneObject{" + name() + " id=" + typeId()
-                + " @" + tileX() + "," + tileY() + "," + plane() + "}";
+                + " @" + tileX() + "," + tileY() + "," + plane()
+                + " shape=" + shape() + " rot=" + rotation() + "}";
     }
 }
