@@ -110,6 +110,7 @@ public class ImGuiApp extends Application {
     // Panels
     private final List<GuiPanel> panels = new ArrayList<>();
     private StatusBar statusBar;
+    private SdnScriptsPanel sdnScriptsPanel;
     private int selectedPanel = 0;
     private float dpiScale = 1f;
 
@@ -355,7 +356,8 @@ public class ImGuiApp extends Application {
         // Appended last on purpose: NAV_SECTION_PANELS and NAV_ICONS index into
         // this list positionally, so inserting anywhere else renumbers every
         // panel after it.
-        panels.add(new SdnScriptsPanel(executor));
+        sdnScriptsPanel = new SdnScriptsPanel(executor);
+        panels.add(sdnScriptsPanel);
     }
 
     private void setupStatusBar() {
@@ -739,6 +741,9 @@ public class ImGuiApp extends Application {
         }
         ctx.disconnectAll();
         ctx.closeGamevals();
+        if (sdnScriptsPanel != null) {
+            sdnScriptsPanel.close();
+        }
         executor.shutdownNow();
         if (glfwWindow != 0) {
             GLFW.glfwSetWindowShouldClose(glfwWindow, true);
