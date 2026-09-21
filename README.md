@@ -434,9 +434,10 @@ overwrite one, so a bad release is corrected by cutting the next version.
 
 ### Contributing
 
-Day-to-day work happens on `develop`. `master` is protected: changes land through
-a pull request carrying one approving review and a green CI build, and cannot be
-force-pushed or deleted. CI builds and tests `api`, `core`, `test-support`,
+Pull requests target `master`, the integration branch. `master` is protected: changes
+land only through a pull request with a green CI build, and the branch cannot be
+force-pushed or deleted. No approving review is required; the maintainer reviews and
+merges each PR. CI builds and tests `api`, `core`, `test-support`,
 `quest-core` and `skilling-core` — the modules that compile from a bare clone;
 `cli` and the script modules need machine-specific paths in `local.properties`.
 

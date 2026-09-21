@@ -91,10 +91,16 @@ Three things that will bite if changed carelessly:
 
 ### CI and branch protection
 
-`master` is governed by two rulesets, both with an empty bypass list — they apply to org admins too.
+`master` is the integration branch: pull requests target it and branches start from it. (`develop` still exists on the remote, but it is far behind `master` and holds a few commits that were never merged. Do not branch from it or target it.) Two rulesets apply, both with an empty bypass list, so they bind org admins too:
 
-- **`master protection`** — PRs only, one approving review (GitHub forbids self-approval, so this genuinely needs a second person), stale reviews dismissed on push, the `build` check green, and no force-push or deletion.
-- **`release tags are immutable`** — `v*` tags cannot be deleted, moved, or force-updated, which is what makes "a published version is never replaced" true at the git level and not just by workflow convention.
+- **`master protection`** (branch `master`):
+  - changes land only through a pull request;
+  - the `build` check must be green (not strict, so the branch does not have to be up to date with `master` first);
+  - no force-push and no deletion;
+  - stale reviews are dismissed on push.
+
+  It requires **zero** approving reviews, and that is deliberate. The user reviews and merges PRs personally. GitHub forbids approving your own PR, so a required approval would need a second person that the project does not have. Agents open PRs and leave the merge to the user.
+- **`release tags are immutable`** (tags `v*`) — a release tag cannot be deleted, moved, or force-updated. That is what makes "a published version is never replaced" true at the git level and not just by workflow convention.
 
 `ci.yml` provides the required `build` check. **Its job must stay named `build`** — the required-check context is matched by job name, so renaming the job blocks every merge to `master` until the ruleset is updated to match.
 
