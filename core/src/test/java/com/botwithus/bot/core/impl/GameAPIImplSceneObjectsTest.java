@@ -45,6 +45,13 @@ import static org.mockito.Mockito.verify;
  */
 class GameAPIImplSceneObjectsTest {
 
+    /** Wall shape code (the RT4 {@code WALL_STRAIGHT} placement). */
+    private static final int WALL_SHAPE = 0;
+    /** Centrepiece shape code (the RT4 {@code CENTREPIECE_STRAIGHT} placement). */
+    private static final int CENTREPIECE_SHAPE = 10;
+    private static final int QUARTER_TURNS_ONE = 1;
+    private static final int QUARTER_TURNS_THREE = 3;
+
     private RpcClient rpc;
     private StubSnapshot snap;
     private Map<Integer, LocationType> locTypes;
@@ -443,13 +450,6 @@ class GameAPIImplSceneObjectsTest {
     private static Location morphLoc(int baseId, int resolvedId, int tileX, int tileY, int plane) {
         return new Location(baseId, baseId, -1, tileX, tileY, plane, 10, 0, 0, resolvedId);
     }
-
-    /** Wall shape code (the RT4 {@code WALL_STRAIGHT} placement). */
-    private static final int WALL_SHAPE = 0;
-    /** Centrepiece shape code (the RT4 {@code CENTREPIECE_STRAIGHT} placement). */
-    private static final int CENTREPIECE_SHAPE = 10;
-    private static final int QUARTER_TURNS_ONE = 1;
-    private static final int QUARTER_TURNS_THREE = 3;
 
     /** Direct LOCATION row with an explicit shape and rotation. */
     private static Location shapedLoc(int locId, int shape, int rotation, int tileX, int tileY) {
