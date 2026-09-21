@@ -2,6 +2,7 @@ package com.botwithus.bot.api.snapshot;
 
 import java.util.Optional;
 import java.util.OptionalDouble;
+import java.util.function.IntConsumer;
 
 /**
  * Which way an entity is facing, as the client stores it.
@@ -44,22 +45,36 @@ public record Orientation(int raw) {
     private static final Orientation UNKNOWN = new Orientation(UNKNOWN_RAW);
 
     public Orientation {
-        if (raw != UNKNOWN_RAW && (raw < 0 || raw >= FULL_TURN)) {
+        if (raw != UNKNOWN_RAW && !isAngle(raw)) {
             throw new IllegalArgumentException(
                     "orientation must be 0.." + (FULL_TURN - 1) + " or " + UNKNOWN_RAW + ": " + raw);
         }
     }
 
     /**
-     * Decodes the producer's zero-extended {@code u16}. {@link #WIRE_UNKNOWN} maps to an
-     * unknown orientation; any other value is the angle itself.
+     * Decodes the producer's zero-extended {@code u16}, degrading rather than throwing.
      *
-     * @throws IllegalArgumentException for a value the producer promises never to publish
-     *                                  ({@code 16384..65534}), rather than wrapping it into
-     *                                  a plausible wrong angle
+     * <p>{@link #WIRE_UNKNOWN} is an unknown orientation and {@code 0..16383} is the angle
+     * itself. Anything else ({@code 16384..65534}) breaks the producer's contract; it is also
+     * decoded as unknown, never wrapped into a plausible wrong angle, and reported to
+     * {@code outOfContract}. This method never throws: it runs inside a snapshot decode, and
+     * one bad row must not take down every running script. Constructing an
+     * {@code Orientation} directly with an out-of-range value still throws, because that is
+     * a caller's mistake rather than the wire's.</p>
+     *
+     * @param wireValue     the zero-extended {@code u16} read from shared memory
+     * @param outOfContract told the offending value when it is neither an angle nor the
+     *                      sentinel; the decode layer rate-limits what it logs
      */
-    public static Orientation fromWire(int wireValue) {
-        return wireValue == WIRE_UNKNOWN ? UNKNOWN : new Orientation(wireValue);
+    public static Orientation fromWire(int wireValue, IntConsumer outOfContract) {
+        if (wireValue == WIRE_UNKNOWN) {
+            return UNKNOWN;
+        }
+        if (!isAngle(wireValue)) {
+            outOfContract.accept(wireValue);
+            return UNKNOWN;
+        }
+        return new Orientation(wireValue);
     }
 
     /** An orientation that was not read. */
@@ -92,5 +107,9 @@ public record Orientation(int raw) {
         Direction[] points = Direction.values();
         int sector = (int) Math.round(bearing.getAsDouble() / Direction.SECTOR_DEGREES);
         return Optional.of(points[sector % points.length]);
+    }
+
+    private static boolean isAngle(int value) {
+        return value >= 0 && value < FULL_TURN;
     }
 }
