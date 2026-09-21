@@ -99,6 +99,28 @@ public final class MapHelper {
         return toIntList(map.get(key));
     }
 
+    /**
+     * Gets a list of booleans (msgpack bool array). An absent or wrong-shaped
+     * value yields an <em>empty</em> list rather than one padded to any
+     * expected length, so a caller walking it in parallel with another array
+     * must bound its iteration by the shorter of the two rather than assume a
+     * flag exists for every slot.
+     */
+    public static List<Boolean> getBoolList(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v instanceof List<?> list) {
+            return list.stream().map(MapHelper::toBool).toList();
+        }
+        return List.of();
+    }
+
+    private static boolean toBool(Object o) {
+        if (o instanceof Boolean b) {
+            return b;
+        }
+        return o instanceof Number n && n.intValue() != 0;
+    }
+
     @SuppressWarnings("unchecked")
     public static Map<String, Object> getObjectMap(Map<String, Object> map, String key) {
         Object v = map.get(key);
