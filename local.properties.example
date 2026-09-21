@@ -54,6 +54,13 @@
 # missing the codegen emits an empty stub and the module still compiles.
 # quest.research.dir=C:/path/to/Quest Research
 
+# Join the launcher's SDN disk delivery from a `:cli:run` start. The shipped
+# host always carries this flag; `run` takes it only when asked, so a local-only
+# start skips the rendezvous instead of waiting out its 30s timeout. With it set
+# the launcher must be running as the courier. Also settable via the
+# BOTWITHUS_SDN_DISK env var.
+# sdn.disk=true
+
 # Home of the patched runtime image used for jlink/jpackage. Drives both
 # core's sdnValidationTest and packaging, and takes precedence over the Gradle
 # toolchain (jlink.javaHome still wins over both). Leave unset to build against

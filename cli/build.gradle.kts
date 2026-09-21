@@ -105,6 +105,23 @@ tasks.named<JavaExec>("run") {
     // absent too, gameval lookups resolve to nothing.
     project.localProperty("botwithus.gameval", "BOTWITHUS_GAMEVAL")
         ?.let { jvmArgs("-Dbotwithus.gameval=$it") }
+    // Optional: join the launcher's SDN disk delivery from a dev run
+    // (-Psdn.disk=true). The shipped host always carries this flag from its
+    // link config below; `run` takes it only when asked, so a local-only start
+    // still skips the rendezvous instead of waiting out its timeout. With the
+    // flag set, the launcher must be running as the courier, or the host waits
+    // 30s and installs nothing.
+    project.localProperty("sdn.disk", "BOTWITHUS_SDN_DISK")
+        ?.let { jvmArgs("-Dbotwithus.sdn.disk=$it") }
+    // Optional: run on the patched runtime (-Psdn.jdk=<image>), the same
+    // setting sdnValidationTest and jlink take. It is the only place
+    // jdk.internal.sdn.SdnClassLoader exists, so without it an SDN install
+    // fails at "Failed to retrieve client ECDH public key" while local scripts
+    // keep working. The launcher ships one at ~/.botwithus/native/runtime.
+    project.localProperty("sdn.jdk", "SDN_JDK")?.let {
+        val suffix = if (System.getProperty("os.name").startsWith("Windows")) ".exe" else ""
+        setExecutable("$it/bin/java$suffix")
+    }
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink
