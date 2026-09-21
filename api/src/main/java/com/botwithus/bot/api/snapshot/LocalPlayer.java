@@ -29,6 +29,7 @@ import java.util.List;
  * @param currentHealth  current life points, or {@link #HEALTH_UNKNOWN} when unfilled
  * @param maxHealth      maximum life points, or {@link #HEALTH_UNKNOWN} when unfilled
  * @param skills         live skills array; defensive copy taken on construction
+ * @param orientation    rendered facing (wire v21); {@link Orientation#unknown()} when not read
  */
 public record LocalPlayer(
         int serverIndex,
@@ -46,7 +47,8 @@ public record LocalPlayer(
         int spotAnimId,
         int currentHealth,
         int maxHealth,
-        List<Skill> skills
+        List<Skill> skills,
+        Orientation orientation
 ) {
 
     private static final int FLAG_MOVING = 1;
@@ -60,6 +62,16 @@ public record LocalPlayer(
 
     public LocalPlayer {
         skills = List.copyOf(skills);
+    }
+
+    /** Builds a record with an unknown facing; kept so pre-v21 callers compile unchanged. */
+    public LocalPlayer(int serverIndex, int combatLevel, int tileX, int tileY, int plane,
+                       int flags, int followingIndex, int animationId, int stanceId,
+                       int targetIndex, int targetType, boolean isMember, int spotAnimId,
+                       int currentHealth, int maxHealth, List<Skill> skills) {
+        this(serverIndex, combatLevel, tileX, tileY, plane, flags, followingIndex, animationId,
+                stanceId, targetIndex, targetType, isMember, spotAnimId, currentHealth,
+                maxHealth, skills, Orientation.unknown());
     }
 
     public boolean isMoving() {
@@ -96,6 +108,7 @@ public record LocalPlayer(
                 spotAnimId,
                 currentHealth,
                 maxHealth,
-                skills);
+                skills,
+                orientation);
     }
 }

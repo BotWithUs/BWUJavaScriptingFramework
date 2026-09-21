@@ -1,5 +1,7 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.api.snapshot.Orientation;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
@@ -24,6 +26,7 @@ import java.lang.foreign.ValueLayout;
 public final class SnapshotView {
 
     private final MemorySegment seg;
+    private final OrientationWireDecoder orientations;
 
     /*
      * Element counts are read once, here, and every bounds check below tests
@@ -53,8 +56,19 @@ public final class SnapshotView {
     private final int projectileCount;
     private final int dynChunkCount;
 
+    /** A view with its own orientation decoder; for tests and one-off reads. */
     public SnapshotView(MemorySegment seg) {
+        this(seg, new OrientationWireDecoder());
+    }
+
+    /**
+     * A view that decodes facing through {@code orientations}, which the owning
+     * {@link SharedRegion} keeps for the whole session so a broken producer invariant is
+     * logged once per session rather than once per snapshot.
+     */
+    public SnapshotView(MemorySegment seg, OrientationWireDecoder orientations) {
         this.seg             = seg;
+        this.orientations    = orientations;
         this.npcCount        = readCount(seg, Layout.SNAP_NPCCOUNT_OFFSET,        Layout.NPC_CAP);
         this.playerCount     = readCount(seg, Layout.SNAP_PLAYERCOUNT_OFFSET,     Layout.PLAYER_CAP);
         this.locationCount   = readCount(seg, Layout.SNAP_LOCATIONCOUNT_OFFSET,   Layout.LOCATION_CAP);
@@ -64,6 +78,11 @@ public final class SnapshotView {
         this.groundItemCount = readCount(seg, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, Layout.GROUND_ITEM_CAP);
         this.projectileCount = readCount(seg, Layout.SNAP_PROJECTILECOUNT_OFFSET, Layout.PROJECTILE_CAP);
         this.dynChunkCount   = readCount(seg, Layout.SNAP_DYNCHUNKCOUNT_OFFSET,   Layout.DYN_CHUNK_CAP);
+    }
+
+    /** Decodes the {@code u16} facing field at {@code offset}; never throws. */
+    private Orientation orientationAt(long offset) {
+        return orientations.decode(Short.toUnsignedInt(seg.get(ValueLayout.JAVA_SHORT, offset)));
     }
 
     /** Reads a published element count, clamping a negative or oversized
@@ -81,7 +100,8 @@ public final class SnapshotView {
     public int  rootIfaceId() { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_ROOTIFACEID_OFFSET); }
 
     public LocalPlayerView self() {
-        return new LocalPlayerView(seg.asSlice(Layout.SNAP_SELF_OFFSET, Layout.LOCAL_PLAYER_SIZE));
+        return new LocalPlayerView(
+                seg.asSlice(Layout.SNAP_SELF_OFFSET, Layout.LOCAL_PLAYER_SIZE), orientations);
     }
 
     // ------------------------------------------------------------------
@@ -109,7 +129,8 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_STANCEID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_HP_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_MAXHP_OFFSET),
-                seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_SPOTANIMID_OFFSET));
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_SPOTANIMID_OFFSET),
+                orientationAt(base + Layout.NPC_ORIENTATION_OFFSET));
     }
 
     // ------------------------------------------------------------------
@@ -135,7 +156,8 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_ANIMATIONID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_STANCEID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_COMBATLEVEL_OFFSET),
-                seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_SPOTANIMID_OFFSET));
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_SPOTANIMID_OFFSET),
+                orientationAt(base + Layout.PLAYER_ORIENTATION_OFFSET));
     }
 
     // ------------------------------------------------------------------

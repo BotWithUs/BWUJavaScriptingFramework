@@ -1,5 +1,7 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.api.snapshot.Orientation;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
@@ -16,9 +18,11 @@ import java.lang.foreign.ValueLayout;
 public final class LocalPlayerView {
 
     private final MemorySegment seg;
+    private final OrientationWireDecoder orientations;
 
-    LocalPlayerView(MemorySegment seg) {
+    LocalPlayerView(MemorySegment seg, OrientationWireDecoder orientations) {
         this.seg = seg;
+        this.orientations = orientations;
     }
 
     public int  serverIndex()    { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_SERVERINDEX_OFFSET); }
@@ -36,6 +40,16 @@ public final class LocalPlayerView {
     public int  spotAnimId()     { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_SPOTANIMID_OFFSET); }
 
     public boolean isMoving()    { return (flags() & Layout.FLAG_MOVING) != 0; }
+
+    /**
+     * Decoded facing (v21). Authoritative for the local player; the {@code players[]} row for
+     * {@code ownIndex} is a byte copy. The producer writes the unknown sentinel here even out of
+     * world, where the rest of this block is zero-filled.
+     */
+    public Orientation orientation() {
+        int wire = Short.toUnsignedInt(seg.get(ValueLayout.JAVA_SHORT, Layout.LP_ORIENTATION_OFFSET));
+        return orientations.decode(wire);
+    }
 
     /** Live skill count; {@code 0..skillCount)} are valid indices for {@link #skill(int)}. */
     public int skillCount() {

@@ -96,6 +96,35 @@ class OrientationTest {
     }
 
     @Test
+    void isSameFacingAs_oneUnitShort_isTheSameFacing() {
+        Orientation set = new Orientation(Orientation.NORTH_RAW);
+        Orientation readBack =
+                new Orientation(Orientation.NORTH_RAW - Orientation.READBACK_TOLERANCE);
+
+        assertTrue(readBack.isSameFacingAs(set));
+        assertFalse(readBack.equals(set), "record equals stays exact; that is why the helper exists");
+    }
+
+    @Test
+    void isSameFacingAs_wrapsAroundTheTurn() {
+        Orientation top = new Orientation(Orientation.FULL_TURN - 1);
+
+        assertTrue(top.isSameFacingAs(new Orientation(0)));
+    }
+
+    @Test
+    void isSameFacingAs_twoUnitsApart_isNotTheSameFacing() {
+        assertFalse(new Orientation(Orientation.NORTH_RAW - 2)
+                .isSameFacingAs(new Orientation(Orientation.NORTH_RAW)));
+    }
+
+    @Test
+    void isSameFacingAs_unknownMatchesNothing() {
+        assertFalse(Orientation.unknown().isSameFacingAs(Orientation.unknown()));
+        assertFalse(Orientation.unknown().isSameFacingAs(new Orientation(Orientation.NORTH_RAW)));
+    }
+
+    @Test
     void directionDegrees_areClockwiseFromNorthInFortyFiveDegreeSteps() {
         assertEquals(0.0, Direction.NORTH.degrees(), EPSILON);
         assertEquals(90.0, Direction.EAST.degrees(), EPSILON);

@@ -1,5 +1,7 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.api.snapshot.Orientation;
+
 /**
  * One row of the player array in a snapshot.
  *
@@ -24,7 +26,8 @@ public record PlayerEntry(
         int animationId,
         int stanceId,
         int combatLevel,
-        int spotAnimId
+        int spotAnimId,
+        Orientation orientation
 ) {
     public boolean isMoving() {
         return (flags & Layout.FLAG_MOVING) != 0;

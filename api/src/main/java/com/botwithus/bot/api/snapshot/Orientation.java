@@ -5,7 +5,7 @@ import java.util.OptionalDouble;
 import java.util.function.IntConsumer;
 
 /**
- * Which way an entity is facing, as the client stores it.
+ * Which way an entity is facing, as the client stores it (wire v21).
  *
  * <p>{@link #raw()} is the client's own angle, {@code 0..16383} per full turn. It is the
  * entity's <em>rendered</em> facing, which the client interpolates while the entity turns,
@@ -17,6 +17,12 @@ import java.util.function.IntConsumer;
  * clockwise from north) or {@link #compass()} (the nearest of eight points). Both are empty
  * when the facing is unknown. They never quietly answer "north" or "0 degrees" for a value
  * that was not read.</p>
+ *
+ * <p><b>Compare facings with {@link #isSameFacingAs}, not {@code equals}.</b> The client's
+ * conversion truncates, so a facing the server set to angle {@code j} can read back as
+ * {@code j - 1}. Record {@code equals} is exact value identity and will call those two
+ * different; {@link #isSameFacingAs} allows the {@link #READBACK_TOLERANCE} of one unit.
+ * {@link #compass()} is unaffected, because one unit is far inside a 45-degree sector.</p>
  *
  * @param raw the client angle {@code 0..16383}, or {@link #UNKNOWN_RAW}
  */
@@ -40,6 +46,13 @@ public record Orientation(int raw) {
 
     /** What the producer publishes on the wire for "not known": an all-ones {@code u16}. */
     public static final int WIRE_UNKNOWN = 0xFFFF;
+
+    /**
+     * How far, in raw units, a facing read back from the client may sit from the angle that
+     * set it: the client's conversion truncates, so angle {@code j} can read back as
+     * {@code j - 1}.
+     */
+    public static final int READBACK_TOLERANCE = 1;
 
     private static final double DEGREES_PER_TURN = 360.0;
     private static final Orientation UNKNOWN = new Orientation(UNKNOWN_RAW);
@@ -84,6 +97,20 @@ public record Orientation(int raw) {
 
     public boolean isKnown() {
         return raw != UNKNOWN_RAW;
+    }
+
+    /**
+     * True when both facings are known and lie within {@link #READBACK_TOLERANCE} of each other
+     * around the circle, so {@code 0} and {@code 16383} count as one unit apart. Use this rather
+     * than {@code equals}, which is exact and so fooled by the client's truncation. An unknown
+     * facing matches nothing, including another unknown one.
+     */
+    public boolean isSameFacingAs(Orientation other) {
+        if (!isKnown() || !other.isKnown()) {
+            return false;
+        }
+        int apart = Math.floorMod(raw - other.raw, FULL_TURN);
+        return Math.min(apart, FULL_TURN - apart) <= READBACK_TOLERANCE;
     }
 
     /** Compass bearing in {@code [0, 360)}, clockwise from north; empty when unknown. */
