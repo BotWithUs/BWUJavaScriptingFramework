@@ -24,8 +24,17 @@ public record Player(
         int animationId,
         int stanceId,
         int combatLevel,
-        int spotAnimId
+        int spotAnimId,
+        Orientation orientation
 ) {
+
+    /** Builds a row with an unknown facing; kept so pre-v21 callers compile unchanged. */
+    public Player(int serverIndex, int tileX, int tileY, int plane, int flags,
+                  int followingIndex, int animationId, int stanceId, int combatLevel,
+                  int spotAnimId) {
+        this(serverIndex, tileX, tileY, plane, flags, followingIndex, animationId, stanceId,
+                combatLevel, spotAnimId, Orientation.unknown());
+    }
 
     private static final int FLAG_MOVING = 1;
 

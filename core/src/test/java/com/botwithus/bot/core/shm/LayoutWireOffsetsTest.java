@@ -23,8 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LayoutWireOffsetsTest {
 
     @Test
-    void protocolVersionIsTwenty() {
-        assertEquals(20, Layout.PROTOCOL_VERSION,
+    void protocolVersionIsTwentyOne() {
+        assertEquals(21, Layout.PROTOCOL_VERSION,
                 "PROTOCOL_VERSION must equal kProtocolVersion in SharedLayout.h");
     }
 
@@ -41,19 +41,35 @@ class LayoutWireOffsetsTest {
                 "resolvedId is the last field; the row ends immediately after it");
     }
 
+    /**
+     * v21 appended a {@code u16 orientation} (plus a u16 pad) to NpcEntry and PlayerEntry and
+     * gave LocalPlayer's old u32 pad to it, keeping LocalPlayer at 552.
+     */
     @Test
-    void gameCycleMovedByExactlyTheLocationRowGrowth() {
-        assertEquals(332932, Layout.SNAP_GAMECYCLE_OFFSET,
-                "v20 widened the location row; gameCycle shifts with everything after it");
-        assertEquals(300164 + Layout.LOCATION_CAP * 4, Layout.SNAP_GAMECYCLE_OFFSET,
-                "the shift must be exactly kLocationCap * 4 -- the cost of resolvedId");
+    void entityRowsCarryOrientationAtTheV21Offsets() {
+        assertEquals(40, Layout.NPC_ENTRY_SIZE, "sizeof(ipc::NpcEntry)");
+        assertEquals(36, Layout.NPC_ORIENTATION_OFFSET, "offsetof(NpcEntry, orientation)");
+        assertEquals(32, Layout.PLAYER_ENTRY_SIZE, "sizeof(ipc::PlayerEntry)");
+        assertEquals(28, Layout.PLAYER_ORIENTATION_OFFSET, "offsetof(PlayerEntry, orientation)");
+        assertEquals(552, Layout.LOCAL_PLAYER_SIZE, "sizeof(ipc::LocalPlayer)");
+        assertEquals(32, Layout.LP_ORIENTATION_OFFSET, "offsetof(LocalPlayer, orientation)");
+        assertEquals(41544, Layout.SNAP_PLAYERS_OFFSET, "offsetof(Snapshot, players)");
+    }
+
+    @Test
+    void gameCycleMovedByExactlyTheEntityRowGrowth() {
+        assertEquals(345220, Layout.SNAP_GAMECYCLE_OFFSET,
+                "v21 widened the NPC and player rows; gameCycle shifts with everything after");
+        assertEquals(332932 + (Layout.NPC_CAP + Layout.PLAYER_CAP) * 4,
+                Layout.SNAP_GAMECYCLE_OFFSET,
+                "the shift must be exactly 4 * (kNpcCap + kPlayerCap) -- the cost of orientation");
     }
 
     @Test
     void dynamicRegionBlockOffsetsArePinned() {
-        assertEquals(332936, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
-        assertEquals(332972, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
-        assertEquals(332976, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
+        assertEquals(345224, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
+        assertEquals(345260, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
+        assertEquals(345264, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
     }
 
     @Test
@@ -96,7 +112,7 @@ class LayoutWireOffsetsTest {
 
     @Test
     void snapshotSizeIsPinned() {
-        assertEquals(398512, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
+        assertEquals(410800, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
     }
 
     /**

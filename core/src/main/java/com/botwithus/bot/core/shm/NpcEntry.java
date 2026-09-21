@@ -1,5 +1,7 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.api.snapshot.Orientation;
+
 /**
  * One row of the NPC array in a snapshot. See {@link Layout#NPC_ENTRY_SIZE}
  * for the byte layout.
@@ -16,6 +18,7 @@ package com.botwithus.bot.core.shm;
  * @param hp             current HP (NPC stats[3])
  * @param maxHp          max HP
  * @param spotAnimId     first active spot anim (graphic) id, or -1 if none
+ * @param orientation    decoded facing (v21); unknown for 0xFFFF or an out-of-contract value
  */
 public record NpcEntry(
         int serverIndex,
@@ -29,7 +32,8 @@ public record NpcEntry(
         int stanceId,
         int hp,
         int maxHp,
-        int spotAnimId
+        int spotAnimId,
+        Orientation orientation
 ) {
     public boolean isMoving() {
         return (flags & Layout.FLAG_MOVING) != 0;
