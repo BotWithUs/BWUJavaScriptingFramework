@@ -67,8 +67,13 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
 
     /**
      * Value the gameval-named variable reads return when the name does not
-     * resolve — the same sentinel {@link #getVarp(int)} yields for an unset
-     * variable, so callers need only one "no value" check.
+     * resolve — the same "no value" sentinel {@link #getVarp(int)} yields for a
+     * varp that does not exist or could not be read.
+     *
+     * <p>It is <b>not</b> the value of an unset varp. An unset varp reads its type
+     * default, which is usually {@code 0} and, for object-typed varps, is itself
+     * {@code -1}; a set varp can hold {@code -1} too. So {@code -1} never means
+     * "unset" on its own: ask {@link #readVarp(int)} or {@link #varpState(int)}.</p>
      */
     int UNRESOLVED_VARIABLE = -1;
 
@@ -126,14 +131,25 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * {@link #getVarp(int)}.
      *
      * <p>Returns {@link #UNRESOLVED_VARIABLE} when the name does not resolve —
-     * the same value {@link #getVarp(int)} already yields for an unset variable,
-     * so a host with no gameval index deployed degrades rather than killing the
-     * script. Use {@code gamevals().require(...)} explicitly when you would
+     * the same value {@link #getVarp(int)} yields for a varp that does not exist
+     * or could not be read — so a host with no gameval index deployed degrades
+     * rather than killing the script. An unset varp is different: it reads its
+     * type default. Use {@code gamevals().require(...)} explicitly when you would
      * rather fail fast.</p>
      */
     default int getVarp(String gameval) {
         OptionalInt id = gamevals().id(GamevalType.VARP, gameval);
         return id.isPresent() ? getVarp(id.getAsInt()) : UNRESOLVED_VARIABLE;
+    }
+
+    /**
+     * Full 64-bit value of a player variable named by its gameval. Convenience over
+     * {@link #getVarpLong(int)}; {@link #UNRESOLVED_VARIABLE} when the name does not
+     * resolve.
+     */
+    default long getVarpLong(String gameval) {
+        OptionalInt id = gamevals().id(GamevalType.VARP, gameval);
+        return id.isPresent() ? getVarpLong(id.getAsInt()) : UNRESOLVED_VARIABLE;
     }
 
     /**

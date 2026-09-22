@@ -95,6 +95,17 @@ public final class MapHelper {
         return List.of();
     }
 
+    /** A list of whole numbers at full 64-bit width; empty when the key is absent. */
+    public static List<Long> getLongList(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v instanceof List<?> list) {
+            return list.stream()
+                    .map(o -> o instanceof Number n ? n.longValue() : 0L)
+                    .toList();
+        }
+        return List.of();
+    }
+
     public static List<Integer> getIntList(Map<String, Object> map, String key) {
         return toIntList(map.get(key));
     }

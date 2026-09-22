@@ -39,6 +39,10 @@ tasks.named<Test>("test") {
     // elsewhere:
     //   ./gradlew :core:test -Dbotwithus.gameval=<path>\gameval.sqlite
     System.getProperty("botwithus.gameval")?.let { systemProperty("botwithus.gameval", it) }
+    // The NXTCache live tests load the NXTCache.dll this names, else the deployed one.
+    // Only the DLL is forwarded, not the cache source, so discovery still runs:
+    //   ./gradlew :core:test -Dnxtcache.dll=<path to NXTCache.dll>
+    System.getProperty("nxtcache.dll")?.let { systemProperty("nxtcache.dll", it) }
     // sqlite-jdbc System.load()s its native lib when the gameval tests open an
     // index; without this the JVM prints a restricted-method warning per fork.
     jvmArgs("--enable-native-access=ALL-UNNAMED")

@@ -1,5 +1,8 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.model.VarpState;
+import com.botwithus.bot.api.model.VarpRead;
+import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.ComponentNode;
 import com.botwithus.bot.api.component.ComponentQuery;
@@ -208,13 +211,21 @@ class WorldWalkerCallbackBridgeTest {
 
     @Test
     void readVarbitDelegatesToApi() {
-        when(api.getVarbit(42)).thenReturn(7);
+        when(api.readVarbit(42)).thenReturn(new VarbitRead(42, VarpState.SET, 7, true));
         assertEquals(7, bridge.readVarbit(42));
+    }
+
+    /** The walker's ABI reads 0 as "not present"; the host's -1 must never reach it. */
+    @Test
+    void readVarbitWithNoValueReadsZeroForTheWalker() {
+        when(api.readVarbit(43)).thenReturn(
+                new VarbitRead(43, VarpState.UNAVAILABLE, VarpRead.NO_VALUE, true));
+        assertEquals(0, bridge.readVarbit(43));
     }
 
     @Test
     void readVarbitReturnsZeroOnApiException() {
-        when(api.getVarbit(99)).thenThrow(new RuntimeException("rpc down"));
+        when(api.readVarbit(99)).thenThrow(new RuntimeException("rpc down"));
         assertEquals(0, bridge.readVarbit(99));
     }
 

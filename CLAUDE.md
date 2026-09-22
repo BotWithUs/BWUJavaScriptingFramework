@@ -224,8 +224,9 @@ Three things to keep straight when extending it:
   polls a typo in `onLoop`. Keep new lookup sites on that side of the line.
 - **Everything degrades; nothing throws for a missing name.** Including
   `getVarp`/`getVarbit`/`getVarcInt(String)`, which return
-  `GameAPI.UNRESOLVED_VARIABLE` (`-1`, the same sentinel the `int` overloads
-  already use for an unset variable). "No index deployed" is the *default* state
+  `GameAPI.UNRESOLVED_VARIABLE` (`-1`, the same "no value" sentinel the `int`
+  overloads use for a varp that does not exist or could not be read; an *unset*
+  varp reads its type default instead, see *Varp state* below). "No index deployed" is the *default* state
   today, so a throw there would kill scripts on an otherwise healthy host. Use
   `gamevals().require(...)` explicitly to opt into fail-fast.
 - **A closed index degrades too.** `close()` sets a flag; already-memoised
@@ -251,6 +252,30 @@ Three things to keep straight when extending it:
 format change fails loud rather than misreading rows. `GamevalTypeTest` pins the
 41 `etype` strings, and `GamevalIndexLiveTest` checks a deployed index for drift
 (it skips when none is present).
+
+## Varp state
+
+Varps are set lazily by the server, so a varp at its default usually has no client entry.
+`VariableAPI.readVarp` / `readVarps` / `readVarbit` / `readVarbits` return a `VarpState`:
+`SET`, `DEFAULT_NOT_SET_CLIENTSIDE` (value = the cache's type default, `defaultVerified`
+false when the cache could not say), `NO_SUCH_VARP`, `UNAVAILABLE` (not in game, still
+entering the world, bad id, timeout). The plain `int` accessors return the same value.
+Things to keep straight:
+
+- **The predicate is the agent's `states[]`; the value is only the message**
+  (`core/impl/VarpReader`, over `VarBatchReply`). Never infer "unset" from `0` or `-1`: a
+  set varp can hold `-1`, and so does an object-typed varp at its default.
+- **An unset varbit decodes its base's default**, as the game does, so over a `-1`-default
+  base every bit reads as set. (In the current cache no player-domain varbit sits on a
+  `-1`-default varp, so in practice unset player varbits read 0.)
+- **The cache lookup** (`NXTCache.varpInfo`, `nxt_get_varp_info`) is bound as an optional
+  symbol: an older NXTCache.dll still loads, with defaults unverified. It runs only after a
+  background warm-up (`startVarpInfoWarmup`, called by `openForHost`), so no script thread
+  pays for the first load. OK and NOT_FOUND answers are memoised; failures are retried.
+  The struct mirror is `core/cache/VarpInfoAbi`, pinned by `VarpInfoAbiTest`.
+- **Batches are split at 256 ids**, the agent's cap, so no id is silently dropped.
+- **LONG varps:** `value()` / `getVarp` are the low 32 bits; `value64()` / `getVarpLong`
+  the whole value.
 
 This is separate from `skilling-core`'s `Atlas` (`resolved.sqlite`), which still
 owns recipes, gather spots and closures and has its own gameval methods against

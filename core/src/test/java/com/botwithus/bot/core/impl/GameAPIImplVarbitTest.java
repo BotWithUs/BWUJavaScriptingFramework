@@ -294,8 +294,13 @@ class GameAPIImplVarbitTest {
         }
     }
 
+    /**
+     * A slot the reply did not answer is unknown, not unset: it reads {@code -1}, the
+     * "no value" answer, rather than a cleared {@code 0} that a tracker would believe. It is
+     * still never paired with a neighbour's value.
+     */
     @Nested
-    @DisplayName("a short or flagless reply drops slots rather than mispairing them")
+    @DisplayName("a short or flagless reply leaves unanswered slots unknown, never mispaired")
     class DefensivePairing {
 
         @Test
@@ -308,8 +313,8 @@ class GameAPIImplVarbitTest {
 
             List<VarbitValue> batch = api.queryVarbits(List.of(UNLOCK_VARBIT, WIDE_VARBIT));
 
-            assertEquals(List.of(1, 0), valuesOf(batch),
-                    "the surviving key keeps its own value; the dropped key is absent");
+            assertEquals(List.of(1, UNKNOWN), valuesOf(batch),
+                    "the surviving key keeps its own value; the dropped key is unknown");
         }
 
         @Test
@@ -320,21 +325,20 @@ class GameAPIImplVarbitTest {
 
             List<VarbitValue> batch = api.queryVarbits(List.of(UNLOCK_VARBIT, WIDE_VARBIT));
 
-            assertEquals(List.of(1, 0), valuesOf(batch),
+            assertEquals(List.of(1, UNKNOWN), valuesOf(batch),
                     "a value with no flag beside it is not trusted");
         }
 
         @Test
         void queryVarbits_replyCarriesNoFoundArray_failsClosed() {
-            // A reply with values but no flags cannot be told apart from one
-            // whose flags are all false, so every id reads as unset. That is a
-            // deliberate choice: the alternative is trusting -1 placeholders.
+            // A reply with values but no flags says nothing about any id, so every id
+            // is unknown. The value beside it is never trusted.
             when(rpc.callSync(eq(GET_VARPS), anyMap())).thenReturn(
                     Map.of("values", List.of(UNLOCK_SET_BASE, WIDE_BASE)));
 
             List<VarbitValue> batch = api.queryVarbits(List.of(UNLOCK_VARBIT, WIDE_VARBIT));
 
-            assertEquals(List.of(0, 0), valuesOf(batch));
+            assertEquals(List.of(UNKNOWN, UNKNOWN), valuesOf(batch));
         }
 
         @Test
@@ -407,13 +411,17 @@ class GameAPIImplVarbitTest {
     }
 
     @Nested
-    @DisplayName("the raw varp/varc accessors keep their own -1 sentinel")
-    class RawAccessorsUnchanged {
+    @DisplayName("getVarps reads an unset varp's default; the varc accessors stay raw")
+    class RawAccessors {
 
+        /**
+         * With no cache in this test the default is the unverified fallback 0. Either way it
+         * is never the reply's {@code -1} placeholder.
+         */
         @Test
-        void getVarps_unsetEntry_stillReadsMinusOne() {
+        void getVarps_unsetEntry_readsItsDefault_notThePlaceholder() {
             varps.put(WIDE_VARP, WIDE_BASE);
-            assertEquals(List.of(WIDE_BASE, ABSENT_PLACEHOLDER),
+            assertEquals(List.of(WIDE_BASE, 0),
                     api.getVarps(List.of(WIDE_VARP, UNLOCK_VARP)));
         }
 
