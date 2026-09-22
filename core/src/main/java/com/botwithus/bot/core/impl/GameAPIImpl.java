@@ -83,6 +83,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
+import static com.botwithus.bot.core.impl.MapHelper.getBoolList;
 import static com.botwithus.bot.core.impl.MapHelper.getInt;
 import static com.botwithus.bot.core.impl.MapHelper.getIntList;
 import static com.botwithus.bot.core.impl.MapHelper.getLong;
@@ -1390,6 +1391,12 @@ public class GameAPIImpl implements GameAPI {
     // hashmap on the game thread). Varbit decoding is composed here: read the
     // varbit's base variable, then shift/mask with the bit range from the cache
     // type config — the producer never needs to know about varbits.
+    //
+    // Only the BATCH var RPCs report, per id, whether the domain held a node at
+    // all; the single-varp RPC carries the value alone. Every varbit read
+    // therefore goes through the batch path, because "the domain has no node
+    // for this varp" and "this varp holds -1" are the same reply on the scalar
+    // one — and the two decode to opposite answers for an unlock flag.
 
     // VarbitType.domainType discriminator: 0 means the base variable lives in
     // the player-varp hashmap; any other value means it lives in the client-varc
@@ -1398,6 +1405,22 @@ public class GameAPIImpl implements GameAPI {
 
     // A varbit packs into [lsb, msb] of a 32-bit int; any width > 32 is malformed.
     private static final int VARBIT_MAX_WIDTH = 32;
+
+    /**
+     * Returned for a varbit id the cache has no type config for, and for a def
+     * whose bit range is malformed. Means "this id names nothing decodable",
+     * which is a different answer from {@link #VARBIT_BASE_UNSET}.
+     */
+    private static final int VARBIT_UNKNOWN = -1;
+
+    /**
+     * Returned for a known varbit whose base variable has no node in its
+     * domain. The engine's own domain lookup hands its bit extractor a
+     * defaulted node rather than failing, so an unset base reads as zero — it
+     * is never "unknown", and it is never the {@code -1} placeholder the batch
+     * reply parks in the values array, which would set every bit of the range.
+     */
+    private static final int VARBIT_BASE_UNSET = 0;
 
     @Override
     public int getVarp(int varId) {
@@ -1419,24 +1442,36 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public int getVarbit(int varbitId) {
-        VarbitType def = requireCache().getVarbit(varbitId);
-        if (def == null) {
-            return -1;
-        }
-        int base = def.domainType() == VARBIT_DOMAIN_PLAYER
-                ? getVarp(def.varId())
-                : getVarcInt(def.varId());
-        return decodeVarbitBits(def, base);
+        // Delegated to the batch path rather than decoding a getVarp result:
+        // the single-varp RPC carries no per-id "found" flag, so it cannot tell
+        // a base variable the domain has no node for (reported as a -1
+        // placeholder) from one that genuinely reads -1. Shifting that
+        // placeholder sets every bit of the varbit's range.
+        List<VarbitValue> resolved = queryVarbits(List.of(varbitId));
+        return resolved.isEmpty() ? VARBIT_UNKNOWN : resolved.getFirst().value();
+    }
+
+    /**
+     * Resolves a varbit's type config from the cache.
+     *
+     * <p>Package-private and overridable rather than inlined, so the decode
+     * contract above can be covered headlessly: {@link NXTCache} is a final
+     * class whose static initialiser loads a native library through Panama, so
+     * a unit test can neither construct nor mock one. See
+     * {@code GameAPIImplVarbitTest}.</p>
+     */
+    VarbitType getVarbitType(int varbitId) {
+        return requireCache().getVarbit(varbitId);
     }
 
     @Override
     public List<Integer> getVarps(List<Integer> varIds) {
-        return readVarBatch("get_varps", varIds);
+        return readVarBatch("get_varps", varIds).values();
     }
 
     @Override
     public List<Integer> getVarcInts(List<Integer> varcIds) {
-        return readVarBatch("get_varcs_int", varcIds);
+        return readVarBatch("get_varcs_int", varcIds).values();
     }
 
     @Override
@@ -1448,12 +1483,19 @@ public class GameAPIImpl implements GameAPI {
         return getStringList(r, "values");
     }
 
-    private List<Integer> readVarBatch(String method, List<Integer> ids) {
+    /**
+     * One batched var read, keeping the producer's per-id {@code found} flags
+     * alongside the values. The raw accessors above drop the flags on purpose —
+     * {@code -1} is their contract for "unset" — but the varbit decode cannot,
+     * because it shifts the value and a shifted placeholder is indistinguishable
+     * from a real reading.
+     */
+    private VarBatchReply readVarBatch(String method, List<Integer> ids) {
         if (ids.isEmpty()) {
-            return List.of();
+            return new VarBatchReply(List.of(), List.of());
         }
         Map<String, Object> r = rpc.callSync(method, Map.of("ids", ids));
-        return getIntList(r, "values");
+        return new VarBatchReply(getIntList(r, "values"), getBoolList(r, "found"));
     }
 
     @Override
@@ -1464,13 +1506,12 @@ public class GameAPIImpl implements GameAPI {
         // Resolve every def up front; partition into the two base-variable
         // domains so each domain takes exactly one batched round-trip
         // regardless of how many varbits share a base.
-        NXTCache cache = requireCache();
         int n = varbitIds.size();
         VarbitType[] defs = new VarbitType[n];
         LinkedHashSet<Integer> varpBases = new LinkedHashSet<>();
         LinkedHashSet<Integer> varcBases = new LinkedHashSet<>();
         for (int i = 0; i < n; i++) {
-            VarbitType def = cache.getVarbit(varbitIds.get(i));
+            VarbitType def = getVarbitType(varbitIds.get(i));
             defs[i] = def;
             if (def == null) {
                 continue;
@@ -1484,17 +1525,20 @@ public class GameAPIImpl implements GameAPI {
         List<VarbitValue> out = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
             VarbitType def = defs[i];
-            int value = -1;
+            int value = VARBIT_UNKNOWN;
             if (def != null) {
                 Map<Integer, Integer> values = def.domainType() == VARBIT_DOMAIN_PLAYER
                         ? varpValueByBase
                         : varcValueByBase;
                 Integer base = values.get(def.varId());
-                // Missing base → producer truncated the batch past its cap, or the
-                // base var isn't set. -1 matches getVarbit's sentinel for "unknown".
-                if (base != null) {
-                    value = decodeVarbitBits(def, base);
-                }
+                // Missing base → the producer reported no node in the domain
+                // (readBatchAsMap drops those), or the reply came back short of
+                // the request. The first case is the engine's own semantics: a
+                // defaulted node reads zero. The second fails closed the same
+                // way deliberately — decoding the -1 placeholder instead would
+                // set every bit of the range, so an unlock flag would read as
+                // unlocked on an account that never unlocked it.
+                value = base != null ? decodeVarbitBits(def, base) : VARBIT_BASE_UNSET;
             }
             out.add(new VarbitValue(varbitIds.get(i), value));
         }
@@ -1506,13 +1550,20 @@ public class GameAPIImpl implements GameAPI {
             return Map.of();
         }
         List<Integer> keys = List.copyOf(ids);
-        List<Integer> values = readVarBatch(method, keys);
-        // Pair by index up to min(keys, values) so a producer-side truncation
-        // leaves the dropped keys absent rather than mispaired with a wrong value.
-        int paired = Math.min(keys.size(), values.size());
+        VarBatchReply reply = readVarBatch(method, keys);
+        // Pair by index up to min(keys, values, found) so a producer-side
+        // truncation leaves the dropped keys absent rather than mispaired with
+        // a wrong value — and so a reply carrying no flags at all yields no
+        // entries rather than unflagged ones.
+        int paired = reply.pairedCount(keys.size());
         Map<Integer, Integer> out = new LinkedHashMap<>(paired);
         for (int i = 0; i < paired; i++) {
-            out.put(keys.get(i), values.get(i));
+            // An id the domain had no node for is omitted rather than stored as
+            // its -1 placeholder, which is what makes the caller's null check
+            // mean "unset" instead of "either unset or truncated".
+            if (reply.found().get(i)) {
+                out.put(keys.get(i), reply.values().get(i));
+            }
         }
         return out;
     }
@@ -1520,7 +1571,7 @@ public class GameAPIImpl implements GameAPI {
     private static int decodeVarbitBits(VarbitType def, int base) {
         int width = def.msb() - def.lsb() + 1;
         if (width <= 0 || width > VARBIT_MAX_WIDTH) {
-            return -1;
+            return VARBIT_UNKNOWN;
         }
         // width == 32 would make (1 << 32) wrap to 1 in Java; treat as all bits.
         int mask = width == VARBIT_MAX_WIDTH ? -1 : (1 << width) - 1;
