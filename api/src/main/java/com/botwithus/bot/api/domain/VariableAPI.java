@@ -49,10 +49,16 @@ public interface VariableAPI {
      * account that has never set it, rather than inheriting the bits of an
      * unset-variable placeholder.</p>
      *
+     * <p>A base the agent could not read at all (not in game, a timed-out read) is
+     * <em>not</em> unset: nothing is known about it, so it reads {@code -1}, never a
+     * cleared {@code 0}. Code that tracks a value over time should keep its last known
+     * value on {@code -1}.</p>
+     *
      * @param varbitId the varbit ID
      * @return the decoded varbit value; {@code 0} when the varbit's base
      *         variable is unset, or {@code -1} when the varbit id is unknown
-     *         to the cache (or its bit range is malformed)
+     *         to the cache (or its bit range is malformed) or its base could not
+     *         be read
      */
     int getVarbit(int varbitId);
 
@@ -80,6 +86,7 @@ public interface VariableAPI {
      * @return one {@link VarbitValue} per input id, in order; each value is the
      *         decoded bits, {@code 0} when that varbit's base variable is
      *         unset, or {@code -1} when the varbit id is unknown to the cache
+     *         or its base could not be read
      */
     List<VarbitValue> queryVarbits(List<Integer> varbitIds);
 

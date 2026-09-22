@@ -350,6 +350,62 @@ class GameAPIImplVarbitTest {
         }
     }
 
+    /**
+     * The current agent's reply: {@code states[]} beside {@code found[]}. State 1 (absent,
+     * value 0) is unset; state 0 means the read could not be made at all, which must never
+     * decode as a cleared {@code 0} -- a quest tracker would take that as "not started".
+     */
+    @Nested
+    @DisplayName("a reply with per-id state separates absent from unavailable")
+    class StatesReply {
+
+        private static final int STATE_UNAVAILABLE = 0;
+        private static final int STATE_ABSENT = 1;
+        private static final int STATE_PRESENT = 2;
+
+        private void replyWithStates(List<Integer> values, List<Integer> states) {
+            List<Boolean> found = states.stream().map(s -> s == STATE_PRESENT).toList();
+            when(rpc.callSync(eq(GET_VARPS), anyMap()))
+                    .thenReturn(Map.of("values", values, "found", found, "states", states));
+        }
+
+        @Test
+        void presentBase_decodes() {
+            replyWithStates(List.of(UNLOCK_SET_BASE), List.of(STATE_PRESENT));
+            assertEquals(1, api.getVarbit(UNLOCK_VARBIT));
+        }
+
+        @Test
+        void absentBase_readsZero() {
+            replyWithStates(List.of(0), List.of(STATE_ABSENT));
+            assertEquals(0, api.getVarbit(UNLOCK_VARBIT));
+        }
+
+        @Test
+        void unavailableBase_readsMinusOne_notAClearedZero() {
+            replyWithStates(List.of(-1), List.of(STATE_UNAVAILABLE));
+            assertEquals(UNKNOWN, api.getVarbit(UNLOCK_VARBIT));
+            assertEquals(UNKNOWN, batchValue(UNLOCK_VARBIT));
+        }
+
+        @Test
+        void statesWinOverFound_andEachSlotKeepsItsOwnState() {
+            replyWithStates(List.of(-1, WIDE_BASE), List.of(STATE_UNAVAILABLE, STATE_PRESENT));
+
+            List<VarbitValue> batch = api.queryVarbits(List.of(UNLOCK_VARBIT, WIDE_VARBIT));
+
+            assertEquals(List.of(UNKNOWN, WIDE_VALUE), valuesOf(batch));
+        }
+
+        @Test
+        void varcBackedVarbit_withFoundOnly_stillFallsBackToFound() {
+            // get_varcs_int sends no states: found false is absent (0), never unavailable.
+            assertEquals(0, api.getVarbit(VARC_VARBIT));
+            varcs.put(VARC_VAR, VARC_SET_BASE);
+            assertEquals(1, api.getVarbit(VARC_VARBIT));
+        }
+    }
+
     @Nested
     @DisplayName("the raw varp/varc accessors keep their own -1 sentinel")
     class RawAccessorsUnchanged {

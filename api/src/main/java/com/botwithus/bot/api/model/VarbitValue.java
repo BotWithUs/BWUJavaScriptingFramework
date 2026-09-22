@@ -8,6 +8,6 @@ package com.botwithus.bot.api.model;
  * @param varbitId the varbit type ID
  * @param value    the decoded varbit value; {@code 0} when the varbit's base
  *                 variable is unset, or {@code -1} when the varbit id is
- *                 unknown
+ *                 unknown or its base could not be read
  */
 public record VarbitValue(int varbitId, int value) {}

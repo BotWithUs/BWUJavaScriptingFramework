@@ -72,10 +72,12 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -83,7 +85,6 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
-import static com.botwithus.bot.core.impl.MapHelper.getBoolList;
 import static com.botwithus.bot.core.impl.MapHelper.getInt;
 import static com.botwithus.bot.core.impl.MapHelper.getIntList;
 import static com.botwithus.bot.core.impl.MapHelper.getLong;
@@ -134,6 +135,9 @@ public class GameAPIImpl implements GameAPI {
      */
     private static final int VARP_CURRENT_HEALTH = 13537;
     private static final int VARP_MAX_HEALTH = 13538;
+    /** Positions of the two health varps in the batch fetchHealth sends. */
+    private static final int HEALTH_CURRENT_SLOT = 0;
+    private static final int HEALTH_MAX_SLOT = 1;
 
     private final RpcClient rpc;
     private final NXTCache cache;
@@ -441,20 +445,26 @@ public class GameAPIImpl implements GameAPI {
         return sample;
     }
 
+    /**
+     * Reads both life-point varps in one batch. Health is known only when the agent reports
+     * both varps as present: an absent varp reads 0 on a current agent, and treating that 0
+     * as a reading would report a living player at zero life points. A truncated batch is
+     * unknown too, rather than shifting one value into the other's slot.
+     */
     private HealthSample fetchHealth(int serverTick) {
-        List<Integer> values;
+        VarBatchReply reply;
         try {
-            values = getVarps(List.of(VARP_CURRENT_HEALTH, VARP_MAX_HEALTH));
+            reply = VarBatchReply.parse(rpc.callSync("get_varps",
+                    Map.of("ids", List.of(VARP_CURRENT_HEALTH, VARP_MAX_HEALTH))));
         } catch (RuntimeException e) {
             log.debug("Health varp read failed; reporting unknown health", e);
             return HealthSample.unknown(serverTick);
         }
-        // A producer that truncated the batch leaves the missing entries
-        // unknown rather than shifting one value into the other's slot.
-        if (values.size() < 2) {
+        if (!reply.isPresent(HEALTH_CURRENT_SLOT) || !reply.isPresent(HEALTH_MAX_SLOT)) {
             return HealthSample.unknown(serverTick);
         }
-        return new HealthSample(serverTick, values.get(0), values.get(1));
+        return new HealthSample(serverTick,
+                reply.value(HEALTH_CURRENT_SLOT), reply.value(HEALTH_MAX_SLOT));
     }
 
     @Override
@@ -1492,10 +1502,9 @@ public class GameAPIImpl implements GameAPI {
      */
     private VarBatchReply readVarBatch(String method, List<Integer> ids) {
         if (ids.isEmpty()) {
-            return new VarBatchReply(List.of(), List.of());
+            return VarBatchReply.empty();
         }
-        Map<String, Object> r = rpc.callSync(method, Map.of("ids", ids));
-        return new VarBatchReply(getIntList(r, "values"), getBoolList(r, "found"));
+        return VarBatchReply.parse(rpc.callSync(method, Map.of("ids", ids)));
     }
 
     @Override
@@ -1519,18 +1528,23 @@ public class GameAPIImpl implements GameAPI {
             (def.domainType() == VARBIT_DOMAIN_PLAYER ? varpBases : varcBases).add(def.varId());
         }
 
-        Map<Integer, Integer> varpValueByBase = readBatchAsMap("get_varps", varpBases);
-        Map<Integer, Integer> varcValueByBase = readBatchAsMap("get_varcs_int", varcBases);
+        BaseReads varpReads = readBatchAsMap("get_varps", varpBases);
+        BaseReads varcReads = readBatchAsMap("get_varcs_int", varcBases);
 
         List<VarbitValue> out = new ArrayList<>(n);
         for (int i = 0; i < n; i++) {
             VarbitType def = defs[i];
             int value = VARBIT_UNKNOWN;
             if (def != null) {
-                Map<Integer, Integer> values = def.domainType() == VARBIT_DOMAIN_PLAYER
-                        ? varpValueByBase
-                        : varcValueByBase;
-                Integer base = values.get(def.varId());
+                BaseReads reads = def.domainType() == VARBIT_DOMAIN_PLAYER ? varpReads : varcReads;
+                if (reads.unavailable().contains(def.varId())) {
+                    // The agent could not make the read (not in game, timeout). That says
+                    // nothing about the variable, so it must not decode as a cleared 0:
+                    // a quest tracker would take that 0 as "not started".
+                    out.add(new VarbitValue(varbitIds.get(i), VARBIT_UNKNOWN));
+                    continue;
+                }
+                Integer base = reads.present().get(def.varId());
                 // Missing base → the producer reported no node in the domain
                 // (readBatchAsMap drops those), or the reply came back short of
                 // the request. The first case is the engine's own semantics: a
@@ -1545,9 +1559,18 @@ public class GameAPIImpl implements GameAPI {
         return out;
     }
 
-    private Map<Integer, Integer> readBatchAsMap(String method, LinkedHashSet<Integer> ids) {
+    /**
+     * The base variables a varbit batch read back: the present ones with their stored value,
+     * and the ids whose read the agent reported as unavailable. An id in neither is absent
+     * (or its slot was truncated off the reply), which the caller decodes as unset.
+     */
+    private record BaseReads(Map<Integer, Integer> present, Set<Integer> unavailable) {
+        private static final BaseReads NONE = new BaseReads(Map.of(), Set.of());
+    }
+
+    private BaseReads readBatchAsMap(String method, LinkedHashSet<Integer> ids) {
         if (ids.isEmpty()) {
-            return Map.of();
+            return BaseReads.NONE;
         }
         List<Integer> keys = List.copyOf(ids);
         VarBatchReply reply = readVarBatch(method, keys);
@@ -1557,15 +1580,18 @@ public class GameAPIImpl implements GameAPI {
         // entries rather than unflagged ones.
         int paired = reply.pairedCount(keys.size());
         Map<Integer, Integer> out = new LinkedHashMap<>(paired);
+        Set<Integer> unavailable = new HashSet<>();
         for (int i = 0; i < paired; i++) {
             // An id the domain had no node for is omitted rather than stored as
             // its -1 placeholder, which is what makes the caller's null check
             // mean "unset" instead of "either unset or truncated".
-            if (reply.found().get(i)) {
-                out.put(keys.get(i), reply.values().get(i));
+            switch (reply.presenceAt(i)) {
+                case PRESENT -> out.put(keys.get(i), reply.value(i));
+                case UNAVAILABLE -> unavailable.add(keys.get(i));
+                case ABSENT -> { }
             }
         }
-        return out;
+        return new BaseReads(out, unavailable);
     }
 
     private static int decodeVarbitBits(VarbitType def, int base) {
