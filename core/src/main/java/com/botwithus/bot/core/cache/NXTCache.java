@@ -55,9 +55,11 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * {@link IllegalCallerException}.
  *
  * <h2>Threading</h2>
- * A single instance is <b>not</b> safe for concurrent use — the
- * underlying handle wraps a sqlite connection. Serialize calls
- * externally or open one handle per worker thread.
+ * The native handle is <b>not</b> safe for concurrent use (it wraps a sqlite
+ * connection and decoder state), but this class is: one instance is shared by
+ * every connection and script thread, so every call on the handle runs under
+ * one lock per instance ({@link HandleGuard}), and {@link #close()} takes the
+ * same lock. Callers need no external synchronisation.
  */
 public final class NXTCache implements AutoCloseable {
 
@@ -145,10 +147,11 @@ public final class NXTCache implements AutoCloseable {
     private static final MethodHandle MH_DBROW    = dl("nxt_get_dbrow_json",    jsonFd());
 
     private final MemorySegment handle;
-    private volatile boolean closed;
+    private final HandleGuard guard;
 
-    private NXTCache(MemorySegment handle) {
+    private NXTCache(MemorySegment handle, HandleGuard guard) {
         this.handle = handle;
+        this.guard = guard;
     }
 
     // ---------------------------------------------------------- Lifecycle
@@ -282,6 +285,11 @@ public final class NXTCache implements AutoCloseable {
 
     /** Opens a sqlite-backed cache from the given directory. */
     public static NXTCache openLocal(Path cachePath) throws IOException {
+        return openLocal(cachePath, new HandleGuard());
+    }
+
+    /** As {@link #openLocal(Path)}, with the guard supplied; the test seam for serialisation. */
+    static NXTCache openLocal(Path cachePath, HandleGuard guard) throws IOException {
         Objects.requireNonNull(cachePath);
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment cstr = tmp.allocateFrom(cachePath.toString());
@@ -294,7 +302,7 @@ public final class NXTCache implements AutoCloseable {
             if (ptr.address() == 0) {
                 throw new IOException("nxt_cache_open_local failed: " + lastError());
             }
-            return new NXTCache(ptr);
+            return new NXTCache(ptr, guard);
         }
     }
 
@@ -309,31 +317,37 @@ public final class NXTCache implements AutoCloseable {
         if (ptr.address() == 0) {
             throw new IOException("nxt_cache_open_live failed: " + lastError());
         }
-        return new NXTCache(ptr);
+        return new NXTCache(ptr, new HandleGuard());
     }
 
     /** Enables transparent live-JS5 fallback for misses on a local cache. */
     public void enableLiveFallback() throws IOException {
-        ensureOpen();
-        int rc;
+        String failure;
         try {
-            rc = (int) MH_ENABLE_FALLBACK.invokeExact(handle);
+            failure = guard.call(() -> {
+                int rc = (int) MH_ENABLE_FALLBACK.invokeExact(handle);
+                return rc == NXT_OK ? null : "enable_live_fallback rc=" + rc + ": " + lastError();
+            });
         } catch (Throwable t) {
             throw rethrow(t);
         }
-        if (rc != NXT_OK) {
-            throw new IOException("enable_live_fallback rc=" + rc + ": " + lastError());
+        if (failure != null) {
+            throw new IOException(failure);
         }
     }
 
+    /**
+     * Frees the handle once. Safe to race with any other call: one in flight finishes
+     * first, and any later call throws {@link IllegalStateException} rather than reaching
+     * a freed handle.
+     */
     @Override
     public void close() {
-        if (closed) {
-            return;
-        }
-        closed = true;
         try {
-            MH_CLOSE.invokeExact(handle);
+            guard.close(() -> {
+                MH_CLOSE.invokeExact(handle);
+                return null;
+            });
         } catch (Throwable t) {
             // best-effort; close must not throw
             log.debug("nxt_cache_close threw", t);
@@ -406,7 +420,14 @@ public final class NXTCache implements AutoCloseable {
 
     /** Generic by-name dispatch — useful for wiring up new types without recompiling. */
     public String getJson(String typeName, int id) {
-        ensureOpen();
+        try {
+            return guard.call(() -> getJsonLocked(typeName, id));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    private String getJsonLocked(String typeName, int id) throws Throwable {
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment type = tmp.allocateFrom(typeName);
             MemorySegment outPtr = tmp.allocate(ADDRESS);
@@ -419,14 +440,19 @@ public final class NXTCache implements AutoCloseable {
                 throw new NXTCacheException("get_json(" + typeName + ", " + id + ") rc=" + rc + ": " + lastError());
             }
             return readAndFree(outPtr, outLen);
-        } catch (Throwable t) {
-            throw rethrow(t);
         }
     }
 
     /** Bulk dump as a JSON array. {@code limit < 0} means unbounded. */
     public String dumpAllJson(String typeName, int limit) {
-        ensureOpen();
+        try {
+            return guard.call(() -> dumpAllJsonLocked(typeName, limit));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    private String dumpAllJsonLocked(String typeName, int limit) throws Throwable {
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment type = tmp.allocateFrom(typeName);
             MemorySegment outPtr = tmp.allocate(ADDRESS);
@@ -436,14 +462,19 @@ public final class NXTCache implements AutoCloseable {
                 throw new NXTCacheException("dump_all_json(" + typeName + ") rc=" + rc + ": " + lastError());
             }
             return readAndFree(outPtr, outLen);
-        } catch (Throwable t) {
-            throw rethrow(t);
         }
     }
 
     /** Read raw bytes for a single (idx, archive, file) triple. */
     public byte[] readFileRaw(int indexId, int archiveId, int fileId) {
-        ensureOpen();
+        try {
+            return guard.call(() -> readFileRawLocked(indexId, archiveId, fileId));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    private byte[] readFileRawLocked(int indexId, int archiveId, int fileId) throws Throwable {
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment outPtr = tmp.allocate(ADDRESS);
             MemorySegment outLen = tmp.allocate(JAVA_LONG);
@@ -472,15 +503,20 @@ public final class NXTCache implements AutoCloseable {
             } finally {
                 MH_FREE.invokeExact(buf);
             }
-        } catch (Throwable t) {
-            throw rethrow(t);
         }
     }
 
     // -------------------------------------------------------- Internals
 
     private String jsonOrNull(MethodHandle mh, int id) {
-        ensureOpen();
+        try {
+            return guard.call(() -> jsonOrNullLocked(mh, id));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    private String jsonOrNullLocked(MethodHandle mh, int id) throws Throwable {
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment outPtr = tmp.allocate(ADDRESS);
             MemorySegment outLen = tmp.allocate(JAVA_LONG);
@@ -492,8 +528,6 @@ public final class NXTCache implements AutoCloseable {
                 throw new NXTCacheException("nxt_get_*_json rc=" + rc + ": " + lastError());
             }
             return readAndFree(outPtr, outLen);
-        } catch (Throwable t) {
-            throw rethrow(t);
         }
     }
 
@@ -511,12 +545,6 @@ public final class NXTCache implements AutoCloseable {
             return new String(bytes, StandardCharsets.UTF_8);
         } finally {
             MH_FREE.invokeExact(buf);
-        }
-    }
-
-    private void ensureOpen() {
-        if (closed) {
-            throw new IllegalStateException("NXTCache handle is closed");
         }
     }
 
