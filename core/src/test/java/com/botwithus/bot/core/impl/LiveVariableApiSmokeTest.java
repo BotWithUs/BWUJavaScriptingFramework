@@ -49,6 +49,8 @@ class LiveVariableApiSmokeTest {
     private static final Logger log = LoggerFactory.getLogger(LiveVariableApiSmokeTest.class);
 
     private static final int LOBBY = 20;
+    /** What the raw varp/varc accessors report for a variable the client has not set. */
+    private static final int UNSET_VARP = -1;
     private static final int VARP_SCAN = 4000;
     private static final int VARC_SCAN = 4000;
     private static final int VARBIT_SCAN = 6000;
@@ -106,7 +108,7 @@ class LiveVariableApiSmokeTest {
         int lastVal = 0;
         for (int id = 0; id < VARP_SCAN; id++) {
             int v = api.getVarp(id);
-            if (v != -1) {
+            if (v != UNSET_VARP) {
                 populated++;
                 lastId = id;
                 lastVal = v;
@@ -143,6 +145,16 @@ class LiveVariableApiSmokeTest {
             int actual = api.getVarbit(vb);
             int base2 = api.getVarp(def.varId());
             if (base1 != base2) {
+                continue;
+            }
+            // The raw varp accessor reports an unset variable as -1, while
+            // getVarbit decodes an unset base as 0 (the engine's own semantics
+            // for a domain with no node). The two disagree by design there, and
+            // a raw read cannot tell an unset varp from one genuinely holding
+            // -1 — so skip those rather than recompute the old shifted-sentinel
+            // answer, which is the very thing the decode no longer produces.
+            // GameAPIImplVarbitTest covers the unset case deterministically.
+            if (base1 == UNSET_VARP) {
                 continue;
             }
             int mask = width == 32 ? -1 : (1 << width) - 1;
@@ -185,7 +197,7 @@ class LiveVariableApiSmokeTest {
         int lastVal = 0;
         for (int id = 0; id < VARC_SCAN; id++) {
             int v = api.getVarcInt(id);
-            if (v != -1) {
+            if (v != UNSET_VARP) {
                 populated++;
                 lastId = id;
                 lastVal = v;

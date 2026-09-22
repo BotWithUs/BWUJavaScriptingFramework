@@ -4,31 +4,56 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static com.botwithus.bot.core.impl.MapHelper.getBoolList;
 import static com.botwithus.bot.core.impl.MapHelper.getIntList;
-import static com.botwithus.bot.core.impl.MapHelper.getStringList;
 
 /**
- * A {@code get_varps} reply read with its per-id presence, whichever shape the agent sent.
+ * One batched variable read ({@code get_varps} / {@code get_varcs_int}) as the producer
+ * returns it: the values parallel to the requested ids, and for each id whether the value
+ * is real.
  *
- * <p>Presence is the predicate and {@code values} the message; a value is never used to
- * decide presence (an unset varp reads 0 on a current agent and -1 on an older one, and a
- * set varp can legitimately hold either). The reply shapes, newest first:</p>
+ * <p><b>Presence is the predicate and {@code values} the message.</b> A value never
+ * decides presence: an absent varp is reported as {@code 0} by a current agent and as a
+ * {@code -1} placeholder by an older one, and a present varp can legitimately hold
+ * either. Shifting a placeholder into a varbit's bit range would read as all ones, so a
+ * single-bit flag out of an absent base would decode as set.</p>
+ *
+ * <p>Presence comes from whichever array the reply carries, newest first:</p>
  * <ul>
- *   <li>{@code states[]}: present exactly when the state is {@link #STATE_PRESENT}. State 1
- *       (absent, the varp holds its type default) and state 0 (the read could not be made)
- *       are both "not present" here.</li>
- *   <li>{@code found[]} only (an agent from before {@code states}): present exactly when
- *       found is {@code true}. The contract is {@code found == (state == 2)}, so that
- *       direction is exact; {@code false} could be either "absent" or "failed", so it
- *       fails closed as not present.</li>
- *   <li>neither: nothing is known to be present.</li>
+ *   <li>{@code states[]} ({@code get_varps} from an agent with per-id state):
+ *       {@code 2} {@link Presence#PRESENT}, {@code 1} {@link Presence#ABSENT} (the domain
+ *       has no node; the variable holds its type default), {@code 0} and anything else
+ *       {@link Presence#UNAVAILABLE} (the read could not be made: not in game, bad id,
+ *       timeout). It says nothing about the variable.</li>
+ *   <li>{@code found[]} only ({@code get_varcs_int}, which sends no states, or an older
+ *       agent): {@code true} is {@link Presence#PRESENT}, which is exact by the contract
+ *       {@code found == (state == 2)}. {@code false} is {@link Presence#ABSENT}: this reply
+ *       cannot tell a miss from a failed read, and absent is the engine's own reading of
+ *       a missing node.</li>
+ *   <li>neither: no slot is paired, so nothing reads as present.</li>
  * </ul>
- * <p>Ids past the end of any array are not present, so a truncated batch never pairs an id
- * with a neighbour's value.</p>
+ *
+ * <p>Neither array is compacted: both are parallel to the request. A truncated reply leaves
+ * the ids past the shortest array unpaired ({@link #pairedCount}) rather than mispaired with
+ * a neighbour's value.</p>
+ *
+ * @param values   one value per requested id, in request order
+ * @param presence one presence per requested id, in request order
  */
-record VarBatchReply(List<Integer> values, List<Boolean> present) {
+record VarBatchReply(List<Integer> values, List<Presence> presence) {
 
-    /** The wire's permanent number for "the value is the stored one". */
+    /** Whether a slot's value is real, a default, or not known at all. */
+    enum Presence {
+        /** The stored value was read. */
+        PRESENT,
+        /** The domain has no node for the id; the variable holds its type default. */
+        ABSENT,
+        /** The read could not be made; nothing is known about the variable. */
+        UNAVAILABLE
+    }
+
+    /** The wire's permanent state numbers. */
+    static final int STATE_ABSENT = 1;
     static final int STATE_PRESENT = 2;
 
     private static final String VALUES = "values";
@@ -37,43 +62,59 @@ record VarBatchReply(List<Integer> values, List<Boolean> present) {
 
     VarBatchReply {
         values = List.copyOf(values);
-        present = List.copyOf(present);
+        presence = List.copyOf(presence);
+    }
+
+    static VarBatchReply empty() {
+        return new VarBatchReply(List.of(), List.of());
     }
 
     static VarBatchReply parse(Map<String, Object> reply) {
         List<Integer> values = getIntList(reply, VALUES);
         if (reply.containsKey(STATES)) {
-            return new VarBatchReply(values, presentFromStates(getIntList(reply, STATES)));
+            return new VarBatchReply(values, fromStates(getIntList(reply, STATES)));
         }
-        if (reply.containsKey(FOUND)) {
-            // Read through MapHelper, the one place allowed to narrow the msgpack Object
-            // graph; a Boolean element renders as "true" / "false".
-            return new VarBatchReply(values, presentFromFound(getStringList(reply, FOUND)));
-        }
-        return new VarBatchReply(values, List.of());
+        return new VarBatchReply(values, fromFound(getBoolList(reply, FOUND)));
     }
 
-    /** True when the agent reported id {@code i}'s stored value. */
+    /**
+     * How many request slots are safely readable: the shortest of the request and the two
+     * reply arrays, so a producer-side truncation leaves the dropped ids unpaired.
+     *
+     * @param requestedCount how many ids were asked for
+     */
+    int pairedCount(int requestedCount) {
+        return Math.min(requestedCount, Math.min(values.size(), presence.size()));
+    }
+
+    /** The presence of slot {@code i}; {@link Presence#UNAVAILABLE} for an unpaired slot. */
+    Presence presenceAt(int i) {
+        return i < values.size() && i < presence.size() ? presence.get(i) : Presence.UNAVAILABLE;
+    }
+
+    /** True when the agent reported slot {@code i}'s stored value. */
     boolean isPresent(int i) {
-        return i < values.size() && i < present.size() && present.get(i);
+        return presenceAt(i) == Presence.PRESENT;
     }
 
     int value(int i) {
         return values.get(i);
     }
 
-    private static List<Boolean> presentFromStates(List<Integer> states) {
-        List<Boolean> out = new ArrayList<>(states.size());
+    private static List<Presence> fromStates(List<Integer> states) {
+        List<Presence> out = new ArrayList<>(states.size());
         for (int state : states) {
-            out.add(state == STATE_PRESENT);
+            out.add(state == STATE_PRESENT ? Presence.PRESENT
+                    : state == STATE_ABSENT ? Presence.ABSENT
+                    : Presence.UNAVAILABLE);
         }
         return out;
     }
 
-    private static List<Boolean> presentFromFound(List<String> found) {
-        List<Boolean> out = new ArrayList<>(found.size());
-        for (String f : found) {
-            out.add(Boolean.TRUE.toString().equals(f));
+    private static List<Presence> fromFound(List<Boolean> found) {
+        List<Presence> out = new ArrayList<>(found.size());
+        for (boolean f : found) {
+            out.add(f ? Presence.PRESENT : Presence.ABSENT);
         }
         return out;
     }

@@ -16,7 +16,16 @@ import java.util.List;
  *
  * <p>Varbit values are decoded consumer-side: the producer returns the raw base
  * variable, and {@link #getVarbit(int)} shifts/masks it using the varbit type
- * config from the cache.</p>
+ * config from the cache. A base variable the game has never set has no node in
+ * its domain, and the engine's own lookup treats that as <em>zero</em> rather
+ * than as an error — so a varbit over an unset base reads {@code 0}, not
+ * {@code -1}. The two sentinels are not interchangeable: {@code -1} from a
+ * varbit read means the <em>id</em> is unknown, and {@code 0} means the varbit
+ * is known and currently clear.</p>
+ *
+ * <p>The raw varp/varc accessors keep their own, different convention: they
+ * report an unset variable as {@code -1}, because a raw read has no bit range
+ * to interpret and no separate "unknown id" case to distinguish.</p>
  *
  * @see com.botwithus.bot.api.GameAPI
  */
@@ -34,8 +43,22 @@ public interface VariableAPI {
      * Returns the value of a variable bit (varbit), decoded from its base
      * variable and bit range.
      *
+     * <p>Fails closed on a base variable the client has not set: that decodes
+     * to {@code 0}, the same answer the engine's own bit extractor gives for a
+     * defaulted node. A single-bit unlock flag therefore reads "locked" on an
+     * account that has never set it, rather than inheriting the bits of an
+     * unset-variable placeholder.</p>
+     *
+     * <p>A base the agent could not read at all (not in game, a timed-out read) is
+     * <em>not</em> unset: nothing is known about it, so it reads {@code -1}, never a
+     * cleared {@code 0}. Code that tracks a value over time should keep its last known
+     * value on {@code -1}.</p>
+     *
      * @param varbitId the varbit ID
-     * @return the varbit value, or {@code -1} if the varbit is unknown
+     * @return the decoded varbit value; {@code 0} when the varbit's base
+     *         variable is unset, or {@code -1} when the varbit id is unknown
+     *         to the cache (or its bit range is malformed) or its base could not
+     *         be read
      */
     int getVarbit(int varbitId);
 
@@ -56,10 +79,14 @@ public interface VariableAPI {
     String getVarcString(int varcId);
 
     /**
-     * Batch-resolves multiple varbit values.
+     * Batch-resolves multiple varbit values. Each value carries the same
+     * contract as {@link #getVarbit(int)}, and the two agree for every id.
      *
      * @param varbitIds the varbit IDs to query
-     * @return one {@link VarbitValue} per input id, in order
+     * @return one {@link VarbitValue} per input id, in order; each value is the
+     *         decoded bits, {@code 0} when that varbit's base variable is
+     *         unset, or {@code -1} when the varbit id is unknown to the cache
+     *         or its base could not be read
      */
     List<VarbitValue> queryVarbits(List<Integer> varbitIds);
 
