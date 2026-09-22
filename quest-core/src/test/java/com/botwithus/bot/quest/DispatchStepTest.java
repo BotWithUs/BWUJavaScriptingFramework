@@ -7,6 +7,7 @@ import com.botwithus.bot.quest.steps.NoopStep;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
@@ -89,7 +90,7 @@ class DispatchStepTest {
 
     private static QuestContext ctxWith(QuestState state) {
         ScriptContext ctx = Mockito.mock(ScriptContext.class, RETURNS_DEEP_STUBS);
-        QuestId quest = new QuestId(137, "Goblin Diplomacy", new int[]{ 297, 298 });
+        QuestId quest = new QuestId(137, "Goblin Diplomacy", List.of(TrackerVar.varbit(297), TrackerVar.varbit(298)));
         return new QuestContext(ctx, quest, state,
                 System.currentTimeMillis() + 5_000, 0);
     }

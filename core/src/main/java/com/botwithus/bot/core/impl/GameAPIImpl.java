@@ -133,6 +133,9 @@ public class GameAPIImpl implements GameAPI {
      */
     private static final int VARP_CURRENT_HEALTH = 13537;
     private static final int VARP_MAX_HEALTH = 13538;
+    /** Positions of the two health varps in the batch fetchHealth sends. */
+    private static final int HEALTH_CURRENT_SLOT = 0;
+    private static final int HEALTH_MAX_SLOT = 1;
 
     private final RpcClient rpc;
     private final NXTCache cache;
@@ -440,20 +443,26 @@ public class GameAPIImpl implements GameAPI {
         return sample;
     }
 
+    /**
+     * Reads both life-point varps in one batch. Health is known only when the agent reports
+     * both varps as present: an absent varp reads 0 on a current agent, and treating that 0
+     * as a reading would report a living player at zero life points. A truncated batch is
+     * unknown too, rather than shifting one value into the other's slot.
+     */
     private HealthSample fetchHealth(int serverTick) {
-        List<Integer> values;
+        VarBatchReply reply;
         try {
-            values = getVarps(List.of(VARP_CURRENT_HEALTH, VARP_MAX_HEALTH));
+            reply = VarBatchReply.parse(rpc.callSync("get_varps",
+                    Map.of("ids", List.of(VARP_CURRENT_HEALTH, VARP_MAX_HEALTH))));
         } catch (RuntimeException e) {
             log.debug("Health varp read failed; reporting unknown health", e);
             return HealthSample.unknown(serverTick);
         }
-        // A producer that truncated the batch leaves the missing entries
-        // unknown rather than shifting one value into the other's slot.
-        if (values.size() < 2) {
+        if (!reply.isPresent(HEALTH_CURRENT_SLOT) || !reply.isPresent(HEALTH_MAX_SLOT)) {
             return HealthSample.unknown(serverTick);
         }
-        return new HealthSample(serverTick, values.get(0), values.get(1));
+        return new HealthSample(serverTick,
+                reply.value(HEALTH_CURRENT_SLOT), reply.value(HEALTH_MAX_SLOT));
     }
 
     @Override
