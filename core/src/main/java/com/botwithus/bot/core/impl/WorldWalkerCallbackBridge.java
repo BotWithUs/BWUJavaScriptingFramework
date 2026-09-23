@@ -2,6 +2,7 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.ComponentNode;
+import com.botwithus.bot.api.dialog.Dialog;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
@@ -20,6 +21,7 @@ import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.api.util.Interfaces;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
+import com.botwithus.bot.core.worldwalker.DialogueAnswerText;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
 import com.botwithus.bot.core.worldwalker.WwCallbacks;
 import com.botwithus.bot.core.worldwalker.WwEvent;
@@ -578,6 +580,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                              int e, int f, int g, int h, int i) {
         // The executor resolves Wait / WaitInterface itself and pre-resolves a
         // ClickItem's worn-vs-backpack variant; only these kinds reach us.
+        // DialogueAnswer is never baked into a chain: the executor sends it
+        // itself when an option list is open inside a dialog zone.
         switch (ChainStepKind.fromWire(kind)) {
             case CLICK -> {
                 // Generic ready-to-queue action: a=actionId, b..d=param1..3.
@@ -611,6 +615,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                 api.queueAction(new GameAction(actionId, c, subComponent, hash));
             }
             case DIALOGUE_SELECT -> dispatchDialogueSelect(a, b, c, d);
+            case DIALOGUE_ANSWER ->
+                answerDialogue(DialogueAnswerText.decode(a, b, c, d, e, f, g, h, i));
             case CLICK_NPC -> clickNpc(a, new WwTile(b, c, d), e, f, g);
             default ->
                 // Wait / WaitInterface are handled executor-side and never sent
@@ -665,6 +671,23 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                 npc.typeId(), npc.serverIndex(), npc.tileX(), npc.tileY(), optionIndex);
         api.queueAction(new GameAction(
                 ActionTypes.NPC_OPTIONS[optionIndex + 1], npc.serverIndex(), 0, 0));
+    }
+
+    // Pick the first open option whose text contains `answer` (case-insensitive,
+    // markup-stripped: Dialog.select). No list open, or no option matching, is a
+    // no-op: the executor tries the zone's next answer on its next poll.
+    private void answerDialogue(String answer) {
+        if (answer.isEmpty()) {
+            log.info("ww runChainStep DIALOGUE_ANSWER: empty answer, nothing selected");
+            return;
+        }
+        boolean isSelected = Dialog.select(api, answer);
+        if (isSelected) {
+            log.info("ww runChainStep DIALOGUE_ANSWER: selected option containing '{}'", answer);
+        } else {
+            log.info("ww runChainStep DIALOGUE_ANSWER: no open option contains '{}', nothing selected",
+                    answer);
+        }
     }
 
     @Override

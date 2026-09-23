@@ -7,10 +7,13 @@ import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.ComponentNode;
 import com.botwithus.bot.api.component.ComponentQuery;
+import com.botwithus.bot.api.component.ComponentType;
 import com.botwithus.bot.api.component.Components;
+import com.botwithus.bot.api.dialog.Dialog;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
@@ -23,6 +26,7 @@ import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
+import com.botwithus.bot.core.worldwalker.DialogueAnswerText;
 import com.botwithus.bot.core.worldwalker.WwEvent;
 import com.botwithus.bot.core.worldwalker.WwEventKind;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
@@ -32,6 +36,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -870,6 +877,112 @@ class WorldWalkerCallbackBridgeTest {
         verify(api, never()).queueAction(any());
     }
 
+    // ---- DIALOGUE_ANSWER: pick an open option by text ----
+
+    // The option list's options container and two option rows (with the label
+    // leaf and "N." number cell hanging under each), as get_interface_tree
+    // answers for interface 1188.
+    private static final int OPTIONS_CONTAINER = 0;
+    private static final int FIRST_ROW = 8;
+    private static final int SECOND_ROW = 13;
+    private static final int NO_PARENT = -1;
+    private static final int CONTAINER_INDEX = 0;
+    private static final int FIRST_ROW_INDEX = 1;
+    private static final int SECOND_ROW_INDEX = 4;
+
+    private void openOptionList(String first, String second) {
+        int iface = Dialog.MULTI_CHOICE_INTERFACE;
+        when(api.components()).thenReturn(new Components(api));
+        when(api.getInterfaceTree(iface, OPTIONS_CONTAINER)).thenReturn(List.of(
+                treeNode(iface, OPTIONS_CONTAINER, ComponentType.LAYER, null, NO_PARENT),
+                treeNode(iface, FIRST_ROW, ComponentType.LAYER, null, CONTAINER_INDEX),
+                treeNode(iface, FIRST_ROW + 1, ComponentType.TEXT, "1.", FIRST_ROW_INDEX),
+                treeNode(iface, FIRST_ROW + 2, ComponentType.TEXT, first, FIRST_ROW_INDEX),
+                treeNode(iface, SECOND_ROW, ComponentType.LAYER, null, CONTAINER_INDEX),
+                treeNode(iface, SECOND_ROW + 1, ComponentType.TEXT, "2.", SECOND_ROW_INDEX),
+                treeNode(iface, SECOND_ROW + 2, ComponentType.TEXT, second, SECOND_ROW_INDEX)));
+    }
+
+    private static ComponentTreeNode treeNode(int iface, int comp, ComponentType type,
+                                              String text, int parentIndex) {
+        return new ComponentTreeNode(new Component(
+                iface, comp, -1, 0, type.code(),
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                text, 0, -1, -1, -1, List.of()), parentIndex);
+    }
+
+    /** The answer packed as the executor sends it: UTF-8, little-endian slots, zero-padded. */
+    private static int[] packAnswer(String text) {
+        ByteBuffer buffer = ByteBuffer.allocate(DialogueAnswerText.MAX_BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        buffer.put(text.getBytes(StandardCharsets.UTF_8));
+        buffer.rewind();
+        int[] slots = new int[DialogueAnswerText.SLOT_COUNT];
+        for (int i = 0; i < slots.length; i++) {
+            slots[i] = buffer.getInt();
+        }
+        return slots;
+    }
+
+    private void runAnswer(String text) {
+        int[] s = packAnswer(text);
+        bridge.runChainStep(ChainStepKind.DIALOGUE_ANSWER.wire(),
+                s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]);
+    }
+
+    @Test
+    void runChainStepDialogueAnswerSelectsOptionContainingAnswer() {
+        openOptionList("No thanks.", "<col=ffffff>YES, take me there.</col>");
+
+        runAnswer("yes, take me");
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.DIALOGUE, action.actionId());
+        assertEquals((Dialog.MULTI_CHOICE_INTERFACE << 16) | SECOND_ROW, action.param3(),
+                "the matching option's row is selected, not its label leaf");
+    }
+
+    @Test
+    void runChainStepDialogueAnswerPicksFirstOfSeveralMatches() {
+        openOptionList("Yes.", "Yes please.");
+
+        runAnswer("Yes");
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals((Dialog.MULTI_CHOICE_INTERFACE << 16) | FIRST_ROW, captor.getValue().param3());
+    }
+
+    @Test
+    void runChainStepDialogueAnswerDoesNothingWhenNoOptionMatches() {
+        openOptionList("No thanks.", "Maybe later.");
+
+        runAnswer("Yes.");
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepDialogueAnswerDoesNothingWhenNoListIsOpen() {
+        when(api.components()).thenReturn(new Components(api));
+        when(api.getInterfaceTree(Dialog.MULTI_CHOICE_INTERFACE, OPTIONS_CONTAINER))
+                .thenReturn(List.of());
+
+        runAnswer("Yes.");
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepDialogueAnswerIgnoresEmptyAnswer() {
+        openOptionList("No thanks.", "Yes.");
+
+        runAnswer("");
+
+        verify(api, never()).queueAction(any());
+    }
     @Test
     void sleepTicksSleepsApproxSixHundredMsPerTick() throws Exception {
         long start = System.nanoTime();
