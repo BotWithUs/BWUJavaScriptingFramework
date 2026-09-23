@@ -6,6 +6,7 @@ import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -41,6 +42,15 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final Logger log = LoggerFactory.getLogger(WorldWalkerCallbackBridge.class);
 
     private static final long TICK_MS = 600L;
+
+    /** Footprint distance a transition's loc normally sits within: on or beside its row tile. */
+    private static final int LOC_FOOTPRINT_REACH = 1;
+
+    /**
+     * Largest footprint distance still accepted for a transition's loc. Some dataset rows sit a
+     * few tiles off the loc they name; past this the loc is treated as absent.
+     */
+    private static final int LOC_FALLBACK_REACH = 4;
 
     // Opportunistic Surge config. Surge launches the avatar 10 tiles forward in
     // its current facing; we piggy-back it onto walkTo when the next chunk is a
@@ -474,9 +484,9 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         // scene interact handle: doors and stairs are published as
         // COMBINED_LOCATION_SECTIONs, which always carry interactId == -1, so a
         // handle lookup can never resolve them. We only need the loc's true
-        // tile, which sections do carry. The transition's origin can sit one
-        // tile off the loc (reverse-direction door hops), so we snap to the
-        // nearest matching loc within Chebyshev radius 1.
+        // tile, which sections do carry. The transition's row tile is often the
+        // stand tile or a corner of a multi-tile loc rather than its anchor, so
+        // we match against the loc's whole footprint (see resolveLocTile).
         WwTile locTile = resolveLocTile(objectId, tile);
         if (locTile == null) {
             // The baked transition names the CLOSED loc (the world-map door, or
@@ -595,34 +605,103 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         return snap == null ? null : snap.self();
     }
 
-    private static int chebyshev(Location loc, WwTile tile) {
-        return Math.max(Math.abs(loc.tileX() - tile.x()), Math.abs(loc.tileY() - tile.y()));
-    }
-
+    /**
+     * The tile of the placed loc a transition names, or {@code null} when no such loc is in the
+     * scene near the transition's row tile.
+     *
+     * <p>A candidate is a loc on the row tile's plane whose type or morph-resolved id is the
+     * transition's object id and which is not flagged deleted. Doors and stairs arrive as
+     * combined-location sections ({@code interactId == -1}), so neither {@code interactId} nor
+     * the section flag is filtered on. The resolvedId arm is additive: a morph ("multiloc") loc
+     * answers to both its base and its resolved id.</p>
+     *
+     * <p>Distance is measured to the loc's footprint, not its anchor tile: the dataset's row tile
+     * is often the stand tile or a corner of a multi-tile loc (a 4x4 cave entrance anchored two
+     * tiles from its row). A footprint within {@link #LOC_FOOTPRINT_REACH} is the normal case;
+     * anything out to {@link #LOC_FALLBACK_REACH} is still accepted, closest footprint first and
+     * then closest anchor, so an exact-tile loc beats a neighbour. The returned tile is always the
+     * loc's own anchor, which is what the {@code (typeId, worldX, worldY)} action targets.</p>
+     */
     private WwTile resolveLocTile(int objectId, WwTile tile) {
         GameSnapshot snap = snapshotSource.get();
         if (snap == null) {
             return null;
         }
-        // Match by type + plane within one tile of the interaction origin. Doors
-        // and stairs arrive as combined-location sections (interactId == -1), so
-        // we deliberately do NOT filter on interactId or the section flag — only
-        // the deleted flag, which marks a despawned loc. Prefer the exact origin
-        // tile, then the nearest. We return the loc's own tile so the
-        // (typeId, worldX, worldY) action targets where the loc actually sits,
-        // even when approached from the far side.
-        //
-        // The resolvedId arm is additive: a morph ("multiloc") loc answers to both its base
-        // and its resolved id, and a caller holding either should find it. It deliberately
-        // does not replace the typeId arm -- matching a direct LOCATION on typeId rather than
-        // on baseId() is a separate pre-existing narrowing, not a v20 concern.
-        return snap.locations().stream()
+        List<Location> candidates = snap.locations().stream()
                 .filter(loc -> (loc.typeId() == objectId || loc.resolvedId() == objectId)
                         && loc.plane() == tile.plane()
-                        && chebyshev(loc, tile) <= 1
                         && !loc.isDeleted())
-                .min(Comparator.comparingInt(loc -> chebyshev(loc, tile)))
-                .map(loc -> new WwTile(loc.tileX(), loc.tileY(), loc.plane()))
-                .orElse(null);
+                .toList();
+        if (candidates.isEmpty()) {
+            return null;
+        }
+        LocSize size = locSize(objectId);
+        Optional<LocMatch> best = candidates.stream()
+                .map(loc -> LocMatch.of(loc, size, tile))
+                .filter(match -> match.footprintDistance() <= LOC_FALLBACK_REACH)
+                .min(Comparator.comparingInt(LocMatch::footprintDistance)
+                        .thenComparingInt(LocMatch::anchorDistance));
+        best.ifPresent(match -> logOffsetMatch(objectId, tile, match));
+        return best.map(match -> new WwTile(match.loc().tileX(), match.loc().tileY(),
+                match.loc().plane())).orElse(null);
+    }
+
+    /**
+     * The cache size of loc type {@code objectId}, or 1x1 when the cache cannot answer (no cache
+     * attached, a failed read, or an unknown id). A 1x1 guess degrades to anchor-tile matching,
+     * which the fallback reach still covers.
+     */
+    private LocSize locSize(int objectId) {
+        LocationType type;
+        try {
+            type = api.getLocationType(objectId);
+        } catch (RuntimeException e) {
+            log.debug("interact: size of loc {} unreadable ({}); assuming 1x1",
+                    objectId, e.toString());
+            return LocSize.UNKNOWN;
+        }
+        return type == null ? LocSize.UNKNOWN : new LocSize(type.sizeX(), type.sizeY());
+    }
+
+    /** Logs a match whose anchor tile is not the transition's row tile. */
+    private static void logOffsetMatch(int objectId, WwTile tile, LocMatch match) {
+        if (match.anchorDistance() == 0) {
+            return;
+        }
+        Location loc = match.loc();
+        LocFootprint fp = match.footprint();
+        String reach = match.footprintDistance() <= LOC_FOOTPRINT_REACH ? "footprint" : "fallback";
+        log.info("interact: loc {} matched at ({},{},{}) for row tile ({},{},{}); {}x{} footprint"
+                        + " {} tile(s) away ({} reach)",
+                objectId, loc.tileX(), loc.tileY(), loc.plane(), tile.x(), tile.y(), tile.plane(),
+                fp.width(), fp.depth(), match.footprintDistance(), reach);
+    }
+
+    /** A loc type's cache dimensions, before rotation. */
+    private record LocSize(int sizeX, int sizeY) {
+        /** The size assumed when the cache cannot say: the anchor tile alone. */
+        static final LocSize UNKNOWN =
+                new LocSize(LocFootprint.UNKNOWN_SIZE, LocFootprint.UNKNOWN_SIZE);
+    }
+
+    /**
+     * A candidate loc measured against a transition's row tile.
+     *
+     * @param loc               the placed loc
+     * @param footprint         the tiles it covers at its rotation
+     * @param footprintDistance Chebyshev distance from the row tile to the footprint
+     * @param anchorDistance    Chebyshev distance from the row tile to the loc's anchor tile
+     */
+    private record LocMatch(Location loc, LocFootprint footprint, int footprintDistance,
+                            int anchorDistance) {
+
+        /** Measures {@code loc}, of cache size {@code size}, against {@code tile}. */
+        static LocMatch of(Location loc, LocSize size, WwTile tile) {
+            LocFootprint fp = LocFootprint.of(loc.tileX(), loc.tileY(), size.sizeX(), size.sizeY(),
+                    loc.rotation());
+            int anchor = Math.max(Math.abs(loc.tileX() - tile.x()),
+                    Math.abs(loc.tileY() - tile.y()));
+            return new LocMatch(loc, fp, fp.distanceTo(tile.x(), tile.y()), anchor);
+        }
     }
 }

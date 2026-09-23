@@ -11,6 +11,7 @@ import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
@@ -31,6 +32,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
@@ -47,6 +49,9 @@ class WorldWalkerCallbackBridgeTest {
 
     // Magic's StatType.id, the skill the test players carry.
     private static final int MAGIC_SKILL_TYPE = 6;
+
+    // Sabbot's cave entrance, a 4x4 loc whose dataset row sits off its anchor.
+    private static final int SABBOT_CAVE = 34395;
 
     private GameAPI api;
     private GameSnapshot snapshot;
@@ -489,15 +494,96 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void interactSkipsWhenLocBeyondRadius() {
-        // Two tiles away (Chebyshev 2) is beyond the radius-1 door approach
-        // tolerance, so it must not resolve.
-        Location other = new Location(1234, 99, -1, 3223, 3219, 0, 10, 0, 0);
+    void interactSkipsWhenLocBeyondFallbackReach() {
+        // Five tiles from a 1x1 footprint is past the fallback reach of four, so
+        // the loc is treated as absent and nothing is queued.
+        Location other = new Location(1234, 99, -1, 3226, 3219, 0, 10, 0, 0);
         when(locationsTable.stream()).thenReturn(Stream.of(other));
 
-        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
 
-        verifyNoInteractions(api);
+        assertEquals(0, issued);
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void interactAcceptsLocWithinFallbackReach() {
+        // A 1x1 loc three tiles off its row tile: outside the footprint reach of
+        // one, inside the fallback reach of four, so it still resolves.
+        Location near = new Location(1234, 99, -1, 3224, 3219, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(near));
+
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(1234, 3224, 3219);
+    }
+
+    @Test
+    void interactResolvesMultiTileLocAnchoredAwayFromRowTile() {
+        // Sabbot's cave entrance: a 4x4 loc anchored at (2857,3578) while the
+        // dataset row names (2858,3576), two tiles south of the footprint.
+        when(api.getLocationType(SABBOT_CAVE)).thenReturn(locType(SABBOT_CAVE, 4, 4));
+        Location cave = new Location(SABBOT_CAVE, -1, -1, 2857, 3578, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(cave));
+
+        int issued = bridge.interact(SABBOT_CAVE, new WwTile(2858, 3576, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(SABBOT_CAVE, 2857, 3578);
+    }
+
+    @Test
+    void interactPrefersNearestFootprintOverNearestAnchor() {
+        // A 1x3 loc turned a quarter (rotation 1) spans x 100..102 on y 200, so
+        // row tile (103,200) touches it; an unturned twin at (105,200) spans
+        // y 200..202 and sits two tiles off. The turned loc's anchor is further
+        // (3 vs 2), so only a rotation-aware footprint picks it.
+        when(api.getLocationType(1234)).thenReturn(locType(1234, 1, 3));
+        Location turned = new Location(1234, -1, -1, 100, 200, 0, 10, 1, 0);
+        Location upright = new Location(1234, -1, -1, 105, 200, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(upright, turned));
+
+        bridge.interact(1234, new WwTile(103, 200, 0), 0);
+
+        assertQueuedAt(1234, 100, 200);
+    }
+
+    @Test
+    void interactNeverMatchesAcrossPlanes() {
+        Location upstairs = new Location(1234, 99, -1, 3221, 3219, 1, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(upstairs));
+
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertEquals(0, issued);
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void interactAssumesSingleTileWhenCacheCannotAnswer() {
+        when(api.getLocationType(1234)).thenThrow(new IllegalStateException("no cache"));
+        Location exact = new Location(1234, 99, -1, 3221, 3219, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(exact));
+
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(1234, 3221, 3219);
+    }
+
+    private void assertQueuedAt(int objectId, int x, int y) {
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(objectId, action.param1());
+        assertEquals(x, action.param2());
+        assertEquals(y, action.param3());
+    }
+
+    private static LocationType locType(int id, int sizeX, int sizeY) {
+        return new LocationType(id, "", sizeX, sizeY, 0, 0, false, List.of(), -1, -1,
+                List.of(), 0, Map.of());
     }
 
     @Test
