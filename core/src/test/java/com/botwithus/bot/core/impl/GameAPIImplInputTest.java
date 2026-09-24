@@ -402,6 +402,37 @@ class GameAPIImplInputTest {
         }
     }
 
+    /** The vectors the Python and Lua suites pin too, as literals, so the three hosts agree. */
+    @Nested
+    class SharedVectors {
+
+        @Test
+        void enterAmount_10k() {
+            dialogMode(MODE_AMOUNT);
+
+            assertTrue(dialog.enterAmount("10k"));
+
+            assertEquals(rows(-65487, -65488, -65429, ENTER), sentBatch());
+        }
+
+        @Test
+        void enterText_Bob_1() {
+            dialogMode(MODE_NAME);
+
+            assertTrue(dialog.enterText("Bob_1"));
+
+            assertEquals(rows(-65470, -65425, -65438, -65441, -65487, ENTER), sentBatch());
+        }
+
+        @Test
+        void fireComponentTrigger_packedCharThree_passesThrough() {
+            api.fireComponentTrigger(1469, 4, -1, 10, -65485);
+
+            verify(rpc).callSync(eq("queue_action"), eq(Map.of("action_id", COMPONENT_TRIGGER,
+                    "param1", INPUT_FIELD_HASH, "param2", KEY_TRIGGER_TOP_LEVEL, "param3", CHAR_3)));
+        }
+    }
+
     @Nested
     class Failures {
 
