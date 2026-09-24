@@ -14,10 +14,14 @@ import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.api.gameval.GamevalType;
+import com.botwithus.bot.api.input.InputDialog;
+import com.botwithus.bot.api.input.KeyStroke;
+import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.EnumType;
+import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
@@ -76,6 +80,9 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * "unset" on its own: ask {@link #readVarp(int)} or {@link #varpState(int)}.</p>
      */
     int UNRESOLVED_VARIABLE = -1;
+
+    /** Sub-component id meaning "the component itself" in a component trigger. */
+    int TOP_LEVEL_COMPONENT = -1;
 
     // ---------------------------------------------------------------- Snapshot
 
@@ -392,19 +399,62 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * @param subId       sub-component id, or {@code -1} for the top-level component
      * @param triggerType event type — {@code 9} = click, {@code 10} = key
      *                    (see {@code ActionTypes.TRIGGER_TYPE_*})
-     * @param arg         type-dependent argument: key code for key triggers;
-     *                    packed {@code (x << 16) | y} component-relative press
-     *                    coordinates for click triggers; {@code 0} if unused
+     * @param arg         type-dependent argument: for key triggers a packed
+     *                    {@link KeyStroke#packed()} ({@code (keyCode << 16) | keyChar}),
+     *                    <em>not</em> a bare key code, which the game would read
+     *                    as a character; packed {@code (x << 16) | y}
+     *                    component-relative press coordinates for click triggers;
+     *                    {@code 0} if unused
      */
     void fireComponentTrigger(int interfaceId, int componentId, int subId, int triggerType, int arg);
 
     /**
-     * Fires a key (type-10) CS2 trigger on a component once per character of
-     * {@code input}, submitted as a single batched action-queue request (one RPC
-     * round-trip). Characters dispatch one per game tick. Convenience over
-     * {@link #fireComponentTrigger} for the common "type into a component" case.
+     * Fires a component's key (type-10) CS2 trigger once per stroke, in order, as
+     * a single batched action-queue request (one RPC round-trip). The agent
+     * dispatches one queued action per game tick, so {@code n} strokes take
+     * {@code n} ticks to land. A component with no key trigger — an input dialog
+     * that has already closed, for one — drops the strokes silently.
+     *
+     * <p>For the game's own input dialog, {@link #inputDialog()} is the checked
+     * way in: it validates what it types against the dialog's mode and submits.</p>
+     *
+     * @return the number of strokes queued
      */
-    void fireKeyTrigger(int interfaceId, int componentId, String input);
+    default int fireKeys(int interfaceId, int componentId, List<KeyStroke> keys) {
+        if (keys.isEmpty()) {
+            return 0;
+        }
+        List<GameAction> batch = keys.stream()
+                .map(key -> GameAction.componentTrigger(interfaceId, componentId,
+                        TOP_LEVEL_COMPONENT, ActionTypes.TRIGGER_TYPE_KEY, key.packed()))
+                .toList();
+        return queueActions(batch);
+    }
+
+    /**
+     * Types {@code input} into a component through its key (type-10) CS2 trigger,
+     * one {@link KeyStroke#character(char)} per character, batched as by
+     * {@link #fireKeys}. <b>Types only — it does not submit</b>; follow it with
+     * {@code fireKeys(interfaceId, componentId, List.of(KeyStroke.ENTER))}, or use
+     * {@link #inputDialog()}, which types and submits in one batch. A {@code null}
+     * or empty {@code input} queues nothing.
+     *
+     * @throws IllegalArgumentException when {@code input} holds a character that
+     *                                  is not printable ASCII
+     */
+    default void fireKeyTrigger(int interfaceId, int componentId, String input) {
+        if (input == null || input.isEmpty()) {
+            return;
+        }
+        List<KeyStroke> keys = input.chars().mapToObj(c -> KeyStroke.character((char) c)).toList();
+        fireKeys(interfaceId, componentId, keys);
+    }
+
+    /**
+     * The game's text/amount input dialog (withdraw-X, add-friend, ...). Singleton
+     * per {@link GameAPI}.
+     */
+    InputDialog inputDialog();
 
     // ---------------------------------------------------------------- Interface components
 

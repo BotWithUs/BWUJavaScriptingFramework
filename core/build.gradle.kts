@@ -172,6 +172,29 @@ tasks.register<Test>("liveDialogContinueTest") {
     }
 }
 
+tasks.register<Test>("liveInputDialogTest") {
+    description = "Live withdraw-X / deposit-X through the input dialog (MUTATES the game — moves items " +
+            "between backpack and bank, then back)"
+    group = "verification"
+    useJUnitPlatform()
+    systemProperty("botwithus.smoke.input", "true")
+    // -Dbotwithus.input.pid=<pid> -Dbotwithus.input.item=<id> -Dbotwithus.input.amount=<n>
+    // -Dbotwithus.input.openBank=<actionId>,<locId>,<x>,<y>
+    listOf("pid", "item", "amount", "openBank").forEach { key ->
+        System.getProperty("botwithus.input.$key")?.let { systemProperty("botwithus.input.$key", it) }
+    }
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.impl.LiveInputDialogTest")
+    }
+}
+
 tasks.register<Test>("liveIscTeardownTest") {
     description = "Live check that a stopped script stops handling ISC messages " +
             "(read-only — publishes on an internal channel, never touches the game)"

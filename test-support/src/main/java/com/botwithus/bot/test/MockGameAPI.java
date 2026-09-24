@@ -13,6 +13,7 @@ import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
+import com.botwithus.bot.api.input.InputDialog;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
@@ -255,6 +256,11 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public InputDialog inputDialog() {
+        throw notStubbed("inputDialog");
+    }
+
+    @Override
     public Equipment equipment() {
         throw notStubbed("equipment");
     }
@@ -359,11 +365,6 @@ final class MockGameAPI implements GameAPI {
     public void fireComponentTrigger(int interfaceId, int componentId, int subId,
                                      int triggerType, int arg) {
         throw notStubbed("fireComponentTrigger");
-    }
-
-    @Override
-    public void fireKeyTrigger(int interfaceId, int componentId, String input) {
-        throw notStubbed("fireKeyTrigger");
     }
 
     // ---- Interface tree walk -----------------------------------------------
