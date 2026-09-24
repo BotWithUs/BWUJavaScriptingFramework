@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Predicate;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -28,16 +30,28 @@ import java.util.regex.Pattern;
  * }</pre>
  *
  * <h2>Failure</h2>
- * The two kinds of failure are reported differently. In neither case is
- * anything sent:
+ * Four kinds of failure, each reported its own way. In the first three nothing
+ * is sent:
  * <ul>
- *   <li><b>Wrong state</b> returns {@code false}: the dialog is closed, or it is
- *       open in a mode the call does not type into. This is a race a script can
- *       lose and retry.</li>
+ *   <li><b>Wrong state</b> returns {@code false}. The dialog is closed; it is
+ *       open in a mode the call does not type into; or it already holds text that
+ *       the new input would push past the mode's limits (the dialog appends).
+ *       This is a race a script can lose and retry.</li>
  *   <li><b>Input the dialog would refuse</b> throws
  *       {@link IllegalArgumentException}: too long, a character the mode does not
- *       accept, or a misplaced suffix. Sending it would type a truncated or
- *       different value, so it is refused here rather than left to the game.</li>
+ *       accept, a misplaced suffix, or an amount above {@link #MAX_AMOUNT_VALUE}.
+ *       Sending it would type a truncated or different value, so it is refused
+ *       here rather than left to the game.</li>
+ *   <li><b>A failed read</b> of the dialog's mode or text propagates the
+ *       transport's exception. It is never taken as "closed". One limit: the
+ *       agent answers a varc read that found nothing with {@code -1}, the same
+ *       value the mode holds before any dialog has opened. A read that timed out
+ *       inside the agent therefore reads as {@link InputMode#CLOSED}, which sends
+ *       nothing.</li>
+ *   <li><b>A partial batch</b> throws {@link IllegalStateException}. The agent's
+ *       action queue took only a prefix of the strokes, so some of them
+ *       <em>were</em> sent, and the dialog may hold a partial value without its
+ *       Enter.</li>
  * </ul>
  *
  * <h2>Timing</h2>
@@ -65,8 +79,16 @@ public final class InputDialog {
     private static final GamevalRef VARC_TEXT =
             new GamevalRef(GamevalType.VAR_CLIENT, "MESLAYERINPUT", 2506);
 
-    /** Digits, then at most one k/K/m/M suffix. */
-    private static final Pattern AMOUNT = Pattern.compile("[0-9]+[kKmM]?");
+    /** Largest value amount mode takes, after suffix expansion. */
+    public static final long MAX_AMOUNT_VALUE = Integer.MAX_VALUE;
+
+    /**
+     * Digits, then at most one {@code k}, {@code K} or {@code m} suffix. Uppercase
+     * {@code M} is refused until it is verified live.
+     */
+    private static final Pattern AMOUNT = Pattern.compile("([0-9]+)([kKm]?)");
+    private static final long THOUSAND = 1_000L;
+    private static final long MILLION = 1_000_000L;
     /** Letters, digits, space and {@code _-.!}; case is kept. */
     private static final Pattern NAME = Pattern.compile("[A-Za-z0-9 _.!-]+");
 
@@ -107,32 +129,42 @@ public final class InputDialog {
      * Type {@code amount} and submit it. Needs the dialog open in
      * {@link InputMode#AMOUNT}.
      *
-     * @return {@code false}, sending nothing, when the dialog is not in amount mode
-     * @throws IllegalArgumentException when {@code amount} is negative or longer
-     *                                  than {@link #MAX_AMOUNT_LENGTH} digits
+     * @return {@code false}, sending nothing, when the dialog is not in amount mode,
+     *         or it already holds text that {@code amount} would push past the
+     *         limits
+     * @throws IllegalArgumentException when {@code amount} is negative or above
+     *                                  {@link #MAX_AMOUNT_VALUE}
      */
     public boolean enterAmount(long amount) {
-        if (amount < 0) {
-            throw new IllegalArgumentException("amount must not be negative: " + amount);
+        if (amount < 0 || amount > MAX_AMOUNT_VALUE) {
+            throw new IllegalArgumentException("amount must be 0.." + MAX_AMOUNT_VALUE + ": " + amount);
         }
         return enterAmount(Long.toString(amount));
     }
 
     /**
      * Type {@code amount} and submit it. Accepts digits with an optional
-     * {@code k}/{@code m} suffix (either case) after at least one digit, such as
-     * {@code "250"}, {@code "10k"} or {@code "2M"}, up to
-     * {@link #MAX_AMOUNT_LENGTH} characters in all. Needs the dialog open in
-     * {@link InputMode#AMOUNT}.
+     * {@code k}, {@code K} or {@code m} suffix after at least one digit, such as
+     * {@code "250"}, {@code "10k"} or {@code "2m"}. The limits are
+     * {@link #MAX_AMOUNT_LENGTH} characters in all and {@link #MAX_AMOUNT_VALUE}
+     * once the suffix is expanded. Uppercase {@code M} is refused until it is
+     * verified live. Needs the dialog open in {@link InputMode#AMOUNT}.
      *
-     * @return {@code false}, sending nothing, when the dialog is not in amount mode
-     * @throws IllegalArgumentException when {@code amount} is not a value amount
-     *                                  mode accepts ({@code "b"}, {@code "1.5k"},
-     *                                  {@code "k5"}, {@code "5kk"}, blank, too long)
+     * <p>The dialog appends to whatever it already holds, so the check also
+     * applies to the existing {@link #text()} followed by {@code amount}.
+     * {@link #clear()} first to replace it.</p>
+     *
+     * @return {@code false}, sending nothing, when the dialog is not in amount mode,
+     *         or it already holds text that {@code amount} would push past the
+     *         limits
+     * @throws IllegalArgumentException when {@code amount} on its own is not a
+     *                                  value amount mode accepts ({@code "b"},
+     *                                  {@code "1.5k"}, {@code "k5"}, {@code "5kk"},
+     *                                  {@code "5M"}, {@code "2148m"}, blank, too long)
      */
     public boolean enterAmount(String amount) {
-        requireAccepted(amount, AMOUNT, MAX_AMOUNT_LENGTH, "amount");
-        return typeAndSubmit(InputMode.AMOUNT, amount);
+        requireAccepted(amount, InputDialog::isAcceptedAmount, "amount");
+        return typeAndSubmit(InputMode.AMOUNT, amount, InputDialog::isAcceptedAmount);
     }
 
     /**
@@ -142,13 +174,17 @@ public final class InputDialog {
      * limits, so they are refused rather than guessed at; drive those with
      * {@link GameAPI#fireKeys} directly.
      *
-     * @return {@code false}, sending nothing, when the dialog is not in name mode
+     * <p>As with {@link #enterAmount(String)}, the check also applies to the
+     * existing {@link #text()} followed by {@code text}.</p>
+     *
+     * @return {@code false}, sending nothing, when the dialog is not in name mode,
+     *         or it already holds text that {@code text} would push past the limit
      * @throws IllegalArgumentException when {@code text} is blank, too long, or
      *                                  holds a character name mode does not accept
      */
     public boolean enterText(String text) {
-        requireAccepted(text, NAME, MAX_NAME_LENGTH, "text");
-        return typeAndSubmit(InputMode.NAME, text);
+        requireAccepted(text, InputDialog::isAcceptedName, "text");
+        return typeAndSubmit(InputMode.NAME, text, InputDialog::isAcceptedName);
     }
 
     /** Press Enter. {@code false}, sending nothing, when no dialog is open. */
@@ -181,16 +217,45 @@ public final class InputDialog {
 
     // ---------------------------------------------------------------- Helpers
 
-    private static void requireAccepted(String value, Pattern accepted, int maxLength, String what) {
-        if (value == null || value.length() > maxLength || !accepted.matcher(value).matches()) {
-            throw new IllegalArgumentException(
-                    what + " not accepted by the input dialog (max " + maxLength + " chars): " + value);
+    private static void requireAccepted(String value, Predicate<String> accepted, String what) {
+        if (value == null || !accepted.test(value)) {
+            throw new IllegalArgumentException(what + " not accepted by the input dialog: " + value);
         }
     }
 
-    /** Every character of {@code value} then Enter, in one batch, when the dialog is in {@code mode}. */
-    private boolean typeAndSubmit(InputMode mode, String value) {
+    private static boolean isAcceptedAmount(String value) {
+        if (value.length() > MAX_AMOUNT_LENGTH) {
+            return false;
+        }
+        Matcher parts = AMOUNT.matcher(value);
+        return parts.matches() && expandedAmount(parts.group(1), parts.group(2)) <= MAX_AMOUNT_VALUE;
+    }
+
+    /** At most ten digits times a million, well inside a {@code long}. */
+    private static long expandedAmount(String digits, String suffix) {
+        long base = Long.parseLong(digits);
+        return switch (suffix) {
+            case "k", "K" -> base * THOUSAND;
+            case "m" -> base * MILLION;
+            default -> base;
+        };
+    }
+
+    private static boolean isAcceptedName(String value) {
+        return value.length() <= MAX_NAME_LENGTH && NAME.matcher(value).matches();
+    }
+
+    /**
+     * Every character of {@code value} then Enter, in one batch, when the dialog is
+     * in {@code mode} and would still hold accepted text afterwards: the existing
+     * text followed by {@code value}.
+     */
+    private boolean typeAndSubmit(InputMode mode, String value, Predicate<String> accepted) {
         if (mode() != mode) {
+            return false;
+        }
+        String existing = api.getVarcString(VARC_TEXT.resolve(api.gamevals()));
+        if (existing != null && !existing.isEmpty() && !accepted.test(existing + value)) {
             return false;
         }
         List<KeyStroke> keys = new ArrayList<>(value.length() + 1);
@@ -210,8 +275,22 @@ public final class InputDialog {
         return true;
     }
 
+    /**
+     * Queue {@code keys} as one batch.
+     *
+     * @throws IllegalStateException when the agent's action queue takes only part of
+     *                               the batch. The part it took is a prefix and will
+     *                               still be typed, perhaps without its Enter, so the
+     *                               dialog may be left holding a partial value:
+     *                               {@link #cancel()} or {@link #clear()} it.
+     */
     private void fire(List<KeyStroke> keys) {
         int field = INPUT_FIELD.resolve(api.gamevals());
-        api.fireKeys(Interfaces.interfaceIdFromHash(field), Interfaces.componentIdFromHash(field), keys);
+        int queued = api.fireKeys(Interfaces.interfaceIdFromHash(field),
+                Interfaces.componentIdFromHash(field), keys);
+        if (queued < keys.size()) {
+            throw new IllegalStateException("the action queue took " + queued + " of " + keys.size()
+                    + " key strokes; the dialog may now hold a partial value");
+        }
     }
 }

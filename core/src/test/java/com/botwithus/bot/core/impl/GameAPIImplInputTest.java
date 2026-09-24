@@ -5,6 +5,7 @@ import com.botwithus.bot.api.input.InputMode;
 import com.botwithus.bot.api.input.KeyStroke;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.rpc.RpcException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -63,6 +64,9 @@ class GameAPIImplInputTest {
     /** Printable characters are {@code (-1 << 16) | c}, which is {@code c - 65536}. */
     private static final int CHAR_BASE = -65536;
 
+    /** A {@code queued} reply at least as large as any batch these tests send. */
+    private static final int ROOMY_QUEUE = 128;
+
     private static final int MODE_CLOSED = 0;
     private static final int MODE_NAME = 2;
     private static final int MODE_AMOUNT = 7;
@@ -80,7 +84,18 @@ class GameAPIImplInputTest {
         snap = mock(GameSnapshot.class);
         api = new GameAPIImpl(rpc, null, () -> snap);
         dialog = api.inputDialog();
-        when(rpc.callSync(eq(QUEUE_ACTIONS), anyMap())).thenReturn(Map.of("queued", 0));
+        queueReports(ROOMY_QUEUE);
+        dialogText("");
+    }
+
+    /** The {@code queued} count the agent reports for every batch. */
+    private void queueReports(int queued) {
+        when(rpc.callSync(eq(QUEUE_ACTIONS), anyMap())).thenReturn(Map.of("queued", queued));
+    }
+
+    private void dialogText(String text) {
+        when(rpc.callSync(eq(GET_VARC_STRING), eq(Map.of("var_id", 2506))))
+                .thenReturn(Map.of("value", text));
     }
 
     private void dialogMode(int varcValue) {
@@ -144,16 +159,29 @@ class GameAPIImplInputTest {
                     "'2' '5' '0' 'k' are 50 53 48 107 in the char half, then Enter");
         }
 
-        @Test
-        void enterAmount_tenCharacters_isAccepted() {
+        @ParameterizedTest
+        @ValueSource(strings = {"1234567890", "2147483647", "2147483k", "2147483K", "2147m", "0", "1m"})
+        void enterAmount_atOrUnderTheLimits_isAccepted(String amount) {
             dialogMode(MODE_AMOUNT);
 
-            assertTrue(dialog.enterAmount("123456789M"));
+            assertTrue(dialog.enterAmount(amount));
         }
 
+        @Test
+        void enterAmount_intMax_isAccepted() {
+            dialogMode(MODE_AMOUNT);
+
+            assertTrue(dialog.enterAmount(Integer.MAX_VALUE));
+        }
+
+        /**
+         * {@code M} is refused until verified live; the others break the charset,
+         * the suffix rule, the ten-character limit or the int range once expanded.
+         */
         @ParameterizedTest
         @ValueSource(strings = {"", "b", "5b", "1.5k", "1 000", "k", "k5", "5kk", "5k0", "-5",
-                "12345678901", "123456789kk"})
+                "5M", "1M", "12345678901", "123456789kk", "2147483648", "2147484k", "2148m",
+                "9999999999", "999999999m"})
         void enterAmount_valueTheDialogRefuses_throwsAndSendsNothing(String amount) {
             dialogMode(MODE_AMOUNT);
 
@@ -171,8 +199,33 @@ class GameAPIImplInputTest {
         }
 
         @Test
-        void enterAmount_elevenDigitNumber_throws() {
+        void enterAmount_aboveIntMax_throws() {
+            assertThrows(IllegalArgumentException.class, () -> dialog.enterAmount(2_147_483_648L));
             assertThrows(IllegalArgumentException.class, () -> dialog.enterAmount(10_000_000_000L));
+
+            verifyNothingQueued();
+        }
+
+        /** The dialog appends, so what counts is the existing text followed by the new amount. */
+        @ParameterizedTest
+        @ValueSource(strings = {"12345678", "5k", "2147483", "7m"})
+        void enterAmount_existingTextPlusAmountRefused_returnsFalseAndSendsNothing(String existing) {
+            dialogMode(MODE_AMOUNT);
+            dialogText(existing);
+
+            assertFalse(dialog.enterAmount("648"));
+
+            verifyNothingQueued();
+        }
+
+        @Test
+        void enterAmount_existingTextPlusAmountAccepted_typesOnlyTheNewPart() {
+            dialogMode(MODE_AMOUNT);
+            dialogText("5");
+
+            assertTrue(dialog.enterAmount(3));
+
+            assertEquals(rows(CHAR_3, ENTER), sentBatch());
         }
 
         @Test
@@ -222,6 +275,16 @@ class GameAPIImplInputTest {
             dialogMode(MODE_NAME);
 
             assertTrue(dialog.enterText("abcdefghijkl"));
+        }
+
+        @Test
+        void enterText_existingTextPlusTextOverTwelve_returnsFalseAndSendsNothing() {
+            dialogMode(MODE_NAME);
+            dialogText("abcdefghij");
+
+            assertFalse(dialog.enterText("xyz"));
+
+            verifyNothingQueued();
         }
 
         @Test
@@ -336,6 +399,50 @@ class GameAPIImplInputTest {
             assertEquals(Optional.empty(), dialog.text());
 
             verify(rpc, never()).callSync(eq(GET_VARC_STRING), anyMap());
+        }
+    }
+
+    @Nested
+    class Failures {
+
+        /** The queue took '3' but not Enter: the value is typed and unsubmitted, which must be loud. */
+        @Test
+        void enterAmount_partialBatch_throwsIllegalState() {
+            dialogMode(MODE_AMOUNT);
+            queueReports(1);
+
+            assertThrows(IllegalStateException.class, () -> dialog.enterAmount(3));
+        }
+
+        @Test
+        void controlKeys_emptyQueueReply_throwsIllegalState() {
+            dialogMode(MODE_AMOUNT);
+            queueReports(0);
+
+            assertThrows(IllegalStateException.class, () -> dialog.submit());
+        }
+
+        /** A failed mode read must not be taken as "closed", and nothing may be sent after it. */
+        @Test
+        void modeRead_transportFailure_propagatesAndSendsNothing() {
+            when(rpc.callSync(eq(GET_VARC_INT), anyMap())).thenThrow(new RpcException("pipe closed"));
+
+            assertThrows(RpcException.class, () -> dialog.isOpen());
+            assertThrows(RpcException.class, () -> dialog.enterAmount(3));
+            assertThrows(RpcException.class, () -> dialog.submit());
+
+            verifyNothingQueued();
+        }
+
+        @Test
+        void textRead_transportFailure_propagatesAndSendsNothing() {
+            dialogMode(MODE_AMOUNT);
+            when(rpc.callSync(eq(GET_VARC_STRING), anyMap())).thenThrow(new RpcException("pipe closed"));
+
+            assertThrows(RpcException.class, () -> dialog.enterAmount(3));
+            assertThrows(RpcException.class, () -> dialog.clear());
+
+            verifyNothingQueued();
         }
     }
 
