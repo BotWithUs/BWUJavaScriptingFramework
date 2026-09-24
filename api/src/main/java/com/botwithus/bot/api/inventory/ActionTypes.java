@@ -78,7 +78,9 @@ public final class ActionTypes {
     // Fire a component's CS2 event trigger (click/key/...) by event type.
     //   param1 = compHash    = (ifaceId << 16) | componentId
     //   param2 = (triggerType << 16) | (subId & 0xFFFF)   // subId i16, 0xFFFF = top-level
-    //   param3 = arg0        = key code for keys; packed (x << 16) | y for clicks; 0 if unused
+    //   param3 = arg0        = keys: KeyStroke.packed(), (keyCode << 16) | keyChar;
+    //                          clicks: packed (x << 16) | y; 0 if unused
+    // Build one with GameAction.componentTrigger(...).
     public static final int COMPONENT_TRIGGER = 5003;
     public static final int COMPONENT_SPECIAL = 1007;
 
