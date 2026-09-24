@@ -1,7 +1,10 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.input.InputDialog;
 import com.botwithus.bot.api.input.InputMode;
+import com.botwithus.bot.api.input.KeyStroke;
+import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
@@ -110,10 +113,39 @@ class LiveInputDialogTest {
         transfer(start, "withdraw-X");
     }
 
+    /**
+     * The pattern scripts written against the old javadoc use: type with the
+     * type-only {@code fireKeyTrigger}, then submit with a <b>bare</b> Enter key
+     * code through {@code fireComponentTrigger}. Unnormalised, that {@code 84}
+     * would type a {@code 'T'} and never submit, and the count would not move.
+     */
+    @Test
+    void legacyScriptPattern_typeThenBareEnterKeyCode_submits() throws InterruptedException {
+        int start = api.backpack().count(item);
+
+        assertTrue(bank.startDepositX(item), "deposit-X menu op queued");
+        transfer(start - amount, "deposit-X (legacy)", this::typeThenLegacyEnter);
+
+        assertTrue(bank.startWithdrawX(item), "withdraw-X menu op queued");
+        transfer(start, "withdraw-X (legacy)", this::typeThenLegacyEnter);
+    }
+
+    private boolean typeThenLegacyEnter() {
+        api.fireKeyTrigger(InputDialog.INTERFACE_ID, InputDialog.INPUT_COMPONENT, Integer.toString(amount));
+        api.fireComponentTrigger(InputDialog.INTERFACE_ID, InputDialog.INPUT_COMPONENT,
+                GameAPI.TOP_LEVEL_COMPONENT, ActionTypes.TRIGGER_TYPE_KEY, KeyStroke.CODE_ENTER);
+        return true;
+    }
+
     private void transfer(int expectedCount, String what) throws InterruptedException {
+        transfer(expectedCount, what, () -> bank.finishTransferX(amount));
+    }
+
+    private void transfer(int expectedCount, String what, BooleanSupplier submitAmount)
+            throws InterruptedException {
         assertTrue(await(() -> api.inputDialog().mode() == InputMode.AMOUNT, DIALOG_TIMEOUT_MS),
                 what + ": the enter-amount dialog never opened (varc 5 != 7)");
-        assertTrue(bank.finishTransferX(amount), what + ": finishTransferX refused an open amount dialog");
+        assertTrue(submitAmount.getAsBoolean(), what + ": the amount was refused by an open amount dialog");
 
         assertTrue(await(() -> api.backpack().count(item) == expectedCount, TRANSFER_TIMEOUT_MS),
                 what + ": backpack count never reached " + expectedCount + ", now " + api.backpack().count(item));

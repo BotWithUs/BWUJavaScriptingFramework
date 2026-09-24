@@ -13,7 +13,15 @@ public enum InputMode {
     /** A quantity ("Enter amount:"), e.g. withdraw-X / deposit-X. */
     AMOUNT(7),
     /** A dialog is open in a mode this API has no verified limits for. */
-    OTHER(-1);
+    OTHER(Integer.MIN_VALUE);
+
+    /**
+     * What {@code MESLAYERMODE} reads before any dialog has opened this session.
+     * Observed live on 950-1 right after login. It is the same value
+     * {@code getVarcInt} yields for an unresolvable variable, and it is closed in
+     * both cases.
+     */
+    private static final int NEVER_SET = -1;
 
     private final int varcValue;
 
@@ -21,8 +29,15 @@ public enum InputMode {
         this.varcValue = varcValue;
     }
 
-    /** The mode a {@code MESLAYERMODE} value names; {@link #OTHER} for any value not listed here. */
+    /**
+     * The mode a {@code MESLAYERMODE} value names. {@code -1}, the value before any
+     * dialog has opened, is {@link #CLOSED}. Any other value not listed here is
+     * {@link #OTHER}.
+     */
     public static InputMode fromVarc(int value) {
+        if (value == NEVER_SET) {
+            return CLOSED;
+        }
         for (InputMode mode : values()) {
             if (mode != OTHER && mode.varcValue == value) {
                 return mode;

@@ -317,6 +317,17 @@ class GameAPIImplInputTest {
             assertFalse(dialog.isOpen());
         }
 
+        /** Live on 950-1, MESLAYERMODE reads -1 after login until a dialog first opens. */
+        @Test
+        void mode_neverOpenedThisSession_isClosed() {
+            dialogMode(-1);
+
+            assertEquals(InputMode.CLOSED, dialog.mode());
+            assertFalse(dialog.isOpen());
+            assertFalse(dialog.enterAmount(3));
+            verifyNothingQueued();
+        }
+
         /** The typed-text variable keeps its value after close, so a closed dialog must not report it. */
         @Test
         void text_closedDialog_isEmptyWithoutReadingTheStaleVariable() {
