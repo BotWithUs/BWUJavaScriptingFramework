@@ -83,10 +83,10 @@ public final class InputDialog {
     public static final long MAX_AMOUNT_VALUE = Integer.MAX_VALUE;
 
     /**
-     * Digits, then at most one {@code k}, {@code K} or {@code m} suffix. Uppercase
-     * {@code M} is refused until it is verified live.
+     * Digits, then at most one {@code k}/{@code K} (thousand) or {@code m}/{@code M}
+     * (million) suffix. Both cases of {@code m} were verified live to mean a million.
      */
-    private static final Pattern AMOUNT = Pattern.compile("([0-9]+)([kKm]?)");
+    private static final Pattern AMOUNT = Pattern.compile("([0-9]+)([kKmM]?)");
     private static final long THOUSAND = 1_000L;
     private static final long MILLION = 1_000_000L;
     /** Letters, digits, space and {@code _-.!}; case is kept. */
@@ -143,12 +143,14 @@ public final class InputDialog {
     }
 
     /**
-     * Type {@code amount} and submit it. Accepts digits with an optional
-     * {@code k}, {@code K} or {@code m} suffix after at least one digit, such as
-     * {@code "250"}, {@code "10k"} or {@code "2m"}. The limits are
-     * {@link #MAX_AMOUNT_LENGTH} characters in all and {@link #MAX_AMOUNT_VALUE}
-     * once the suffix is expanded. Uppercase {@code M} is refused until it is
-     * verified live. Needs the dialog open in {@link InputMode#AMOUNT}.
+     * Type {@code amount} and submit it. Accepts digits with an optional suffix
+     * after at least one digit: {@code k}/{@code K} for thousands or
+     * {@code m}/{@code M} for millions, such as {@code "250"}, {@code "10k"} or
+     * {@code "2M"}. The limits are {@link #MAX_AMOUNT_LENGTH} characters in all
+     * and {@link #MAX_AMOUNT_VALUE} once the suffix is expanded. Needs the dialog
+     * open in {@link InputMode#AMOUNT}. After a submit, the dialog's text
+     * variable holds the expanded digits ({@code "1M"} reads back as
+     * {@code "1000000"}).
      *
      * <p>The dialog appends to whatever it already holds, so the check also
      * applies to the existing {@link #text()} followed by {@code amount}.
@@ -160,7 +162,7 @@ public final class InputDialog {
      * @throws IllegalArgumentException when {@code amount} on its own is not a
      *                                  value amount mode accepts ({@code "b"},
      *                                  {@code "1.5k"}, {@code "k5"}, {@code "5kk"},
-     *                                  {@code "5M"}, {@code "2148m"}, blank, too long)
+     *                                  {@code "M5"}, {@code "2148m"}, blank, too long)
      */
     public boolean enterAmount(String amount) {
         requireAccepted(amount, InputDialog::isAcceptedAmount, "amount");
@@ -236,7 +238,7 @@ public final class InputDialog {
         long base = Long.parseLong(digits);
         return switch (suffix) {
             case "k", "K" -> base * THOUSAND;
-            case "m" -> base * MILLION;
+            case "m", "M" -> base * MILLION;
             default -> base;
         };
     }

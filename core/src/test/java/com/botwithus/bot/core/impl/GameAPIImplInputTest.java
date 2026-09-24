@@ -160,7 +160,8 @@ class GameAPIImplInputTest {
         }
 
         @ParameterizedTest
-        @ValueSource(strings = {"1234567890", "2147483647", "2147483k", "2147483K", "2147m", "0", "1m"})
+        @ValueSource(strings = {"1234567890", "2147483647", "2147483k", "2147483K", "2147m", "2147M", "0", "1m", "1M",
+                "5K", "5M"})
         void enterAmount_atOrUnderTheLimits_isAccepted(String amount) {
             dialogMode(MODE_AMOUNT);
 
@@ -175,13 +176,13 @@ class GameAPIImplInputTest {
         }
 
         /**
-         * {@code M} is refused until verified live; the others break the charset,
-         * the suffix rule, the ten-character limit or the int range once expanded.
+         * Each breaks the charset, the one-trailing-suffix rule, the ten-character
+         * limit or the int range once expanded.
          */
         @ParameterizedTest
         @ValueSource(strings = {"", "b", "5b", "1.5k", "1 000", "k", "k5", "5kk", "5k0", "-5",
-                "5M", "1M", "12345678901", "123456789kk", "2147483648", "2147484k", "2148m",
-                "9999999999", "999999999m"})
+                "5MM", "M5", "12345678901", "123456789kk", "2147483648", "2147484k", "2148m",
+                "2148M", "9999999999", "999999999m"})
         void enterAmount_valueTheDialogRefuses_throwsAndSendsNothing(String amount) {
             dialogMode(MODE_AMOUNT);
 
