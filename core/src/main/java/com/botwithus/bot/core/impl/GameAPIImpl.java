@@ -21,6 +21,7 @@ import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.api.input.InputDialog;
+import com.botwithus.bot.api.input.KeyStroke;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
@@ -633,7 +634,8 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public void fireComponentTrigger(int interfaceId, int componentId, int subId,
                                      int triggerType, int arg) {
-        queueAction(GameAction.componentTrigger(interfaceId, componentId, subId, triggerType, arg));
+        int wireArg = triggerType == ActionTypes.TRIGGER_TYPE_KEY ? KeyStroke.keyTriggerArg(arg) : arg;
+        queueAction(GameAction.componentTrigger(interfaceId, componentId, subId, triggerType, wireArg));
     }
 
     // ---------------------------------------------------------------- Interface tree walk

@@ -2,6 +2,7 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.input.InputDialog;
 import com.botwithus.bot.api.input.InputMode;
+import com.botwithus.bot.api.input.KeyStroke;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.core.rpc.RpcClient;
 import org.junit.jupiter.api.BeforeEach;
@@ -336,6 +337,40 @@ class GameAPIImplInputTest {
             api.fireKeyTrigger(1469, 4, "3");
 
             assertEquals(rows(CHAR_3), sentBatch());
+        }
+
+        /**
+         * The documented form: a bare key code. Scripts pass {@code 84} for Enter,
+         * which unpacked raw would be character 84, a {@code 'T'}.
+         */
+        @Test
+        void fireComponentTrigger_bareKeyCode_isSentAsAKeyDown() {
+            api.fireComponentTrigger(1469, 4, -1, 10, 84);
+
+            verify(rpc).callSync(eq("queue_action"), eq(Map.of("action_id", COMPONENT_TRIGGER,
+                    "param1", INPUT_FIELD_HASH, "param2", KEY_TRIGGER_TOP_LEVEL, "param3", 0x00540000)));
+        }
+
+        @Test
+        void fireComponentTrigger_packedStroke_passesThrough() {
+            api.fireComponentTrigger(1469, 4, -1, 10, KeyStroke.character('5').packed());
+
+            verify(rpc).callSync(eq("queue_action"), eq(Map.of("action_id", COMPONENT_TRIGGER,
+                    "param1", INPUT_FIELD_HASH, "param2", KEY_TRIGGER_TOP_LEVEL, "param3", typed('5'))));
+        }
+
+        /** Only key triggers are normalised; a click's packed press coordinates are left alone. */
+        @Test
+        void fireComponentTrigger_clickArg_isNotTouched() {
+            int pressAt = (3 << 16) | 7;
+
+            api.fireComponentTrigger(1469, 4, -1, 9, pressAt);
+            api.fireComponentTrigger(1469, 4, -1, 9, 84);
+
+            verify(rpc).callSync(eq("queue_action"), eq(Map.of("action_id", COMPONENT_TRIGGER,
+                    "param1", INPUT_FIELD_HASH, "param2", (9 << 16) | 0xFFFF, "param3", pressAt)));
+            verify(rpc).callSync(eq("queue_action"), eq(Map.of("action_id", COMPONENT_TRIGGER,
+                    "param1", INPUT_FIELD_HASH, "param2", (9 << 16) | 0xFFFF, "param3", 84)));
         }
 
         @Test

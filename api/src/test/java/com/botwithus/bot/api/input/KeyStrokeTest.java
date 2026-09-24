@@ -49,6 +49,22 @@ class KeyStrokeTest {
     }
 
     @Test
+    void keyTriggerArg_bareKeyCode_becomesAKeyDown() {
+        assertEquals(0x00540000, KeyStroke.keyTriggerArg(84));
+        assertEquals(KeyStroke.ENTER.packed(), KeyStroke.keyTriggerArg(KeyStroke.CODE_ENTER));
+        assertEquals(0, KeyStroke.keyTriggerArg(0));
+    }
+
+    @Test
+    void keyTriggerArg_packedStroke_passesThrough() {
+        int typed5 = KeyStroke.character('5').packed();
+
+        assertEquals(typed5, KeyStroke.keyTriggerArg(typed5));
+        assertEquals(KeyStroke.ENTER.packed(), KeyStroke.keyTriggerArg(KeyStroke.ENTER.packed()));
+        assertEquals(-65523, KeyStroke.keyTriggerArg(-65523), "(-1, 13) is packed, not a key code");
+    }
+
+    @Test
     void componentTrigger_packsLikeTheScenario() {
         GameAction action = GameAction.componentTrigger(1469, 4, -1,
                 ActionTypes.TRIGGER_TYPE_KEY, KeyStroke.ENTER.packed());

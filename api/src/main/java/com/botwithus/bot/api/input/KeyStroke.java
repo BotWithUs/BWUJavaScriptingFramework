@@ -76,6 +76,23 @@ public record KeyStroke(int keyCode, int keyChar) {
     }
 
     /**
+     * The wire argument for a key trigger fired through
+     * {@link com.botwithus.bot.api.GameAPI#fireComponentTrigger}, which accepts
+     * two forms. An {@code arg} whose high half is zero ({@code 0..0xFFFF}) is a
+     * bare key code, as that method has always documented, and becomes a key-down
+     * {@code (arg << 16) | 0}. Any other {@code arg} is already
+     * {@link #packed()} and passes through unchanged. The two cannot be confused:
+     * the engine never produces key code {@code 0}, and a character event carries
+     * {@link #NO_KEY_CODE}, so its high half is {@code 0xFFFF}.
+     */
+    public static int keyTriggerArg(int arg) {
+        if ((arg >>> CHAR_BITS) == 0) {
+            return arg << CHAR_BITS;
+        }
+        return arg;
+    }
+
+    /**
      * The trigger argument this stroke travels as:
      * {@code (keyCode << 16) | keyChar}, the code sign-carried in the high half.
      */

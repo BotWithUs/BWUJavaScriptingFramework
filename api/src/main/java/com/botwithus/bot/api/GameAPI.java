@@ -399,12 +399,19 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * @param subId       sub-component id, or {@code -1} for the top-level component
      * @param triggerType event type — {@code 9} = click, {@code 10} = key
      *                    (see {@code ActionTypes.TRIGGER_TYPE_*})
-     * @param arg         type-dependent argument: for key triggers a packed
-     *                    {@link KeyStroke#packed()} ({@code (keyCode << 16) | keyChar}),
-     *                    <em>not</em> a bare key code, which the game would read
-     *                    as a character; packed {@code (x << 16) | y}
-     *                    component-relative press coordinates for click triggers;
-     *                    {@code 0} if unused
+     * @param arg         type-dependent argument. For key triggers, either form:
+     *                    <ul>
+     *                      <li>a bare Jagex <b>key code</b> ({@code 0..0xFFFF}, e.g.
+     *                          {@link KeyStroke#CODE_ENTER}): sent as a key-down with
+     *                          no character, {@code (arg << 16) | 0};</li>
+     *                      <li>a packed {@link KeyStroke#packed()}
+     *                          ({@code (keyCode << 16) | keyChar}, non-zero high
+     *                          half): sent unchanged. Use this to type a character
+     *                          ({@code KeyStroke.character(c).packed()}).</li>
+     *                    </ul>
+     *                    See {@link KeyStroke#keyTriggerArg(int)}. For click triggers,
+     *                    packed {@code (x << 16) | y} component-relative press
+     *                    coordinates. {@code 0} if unused.
      */
     void fireComponentTrigger(int interfaceId, int componentId, int subId, int triggerType, int arg);
 
