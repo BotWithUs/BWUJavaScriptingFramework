@@ -27,6 +27,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
@@ -146,8 +148,29 @@ public final class NXTCache implements AutoCloseable {
     private static final MethodHandle MH_WORLDMAP = dl("nxt_get_worldmap_json", jsonFd());
     private static final MethodHandle MH_DBROW    = dl("nxt_get_dbrow_json",    jsonFd());
 
+    /**
+     * {@code nxt_get_varp_info}, bound optionally: a build of NXTCache.dll that predates it
+     * must still load, with varp defaults simply unverified. A hard lookup here would fail
+     * this class's initialisation and take every cache feature down with it.
+     */
+    private static final Optional<MethodHandle> MH_VARP_INFO = LIB.find("nxt_get_varp_info")
+            .map(sym -> LINKER.downcallHandle(sym,
+                    FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS)));
+
+    /**
+     * The varp the warm-up asks about. Any id works: the point is to make the library load
+     * the varp config group once, off every script's path.
+     */
+    private static final int WARMUP_VARP_ID = 0;
+
+    private static final VarpCacheInfo VARP_INFO_UNKNOWN = new VarpCacheInfo.Unknown();
+
     private final MemorySegment handle;
     private final HandleGuard guard;
+    /** Definitive varp answers (found, or not found) for this cache's lifetime. */
+    private final Map<Integer, VarpCacheInfo> varpInfoMemo = new ConcurrentHashMap<>();
+    /** Set once the background warm-up call has returned; until then no read asks. */
+    private volatile boolean isVarpInfoWarm;
 
     private NXTCache(MemorySegment handle, HandleGuard guard) {
         this.handle = handle;
@@ -207,7 +230,9 @@ public final class NXTCache implements AutoCloseable {
      *         degrading, so the operator sees their own typo.
      */
     public static NXTCache openForHost() throws IOException {
-        return open(new CacheSourceResolver().resolve());
+        NXTCache cache = open(new CacheSourceResolver().resolve());
+        cache.startVarpInfoWarmup();
+        return cache;
     }
 
     /**
@@ -231,7 +256,9 @@ public final class NXTCache implements AutoCloseable {
      * @throws IOException if the resolved source cannot be opened
      */
     public static NXTCache openForHost(long clientPid) throws IOException {
-        return open(new CacheSourceResolver(clientPid).resolve());
+        NXTCache cache = open(new CacheSourceResolver(clientPid).resolve());
+        cache.startVarpInfoWarmup();
+        return cache;
     }
 
     /** Opens an already-decided {@link CacheSource}, logging which mode was taken. */
@@ -503,6 +530,72 @@ public final class NXTCache implements AutoCloseable {
             } finally {
                 MH_FREE.invokeExact(buf);
             }
+        }
+    }
+
+    // ----------------------------------------------------------- Varp info
+
+    /**
+     * What the cache knows about varp {@code id}: exists with a known default, exists with an
+     * unknown default, no such varp, or unknown. Never throws and never blocks a caller on the
+     * cache's first load: until {@link #startVarpInfoWarmup()} has finished, the answer is
+     * {@link VarpCacheInfo.Unknown}. Definitive answers are memoised; failures are retried.
+     */
+    public VarpCacheInfo varpInfo(int id) {
+        if (MH_VARP_INFO.isEmpty() || !isVarpInfoWarm) {
+            return VARP_INFO_UNKNOWN;
+        }
+        VarpCacheInfo known = varpInfoMemo.get(id);
+        return known != null ? known : queryVarpInfo(id);
+    }
+
+    /** True when this NXTCache.dll build can report varp definitions at all. */
+    public static boolean supportsVarpInfo() {
+        return MH_VARP_INFO.isPresent();
+    }
+
+    /** True once the warm-up has finished and {@link #varpInfo(int)} consults the cache. */
+    public boolean isVarpInfoWarm() {
+        return isVarpInfoWarm;
+    }
+
+    /**
+     * Loads the varp config group once, on a background thread, so the first varp read on a
+     * script's thread does not pay for it. Idempotent in effect; host factories call it.
+     */
+    public void startVarpInfoWarmup() {
+        if (MH_VARP_INFO.isEmpty()) {
+            log.info("NXTCache: this NXTCache.dll has no nxt_get_varp_info; varp defaults "
+                    + "are reported unverified");
+            return;
+        }
+        Thread.ofVirtual().name("nxtcache-varp-warmup").start(() -> {
+            queryVarpInfo(WARMUP_VARP_ID);
+            isVarpInfoWarm = true;
+        });
+    }
+
+    private VarpCacheInfo queryVarpInfo(int id) {
+        try {
+            return guard.call(() -> queryVarpInfoLocked(id));
+        } catch (Throwable t) {
+            log.debug("NXTCache: varp info for {} unavailable", id, t);
+            return VARP_INFO_UNKNOWN;
+        }
+    }
+
+    private VarpCacheInfo queryVarpInfoLocked(int id) throws Throwable {
+        try (Arena tmp = Arena.ofConfined()) {
+            MemorySegment info = tmp.allocate(VarpInfoAbi.LAYOUT);
+            VarpInfoAbi.prepare(info);
+            int rc = (int) MH_VARP_INFO.orElseThrow().invokeExact(handle, id, info);
+            VarpCacheInfo result = VarpInfoAbi.classify(rc, info);
+            if (VarpInfoAbi.isMemoisable(rc, result)) {
+                varpInfoMemo.put(id, result);
+            } else if (rc != NXT_OK) {
+                log.debug("NXTCache: nxt_get_varp_info({}) rc={}: {}", id, rc, lastError());
+            }
+            return result;
         }
     }
 

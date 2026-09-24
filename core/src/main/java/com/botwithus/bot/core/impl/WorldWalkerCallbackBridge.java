@@ -6,7 +6,7 @@ import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.GameAction;
-import com.botwithus.bot.api.model.VarbitValue;
+import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
@@ -115,10 +115,17 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         return caps.build();
     }
 
+    /**
+     * The walker's C ABI treats {@code 0} as "not present", so a varbit with no value (no
+     * such varbit, or its base could not be read) is reported as {@code 0}, never as the
+     * host's {@code -1} sentinel: a gate compared with {@code != 0} must stay shut. A varbit
+     * that has a value is reported as-is, including a full-width one that decodes to
+     * {@code -1}.
+     */
     @Override
     public int readVarbit(int id) {
         try {
-            return api.getVarbit(id);
+            return walkerValue(api.readVarbit(id));
         } catch (RuntimeException e) {
             log.debug("readVarbit({}) failed: {}", id, e.toString());
             return 0;
@@ -198,9 +205,9 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     @Override
     public void readVarbits(int[] ids, int[] outValues) {
         // Single batched call replaces N sequential get_varp pipe round-trips.
-        // api.queryVarbits resolves each varbit's def locally from the cache,
-        // groups by varp/varc base, and issues at most two RPC calls regardless
-        // of how many varbits are passed in.
+        // api.readVarbits resolves each varbit's def locally from the cache,
+        // groups by varp/varc base, and issues one RPC per domain per 256 distinct
+        // bases, however many varbits are passed in.
         if (ids.length == 0) {
             return;
         }
@@ -209,17 +216,17 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
             for (int id : ids) {
                 idList.add(id);
             }
-            List<VarbitValue> results = api.queryVarbits(idList);
-            // queryVarbits preserves input order (one entry per input id), so a
+            List<VarbitRead> results = api.readVarbits(idList);
+            // readVarbits preserves input order (one entry per input id), so a
             // size mismatch is a host-side bug; defend with a zero-fill rather
             // than a partial write that mis-pairs ids and values.
             if (results.size() != ids.length) {
-                log.warn("ww readVarbits: queryVarbits returned {} entries for {} ids",
+                log.warn("ww readVarbits: readVarbits returned {} entries for {} ids",
                         results.size(), ids.length);
                 return;
             }
             for (int i = 0; i < ids.length; i++) {
-                outValues[i] = results.get(i).value();
+                outValues[i] = walkerValue(results.get(i));
             }
         } catch (RuntimeException e) {
             log.debug("readVarbits({} ids) failed: {}", ids.length, e.toString());
@@ -227,6 +234,11 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
             // leaving it alone yields the same "all-zero / not present" view
             // the scalar fallback would on per-id exception.
         }
+    }
+
+    /** The value to hand the walker: the decoded bits, or 0 ("not present") when there are none. */
+    private static int walkerValue(VarbitRead read) {
+        return read.hasValue() ? read.value() : 0;
     }
 
     @Override

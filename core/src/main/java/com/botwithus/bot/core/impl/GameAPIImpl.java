@@ -48,6 +48,8 @@ import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitType;
 import com.botwithus.bot.api.model.VarbitValue;
+import com.botwithus.bot.api.model.VarpRead;
+import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldPathConfig;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
@@ -55,6 +57,7 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.cache.NXTCache;
+import com.botwithus.bot.core.cache.VarpCacheInfo;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcRemoteException;
@@ -72,12 +75,9 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1397,45 +1397,83 @@ public class GameAPIImpl implements GameAPI {
 
     // ---------------------------------------------------------------- Game variables (varp / varc / varbit)
     //
-    // varp / varc reads are raw producer round-trips (it walks the live variable
-    // hashmap on the game thread). Varbit decoding is composed here: read the
-    // varbit's base variable, then shift/mask with the bit range from the cache
-    // type config — the producer never needs to know about varbits.
-    //
-    // Only the BATCH var RPCs report, per id, whether the domain held a node at
-    // all; the single-varp RPC carries the value alone. Every varbit read
-    // therefore goes through the batch path, because "the domain has no node
-    // for this varp" and "this varp holds -1" are the same reply on the scalar
-    // one — and the two decode to opposite answers for an unlock flag.
-
-    // VarbitType.domainType discriminator: 0 means the base variable lives in
-    // the player-varp hashmap; any other value means it lives in the client-varc
-    // hashmap. Wire constant defined by the cache type config, not invented here.
-    private static final int VARBIT_DOMAIN_PLAYER = 0;
-
-    // A varbit packs into [lsb, msb] of a 32-bit int; any width > 32 is malformed.
-    private static final int VARBIT_MAX_WIDTH = 32;
-
-    /**
-     * Returned for a varbit id the cache has no type config for, and for a def
-     * whose bit range is malformed. Means "this id names nothing decodable",
-     * which is a different answer from {@link #VARBIT_BASE_UNSET}.
-     */
-    private static final int VARBIT_UNKNOWN = -1;
-
-    /**
-     * Returned for a known varbit whose base variable has no node in its
-     * domain. The engine's own domain lookup hands its bit extractor a
-     * defaulted node rather than failing, so an unset base reads as zero — it
-     * is never "unknown", and it is never the {@code -1} placeholder the batch
-     * reply parks in the values array, which would set every bit of the range.
-     */
-    private static final int VARBIT_BASE_UNSET = 0;
+    // Varps go through VarpReader, which composes the agent's per-id state with the
+    // cache's varp definitions (see its javadoc for predicate and message). Every
+    // varp and varbit accessor, scalar or batch, uses the batch RPC: it is the one
+    // that carries per-id state, and one path means the int and read* forms agree.
+    // Varc reads stay raw: the agent reports no state for client variables.
 
     @Override
     public int getVarp(int varId) {
-        Map<String, Object> r = rpc.callSync("get_varp", Map.of("var_id", varId));
-        return getInt(r, "value");
+        return readVarp(varId).value();
+    }
+
+    @Override
+    public long getVarpLong(int varId) {
+        return readVarp(varId).value64();
+    }
+
+    @Override
+    public VarpRead readVarp(int varId) {
+        return readVarps(List.of(varId)).getFirst();
+    }
+
+    @Override
+    public List<VarpRead> readVarps(List<Integer> varIds) {
+        return varps().readVarps(varIds);
+    }
+
+    @Override
+    public List<Integer> getVarps(List<Integer> varIds) {
+        return readVarps(varIds).stream().map(VarpRead::value).toList();
+    }
+
+    @Override
+    public int getVarbit(int varbitId) {
+        return readVarbit(varbitId).value();
+    }
+
+    @Override
+    public VarbitRead readVarbit(int varbitId) {
+        return readVarbits(List.of(varbitId)).getFirst();
+    }
+
+    @Override
+    public List<VarbitRead> readVarbits(List<Integer> varbitIds) {
+        return varps().readVarbits(varbitIds);
+    }
+
+    @Override
+    public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
+        return readVarbits(varbitIds).stream()
+                .map(r -> new VarbitValue(r.id(), r.value()))
+                .toList();
+    }
+
+    /** Built per call: it captures this instance's overridable lookups. */
+    private VarpReader varps() {
+        return new VarpReader(rpc::callSync, this::getVarbitType, this::getVarpCacheInfo);
+    }
+
+    /**
+     * Resolves a varbit's type config from the cache.
+     *
+     * <p>Package-private and overridable rather than inlined, so the decode
+     * contract can be covered headlessly: {@link NXTCache} is a final class whose
+     * static initialiser loads a native library through Panama, so a unit test
+     * can neither construct nor mock one. See {@code GameAPIImplVarbitTest}.</p>
+     */
+    VarbitType getVarbitType(int varbitId) {
+        return requireCache().getVarbit(varbitId);
+    }
+
+    /**
+     * What the cache knows about a varp: exists with a default, no such varp, or
+     * unknown. Overridable for the same reason as {@link #getVarbitType}. A host with no
+     * cache answers "unknown", so varp reads still work, with defaults unverified.
+     */
+    VarpCacheInfo getVarpCacheInfo(int varId) {
+        return cache == null ? new VarpCacheInfo.Unknown() : cache.varpInfo(varId);
     }
 
     @Override
@@ -1451,37 +1489,11 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
-    public int getVarbit(int varbitId) {
-        // Delegated to the batch path rather than decoding a getVarp result:
-        // the single-varp RPC carries no per-id "found" flag, so it cannot tell
-        // a base variable the domain has no node for (reported as a -1
-        // placeholder) from one that genuinely reads -1. Shifting that
-        // placeholder sets every bit of the varbit's range.
-        List<VarbitValue> resolved = queryVarbits(List.of(varbitId));
-        return resolved.isEmpty() ? VARBIT_UNKNOWN : resolved.getFirst().value();
-    }
-
-    /**
-     * Resolves a varbit's type config from the cache.
-     *
-     * <p>Package-private and overridable rather than inlined, so the decode
-     * contract above can be covered headlessly: {@link NXTCache} is a final
-     * class whose static initialiser loads a native library through Panama, so
-     * a unit test can neither construct nor mock one. See
-     * {@code GameAPIImplVarbitTest}.</p>
-     */
-    VarbitType getVarbitType(int varbitId) {
-        return requireCache().getVarbit(varbitId);
-    }
-
-    @Override
-    public List<Integer> getVarps(List<Integer> varIds) {
-        return readVarBatch("get_varps", varIds).values();
-    }
-
-    @Override
     public List<Integer> getVarcInts(List<Integer> varcIds) {
-        return readVarBatch("get_varcs_int", varcIds).values();
+        if (varcIds.isEmpty()) {
+            return List.of();
+        }
+        return VarBatchReply.parse(rpc.callSync("get_varcs_int", Map.of("ids", varcIds))).values();
     }
 
     @Override
@@ -1491,117 +1503,6 @@ public class GameAPIImpl implements GameAPI {
         }
         Map<String, Object> r = rpc.callSync("get_varcs_string", Map.of("ids", varcIds));
         return getStringList(r, "values");
-    }
-
-    /**
-     * One batched var read, keeping the producer's per-id {@code found} flags
-     * alongside the values. The raw accessors above drop the flags on purpose —
-     * {@code -1} is their contract for "unset" — but the varbit decode cannot,
-     * because it shifts the value and a shifted placeholder is indistinguishable
-     * from a real reading.
-     */
-    private VarBatchReply readVarBatch(String method, List<Integer> ids) {
-        if (ids.isEmpty()) {
-            return VarBatchReply.empty();
-        }
-        return VarBatchReply.parse(rpc.callSync(method, Map.of("ids", ids)));
-    }
-
-    @Override
-    public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
-        if (varbitIds.isEmpty()) {
-            return List.of();
-        }
-        // Resolve every def up front; partition into the two base-variable
-        // domains so each domain takes exactly one batched round-trip
-        // regardless of how many varbits share a base.
-        int n = varbitIds.size();
-        VarbitType[] defs = new VarbitType[n];
-        LinkedHashSet<Integer> varpBases = new LinkedHashSet<>();
-        LinkedHashSet<Integer> varcBases = new LinkedHashSet<>();
-        for (int i = 0; i < n; i++) {
-            VarbitType def = getVarbitType(varbitIds.get(i));
-            defs[i] = def;
-            if (def == null) {
-                continue;
-            }
-            (def.domainType() == VARBIT_DOMAIN_PLAYER ? varpBases : varcBases).add(def.varId());
-        }
-
-        BaseReads varpReads = readBatchAsMap("get_varps", varpBases);
-        BaseReads varcReads = readBatchAsMap("get_varcs_int", varcBases);
-
-        List<VarbitValue> out = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) {
-            VarbitType def = defs[i];
-            int value = VARBIT_UNKNOWN;
-            if (def != null) {
-                BaseReads reads = def.domainType() == VARBIT_DOMAIN_PLAYER ? varpReads : varcReads;
-                if (reads.unavailable().contains(def.varId())) {
-                    // The agent could not make the read (not in game, timeout). That says
-                    // nothing about the variable, so it must not decode as a cleared 0:
-                    // a quest tracker would take that 0 as "not started".
-                    out.add(new VarbitValue(varbitIds.get(i), VARBIT_UNKNOWN));
-                    continue;
-                }
-                Integer base = reads.present().get(def.varId());
-                // Missing base → the producer reported no node in the domain
-                // (readBatchAsMap drops those), or the reply came back short of
-                // the request. The first case is the engine's own semantics: a
-                // defaulted node reads zero. The second fails closed the same
-                // way deliberately — decoding the -1 placeholder instead would
-                // set every bit of the range, so an unlock flag would read as
-                // unlocked on an account that never unlocked it.
-                value = base != null ? decodeVarbitBits(def, base) : VARBIT_BASE_UNSET;
-            }
-            out.add(new VarbitValue(varbitIds.get(i), value));
-        }
-        return out;
-    }
-
-    /**
-     * The base variables a varbit batch read back: the present ones with their stored value,
-     * and the ids whose read the agent reported as unavailable. An id in neither is absent
-     * (or its slot was truncated off the reply), which the caller decodes as unset.
-     */
-    private record BaseReads(Map<Integer, Integer> present, Set<Integer> unavailable) {
-        private static final BaseReads NONE = new BaseReads(Map.of(), Set.of());
-    }
-
-    private BaseReads readBatchAsMap(String method, LinkedHashSet<Integer> ids) {
-        if (ids.isEmpty()) {
-            return BaseReads.NONE;
-        }
-        List<Integer> keys = List.copyOf(ids);
-        VarBatchReply reply = readVarBatch(method, keys);
-        // Pair by index up to min(keys, values, found) so a producer-side
-        // truncation leaves the dropped keys absent rather than mispaired with
-        // a wrong value — and so a reply carrying no flags at all yields no
-        // entries rather than unflagged ones.
-        int paired = reply.pairedCount(keys.size());
-        Map<Integer, Integer> out = new LinkedHashMap<>(paired);
-        Set<Integer> unavailable = new HashSet<>();
-        for (int i = 0; i < paired; i++) {
-            // An id the domain had no node for is omitted rather than stored as
-            // its -1 placeholder, which is what makes the caller's null check
-            // mean "unset" instead of "either unset or truncated".
-            switch (reply.presenceAt(i)) {
-                case PRESENT -> out.put(keys.get(i), reply.value(i));
-                case UNAVAILABLE -> unavailable.add(keys.get(i));
-                case ABSENT -> { }
-            }
-        }
-        return new BaseReads(out, unavailable);
-    }
-
-    private static int decodeVarbitBits(VarbitType def, int base) {
-        int width = def.msb() - def.lsb() + 1;
-        if (width <= 0 || width > VARBIT_MAX_WIDTH) {
-            return VARBIT_UNKNOWN;
-        }
-        // width == 32 would make (1 << 32) wrap to 1 in Java; treat as all bits.
-        int mask = width == VARBIT_MAX_WIDTH ? -1 : (1 << width) - 1;
-        return (base >>> def.lsb()) & mask;
     }
 
     // ---------------------------------------------------------------- Obj vars

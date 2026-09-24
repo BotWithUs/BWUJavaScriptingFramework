@@ -37,10 +37,18 @@ import static com.botwithus.bot.core.impl.MapHelper.getIntList;
  * the ids past the shortest array unpaired ({@link #pairedCount}) rather than mispaired with
  * a neighbour's value.</p>
  *
- * @param values   one value per requested id, in request order
+ * <p>A {@code get_varps} reply from a current agent also carries {@code values64[]} (the
+ * full value: a LONG varp's 64 bits, anything else sign-extended) and {@code kinds[]} (how
+ * a present value is stored). Replies without them read as the 32-bit value sign-extended
+ * and an unknown kind.</p>
+ *
+ * @param values   one value per requested id, in request order (low 32 bits)
  * @param presence one presence per requested id, in request order
+ * @param values64 full-width values, parallel; empty when the reply has none
+ * @param kinds    the stored kind of each present value, parallel; empty when none
  */
-record VarBatchReply(List<Integer> values, List<Presence> presence) {
+record VarBatchReply(List<Integer> values, List<Presence> presence, List<Long> values64,
+                     List<Integer> kinds) {
 
     /** Whether a slot's value is real, a default, or not known at all. */
     enum Presence {
@@ -59,10 +67,21 @@ record VarBatchReply(List<Integer> values, List<Presence> presence) {
     private static final String VALUES = "values";
     private static final String STATES = "states";
     private static final String FOUND = "found";
+    private static final String VALUES64 = "values64";
+    private static final String KINDS = "kinds";
+
+    /** {@link #kindAt} when the reply carries no kind for the slot. */
+    static final int KIND_UNREPORTED = -1;
 
     VarBatchReply {
         values = List.copyOf(values);
         presence = List.copyOf(presence);
+        values64 = List.copyOf(values64);
+        kinds = List.copyOf(kinds);
+    }
+
+    VarBatchReply(List<Integer> values, List<Presence> presence) {
+        this(values, presence, List.of(), List.of());
     }
 
     static VarBatchReply empty() {
@@ -71,10 +90,21 @@ record VarBatchReply(List<Integer> values, List<Presence> presence) {
 
     static VarBatchReply parse(Map<String, Object> reply) {
         List<Integer> values = getIntList(reply, VALUES);
-        if (reply.containsKey(STATES)) {
-            return new VarBatchReply(values, fromStates(getIntList(reply, STATES)));
-        }
-        return new VarBatchReply(values, fromFound(getBoolList(reply, FOUND)));
+        List<Presence> presence = reply.containsKey(STATES)
+                ? fromStates(getIntList(reply, STATES))
+                : fromFound(getBoolList(reply, FOUND));
+        return new VarBatchReply(values, presence,
+                MapHelper.getLongList(reply, VALUES64), getIntList(reply, KINDS));
+    }
+
+    /** Slot {@code i}'s full-width value; the 32-bit value sign-extended when none was sent. */
+    long value64(int i) {
+        return i < values64.size() ? values64.get(i) : values.get(i);
+    }
+
+    /** Slot {@code i}'s stored kind as the wire numbers it, or {@link #KIND_UNREPORTED}. */
+    int kindAt(int i) {
+        return i < kinds.size() ? kinds.get(i) : KIND_UNREPORTED;
     }
 
     /**
