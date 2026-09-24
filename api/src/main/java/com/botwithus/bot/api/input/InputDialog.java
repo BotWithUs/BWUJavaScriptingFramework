@@ -200,6 +200,26 @@ public final class InputDialog {
     }
 
     /**
+     * Press Backspace {@code n} times, one per tick, in one batch. {@code false},
+     * sending nothing, when no dialog is open. {@code true} with nothing sent when
+     * {@code n} is {@code 0}. {@link #clear()} is the call for "delete everything".
+     *
+     * @throws IllegalArgumentException when {@code n} is negative
+     */
+    public boolean backspace(int n) {
+        if (n < 0) {
+            throw new IllegalArgumentException("backspace count must not be negative: " + n);
+        }
+        if (!isOpen()) {
+            return false;
+        }
+        if (n > 0) {
+            fire(Collections.nCopies(n, KeyStroke.BACKSPACE));
+        }
+        return true;
+    }
+
+    /**
      * Delete everything typed so far: one Backspace per character of
      * {@link #text()}, so it takes that many ticks. {@code false}, sending nothing,
      * when no dialog is open; {@code true} with nothing sent when it is already

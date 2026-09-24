@@ -339,6 +339,33 @@ class GameAPIImplInputTest {
             assertEquals(rows(BACKSPACE, BACKSPACE, BACKSPACE), sentBatch());
         }
 
+        /** Shared vector: {@code backspace(2)} is two key-downs of code 85. */
+        @Test
+        void backspace_two_sendsTwoBackspaceKeyCodes() {
+            dialogMode(MODE_AMOUNT);
+
+            assertTrue(dialog.backspace(2));
+
+            assertEquals(rows(BACKSPACE, BACKSPACE), sentBatch());
+        }
+
+        @Test
+        void backspace_zero_sendsNothing() {
+            dialogMode(MODE_NAME);
+
+            assertTrue(dialog.backspace(0));
+
+            verifyNothingQueued();
+        }
+
+        @Test
+        void backspace_negative_throwsWithoutReadingTheDialog() {
+            assertThrows(IllegalArgumentException.class, () -> dialog.backspace(-1));
+
+            verify(rpc, never()).callSync(eq(GET_VARC_INT), anyMap());
+            verifyNothingQueued();
+        }
+
         @Test
         void clear_emptyField_sendsNothing() {
             dialogMode(MODE_AMOUNT);
@@ -356,6 +383,7 @@ class GameAPIImplInputTest {
             assertFalse(dialog.submit());
             assertFalse(dialog.cancel());
             assertFalse(dialog.clear());
+            assertFalse(dialog.backspace(2));
 
             verifyNothingQueued();
         }
