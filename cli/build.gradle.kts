@@ -138,6 +138,10 @@ val preview: SourceSet by sourceSets.creating {
     runtimeClasspath += output + compileClasspath + sourceSets.main.get().runtimeClasspath
 }
 
+// The preview is not on any shipping path, so nothing else compiles it; without
+// this it could stop compiling and nobody would notice until the next UI change.
+tasks.named("check") { dependsOn(preview.classesTaskName) }
+
 tasks.register<JavaExec>("renderNormalModePreviews") {
     description = "Dev only: renders Normal mode from fixtures and writes one PNG per scenario to build/preview"
     group = "verification"

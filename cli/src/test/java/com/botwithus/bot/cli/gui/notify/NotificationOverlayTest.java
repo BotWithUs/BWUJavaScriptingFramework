@@ -98,7 +98,7 @@ class NotificationOverlayTest {
     }
 
     @Test
-    void expiredNotificationsAreCulledOnRender() {
+    void expiredNotificationsAreCulled() {
         StubBus bus = new StubBus();
         FakeClock clock = new FakeClock(Instant.parse("2025-01-01T00:00:00Z"));
         NotificationOverlay overlay = new NotificationOverlay(clock);
@@ -109,11 +109,10 @@ class NotificationOverlayTest {
 
         // Advance past TTL — the cull pass should drop it.
         clock.now = clock.now.plus(NotificationOverlay.DEFAULT_TTL).plus(Duration.ofSeconds(1));
-        // Render would normally call into ImGui — to keep the test
-        // headless, exercise just the cull-only loop via a direct expiry check.
-        Instant cutoff = clock.instant();
-        Notification n = overlay.active().iterator().next();
-        assertTrue(n.isExpired(cutoff));
+        assertTrue(overlay.active().iterator().next().isExpired(clock.instant()));
+        // cull() is the headless half of render(); render() calls it first.
+        overlay.cull();
+        assertTrue(overlay.active().isEmpty(), "an expired toast must be culled");
     }
 
     @Test

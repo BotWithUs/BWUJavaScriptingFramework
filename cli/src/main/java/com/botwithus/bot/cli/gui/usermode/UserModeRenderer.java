@@ -113,8 +113,9 @@ public class UserModeRenderer {
             ImGui.sameLine(0f, 0f);
             renderDrawer(drawerW, drawerFull, availH);
         }
+        boolean pickerWasOpen = picker.isOpen();
         picker.render(board::subscriptions).ifPresent(pick -> startPick(board, pick));
-        handleEscape();
+        handleEscape(pickerWasOpen);
         ImGui.popStyleColor(PAGE_COLOR_COUNT);
         ImGui.popStyleVar();
     }
@@ -195,8 +196,13 @@ public class UserModeRenderer {
         ImGui.endChild();
     }
 
-    private void handleEscape() {
-        if (picker.isOpen() || !inspector.isOpen() || ImGui.isAnyItemActive()) {
+    /**
+     * Esc closes the inspector, unless the picker was up this frame: the picker
+     * handles its own Esc and closes during its render, so checking only whether
+     * it is open now would let the same key press close the inspector too.
+     */
+    private void handleEscape(boolean pickerWasOpen) {
+        if (pickerWasOpen || picker.isOpen() || !inspector.isOpen() || ImGui.isAnyItemActive()) {
             return;
         }
         if (ImGui.isKeyPressed(ImGuiKey.Escape, false)) {
@@ -261,7 +267,11 @@ public class UserModeRenderer {
         if (clicked >= 0) {
             view = View.values()[clicked];
         }
-        if (clients.size() > ClientFilter.SEARCH_THRESHOLD) {
+        if (!ClientFilter.showsSearch(clients.size())) {
+            // The box is gone, so nothing may still be filtering by it; a stale
+            // query would otherwise come back the next time the box appears.
+            query.set("");
+        } else {
             float searchW = m.cardMinWidth() * SEARCH_WIDTH_OF_CARD;
             ImGui.setCursorScreenPos(segX - m.u(3) - searchW, y);
             ui.searchBox("##client-filter", query, "Filter by account or script", searchW, rowH, false);

@@ -8,6 +8,7 @@ import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ReconnectState;
+import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.impl.GameAPIImpl;
@@ -192,14 +193,24 @@ public final class LiveClientBoard implements ClientBoard {
         return conn.getAccountName() == null ? new ClientStatus.Loading() : new ClientStatus.Idle();
     }
 
-    /** The newest crash that ended a runner's current run, if any runner has one. */
     private static Optional<ClientStatus> latestCrash(List<ScriptRunner> runners) {
+        return crashedRunner(runners).map(r -> new ClientStatus.Crashed(infoOf(r),
+                crashSummary(r.health().lastCrash().orElseThrow())));
+    }
+
+    /**
+     * The runner whose current run ended in a crash, newest crash first — what
+     * the card shows as crashed and therefore what "Restart" restarts. A crash
+     * older than its runner's last start belongs to an earlier run and does not
+     * count, even if it is the newest crash on the client.
+     */
+    static Optional<ScriptRunner> crashedRunner(List<ScriptRunner> runners) {
         ScriptRunner newest = null;
         LastCrash newestCrash = null;
         for (ScriptRunner r : runners) {
             Optional<LastCrash> crash = r.health().lastCrash();
             Instant started = r.lastStartedAt();
-            if (crash.isEmpty() || started == null || crash.get().when().isBefore(started)) {
+            if (r.isRunning() || crash.isEmpty() || started == null || crash.get().when().isBefore(started)) {
                 continue;
             }
             if (newestCrash == null || crash.get().when().isAfter(newestCrash.when())) {
@@ -207,10 +218,7 @@ public final class LiveClientBoard implements ClientBoard {
                 newestCrash = crash.get();
             }
         }
-        if (newest == null) {
-            return Optional.empty();
-        }
-        return Optional.of(new ClientStatus.Crashed(infoOf(newest), crashSummary(newestCrash)));
+        return Optional.ofNullable(newest);
     }
 
     static String crashSummary(LastCrash crash) {
@@ -291,11 +299,16 @@ public final class LiveClientBoard implements ClientBoard {
     }
 
     private static boolean safeHasUi(BotScript script) {
+        return safeUi(script) != null;
+    }
+
+    /** Script code: a throwing {@code getUI()} reads as "no UI" rather than escaping the frame. */
+    private static ScriptUI safeUi(BotScript script) {
         try {
-            return script.getUI() != null;
+            return script.getUI();
         } catch (RuntimeException e) {
             log.debug("getUI() threw for {}: {}", script.getClass().getName(), e.toString());
-            return false;
+            return null;
         }
     }
 
@@ -307,7 +320,7 @@ public final class LiveClientBoard implements ClientBoard {
                 safeFields(runner.getScript()),
                 runner::getCurrentConfig,
                 runner::applyConfig,
-                runner.getScript().getUI(),
+                safeUi(runner.getScript()),
                 id -> itemName(conn, id),
                 runner::isDisposed);
     }
@@ -390,10 +403,7 @@ public final class LiveClientBoard implements ClientBoard {
             if (conn == null) {
                 return;
             }
-            conn.getRuntime().getRunners().stream()
-                    .filter(r -> r.health().lastCrash().isPresent() && !r.isRunning())
-                    .max(Comparator.comparing(r -> r.health().lastCrash().orElseThrow().when()))
-                    .ifPresent(ScriptRunner::start);
+            crashedRunner(conn.getRuntime().getRunners()).ifPresent(ScriptRunner::start);
         }
 
         @Override
