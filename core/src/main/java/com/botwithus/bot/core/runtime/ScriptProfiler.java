@@ -15,6 +15,7 @@ public class ScriptProfiler {
     private final AtomicLong minLoopNanos = new AtomicLong(Long.MAX_VALUE);
     private final AtomicLong maxLoopNanos = new AtomicLong(0);
     private final AtomicLong lastLoopNanos = new AtomicLong(0);
+    private final LoopHistory recent = new LoopHistory();
 
     public void recordLoop(long nanos) {
         loopCount.increment();
@@ -22,6 +23,7 @@ public class ScriptProfiler {
         lastLoopNanos.set(nanos);
         minLoopNanos.accumulateAndGet(nanos, Math::min);
         maxLoopNanos.accumulateAndGet(nanos, Math::max);
+        recent.record(nanos);
     }
 
     public long getLoopCount() { return loopCount.sum(); }
@@ -29,6 +31,14 @@ public class ScriptProfiler {
     public long getMinLoopNanos() { return loopCount.sum() > 0 ? minLoopNanos.get() : 0; }
     public long getMaxLoopNanos() { return maxLoopNanos.get(); }
     public long getLastLoopNanos() { return lastLoopNanos.get(); }
+
+    /**
+     * The most recent loop durations in nanoseconds, oldest first, at most
+     * {@link LoopHistory#DEFAULT_CAPACITY} of them. A copy; safe to keep.
+     */
+    public long[] recentLoopNanos() {
+        return recent.snapshot();
+    }
 
     public double avgLoopMs() {
         long count = loopCount.sum();
@@ -41,5 +51,6 @@ public class ScriptProfiler {
         minLoopNanos.set(Long.MAX_VALUE);
         maxLoopNanos.set(0);
         lastLoopNanos.set(0);
+        recent.clear();
     }
 }

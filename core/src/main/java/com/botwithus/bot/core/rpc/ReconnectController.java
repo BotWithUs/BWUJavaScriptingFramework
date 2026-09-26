@@ -145,6 +145,11 @@ public final class ReconnectController implements AutoCloseable {
         return stateRef.get();
     }
 
+    /** How many attempts the policy allows before the controller gives up. */
+    public int maxAttempts() {
+        return policy.maxAttempts();
+    }
+
     @Override
     public void close() {
         stopped.set(true);
