@@ -132,6 +132,7 @@ public class ImGuiApp extends Application {
 
     // Mode switching and the shared shell (top bar, Normal-mode clients page, status bar)
     private AppMode currentMode = AppMode.NORMAL;
+    private final ModeRequest modeRequest = new ModeRequest();
     private Controls ui;
     private ClientBoard board;
     private Shell shell;
@@ -359,7 +360,11 @@ public class ImGuiApp extends Application {
         // Execute queued GL operations (texture create/delete)
         textureManager.processPending();
 
-        currentMode = shell.render(currentMode, board, this::renderDeveloperMode, this::onToastAction);
+        // openLogs() runs inside render (card "View log", toast actions), so it
+        // requests the switch rather than setting currentMode, which the render's
+        // own result would overwrite.
+        currentMode = modeRequest.resolve(
+                shell.render(currentMode, board, this::renderDeveloperMode, this::onToastAction));
 
         // Render script custom UI as a floating window (outside the main window)
         if (scriptUIWindow != null && scriptUIWindow.isOpen()) {
@@ -552,7 +557,7 @@ public class ImGuiApp extends Application {
 
     /** Switches to Advanced, Logs panel, where script and connection logs are shown. */
     private void openLogs() {
-        currentMode = AppMode.ADVANCED;
+        modeRequest.request(AppMode.ADVANCED);
         selectedPanel = panels.indexOf(logsPanel);
     }
 
