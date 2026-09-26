@@ -11,7 +11,9 @@ module com.botwithus.bot.cli {
     requires transitive ch.qos.logback.core;
     requires transitive ch.qos.logback.classic;
     requires com.google.gson;
-    requires imgui.binding;
+    // transitive: the shared widget kit (Controls, UiFonts) takes ImFont / ImDrawList /
+    // ImString / ImInt in its public signatures.
+    requires transitive imgui.binding;
     requires org.lwjgl;
     requires org.lwjgl.glfw;
     requires org.lwjgl.opengl;
@@ -31,4 +33,6 @@ module com.botwithus.bot.cli {
     exports com.botwithus.bot.cli.stream;
     exports com.botwithus.bot.cli.gui;
     exports com.botwithus.bot.cli.gui.usermode;
+    exports com.botwithus.bot.cli.gui.usermode.board;
+    exports com.botwithus.bot.cli.gui.notify;
 }

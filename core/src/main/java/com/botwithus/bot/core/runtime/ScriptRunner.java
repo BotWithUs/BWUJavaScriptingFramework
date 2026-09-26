@@ -67,6 +67,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private final RunnerLiveness livenessState;
     private volatile CountDownLatch stopLatch;
     private volatile Thread thread;
+    private volatile Instant lastStartedAt;
     private String connectionName;
     private String accountUuid;
 
@@ -288,6 +289,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
             // quarantine it — and would make isStopRequested() true on its very
             // first loop. Safe to force LIVE here: terminal states returned above.
             livenessState.resetForRestart();
+            lastStartedAt = Instant.now();
             stopLatch = new CountDownLatch(1);
             String name = getScriptName();
             // rule-exception: {rule:prefer-virtual-threads} — see CLAUDE.md
@@ -386,6 +388,16 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
 
     public boolean isRunning() {
         return running.get();
+    }
+
+    /**
+     * When {@link #start()} last launched a run of this script, or {@code null}
+     * if it never has. A runner is reused across restarts, so comparing this with
+     * {@link LastCrash#when()} tells a crash of the current run apart from one
+     * left over from an earlier run.
+     */
+    public Instant lastStartedAt() {
+        return lastStartedAt;
     }
 
     public BotScript getScript() {
