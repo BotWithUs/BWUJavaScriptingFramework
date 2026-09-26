@@ -319,6 +319,16 @@ Intentionally violated rule:
 
 The pattern is *request context*, not *singleton service*: the value is per-thread, not shared, and the static API is the standard way to expose thread-local context to code (such as a custom `PrintStream`) that cannot accept an injected handle. Future-Java alternative: `ScopedValue` (preview in Java 21, stable in 25). When `ScopedValue` becomes baseline, revisit.
 
+### `core/.../sdn/SdnRendezvous.java` exchange locks
+
+`SdnRendezvous.exchangeLock(directory, requestSuffix)` hands out a fair `ReentrantLock` from a static `ConcurrentMap`, one per (directory, exchange). `SdnInstaller.install()` holds one for the whole request → wait → load → delete sequence, and `SdnCatalogueSource.fetch()` holds another.
+
+Intentionally violated rule:
+
+- **§Banned 5 (Mutable static)** — the lock map is process-global state. The launcher exchange has one request file per host *process*, named by pid, so the thing being guarded is process-global by construction and the guard has to match its scope. An injected lock excludes only the callers that were wired with the same instance. That is exactly the gap a real race slipped through: the Store panel and Normal mode's picker each install, and a lock held per caller let them overwrite each other's request. Keying by directory rather than using one lock keeps unrelated temp directories (tests) and the two exchanges, which use different files, from queueing behind each other.
+
+`SdnInstallerTest.install_twoInstallersAtOnce_takeTheRendezvousOneAtATime` and `SdnCatalogueSourceTest.fetch_whileTheRendezvousIsHeld_waitsWithoutWritingARequest` go red if the lock is removed or stops being shared between instances.
+
 ### Script runner threads are **platform** threads, not virtual
 
 `ScriptRunner.start()` and `ManagementScriptRunner.start()` use `Thread.ofPlatform()`, and `RpcClient.start()` does the same for `rpc-reader`. Each site carries a `// rule-exception:` comment pointing here.

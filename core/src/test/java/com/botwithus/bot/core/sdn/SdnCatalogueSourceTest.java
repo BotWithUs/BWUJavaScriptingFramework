@@ -2,6 +2,7 @@ package com.botwithus.bot.core.sdn;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -10,6 +11,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -25,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SdnCatalogueSourceTest {
 
     private static final Duration SHORT = Duration.ofMillis(300);
+    private static final long RACE_TIMEOUT_SECONDS = 30;
 
     @TempDir
     Path dir;
@@ -319,5 +323,39 @@ class SdnCatalogueSourceTest {
         List<SdnCatalogueEntry> entries = delivered.entries();
 
         assertThrows(UnsupportedOperationException.class, () -> entries.add(null));
+    }
+
+    // One exchange at a time ---------------------------------------------
+
+    /**
+     * A fetch that finds another one mid-exchange must wait for it, not write its
+     * own request over the other's. The test holds the rendezvous itself, from a
+     * second source object, so the check does not lean on anyone sharing a
+     * refresher. The fetch uses a zero timeout, so if it ignored the lock it would
+     * finish at once, which is what the spin below watches for.
+     */
+    @Test
+    @Timeout(RACE_TIMEOUT_SECONDS)
+    void fetch_whileTheRendezvousIsHeld_waitsWithoutWritingARequest() throws Exception {
+        ReentrantLock rendezvous =
+                SdnRendezvous.exchangeLock(dir, SdnCatalogueSource.REQUEST_SUFFIX);
+        FutureTask<SdnCatalogueResult> fetch =
+                new FutureTask<>(() -> new SdnCatalogueSource(dir).fetch(Duration.ZERO));
+        rendezvous.lock();
+        try {
+            Thread fetcher = Thread.ofPlatform().name("catalogue-fetch").start(fetch);
+            while (!rendezvous.hasQueuedThread(fetcher) && !fetch.isDone()) {
+                Thread.onSpinWait();
+            }
+            assertFalse(fetch.isDone(), "the fetch ran its exchange while the rendezvous was held");
+            assertFalse(Files.exists(requestFile()), "a queued fetch wrote its request");
+        } finally {
+            rendezvous.unlock();
+        }
+        assertInstanceOf(SdnCatalogueResult.CourierUnavailable.class, fetch.get());
+    }
+
+    private Path requestFile() {
+        return dir.resolve(SdnRendezvous.currentPid() + SdnCatalogueSource.REQUEST_SUFFIX);
     }
 }

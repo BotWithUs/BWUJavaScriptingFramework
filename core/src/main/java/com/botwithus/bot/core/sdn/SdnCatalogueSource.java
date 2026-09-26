@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Asks the launcher for the signed-in account's script catalogue.
@@ -31,7 +32,8 @@ public final class SdnCatalogueSource {
 
     private static final Logger log = LoggerFactory.getLogger(SdnCatalogueSource.class);
 
-    private static final String REQUEST_SUFFIX = ".catreq";
+    /** Package-private so {@code SdnCatalogueSourceTest} can name the exchange's lock. */
+    static final String REQUEST_SUFFIX = ".catreq";
     private static final String REPLY_SUFFIX = ".cat";
     private static final String CACHED_REPLY = "catalogue.json";
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
@@ -50,8 +52,25 @@ public final class SdnCatalogueSource {
         return fetch(DEFAULT_TIMEOUT);
     }
 
-    /** Asks the launcher and waits up to {@code timeout} for its answer. */
+    /**
+     * Asks the launcher and waits up to {@code timeout} for its answer.
+     *
+     * <p>One fetch at a time per process, for the same reason installs are serialised
+     * (see {@link SdnInstaller}). The host's one {@link SdnCatalogueRefresher} already
+     * never overlaps its own fetches; the lock makes that hold for any second caller
+     * too. {@code timeout} starts once this call holds the lock.
+     */
     public SdnCatalogueResult fetch(Duration timeout) {
+        ReentrantLock exchange = SdnRendezvous.exchangeLock(directory, REQUEST_SUFFIX);
+        exchange.lock();
+        try {
+            return exchange(timeout);
+        } finally {
+            exchange.unlock();
+        }
+    }
+
+    private SdnCatalogueResult exchange(Duration timeout) {
         long pid = SdnRendezvous.currentPid();
         Path request = directory.resolve(pid + REQUEST_SUFFIX);
         Path reply = directory.resolve(pid + REPLY_SUFFIX);

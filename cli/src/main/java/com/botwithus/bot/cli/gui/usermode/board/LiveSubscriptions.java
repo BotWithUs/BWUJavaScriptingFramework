@@ -20,7 +20,6 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 /**
@@ -32,9 +31,9 @@ import java.util.function.Supplier;
  * the Store panel uses; {@link #group} only nudges it with {@code tick()}, which
  * starts a fetch when one is due and otherwise costs nothing.</p>
  *
- * <p>Installs run on their own virtual thread, one at a time: the launcher
- * rendezvous has a single request file per host process, so two concurrent
- * installs would overwrite each other's request.</p>
+ * <p>Installs run on their own virtual thread. {@link SdnInstaller#install} runs
+ * one at a time per process, whether the picker or the Store panel asked, so a
+ * second click waits behind the first and its row stays "Installing" meanwhile.</p>
  */
 final class LiveSubscriptions {
 
@@ -45,7 +44,6 @@ final class LiveSubscriptions {
     private final SdnInstaller installer;
     private final Supplier<List<LocalScript>> localScripts;
     private final Executor installExecutor;
-    private final ReentrantLock rendezvous = new ReentrantLock();
     /** Only in-flight and failed installs live here; an absent id is decided from the runtime. */
     private final Map<String, SubscriptionState> installs = new ConcurrentHashMap<>();
     private boolean reportedOldLauncher;
@@ -144,14 +142,11 @@ final class LiveSubscriptions {
 
     private void install(String clientId, SdnCatalogueEntry entry) {
         SdnInstallResult result;
-        rendezvous.lock();
         try {
             result = installer.install(List.of(entry.id()));
         } catch (RuntimeException e) {
             log.warn("SDN: installing {} threw", entry.name(), e);
             result = new SdnInstallResult.Failed(String.valueOf(e.getMessage()));
-        } finally {
-            rendezvous.unlock();
         }
         settle(clientId, entry, result);
     }

@@ -9,6 +9,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * File-courier rendezvous primitives shared by every launcher-to-host exchange.
@@ -19,8 +22,13 @@ import java.time.Duration;
  * file, and both sides delete what they have consumed.
  *
  * <p>This class owns only the mechanics — where the directory is, how to publish
- * a file without tearing, how to wait for one. What the files mean belongs to the
- * exchange that uses them.
+ * a file without tearing, how to wait for one, and who may run an exchange. What
+ * the files mean belongs to the exchange that uses them.
+ *
+ * <p>Every file is named after the pid, so an exchange has exactly one request
+ * slot per process. Two callers running the same exchange at once would overwrite
+ * each other's request and delete it in cleanup, so each exchange runs under its
+ * {@link #exchangeLock}, one caller at a time.
  */
 public final class SdnRendezvous {
 
@@ -32,7 +40,29 @@ public final class SdnRendezvous {
     private static final String TMP_SUFFIX = ".tmp";
     private static final long POLL_MILLIS = 100;
 
+    // rule-exception: mutable static — see CLAUDE.md "Java rules exceptions". The files
+    // these locks guard are named after the pid, so they are process-global; an injected
+    // lock would only exclude the callers that happened to be wired with the same one.
+    private static final ConcurrentMap<Exchange, ReentrantLock> EXCHANGE_LOCKS =
+            new ConcurrentHashMap<>();
+
+    /** One exchange: the directory it runs in and the suffix of its request file. */
+    private record Exchange(Path directory, String requestSuffix) {
+    }
+
     private SdnRendezvous() {
+    }
+
+    /**
+     * The lock a caller holds from writing an exchange's request until it has deleted
+     * it. Every caller in this process naming the same directory and request suffix
+     * gets the same lock, whichever object it came through.
+     *
+     * <p>Fair, so queued callers run in the order they asked.
+     */
+    static ReentrantLock exchangeLock(Path directory, String requestSuffix) {
+        Exchange exchange = new Exchange(directory.toAbsolutePath().normalize(), requestSuffix);
+        return EXCHANGE_LOCKS.computeIfAbsent(exchange, e -> new ReentrantLock(true));
     }
 
     /** The shared directory the courier and the host rendezvous in. */

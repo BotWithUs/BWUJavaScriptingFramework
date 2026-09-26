@@ -15,6 +15,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /**
  * Asks the launcher to deliver a set of catalogue scripts, then loads them.
@@ -24,35 +27,70 @@ import java.util.List;
  * is loaded through the same path the host already uses for courier-delivered
  * scripts; the caller registers the result with a runtime, at which point the
  * scripts behave exactly like any locally installed one.
+ *
+ * <p>Installs are serialised process-wide. The launcher reads one request file per
+ * host process, so a second install running beside the first would overwrite its
+ * request, and the first one's cleanup would delete the second's. Every installer
+ * on the same directory therefore shares one {@link SdnRendezvous#exchangeLock}.
  */
 public final class SdnInstaller {
 
     private static final Logger log = LoggerFactory.getLogger(SdnInstaller.class);
 
-    private static final String REQUEST_SUFFIX = ".instreq";
+    /** Package-private so {@code SdnInstallerTest} can name the lock and the file. */
+    static final String REQUEST_SUFFIX = ".instreq";
 
     private final Path directory;
+    private final BooleanSupplier deliveryEnabled;
+    private final Supplier<List<BotScript>> awaitDelivery;
 
     public SdnInstaller() {
         this(SdnRendezvous.directory());
     }
 
     public SdnInstaller(Path directory) {
+        this(directory, SdnDiskBundleSource::isEnabled, SDNScriptLoader::loadSdnScriptsFromDisk);
+    }
+
+    /**
+     * Package-private for {@code SdnInstallerTest}: the real delivery needs the
+     * patched JVM and a running launcher, so the test supplies both.
+     *
+     * @param deliveryEnabled whether the launcher started this host with delivery on
+     * @param awaitDelivery   publishes the key, waits for the courier and loads the delivery
+     */
+    SdnInstaller(Path directory, BooleanSupplier deliveryEnabled,
+                 Supplier<List<BotScript>> awaitDelivery) {
         this.directory = directory;
+        this.deliveryEnabled = deliveryEnabled;
+        this.awaitDelivery = awaitDelivery;
     }
 
     /**
      * Requests {@code scriptIds} from the launcher and loads whatever it delivers.
      *
-     * <p>Blocking: it waits for the courier, so call it off the render thread.
+     * <p>Blocking: it waits for any install already running in this process, then
+     * for the courier, so call it off the render thread. Waiting in line does not
+     * count against the courier's timeout, which starts only once this call has
+     * the rendezvous to itself.
      */
     public SdnInstallResult install(List<String> scriptIds) {
         if (scriptIds.isEmpty()) {
             return new SdnInstallResult.NothingSelected();
         }
-        if (!SdnDiskBundleSource.isEnabled()) {
+        if (!deliveryEnabled.getAsBoolean()) {
             return new SdnInstallResult.DeliveryDisabled();
         }
+        ReentrantLock exchange = SdnRendezvous.exchangeLock(directory, REQUEST_SUFFIX);
+        exchange.lock();
+        try {
+            return exchange(scriptIds);
+        } finally {
+            exchange.unlock();
+        }
+    }
+
+    private SdnInstallResult exchange(List<String> scriptIds) {
         Path request = directory.resolve(SdnRendezvous.currentPid() + REQUEST_SUFFIX);
         try {
             Files.createDirectories(directory);
@@ -68,8 +106,8 @@ public final class SdnInstaller {
         }
     }
 
-    private static SdnInstallResult loadDelivered() {
-        List<BotScript> scripts = SDNScriptLoader.loadSdnScriptsFromDisk();
+    private SdnInstallResult loadDelivered() {
+        List<BotScript> scripts = awaitDelivery.get();
         if (scripts.isEmpty()) {
             return new SdnInstallResult.CourierUnavailable();
         }
