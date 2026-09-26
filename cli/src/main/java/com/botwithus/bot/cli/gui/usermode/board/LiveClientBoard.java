@@ -15,6 +15,8 @@ import com.botwithus.bot.core.impl.MapHelper;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.runtime.ScriptRunner;
+import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
+import com.botwithus.bot.core.sdn.SdnInstaller;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,15 +57,22 @@ public final class LiveClientBoard implements ClientBoard {
     private final Map<String, Long> deadSinceMillis = new HashMap<>();
     private final Set<String> cancelledReconnects = new HashSet<>();
     private final Map<Integer, Optional<String>> itemNames = new HashMap<>();
+    private final LiveSubscriptions subscriptions;
     private List<BotScript> catalogScripts = List.of();
+    private List<LocalScript> localScripts = List.of();
 
     /**
      * @param logOpener shows the log for a client; receives the client id
+     * @param catalogue the SDN catalogue refresher the Scripts Store panel also reads
+     * @param installer installs a subscribed script through the launcher
      */
-    public LiveClientBoard(CliContext ctx, Consumer<String> logOpener, Clock clock) {
+    public LiveClientBoard(CliContext ctx, Consumer<String> logOpener, Clock clock,
+                           SdnCatalogueRefresher catalogue, SdnInstaller installer) {
         this.ctx = ctx;
         this.logOpener = logOpener;
         this.clock = clock;
+        this.subscriptions = new LiveSubscriptions(ctx, catalogue, installer, () -> localScripts,
+                task -> Thread.ofVirtual().name("sdn-subscription-install").start(task));
     }
 
     @Override
@@ -101,10 +110,19 @@ public final class LiveClientBoard implements ClientBoard {
         all.addAll(ctx.loadBlueprints());
         catalogScripts = List.copyOf(all);
         List<ScriptEntry> entries = new ArrayList<>();
+        List<LocalScript> locals = new ArrayList<>();
         for (int i = 0; i < catalogScripts.size(); i++) {
-            entries.add(new ScriptEntry(i, infoOf(catalogScripts.get(i))));
+            ScriptInfo info = infoOf(catalogScripts.get(i));
+            entries.add(new ScriptEntry(i, info));
+            locals.add(new LocalScript(i, catalogScripts.get(i), info.name()));
         }
+        localScripts = List.copyOf(locals);
         return entries;
+    }
+
+    @Override
+    public SubscriptionGroup subscriptions(String clientId) {
+        return subscriptions.group(clientId);
     }
 
     @Override
@@ -241,8 +259,13 @@ public final class LiveClientBoard implements ClientBoard {
 
     private static ScriptInfo infoOf(BotScript script) {
         ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
-        String name = manifest != null ? manifest.name() : script.getClass().getSimpleName();
-        return infoOf(script, manifest, name);
+        return infoOf(script, manifest, nameOf(script));
+    }
+
+    /** The name the runtime registers {@code script} under: its manifest name, else its class name. */
+    static String nameOf(BotScript script) {
+        ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
+        return manifest != null ? manifest.name() : script.getClass().getSimpleName();
     }
 
     private static ScriptInfo infoOf(BotScript script, ScriptManifest manifest, String name) {
@@ -343,6 +366,11 @@ public final class LiveClientBoard implements ClientBoard {
                 return;
             }
             conn.getRuntime().startScript(catalogScripts.get(script.key()));
+        }
+
+        @Override
+        public void startSubscription(String clientId, String scriptId) {
+            subscriptions.start(clientId, scriptId);
         }
 
         @Override

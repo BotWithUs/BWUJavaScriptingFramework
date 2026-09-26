@@ -9,8 +9,12 @@ import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
 import com.botwithus.bot.cli.gui.usermode.board.ClientStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 import com.botwithus.bot.cli.gui.usermode.board.InspectorTarget;
+import com.botwithus.bot.cli.gui.usermode.board.PriceBadge;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptEntry;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
+import com.botwithus.bot.cli.gui.usermode.board.SubscriptionEntry;
+import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
+import com.botwithus.bot.cli.gui.usermode.board.SubscriptionState;
 
 import imgui.ImGui;
 
@@ -18,6 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Random;
 
 /**
@@ -57,6 +62,8 @@ final class FixtureBoard implements ClientBoard {
 
     private static final List<ScriptInfo> CATALOG =
             List.of(WOODCUTTING, FLETCHER, DIVINATION, COOKS, GHOST, WITCH, FLAG, PROBE, EXAMPLE);
+    /** DIVINATION's index in {@link #CATALOG}, which is its picker key. */
+    private static final int DIVINATION_KEY = CATALOG.indexOf(DIVINATION);
 
     private static final Map<Integer, String> ITEMS = Map.of(
             1511, "Logs", 1521, "Oak logs", 1519, "Willow logs", 1517, "Maple logs",
@@ -77,10 +84,51 @@ final class FixtureBoard implements ClientBoard {
     private final BoardStatus status;
     private final ScriptConfig applied = new ScriptConfig(Map.of());
     private final ClientActions actions = new NoActions();
+    private final SubscriptionGroup subscriptions;
 
     private FixtureBoard(List<ClientView> clients, BoardStatus status) {
+        this(clients, status, new SubscriptionGroup.Hidden());
+    }
+
+    private FixtureBoard(List<ClientView> clients, BoardStatus status, SubscriptionGroup subscriptions) {
         this.clients = clients;
         this.status = status;
+        this.subscriptions = subscriptions;
+    }
+
+    /** The same fleet with a different "Your subscriptions" group. */
+    FixtureBoard withSubscriptions(SubscriptionGroup group) {
+        return new FixtureBoard(clients, status, group);
+    }
+
+    /**
+     * Six clients and four subscriptions: paid and free, one installed (which also
+     * has a local copy, so the local Divination row folds into it), one installing
+     * and one whose install failed.
+     */
+    static FixtureBoard subscribed() {
+        String failure = "The launcher did not deliver the script. Check it is still running, then try again.";
+        return sixClients().withSubscriptions(new SubscriptionGroup.Listed(List.of(
+                subscription("41", "Arch-Glacor Helper", "Veyra", "1.3",
+                        "Handles the mechanics and loots the chest.", true, new SubscriptionState.NotInstalled(),
+                        OptionalInt.empty()),
+                subscription("7", "Divination", "BotWithUs", "1.0",
+                        "Harvests wisps and converts memories.", false, new SubscriptionState.Installed(),
+                        OptionalInt.of(DIVINATION_KEY)),
+                subscription("58", "Herblore Pro", "mortar", "2.1",
+                        "Cleans herbs and mixes potions at any bank.", true, new SubscriptionState.Installing(),
+                        OptionalInt.empty()),
+                subscription("63", "Runecrafting Abyss", "Quill", "0.9",
+                        "Crafts runes through the Abyss with pouch repair.", false,
+                        new SubscriptionState.Failed(failure), OptionalInt.empty())),
+                false));
+    }
+
+    private static SubscriptionEntry subscription(String id, String name, String author, String version,
+                                                  String summary, boolean paid, SubscriptionState state,
+                                                  OptionalInt localKey) {
+        return new SubscriptionEntry(id, name, author, version, summary,
+                paid ? PriceBadge.PAID : PriceBadge.FREE, state, localKey);
     }
 
     static FixtureBoard sixClients() {
@@ -156,6 +204,11 @@ final class FixtureBoard implements ClientBoard {
     }
 
     @Override
+    public SubscriptionGroup subscriptions(String clientId) {
+        return subscriptions;
+    }
+
+    @Override
     public Optional<InspectorTarget> inspect(String clientId) {
         return clients.stream()
                 .filter(c -> c.id().equals(clientId) && c.status().isRunning())
@@ -197,6 +250,7 @@ final class FixtureBoard implements ClientBoard {
     /** The preview only draws; every action is a no-op. */
     private static final class NoActions implements ClientActions {
         @Override public void startScript(String clientId, ScriptEntry script) { }
+        @Override public void startSubscription(String clientId, String scriptId) { }
         @Override public void stopScript(String clientId) { }
         @Override public void restartScript(String clientId) { }
         @Override public void reconnect(String clientId) { }

@@ -8,6 +8,13 @@ public interface ClientActions {
 
     void startScript(String clientId, ScriptEntry script);
 
+    /**
+     * Starts the subscribed script with catalogue id {@code scriptId}. An installed
+     * copy starts at once; otherwise it is installed through the launcher first and
+     * started when it lands, while {@link ClientBoard#subscriptions} reports progress.
+     */
+    void startSubscription(String clientId, String scriptId);
+
     void stopScript(String clientId);
 
     /** Starts the crashed script again. */

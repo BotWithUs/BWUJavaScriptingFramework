@@ -16,6 +16,7 @@ import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.usermode.PreviewSeams;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
+import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.core.impl.EventBusImpl;
 
 import imgui.ImGui;
@@ -232,7 +233,33 @@ public final class NormalModePreview extends Application {
                     }
                 }),
                 new Scenario("09-toasts-failures", FixtureBoard::sixClients, NormalModePreview::failureToasts),
-                new Scenario("10-toasts-reconnect", FixtureBoard::twelveClients, NormalModePreview::reconnectToasts));
+                new Scenario("10-toasts-reconnect", FixtureBoard::twelveClients, NormalModePreview::reconnectToasts),
+                new Scenario("11-picker-subscriptions-installing", FixtureBoard::subscribed,
+                        pickerOnRow(HERBLORE_INSTALLING_ROW)),
+                new Scenario("12-picker-subscriptions-install-failed", FixtureBoard::subscribed,
+                        pickerOnRow(RUNECRAFTING_FAILED_ROW)),
+                new Scenario("13-picker-subscriptions-launcher-not-running",
+                        () -> FixtureBoard.sixClients().withSubscriptions(new SubscriptionGroup.Unavailable(
+                                SubscriptionGroup.Reason.LAUNCHER_NOT_RUNNING, "")),
+                        pickerOnRow(0)),
+                new Scenario("14-picker-old-launcher-no-group",
+                        () -> FixtureBoard.sixClients().withSubscriptions(new SubscriptionGroup.Hidden()),
+                        pickerOnRow(0)));
+    }
+
+    /** Row indices in {@link FixtureBoard#subscribed()}'s picker; subscriptions are listed by name, first. */
+    private static final int HERBLORE_INSTALLING_ROW = 2;
+    private static final int RUNECRAFTING_FAILED_ROW = 3;
+
+    /** Opens the picker on the idle client and highlights {@code row}. */
+    private static BiConsumer<Stage, Integer> pickerOnRow(int row) {
+        return (s, f) -> {
+            if (f == 0) {
+                s.page().openPicker(s.board(), IDLE);
+            } else if (f == 2) {
+                PreviewSeams.highlightPickerRow(s.page(), row);
+            }
+        };
     }
 
     /** Opens the Woodcutting inspector and changes two fields, so the unsaved state shows. */

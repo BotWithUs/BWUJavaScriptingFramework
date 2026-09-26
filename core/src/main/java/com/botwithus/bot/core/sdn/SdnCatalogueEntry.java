@@ -15,7 +15,18 @@ import java.util.Objects;
  *   <li>{@code subscriber} echoes the account that asked for the catalogue. It
  *       says nothing about this particular script — to tell an owned script from
  *       a subscribed one, compare {@link #author()} with the signed-in account.
+ *       Whether the account holds a subscription is {@link #subscribed()}, never
+ *       an inference from these two.
  * </ul>
+ *
+ * <p>{@code subscribed} and {@code isFree} are nullable on purpose. {@code null}
+ * means the launcher, or the site behind it, predates the field and said nothing,
+ * which is not the same answer as {@code false}. Read them as three-valued.
+ *
+ * @param subscribed {@code TRUE} iff the signed-in account holds an active
+ *                   subscription to this script; {@code null} when not reported
+ * @param isFree     {@code TRUE} iff the site offers this script for free;
+ *                   {@code null} when not reported
  */
 public record SdnCatalogueEntry(String id,
                                 String name,
@@ -27,7 +38,9 @@ public record SdnCatalogueEntry(String id,
                                 String description,
                                 String scriptClass,
                                 boolean agentv1Support,
-                                boolean agentv2Support) {
+                                boolean agentv2Support,
+                                Boolean subscribed,
+                                Boolean isFree) {
 
     public SdnCatalogueEntry {
         Objects.requireNonNull(id, "id");

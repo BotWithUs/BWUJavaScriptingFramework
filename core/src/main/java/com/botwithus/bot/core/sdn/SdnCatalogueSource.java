@@ -152,7 +152,9 @@ public final class SdnCatalogueSource {
                 stringOf(o, "description"),
                 stringOf(o, "scriptClass"),
                 boolOf(o, "agentv1Support"),
-                boolOf(o, "agentv2Support"));
+                boolOf(o, "agentv2Support"),
+                optionalBoolOf(o, "subscribed"),
+                optionalBoolOf(o, "isFree"));
     }
 
     private static String stringOf(JsonObject o, String key) {
@@ -167,5 +169,19 @@ public final class SdnCatalogueSource {
         JsonElement e = o.get(key);
         return e != null && e.isJsonPrimitive() && e.getAsJsonPrimitive().isBoolean()
                 && e.getAsBoolean();
+    }
+
+    /**
+     * A JSON boolean as {@code TRUE} / {@code FALSE}, and {@code null} for anything
+     * else: absent, JSON null, or not a boolean. Unlike {@link #boolOf} this never
+     * turns silence into {@code false}, so a launcher that predates the key stays
+     * tellable from one that answered no.
+     */
+    private static Boolean optionalBoolOf(JsonObject o, String key) {
+        JsonElement e = o.get(key);
+        if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isBoolean()) {
+            return null;
+        }
+        return e.getAsBoolean();
     }
 }

@@ -225,7 +225,7 @@ class SdnCatalogueRefresherTest {
 
     private static SdnCatalogueEntry entry(String version) {
         return new SdnCatalogueEntry(SCRIPT_ID, "Woodcutter", "author", "subscriber", version,
-                "2", "", "", "com.example.Woodcutter", false, true);
+                "2", "", "", "com.example.Woodcutter", false, true, null, null);
     }
 
     private static SdnCatalogueResult failed() {

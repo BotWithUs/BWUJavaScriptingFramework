@@ -78,19 +78,25 @@ public class SdnScriptsPanel implements GuiPanel {
     private int filter = FILTER_ALL;
     private float spinnerPhase;
 
-    public SdnScriptsPanel(ExecutorService executor) {
-        this(executor, new SdnCatalogueSource(), new SdnInstaller());
-    }
-
-    SdnScriptsPanel(ExecutorService executor, SdnCatalogueSource catalogue, SdnInstaller installer) {
+    /**
+     * @param refresher the catalogue, shared with Normal mode's Start Script picker so
+     *                  the host keeps one fetch loop; this panel's ticker drives it
+     *                  while neither is on screen
+     */
+    public SdnScriptsPanel(ExecutorService executor, SdnCatalogueRefresher refresher, SdnInstaller installer) {
         this.executor = executor;
         this.installer = installer;
-        this.refresher = new SdnCatalogueRefresher(catalogue::fetch, virtualThreadPerFetch(),
-                InstantSource.system(), new Random()::nextDouble);
+        this.refresher = refresher;
         this.ticker = Executors.newSingleThreadScheduledExecutor(
                 Thread.ofVirtual().name("sdn-catalogue-ticker").factory());
         ticker.scheduleWithFixedDelay(refresher::tick,
                 BACKGROUND_TICK_SECONDS, BACKGROUND_TICK_SECONDS, TimeUnit.SECONDS);
+    }
+
+    /** The host's catalogue refresher: fetches from the launcher, each on its own virtual thread. */
+    public static SdnCatalogueRefresher catalogueRefresher(SdnCatalogueSource catalogue) {
+        return new SdnCatalogueRefresher(catalogue::fetch, virtualThreadPerFetch(),
+                InstantSource.system(), new Random()::nextDouble);
     }
 
     private static Executor virtualThreadPerFetch() {

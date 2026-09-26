@@ -14,6 +14,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -117,6 +118,52 @@ class SdnCatalogueSourceTest {
                 SdnCatalogueResult.Delivered.class, source.fetch(SHORT));
 
         assertTrue(delivered.entries().isEmpty());
+    }
+
+    // subscribed / isFree: three-valued, absent is null ---------------------
+
+    @Test
+    void fetch_subscribedAndIsFreeTrue_parseAsTrue() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","subscribed":true,"isFree":true}""");
+
+        assertEquals(Boolean.TRUE, entry.subscribed());
+        assertEquals(Boolean.TRUE, entry.isFree());
+    }
+
+    @Test
+    void fetch_subscribedAndIsFreeFalse_parseAsFalseNotNull() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","subscribed":false,"isFree":false}""");
+
+        assertEquals(Boolean.FALSE, entry.subscribed());
+        assertEquals(Boolean.FALSE, entry.isFree());
+    }
+
+    @Test
+    void fetch_subscribedAndIsFreeAbsent_parseAsNullNotFalse() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","agentv2Support":true}""");
+
+        assertNull(entry.subscribed(), "an older launcher's silence must not read as 'not subscribed'");
+        assertNull(entry.isFree(), "an older launcher's silence must not read as 'paid'");
+    }
+
+    @Test
+    void fetch_subscribedAndIsFreeNotBoolean_parseAsNull() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","subscribed":null,"isFree":"true"}""");
+
+        assertNull(entry.subscribed());
+        assertNull(entry.isFree(), "a string is not a JSON boolean");
+    }
+
+    private SdnCatalogueEntry onlyEntry(String entryJson) throws IOException {
+        courierAnswers("{\"status\":\"ok\",\"entries\":[" + entryJson + "]}");
+        SdnCatalogueResult.Delivered delivered = assertInstanceOf(
+                SdnCatalogueResult.Delivered.class, source.fetch(SHORT));
+        assertEquals(1, delivered.entries().size());
+        return delivered.entries().get(0);
     }
 
     /**
