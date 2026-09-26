@@ -94,7 +94,7 @@ class NotificationOverlayTest {
         assertEquals(1, overlay.active().size());
         Notification n = overlay.active().iterator().next();
         assertEquals(Notification.Severity.ERROR, n.severity());
-        assertTrue(n.title().contains("test"));
+        assertTrue(n.message().contains("test"));
     }
 
     @Test
@@ -107,7 +107,7 @@ class NotificationOverlayTest {
         bus.publish(new ConnectionLostEvent("test", new RuntimeException()));
         assertEquals(1, overlay.active().size());
 
-        // Advance past TTL — render() (the cull pass) should drop it.
+        // Advance past TTL — the cull pass should drop it.
         clock.now = clock.now.plus(NotificationOverlay.DEFAULT_TTL).plus(Duration.ofSeconds(1));
         // Render would normally call into ImGui — to keep the test
         // headless, exercise just the cull-only loop via a direct expiry check.
@@ -197,6 +197,6 @@ class NotificationOverlayTest {
         assertEquals(1, overlay.active().size());
         Notification n = overlay.active().iterator().next();
         assertEquals(Notification.Severity.WARN, n.severity());
-        assertTrue(n.title().contains("broken.jar"));
+        assertTrue(n.message().contains("broken.jar"));
     }
 }

@@ -123,6 +123,33 @@ tasks.named<JavaExec>("run") {
         ?.let { jvmArgs("-Dbotwithus.gameval=$it") }
 }
 
+// ── Dev-only Normal-mode preview ─────────────────────────────────────────────
+// Renders the Normal-mode UI with fixture data (every card state, 6 and 12
+// clients, empty, host offline, picker, inspector, toasts) and writes one PNG
+// per scenario to build/preview/. It is how a UI change is checked without a
+// game client or a person clicking through it.
+//
+// Gated by construction: the code lives in its own `preview` source set, which
+// the `jar` task, the jlink image and the installer never read, so none of it can
+// reach a user. It runs on the classpath (no module-info), which is also why it
+// can reach the handful of package-private seams it needs in gui.usermode.
+val preview: SourceSet by sourceSets.creating {
+    compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
+    runtimeClasspath += output + compileClasspath + sourceSets.main.get().runtimeClasspath
+}
+
+tasks.register<JavaExec>("renderNormalModePreviews") {
+    description = "Dev only: renders Normal mode from fixtures and writes one PNG per scenario to build/preview"
+    group = "verification"
+    dependsOn(extractNatives)
+    classpath = preview.runtimeClasspath
+    mainClass = "com.botwithus.bot.cli.gui.preview.NormalModePreview"
+    val outDir = layout.buildDirectory.dir("preview")
+    args(outDir.get().asFile.absolutePath)
+    jvmArgs("-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}")
+    outputs.upToDateWhen { false }
+}
+
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink
 // needs an explicit JDK path for both jlink and jpackage; under Gradle 9.5
 // + an auto-provisioned toolchain it cannot discover one on its own and the

@@ -26,8 +26,11 @@ import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
 import com.botwithus.bot.cli.config.CliConfig;
+import com.botwithus.bot.cli.gui.notify.Notification;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
+import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
+import com.botwithus.bot.cli.gui.usermode.board.LiveClientBoard;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
@@ -36,15 +39,11 @@ import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
-import imgui.ImFontAtlas;
-import imgui.ImFontConfig;
 import imgui.ImGui;
 import imgui.app.Application;
 import imgui.app.Configuration;
 import imgui.flag.ImGuiConfigFlags;
-import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiCol;
-import imgui.flag.ImGuiWindowFlags;
 
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -59,7 +58,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -109,8 +108,8 @@ public class ImGuiApp extends Application {
 
     // Panels
     private final List<GuiPanel> panels = new ArrayList<>();
-    private StatusBar statusBar;
     private SdnScriptsPanel sdnScriptsPanel;
+    private GuiPanel logsPanel;
     private int selectedPanel = 0;
     private float dpiScale = 1f;
 
@@ -131,10 +130,11 @@ public class ImGuiApp extends Application {
     // GLFW window handle for title updates
     private long glfwWindow;
 
-    // Mode switching
+    // Mode switching and the shared shell (top bar, Normal-mode clients page, status bar)
     private AppMode currentMode = AppMode.NORMAL;
-    private TopBar topBar;
-    private UserModeRenderer userModeRenderer;
+    private Controls ui;
+    private ClientBoard board;
+    private Shell shell;
 
     @Override
     protected void configure(Configuration config) {
@@ -149,7 +149,7 @@ public class ImGuiApp extends Application {
 
         redirectImGuiIniToConfigDir();
         dpiScale = detectDpiScale();
-        loadFonts(Math.round(UI_FONT_BASE_PX * dpiScale));
+        ui = new Controls(FontLoader.loadAll(dpiScale, UI_FONT_BASE_PX));
         setupTheme();
 
         textureManager = new TextureManager();
@@ -172,7 +172,6 @@ public class ImGuiApp extends Application {
         autoStartManager.start();
 
         buildPanels();
-        setupStatusBar();
         captureGlfwHandle();
     }
 
@@ -202,44 +201,6 @@ public class ImGuiApp extends Application {
             GLFW.glfwGetMonitorContentScale(monitor, xScale, yScale);
         }
         return Math.max(xScale[0], 1.0f);
-    }
-
-    private static void loadFonts(float uiSize) {
-        ImFontAtlas atlas = ImGui.getIO().getFonts();
-        atlas.clear();
-
-        // Primary UI font: Inter (bundled), fallback to system font
-        byte[] uiFont = loadResourceFont("/fonts/Inter-Regular.ttf");
-        if (uiFont == null) {
-            uiFont = loadSystemFont("segoeui.ttf", "arial.ttf", "verdana.ttf");
-        }
-        ImFontConfig cfg = new ImFontConfig();
-        cfg.setOversampleH(3);
-        cfg.setOversampleV(3);
-        cfg.setPixelSnapH(true);
-        if (uiFont != null) {
-            atlas.addFontFromMemoryTTF(uiFont, uiSize, cfg);
-        } else {
-            cfg.setSizePixels(uiSize);
-            atlas.addFontDefault(cfg);
-        }
-
-        // Merge Font Awesome icons into the primary font
-        byte[] iconFont = loadResourceFont("/fonts/fa-solid-900.ttf");
-        if (iconFont != null) {
-            ImFontConfig iconCfg = new ImFontConfig();
-            iconCfg.setMergeMode(true);
-            iconCfg.setPixelSnapH(true);
-            iconCfg.setOversampleH(2);
-            iconCfg.setOversampleV(2);
-            // FA6 solid range: U+F000..U+F8FF + extended U+E000..U+E4FF
-            short[] iconRanges = {(short) 0xE000, (short) 0xF8FF, 0};
-            atlas.addFontFromMemoryTTF(iconFont, uiSize * 0.85f, iconCfg, iconRanges);
-            iconCfg.destroy();
-        }
-
-        cfg.destroy();
-        atlas.build();
     }
 
     private void setupTheme() {
@@ -321,21 +282,21 @@ public class ImGuiApp extends Application {
     }
 
     private void buildPanels() {
-        topBar = new TopBar();
-
         // Floating windows (created before opener wiring so the lambdas can capture them).
+        // Advanced mode's Configure buttons still open these; Normal mode uses the
+        // docked inspector on the clients page instead.
         scriptUIWindow = new ScriptUIWindow();
         scriptConfigPanel = new ScriptConfigPanel();
-
-        userModeRenderer = new UserModeRenderer();
-        userModeRenderer.setConfigPanelOpener(this::openScriptConfig);
 
         ctx.setConfigPanelOpener(this::openScriptConfig);
         managementConfigPanel = new ManagementConfigPanel();
 
         // Notification overlay (event-driven). Subscribed to each connection's
         // event bus the moment connect() succeeds.
-        notificationOverlay = new NotificationOverlay();
+        Clock clock = Clock.systemDefaultZone();
+        notificationOverlay = new NotificationOverlay(clock, this::accountOf);
+        board = new LiveClientBoard(ctx, clientId -> openLogs(), clock);
+        shell = new Shell(ui, new UserModeRenderer(ui), notificationOverlay);
         ctx.setOnConnect(conn -> {
             if (conn.getEventBus() != null) {
                 notificationOverlay.subscribeTo(conn.getEventBus());
@@ -349,7 +310,8 @@ public class ImGuiApp extends Application {
         mgmtPanel.setConfigOpener(runner -> managementConfigPanel.open(runner));
         panels.add(mgmtPanel);
         panels.add(new ScriptUIPanel());
-        panels.add(new LogsPanel());
+        logsPanel = new LogsPanel();
+        panels.add(logsPanel);
         panels.add(new GroupsPanel());
         panels.add(new DiagnosticsPanel());
         panels.add(new SettingsPanel());
@@ -358,10 +320,6 @@ public class ImGuiApp extends Application {
         // panel after it.
         sdnScriptsPanel = new SdnScriptsPanel(executor);
         panels.add(sdnScriptsPanel);
-    }
-
-    private void setupStatusBar() {
-        statusBar = new StatusBar();
     }
 
     /**
@@ -401,38 +359,7 @@ public class ImGuiApp extends Application {
         // Execute queued GL operations (texture create/delete)
         textureManager.processPending();
 
-        // Toggle app mode with F12: Normal ↔ Advanced
-        if (ImGui.isKeyPressed(GLFW.GLFW_KEY_F12)) {
-            currentMode = switch (currentMode) {
-                case NORMAL -> AppMode.ADVANCED;
-                case ADVANCED -> AppMode.NORMAL;
-            };
-            // Keyboard users can immediately Tab into the new screen instead of
-            // hunting for focus with the mouse.
-            ImGui.setKeyboardFocusHere(0);
-        }
-
-        // Full-window imgui window — use main viewport pos for correct placement with viewports enabled
-        var viewport = ImGui.getMainViewport();
-        ImGui.setNextWindowPos(viewport.getPosX(), viewport.getPosY(), ImGuiCond.Always);
-        ImGui.setNextWindowSize(viewport.getSizeX(), viewport.getSizeY(), ImGuiCond.Always);
-
-        int windowFlags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoMove
-                | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoBringToFrontOnFocus;
-
-        ImGui.begin("##main", windowFlags);
-
-        AppMode toggled = topBar.render(currentMode, dpiScale, ctx);
-        if (toggled != null && toggled != currentMode) {
-            currentMode = toggled;
-        }
-
-        switch (currentMode) {
-            case NORMAL -> renderUserMode();
-            case ADVANCED -> renderDeveloperMode();
-        }
-
-        ImGui.end();
+        currentMode = shell.render(currentMode, board, this::renderDeveloperMode, this::onToastAction);
 
         // Render script custom UI as a floating window (outside the main window)
         if (scriptUIWindow != null && scriptUIWindow.isOpen()) {
@@ -449,12 +376,6 @@ public class ImGuiApp extends Application {
             managementConfigPanel.render();
         }
 
-        // Notification overlay sits above every other window so banners
-        // float over the active panel without intercepting input.
-        if (notificationOverlay != null) {
-            notificationOverlay.render();
-        }
-
         // Update window title based on connection state
         updateTitle();
     }
@@ -463,12 +384,10 @@ public class ImGuiApp extends Application {
      * Render the full Advanced mode UI with sidebar navigation and panels.
      */
     private void renderDeveloperMode() {
-        // Reserve space for status bar at the bottom
-        float statusBarHeight = ImGui.getFrameHeightWithSpacing() + 8f;
         // Sidebar width: icon + longest label + padding
         float sidebarWidth = ImGui.getFrameHeight() + ImGui.calcTextSize("Management").x
                 + ImGui.getStyle().getWindowPaddingX() * 2 + 48f;
-        float contentHeight = ImGui.getContentRegionAvailY() - statusBarHeight;
+        float contentHeight = ImGui.getContentRegionAvailY();
 
         // --- Sidebar Navigation ---
         ImGui.pushStyleColor(ImGuiCol.ChildBg,
@@ -489,17 +408,6 @@ public class ImGuiApp extends Application {
             panels.get(selectedPanel).render(ctx);
         }
         ImGui.endChild();
-
-        // Status bar at the bottom
-        ImGui.spacing();
-        statusBar.render(ctx);
-    }
-
-    /**
-     * Render the simplified user mode dashboard with client cards.
-     */
-    private void renderUserMode() {
-        userModeRenderer.render(ctx);
     }
 
     // Sidebar navigation section definitions
@@ -527,40 +435,10 @@ public class ImGuiApp extends Application {
         float fontH = ImGui.getFontSize();
         float indent = ImGui.getStyle().getWindowPaddingX() * 0.5f;
 
+        // The brand mark lives in the shared top bar now; the sidebar starts
+        // straight at its first section.
         ImGui.dummy(0f, fontH * 0.4f);
-        renderBrandHeader(fontH, indent);
         renderNavigation(fontH, indent);
-    }
-
-    private static void renderBrandHeader(float fontH, float indent) {
-        var draw = ImGui.getWindowDrawList();
-        int accentCol = ImGuiTheme.imCol32(
-                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 1f);
-        int accentDim = ImGuiTheme.imCol32(
-                ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, 0.35f);
-
-        float logoX = ImGui.getCursorScreenPosX() + indent;
-        float logoY = ImGui.getCursorScreenPosY();
-        float barW = Math.max(3f, fontH * 0.25f);
-        float textH = ImGui.getTextLineHeight();
-
-        // Two-bar brand mark
-        draw.addRectFilled(logoX, logoY, logoX + barW, logoY + textH, accentCol, barW * 0.4f);
-        draw.addRectFilled(logoX + barW + fontH * 0.15f, logoY + textH * 0.4f,
-                logoX + barW * 2f + fontH * 0.15f, logoY + textH, accentDim, barW * 0.4f);
-
-        ImGui.setCursorPosX(ImGui.getCursorPosX() + indent + barW * 2f + fontH * 0.75f);
-        ImGui.pushStyleColor(ImGuiCol.Text,
-                ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f);
-        ImGui.text("BotWithUs");
-        ImGui.popStyleColor();
-
-        ImGui.setCursorPosX(ImGui.getCursorPosX() + indent + barW * 2f + fontH * 0.75f);
-        ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.5f,
-                "Script Manager");
-
-        ImGui.dummy(0f, fontH * 0.4f);
-        GuiHelpers.subtleSeparator();
     }
 
     private void renderNavigation(float fontH, float indent) {
@@ -672,34 +550,28 @@ public class ImGuiApp extends Application {
         }
     }
 
-    private static byte[] loadResourceFont(String resourcePath) {
-        try (var in = ImGuiApp.class.getResourceAsStream(resourcePath)) {
-            if (in != null) {
-                return in.readAllBytes();
-            }
-        } catch (IOException e) {
-            log.debug("Could not read resource font {}", resourcePath, e);
-        }
-        return null;
+    /** Switches to Advanced, Logs panel, where script and connection logs are shown. */
+    private void openLogs() {
+        currentMode = AppMode.ADVANCED;
+        selectedPanel = panels.indexOf(logsPanel);
     }
 
-    private static byte[] loadSystemFont(String... candidates) {
-        String windir = System.getenv("WINDIR");
-        if (windir == null) {
-            windir = "C:\\Windows";
+    private void onToastAction(Notification n) {
+        switch (n.kind()) {
+            case GAVE_UP -> board.actions().reconnect(n.subject());
+            case SCRIPT_CRASHED, LOAD_FAILED -> openLogs();
+            case CONNECTION_LOST, RECONNECTING, RECONNECTED -> { }
         }
-        Path fontsDir = Paths.get(windir, "Fonts");
-        for (String name : candidates) {
-            Path p = fontsDir.resolve(name);
-            if (Files.exists(p)) {
-                try {
-                    return Files.readAllBytes(p);
-                } catch (IOException e) {
-                    log.debug("Could not read system font {}", p, e);
-                }
+    }
+
+    /** The account playing on connection {@code name}, or the name itself when unknown. */
+    private String accountOf(String name) {
+        for (var conn : new ArrayList<>(ctx.getConnections())) {
+            if (conn.getName().equals(name) && conn.getAccountName() != null) {
+                return conn.getAccountName();
             }
         }
-        return null;
+        return name;
     }
 
     private void updateTitle() {

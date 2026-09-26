@@ -42,6 +42,115 @@ public final class ImGuiTheme {
     // Border
     public static final float BORDER_R = 0x2a / 255f, BORDER_G = 0x2e / 255f, BORDER_B = 0x3a / 255f;
 
+    // ── Design tokens (redesign round 1) ──────────────────────────────────
+    // The one place the shared shell (top bar, status bar) and Normal mode take
+    // their colours, sizes, radii and durations from. Colours are the navy greys
+    // and status hues above, packed once; soft tints are alpha over the same hue,
+    // never a new colour. Sizes are ratios of the body font (see Metrics).
+
+    private static final float SOFT_ALPHA = 0.12f;
+    private static final float SOFT_HOVER_ALPHA = 0.20f;
+    private static final float BORDER_HOVER_ALPHA = 0.18f;
+    private static final float SCRIM_ALPHA = 0.66f;
+    private static final float SHADOW_ALPHA = 0.35f;
+
+    public static final int COL_BG = imCol32(BG_R, BG_G, BG_B, 1f);
+    public static final int COL_SURFACE = imCol32(SURFACE_R, SURFACE_G, SURFACE_B, 1f);
+    public static final int COL_ELEVATED = imCol32(ELEVATED_R, ELEVATED_G, ELEVATED_B, 1f);
+    public static final int COL_BORDER = imCol32(BORDER_R, BORDER_G, BORDER_B, 1f);
+    public static final int COL_BORDER_HOVER = imCol32(TEXT_R, TEXT_G, TEXT_B, BORDER_HOVER_ALPHA);
+    public static final int COL_SCRIM = imCol32(0x05 / 255f, 0x06 / 255f, 0x09 / 255f, SCRIM_ALPHA);
+    public static final int COL_SHADOW = imCol32(0f, 0f, 0f, SHADOW_ALPHA);
+
+    public static final int COL_FG = imCol32(TEXT_R, TEXT_G, TEXT_B, 1f);
+    public static final int COL_FG2 = imCol32(TEXT_SEC_R, TEXT_SEC_G, TEXT_SEC_B, 1f);
+    public static final int COL_FG3 = imCol32(DIM_TEXT_R, DIM_TEXT_G, DIM_TEXT_B, 1f);
+
+    public static final int COL_ACCENT = imCol32(ACCENT_R, ACCENT_G, ACCENT_B, 1f);
+    public static final int COL_ACCENT_HOVER = imCol32(0x6e / 255f, 0xe7 / 255f, 0x9a / 255f, 1f);
+    public static final int COL_ACCENT_PRESS = imCol32(0x34 / 255f, 0xc4 / 255f, 0x6c / 255f, 1f);
+    public static final int COL_ON_ACCENT = COL_BG;
+    public static final int COL_ACCENT_SOFT = imCol32(ACCENT_R, ACCENT_G, ACCENT_B, SOFT_ALPHA);
+    public static final int COL_ACCENT_SOFT_HOVER = imCol32(ACCENT_R, ACCENT_G, ACCENT_B, SOFT_HOVER_ALPHA);
+    public static final int COL_INFO = imCol32(BLUE_R, BLUE_G, BLUE_B, 1f);
+    public static final int COL_INFO_SOFT = imCol32(BLUE_R, BLUE_G, BLUE_B, SOFT_ALPHA);
+    public static final int COL_WARN = imCol32(YELLOW_R, YELLOW_G, YELLOW_B, 1f);
+    public static final int COL_WARN_SOFT = imCol32(YELLOW_R, YELLOW_G, YELLOW_B, SOFT_ALPHA);
+    public static final int COL_DANGER = imCol32(RED_R, RED_G, RED_B, 1f);
+    public static final int COL_DANGER_SOFT = imCol32(RED_R, RED_G, RED_B, SOFT_ALPHA);
+    public static final int COL_DANGER_SOFT_HOVER = imCol32(RED_R, RED_G, RED_B, SOFT_HOVER_ALPHA);
+    public static final int COL_FOCUS = COL_INFO;
+
+    /** Hover and toggle feedback. */
+    public static final float DURATION_FAST_S = 0.12f;
+    /** Drawer, modal and toast slides; card entrance. */
+    public static final float DURATION_S = 0.20f;
+    /** Full period of the loading alpha pulse — the only looping animation. */
+    public static final float PULSE_PERIOD_S = 1.4f;
+    /** How long a toast stays up before it slides out. */
+    public static final float TOAST_LIFE_S = 5f;
+    /** Opacity of a disabled control. */
+    public static final float DISABLED_ALPHA = 0.45f;
+
+    /**
+     * Every size the redesign uses, derived from the body font size so it scales
+     * with DPI the way the font does. The ratios are the prototype's pixel values
+     * over its 15 px base; {@code u} is its 4 px spacing unit.
+     *
+     * @param fontSize body font size in pixels, the unit all ratios multiply
+     */
+    public record Metrics(float fontSize) {
+
+        private static final float UNIT = 0.25f;
+        private static final float CONTROL = 2f;
+        private static final float CONTROL_SMALL = 1.733f;
+        private static final float TOP_BAR = 2.933f;
+        private static final float STATUS_BAR = 1.733f;
+        private static final float DRAWER = 23.5f;
+        private static final float DRAWER_MAX_FRACTION = 0.6f;
+        private static final float CARD_MIN = 19.33f;
+        private static final float LANE = 1.467f;
+        private static final float BAR = 0.2f;
+        private static final float BAR_GAP = 0.133f;
+        private static final float CHIP = 1.467f;
+        private static final float ICON_TILE = 2.133f;
+        private static final float INSET_MIN = 6.133f;
+        private static final float DOT = 0.4f;
+        private static final float RADIUS_SMALL = 0.267f;
+        private static final float RADIUS = 0.4f;
+        private static final float RADIUS_LARGE = 0.533f;
+        private static final float RADIUS_XL = 0.667f;
+        private static final float FOCUS_WIDTH = 0.133f;
+        private static final float HAIRLINE = 1f;
+
+        /** One spacing unit; {@code u(3)} is the prototype's {@code --sp-3}. */
+        public float u(float units) {
+            return Math.round(fontSize * UNIT) * units;
+        }
+
+        public float controlHeight() { return fontSize * CONTROL; }
+        public float controlSmallHeight() { return fontSize * CONTROL_SMALL; }
+        public float topBarHeight() { return fontSize * TOP_BAR; }
+        public float statusBarHeight() { return fontSize * STATUS_BAR; }
+        public float drawerWidth(float available) {
+            return Math.min(fontSize * DRAWER, available * DRAWER_MAX_FRACTION);
+        }
+        public float cardMinWidth() { return fontSize * CARD_MIN; }
+        public float laneHeight() { return fontSize * LANE; }
+        public float barWidth() { return Math.max(HAIRLINE, fontSize * BAR); }
+        public float barGap() { return Math.max(HAIRLINE, fontSize * BAR_GAP); }
+        public float chipHeight() { return fontSize * CHIP; }
+        public float iconTile() { return fontSize * ICON_TILE; }
+        public float insetMinHeight() { return fontSize * INSET_MIN; }
+        public float dot() { return fontSize * DOT; }
+        public float radiusSmall() { return fontSize * RADIUS_SMALL; }
+        public float radius() { return fontSize * RADIUS; }
+        public float radiusLarge() { return fontSize * RADIUS_LARGE; }
+        public float radiusXl() { return fontSize * RADIUS_XL; }
+        public float focusWidth() { return Math.max(HAIRLINE, fontSize * FOCUS_WIDTH); }
+        public float hairline() { return HAIRLINE; }
+    }
+
     private ImGuiTheme() {}
 
     /**

@@ -44,6 +44,10 @@ public final class Icons {
     public static final String EYE         = "\uF06E";  // fa-eye
     public static final String SIGNAL      = "\uF012";  // fa-signal
     public static final String SPINNER     = "\uF110";  // fa-spinner
+    public static final String LINK_SLASH  = "\uF127";  // fa-link-slash
+    public static final String CIRCLE_CHECK = "\uF058"; // fa-circle-check
+    public static final String PLUG_XMARK  = "\uE560";  // fa-plug-circle-xmark
+    public static final String FILE_XMARK  = "\uE5A1";  // fa-file-circle-xmark
 
     // Objects
     public static final String SERVER      = "\uF233";  // fa-server
