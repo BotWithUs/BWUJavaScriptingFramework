@@ -18,6 +18,13 @@ public interface ClientBoard {
     /** The installed scripts. Called once when the picker opens, not per frame. */
     List<ScriptEntry> catalog();
 
+    /**
+     * The picker's "Your subscriptions" group as seen from {@code clientId}: which
+     * subscribed scripts exist, and whether each is installed there. Called every
+     * frame while the picker is open, so install progress shows as it happens.
+     */
+    SubscriptionGroup subscriptions(String clientId);
+
     /** The running script on {@code clientId}, if any, for the config inspector. */
     Optional<InspectorTarget> inspect(String clientId);
 

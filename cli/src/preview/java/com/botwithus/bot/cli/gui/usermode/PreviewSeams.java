@@ -15,6 +15,11 @@ public final class PreviewSeams {
         page.showView(ClientFilter.View.NEEDS_ATTENTION);
     }
 
+    /** Highlights row {@code index} of the open picker, as ↑↓ would. */
+    public static void highlightPickerRow(UserModeRenderer page, int index) {
+        page.highlightPickerRow(index);
+    }
+
     /**
      * Sets an int-backed field (int, item id, or choice index) in the open
      * inspector. Returns false until the inspector has drawn its first frame.

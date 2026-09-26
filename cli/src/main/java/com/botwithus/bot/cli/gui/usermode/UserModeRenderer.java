@@ -114,16 +114,32 @@ public class UserModeRenderer {
             renderDrawer(drawerW, drawerFull, availH);
         }
         boolean pickerWasOpen = picker.isOpen();
-        picker.render().ifPresent(pick -> {
-            board.actions().startScript(pick.clientId(), pick.entry());
-            if (pick.reviewSettings()) {
-                pendingReview = pick.clientId();
-                pendingReviewUntil = ImGui.getTime() + REVIEW_WAIT_S;
-            }
-        });
+        picker.render(board::subscriptions).ifPresent(pick -> startPick(board, pick));
         handleEscape(pickerWasOpen);
         ImGui.popStyleColor(PAGE_COLOR_COUNT);
         ImGui.popStyleVar();
+    }
+
+    /**
+     * Hands the pick to the board. Only a local script offers "Review settings":
+     * a subscription may still be installing, so there are no settings to review yet.
+     */
+    private void startPick(ClientBoard board, ScriptPickerPopup.Pick pick) {
+        switch (pick.row()) {
+            case PickerRow.Local local -> {
+                board.actions().startScript(pick.clientId(), local.entry());
+                if (pick.reviewSettings()) {
+                    pendingReview = pick.clientId();
+                    pendingReviewUntil = ImGui.getTime() + REVIEW_WAIT_S;
+                }
+            }
+            case PickerRow.Subscribed sub -> board.actions().startSubscription(pick.clientId(), sub.entry().id());
+        }
+    }
+
+    /** Package-private: the dev preview's seam for highlighting a picker row. */
+    void highlightPickerRow(int index) {
+        picker.highlight(index);
     }
 
     /** Focus ring in the focus blue, and a quiet scrollbar that only shows its thumb. */

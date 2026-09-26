@@ -2,6 +2,7 @@ package com.botwithus.bot.core.sdn;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -10,10 +11,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -24,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SdnCatalogueSourceTest {
 
     private static final Duration SHORT = Duration.ofMillis(300);
+    private static final long RACE_TIMEOUT_SECONDS = 30;
 
     @TempDir
     Path dir;
@@ -117,6 +122,52 @@ class SdnCatalogueSourceTest {
                 SdnCatalogueResult.Delivered.class, source.fetch(SHORT));
 
         assertTrue(delivered.entries().isEmpty());
+    }
+
+    // subscribed / isFree: three-valued, absent is null ---------------------
+
+    @Test
+    void fetch_subscribedAndIsFreeTrue_parseAsTrue() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","subscribed":true,"isFree":true}""");
+
+        assertEquals(Boolean.TRUE, entry.subscribed());
+        assertEquals(Boolean.TRUE, entry.isFree());
+    }
+
+    @Test
+    void fetch_subscribedAndIsFreeFalse_parseAsFalseNotNull() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","subscribed":false,"isFree":false}""");
+
+        assertEquals(Boolean.FALSE, entry.subscribed());
+        assertEquals(Boolean.FALSE, entry.isFree());
+    }
+
+    @Test
+    void fetch_subscribedAndIsFreeAbsent_parseAsNullNotFalse() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","agentv2Support":true}""");
+
+        assertNull(entry.subscribed(), "an older launcher's silence must not read as 'not subscribed'");
+        assertNull(entry.isFree(), "an older launcher's silence must not read as 'paid'");
+    }
+
+    @Test
+    void fetch_subscribedAndIsFreeNotBoolean_parseAsNull() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","subscribed":null,"isFree":"true"}""");
+
+        assertNull(entry.subscribed());
+        assertNull(entry.isFree(), "a string is not a JSON boolean");
+    }
+
+    private SdnCatalogueEntry onlyEntry(String entryJson) throws IOException {
+        courierAnswers("{\"status\":\"ok\",\"entries\":[" + entryJson + "]}");
+        SdnCatalogueResult.Delivered delivered = assertInstanceOf(
+                SdnCatalogueResult.Delivered.class, source.fetch(SHORT));
+        assertEquals(1, delivered.entries().size());
+        return delivered.entries().get(0);
     }
 
     /**
@@ -272,5 +323,39 @@ class SdnCatalogueSourceTest {
         List<SdnCatalogueEntry> entries = delivered.entries();
 
         assertThrows(UnsupportedOperationException.class, () -> entries.add(null));
+    }
+
+    // One exchange at a time ---------------------------------------------
+
+    /**
+     * A fetch that finds another one mid-exchange must wait for it, not write its
+     * own request over the other's. The test holds the rendezvous itself, from a
+     * second source object, so the check does not lean on anyone sharing a
+     * refresher. The fetch uses a zero timeout, so if it ignored the lock it would
+     * finish at once, which is what the spin below watches for.
+     */
+    @Test
+    @Timeout(RACE_TIMEOUT_SECONDS)
+    void fetch_whileTheRendezvousIsHeld_waitsWithoutWritingARequest() throws Exception {
+        ReentrantLock rendezvous =
+                SdnRendezvous.exchangeLock(dir, SdnCatalogueSource.REQUEST_SUFFIX);
+        FutureTask<SdnCatalogueResult> fetch =
+                new FutureTask<>(() -> new SdnCatalogueSource(dir).fetch(Duration.ZERO));
+        rendezvous.lock();
+        try {
+            Thread fetcher = Thread.ofPlatform().name("catalogue-fetch").start(fetch);
+            while (!rendezvous.hasQueuedThread(fetcher) && !fetch.isDone()) {
+                Thread.onSpinWait();
+            }
+            assertFalse(fetch.isDone(), "the fetch ran its exchange while the rendezvous was held");
+            assertFalse(Files.exists(requestFile()), "a queued fetch wrote its request");
+        } finally {
+            rendezvous.unlock();
+        }
+        assertInstanceOf(SdnCatalogueResult.CourierUnavailable.class, fetch.get());
+    }
+
+    private Path requestFile() {
+        return dir.resolve(SdnRendezvous.currentPid() + SdnCatalogueSource.REQUEST_SUFFIX);
     }
 }

@@ -37,6 +37,9 @@ import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
+import com.botwithus.bot.core.sdn.SdnCatalogueSource;
+import com.botwithus.bot.core.sdn.SdnInstaller;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImGui;
@@ -296,7 +299,11 @@ public class ImGuiApp extends Application {
         // event bus the moment connect() succeeds.
         Clock clock = Clock.systemDefaultZone();
         notificationOverlay = new NotificationOverlay(clock, this::accountOf);
-        board = new LiveClientBoard(ctx, clientId -> openLogs(), clock);
+        // One catalogue for the whole host: the Scripts Store panel and Normal mode's
+        // "Your subscriptions" group read the same refresher, so there is one fetch loop.
+        SdnCatalogueRefresher sdnCatalogue = SdnScriptsPanel.catalogueRefresher(new SdnCatalogueSource());
+        SdnInstaller sdnInstaller = new SdnInstaller();
+        board = new LiveClientBoard(ctx, clientId -> openLogs(), clock, sdnCatalogue, sdnInstaller);
         shell = new Shell(ui, new UserModeRenderer(ui), notificationOverlay);
         ctx.setOnConnect(conn -> {
             if (conn.getEventBus() != null) {
@@ -319,7 +326,7 @@ public class ImGuiApp extends Application {
         // Appended last on purpose: NAV_SECTION_PANELS and NAV_ICONS index into
         // this list positionally, so inserting anywhere else renumbers every
         // panel after it.
-        sdnScriptsPanel = new SdnScriptsPanel(executor);
+        sdnScriptsPanel = new SdnScriptsPanel(executor, sdnCatalogue, sdnInstaller);
         panels.add(sdnScriptsPanel);
     }
 

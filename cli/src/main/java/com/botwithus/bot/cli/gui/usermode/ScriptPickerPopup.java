@@ -1,6 +1,5 @@
 package com.botwithus.bot.cli.gui.usermode;
 
-import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.cli.gui.CategoryStyle;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
@@ -10,6 +9,9 @@ import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptEntry;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
+import com.botwithus.bot.cli.gui.usermode.board.SubscriptionEntry;
+import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
+import com.botwithus.bot.cli.gui.usermode.board.SubscriptionState;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -23,11 +25,13 @@ import imgui.type.ImString;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * The Start Script modal: search, category pills, a grouped list on the left and
@@ -37,11 +41,18 @@ import java.util.Set;
  * <p>Arrow keys are handled here rather than by ImGui's keyboard navigation
  * (the window opts out of it), so ↑↓ move the highlight while the cursor stays
  * in the search box.</p>
+ *
+ * <p>"Your subscriptions" sits above the local categories. A subscription that is
+ * already installed is listed there only — its local row is hidden — and starts
+ * the installed copy. One that is not installed stays open after Start while it
+ * installs, shows its progress, and closes itself once the script is on the
+ * client; a failed install stays open with the installer's message in the
+ * details pane.</p>
  */
 final class ScriptPickerPopup {
 
     /** What the user chose. */
-    record Pick(String clientId, ScriptEntry entry, boolean reviewSettings) {}
+    record Pick(String clientId, PickerRow row, boolean reviewSettings) {}
 
     private static final String POPUP_ID = "##start-script";
     private static final int QUERY_CAPACITY = 128;
@@ -52,11 +63,12 @@ final class ScriptPickerPopup {
     private static final float DETAIL_TILE_EM = 2.667f;
     private static final float DESC_CH = 40f;
     private static final float LINE = 1.35f;
-    private static final float KV_LINE = 1.95f;
     private static final float CHECKBOX_EM = 1.067f;
     private static final String ALL = "All";
+    private static final String SUBSCRIPTIONS = "Subscriptions";
 
     private final Controls ui;
+    private final SubscriptionRows subscriptionRows;
     private final ImString query = new ImString(QUERY_CAPACITY);
     private boolean pendingOpen;
     private boolean focusSearch;
@@ -64,13 +76,17 @@ final class ScriptPickerPopup {
     private String clientId;
     private String account;
     private List<ScriptEntry> catalog = List.of();
+    private SubscriptionGroup group = new SubscriptionGroup.Pending();
     private String category = ALL;
     private int highlighted;
     private boolean scrollToHighlight;
     private boolean review;
+    /** The subscription whose install this picker started and is waiting on, or {@code null}. */
+    private String awaitingInstall;
 
     ScriptPickerPopup(Controls ui) {
         this.ui = ui;
+        this.subscriptionRows = new SubscriptionRows(ui);
     }
 
     void open(ClientView client, List<ScriptEntry> scripts) {
@@ -83,6 +99,7 @@ final class ScriptPickerPopup {
         category = ALL;
         highlighted = 0;
         review = false;
+        awaitingInstall = null;
         pendingOpen = true;
     }
 
@@ -90,8 +107,17 @@ final class ScriptPickerPopup {
         return open || pendingOpen;
     }
 
-    /** Renders the modal if open; returns the pick on the frame the user starts one. */
-    Optional<Pick> render() {
+    /** Package-private: the dev preview's seam for highlighting a row, as ↑↓ would. */
+    void highlight(int index) {
+        highlighted = index;
+    }
+
+    /**
+     * Renders the modal if open; returns the pick on the frame the user starts one.
+     *
+     * @param subscriptions the "Your subscriptions" group for a client id; asked every frame
+     */
+    Optional<Pick> render(Function<String, SubscriptionGroup> subscriptions) {
         if (pendingOpen) {
             ImGui.openPopup(POPUP_ID);
             pendingOpen = false;
@@ -115,14 +141,61 @@ final class ScriptPickerPopup {
             open = false;
             return Optional.empty();
         }
+        group = subscriptions.apply(clientId);
+        followInstall();
         Optional<Pick> pick = renderContent();
-        if (pick.isPresent() || !open) {
+        boolean closes = !open || pick.map(this::closesOnPick).orElse(false);
+        if (closes) {
             ImGui.closeCurrentPopup();
             open = false;
             clientId = null;
         }
         ImGui.endPopup();
         return pick;
+    }
+
+    /**
+     * A pick that starts something now closes the picker. One that starts an install
+     * keeps it open, so the user sees it install, and {@link #followInstall} closes it
+     * once the script is on the client.
+     */
+    private boolean closesOnPick(Pick pick) {
+        return switch (pick.row()) {
+            case PickerRow.Local ignored -> true;
+            case PickerRow.Subscribed sub -> {
+                if (!sub.entry().state().needsInstall()) {
+                    yield true;
+                }
+                awaitingInstall = sub.entry().id();
+                yield false;
+            }
+        };
+    }
+
+    /** Closes the picker once the install it started lands; stops waiting if it failed. */
+    private void followInstall() {
+        if (awaitingInstall == null) {
+            return;
+        }
+        Optional<SubscriptionState> state = group.entries().stream()
+                .filter(e -> e.id().equals(awaitingInstall))
+                .map(SubscriptionEntry::state)
+                .findFirst();
+        if (state.isEmpty()) {
+            awaitingInstall = null;
+            return;
+        }
+        switch (state.get()) {
+            case SubscriptionState.Installed ignored -> {
+                awaitingInstall = null;
+                open = false;
+            }
+            case SubscriptionState.Installing ignored -> { }
+            // Still NotInstalled means the board has not marked it yet (the pick
+            // was this frame); anything else ends the wait.
+            case SubscriptionState.NotInstalled ignored -> { }
+            case SubscriptionState.Failed ignored -> awaitingInstall = null;
+        }
     }
 
     private void placeWindow() {
@@ -157,16 +230,18 @@ final class ScriptPickerPopup {
         float y = ImGui.getWindowPosY();
         float w = ImGui.getWindowWidth();
         float h = ImGui.getWindowHeight();
-        List<ScriptEntry> visible = filtered();
+        List<PickerRow> visible = filtered();
         highlighted = Math.max(0, Math.min(highlighted, visible.size() - 1));
+        Optional<PickerRow> current = visible.isEmpty() ? Optional.empty() : Optional.of(visible.get(highlighted));
         boolean startByKey = handleKeys(visible.size());
-        float headerH = renderHeader(x, y, w);
+        float headerH = renderHeader(x, y, w, visible);
         float footerH = ui.m().u(3) * 2f + ui.m().controlHeight();
         float bodyH = h - headerH - footerH;
         boolean startByRow = renderBody(visible, x, y + headerH, w, bodyH);
-        boolean startByButton = renderFooter(!visible.isEmpty(), x, y + h - footerH, w);
-        if ((startByKey || startByRow || startByButton) && !visible.isEmpty()) {
-            return Optional.of(new Pick(clientId, visible.get(highlighted), review));
+        boolean startByButton = renderFooter(current, x, y + h - footerH, w);
+        boolean chosen = startByKey || startByRow || startByButton;
+        if (chosen && current.isPresent() && current.get().isChoosable()) {
+            return Optional.of(new Pick(clientId, current.get(), review));
         }
         return Optional.empty();
     }
@@ -187,21 +262,45 @@ final class ScriptPickerPopup {
         return ImGui.isKeyPressed(ImGuiKey.Enter, false) || ImGui.isKeyPressed(ImGuiKey.KeypadEnter, false);
     }
 
-    private List<ScriptEntry> filtered() {
+    /** Subscriptions first, then local scripts less any that a subscription row already stands for. */
+    private List<PickerRow> filtered() {
         String q = query.get().strip().toLowerCase(Locale.ROOT);
-        List<ScriptEntry> out = new ArrayList<>();
-        for (ScriptEntry e : catalog) {
-            ScriptInfo s = e.info();
-            boolean inCategory = ALL.equals(category) || s.categoryLabel().equals(category);
-            String hay = (s.name() + ' ' + s.categoryLabel() + ' ' + s.description()).toLowerCase(Locale.ROOT);
-            if (inCategory && (q.isEmpty() || hay.contains(q))) {
-                out.add(e);
+        List<PickerRow> out = new ArrayList<>();
+        if (showsSubscriptions()) {
+            for (SubscriptionEntry s : group.entries()) {
+                PickerRow row = new PickerRow.Subscribed(s);
+                if (row.matches(q)) {
+                    out.add(row);
+                }
+            }
+        }
+        if (SUBSCRIPTIONS.equals(category)) {
+            return out;
+        }
+        for (ScriptEntry e : localRows()) {
+            boolean inCategory = ALL.equals(category) || e.info().categoryLabel().equals(category);
+            PickerRow row = new PickerRow.Local(e);
+            if (inCategory && row.matches(q)) {
+                out.add(row);
             }
         }
         return out;
     }
 
-    private float renderHeader(float x, float y, float w) {
+    private boolean showsSubscriptions() {
+        return ALL.equals(category) || SUBSCRIPTIONS.equals(category);
+    }
+
+    /** The local catalogue without the scripts listed under "Your subscriptions", so none shows twice. */
+    private List<ScriptEntry> localRows() {
+        Set<Integer> claimed = new HashSet<>();
+        for (SubscriptionEntry s : group.entries()) {
+            s.localKey().ifPresent(claimed::add);
+        }
+        return catalog.stream().filter(e -> !claimed.contains(e.key())).toList();
+    }
+
+    private float renderHeader(float x, float y, float w, List<PickerRow> visible) {
         ImGuiTheme.Metrics m = ui.m();
         ImDrawList draw = ImGui.getWindowDrawList();
         float left = x + m.u(4);
@@ -222,7 +321,8 @@ final class ScriptPickerPopup {
         float searchY = rowY + rowH + m.u(3);
         float searchH = ui.fonts().body().getFontSize() * SEARCH_HEIGHT_EM;
         ImGui.setCursorScreenPos(left, searchY);
-        if (ui.searchBox("##picker-search", query, "Search " + catalog.size() + " scripts", inner, searchH,
+        int total = group.entries().size() + localRows().size();
+        if (ui.searchBox("##picker-search", query, "Search " + total + " scripts", inner, searchH,
                 focusSearch)) {
             highlighted = 0;
         }
@@ -235,7 +335,10 @@ final class ScriptPickerPopup {
     private void renderPills(float x, float y, float maxW) {
         Set<String> labels = new LinkedHashSet<>();
         labels.add(ALL);
-        for (ScriptEntry e : catalog) {
+        if (!group.entries().isEmpty()) {
+            labels.add(SUBSCRIPTIONS);
+        }
+        for (ScriptEntry e : localRows()) {
             labels.add(e.info().categoryLabel());
         }
         float px = x;
@@ -275,7 +378,7 @@ final class ScriptPickerPopup {
 
     // ── Body: list + details ───────────────────────────────────────────────
 
-    private boolean renderBody(List<ScriptEntry> visible, float x, float y, float w, float h) {
+    private boolean renderBody(List<PickerRow> visible, float x, float y, float w, float h) {
         ImDrawList draw = ImGui.getWindowDrawList();
         float half = w * 0.5f;
         draw.addLine(x, y + 0.5f, x + w, y + 0.5f, ImGuiTheme.COL_BORDER, ui.m().hairline());
@@ -291,28 +394,65 @@ final class ScriptPickerPopup {
             ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, ui.m().u(4), ui.m().u(4));
             ImGui.beginChild("##picker-details", half, h - 1f, ImGuiChildFlags.AlwaysUseWindowPadding, 0);
             ImGui.popStyleVar();
-            renderDetails(visible.get(highlighted).info());
+            renderDetails(visible.get(highlighted));
             ImGui.endChild();
         }
         return start;
     }
 
-    private boolean renderList(List<ScriptEntry> visible) {
+    private boolean renderList(List<PickerRow> visible) {
+        boolean subsSection = renderSubscriptionsHeader(visible);
         if (visible.isEmpty()) {
-            renderNoMatch();
+            if (!subsSection) {
+                renderNoMatch();
+            }
             return false;
         }
         boolean start = false;
-        ScriptCategory group = null;
+        String localGroup = null;
         for (int i = 0; i < visible.size(); i++) {
-            ScriptInfo s = visible.get(i).info();
-            if (ALL.equals(category) && s.category() != group) {
-                group = s.category();
-                groupHeader(s.categoryLabel(), i == 0);
+            PickerRow row = visible.get(i);
+            switch (row) {
+                case PickerRow.Local local -> {
+                    String label = local.entry().info().categoryLabel();
+                    if (ALL.equals(category) && !label.equals(localGroup)) {
+                        localGroup = label;
+                        groupHeader(localGroup, i == 0 && !subsSection);
+                    }
+                }
+                case PickerRow.Subscribed ignored -> { }
             }
-            start |= row(i, s);
+            start |= row(i, row);
         }
         return start;
+    }
+
+    /**
+     * Draws the "Your subscriptions" heading and its note, when the group has
+     * something to say here. Returns whether it drew anything.
+     */
+    private boolean renderSubscriptionsHeader(List<PickerRow> visible) {
+        if (!showsSubscriptions() || group.isHidden()) {
+            return false;
+        }
+        boolean hasRows = !visible.isEmpty() && visible.get(0).isSubscription();
+        Optional<SubscriptionRows.Note> note = SubscriptionRows.noteFor(group);
+        boolean searching = !query.get().isBlank();
+        if (!hasRows && (searching || note.isEmpty())) {
+            return false;
+        }
+        groupHeader(SubscriptionRows.GROUP_LABEL, true);
+        note.ifPresent(this::noteLine);
+        return true;
+    }
+
+    private void noteLine(SubscriptionRows.Note note) {
+        ImGuiTheme.Metrics m = ui.m();
+        float x = ImGui.getCursorScreenPosX() + m.u(2);
+        float y = ImGui.getCursorScreenPosY();
+        float w = ImGui.getContentRegionAvailX() - m.u(2) * 2f;
+        float h = subscriptionRows.note(ImGui.getWindowDrawList(), note, x, y, w);
+        ImGui.dummy(1f, h + m.u(1) - ImGui.getStyle().getItemSpacingY());
     }
 
     private void groupHeader(String label, boolean first) {
@@ -325,7 +465,7 @@ final class ScriptPickerPopup {
         ImGui.dummy(1f, top + font.getFontSize() + m.u(2) - ImGui.getStyle().getItemSpacingY());
     }
 
-    private boolean row(int index, ScriptInfo s) {
+    private boolean row(int index, PickerRow pickerRow) {
         ImGuiTheme.Metrics m = ui.m();
         float tile = ui.fonts().body().getFontSize() * ROW_TILE_EM;
         float w = ImGui.getContentRegionAvailX();
@@ -344,12 +484,16 @@ final class ScriptPickerPopup {
             scrollToHighlight = false;
         }
         float t = Motion.step("prow:" + index, ImGui.isItemHovered() ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
-        paintRow(ImGui.getWindowDrawList(), s, x, y, w, h, tile, on, t);
+        ImDrawList draw = ImGui.getWindowDrawList();
+        paintRowBackground(draw, x, y, w, h, on, t);
+        switch (pickerRow) {
+            case PickerRow.Local local -> paintRow(draw, local.entry().info(), x, y, w, h, tile, on);
+            case PickerRow.Subscribed sub -> subscriptionRows.paintRow(draw, sub.entry(), x, y, w, h, tile, on);
+        }
         return doubleClicked;
     }
 
-    private void paintRow(ImDrawList draw, ScriptInfo s, float x, float y, float w, float h, float tile,
-                          boolean on, float hoverT) {
+    private void paintRowBackground(ImDrawList draw, float x, float y, float w, float h, boolean on, float hoverT) {
         ImGuiTheme.Metrics m = ui.m();
         if (on) {
             draw.addRectFilled(x, y, x + w, y + h, ImGuiTheme.COL_BG, m.radius());
@@ -357,6 +501,11 @@ final class ScriptPickerPopup {
         } else if (hoverT > 0.01f) {
             draw.addRectFilled(x, y, x + w, y + h, Controls.scaleAlpha(ImGuiTheme.COL_SURFACE, hoverT), m.radius());
         }
+    }
+
+    private void paintRow(ImDrawList draw, ScriptInfo s, float x, float y, float w, float h, float tile,
+                          boolean on) {
+        ImGuiTheme.Metrics m = ui.m();
         String icon = CategoryStyle.of(s.category()).icon();
         ui.iconTile(draw, x + m.u(2), y + m.u(2), tile, icon, on ? ImGuiTheme.COL_ACCENT : ImGuiTheme.COL_FG2,
                 on ? ImGuiTheme.COL_ACCENT_SOFT : ImGuiTheme.COL_ELEVATED);
@@ -377,11 +526,29 @@ final class ScriptPickerPopup {
         float cx = ImGui.getCursorScreenPosX() + ImGui.getContentRegionAvailX() * 0.5f;
         float y = ImGui.getCursorScreenPosY() + m.u(6);
         ImFont font = ui.fonts().small();
-        String first = catalog.isEmpty() ? "No scripts installed yet." : "No scripts match “" + query.get() + "”.";
+        String first = catalog.isEmpty() && group.entries().isEmpty()
+                ? "No scripts installed yet." : "No scripts match “" + query.get() + "”.";
         ui.text(draw, font, cx - ui.width(font, first) * 0.5f, y, ImGuiTheme.COL_FG2, first);
         String second = "Installed scripts live in scripts/.";
         ui.text(draw, font, cx - ui.width(font, second) * 0.5f, y + font.getFontSize() * LINE,
                 ImGuiTheme.COL_FG2, second);
+    }
+
+    private void renderDetails(PickerRow row) {
+        switch (row) {
+            case PickerRow.Local local -> renderDetails(local.entry().info());
+            case PickerRow.Subscribed sub -> renderSubscriptionDetails(sub.entry());
+        }
+    }
+
+    private void renderSubscriptionDetails(SubscriptionEntry s) {
+        float left = ImGui.getCursorScreenPosX();
+        float top = ImGui.getCursorScreenPosY();
+        float inner = ImGui.getContentRegionAvailX();
+        float tile = ui.fonts().body().getFontSize() * DETAIL_TILE_EM;
+        float bottom = subscriptionRows.details(ImGui.getWindowDrawList(), s, account, left, top, inner, tile);
+        ImGui.setCursorScreenPos(left, top);
+        ImGui.dummy(inner, bottom - top);
     }
 
     /**
@@ -409,7 +576,7 @@ final class ScriptPickerPopup {
             ui.text(draw, small, left, cy, ImGuiTheme.COL_FG2, line);
             cy += small.getFontSize() * LINE;
         }
-        cy = keyValues(draw, s, left, cy + m.u(3));
+        cy = KeyValueList.draw(ui, draw, facts(s), left, cy + m.u(3));
         if (s.settingsCount() > 0) {
             float bottom = ImGui.getWindowPosY() + ImGui.getWindowHeight() - m.u(4) - m.controlHeight();
             float checkY = Math.max(cy + m.u(3), bottom);
@@ -420,27 +587,13 @@ final class ScriptPickerPopup {
         ImGui.dummy(inner, cy - top);
     }
 
-    private float keyValues(ImDrawList draw, ScriptInfo s, float x, float y) {
-        String[][] rows = {
-                {"Author", s.author().isBlank() ? "—" : s.author()},
-                {"Version", s.version()},
-                {"Category", s.categoryLabel()},
-                {"Settings", s.settingsCount() > 0 ? s.settingsCount() + " fields" : "none"},
-                {"Custom UI", s.hasCustomUi() ? "yes" : "no"}};
-        ImFont key = ui.fonts().caption();
-        ImFont value = ui.fonts().monoCaption();
-        float keyW = 0f;
-        for (String[] r : rows) {
-            keyW = Math.max(keyW, ui.width(key, r[0]));
-        }
-        float lineH = key.getFontSize() * KV_LINE;
-        float cy = y;
-        for (String[] r : rows) {
-            ui.text(draw, key, x, cy, ImGuiTheme.COL_FG2, r[0]);
-            ui.text(draw, value, x + keyW + ui.m().u(4), cy, ImGuiTheme.COL_FG, r[1]);
-            cy += lineH;
-        }
-        return cy;
+    private static List<KeyValueList.Row> facts(ScriptInfo s) {
+        return List.of(
+                new KeyValueList.Row("Author", s.author().isBlank() ? "—" : s.author()),
+                new KeyValueList.Row("Version", s.version()),
+                new KeyValueList.Row("Category", s.categoryLabel()),
+                new KeyValueList.Row("Settings", s.settingsCount() > 0 ? s.settingsCount() + " fields" : "none"),
+                new KeyValueList.Row("Custom UI", s.hasCustomUi() ? "yes" : "no"));
     }
 
     private void renderReviewCheck(float x, float y, float w) {
@@ -468,7 +621,25 @@ final class ScriptPickerPopup {
 
     // ── Footer ─────────────────────────────────────────────────────────────
 
-    private boolean renderFooter(boolean canStart, float x, float y, float w) {
+    /** The primary button's face: what Start will do for the highlighted row. */
+    private record StartFace(String icon, String label, boolean enabled) {}
+
+    private static StartFace startFace(Optional<PickerRow> current) {
+        if (current.isEmpty()) {
+            return new StartFace(Icons.PLAY, "Start", false);
+        }
+        return switch (current.get()) {
+            case PickerRow.Local ignored -> new StartFace(Icons.PLAY, "Start", true);
+            case PickerRow.Subscribed sub -> switch (sub.entry().state()) {
+                case SubscriptionState.Installed ignored -> new StartFace(Icons.PLAY, "Start", true);
+                case SubscriptionState.NotInstalled ignored -> new StartFace(Icons.DOWNLOAD, "Install & start", true);
+                case SubscriptionState.Failed ignored -> new StartFace(Icons.DOWNLOAD, "Install & start", true);
+                case SubscriptionState.Installing ignored -> new StartFace(Icons.DOWNLOAD, "Installing…", false);
+            };
+        };
+    }
+
+    private boolean renderFooter(Optional<PickerRow> current, float x, float y, float w) {
         ImGuiTheme.Metrics m = ui.m();
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addLine(x, y + 0.5f, x + w, y + 0.5f, ImGuiTheme.COL_BORDER, m.hairline());
@@ -478,7 +649,8 @@ final class ScriptPickerPopup {
         kx = keyHint(draw, kx, rowY, rowH, "↑↓", "move");
         kx = keyHint(draw, kx, rowY, rowH, "Enter", "start");
         keyHint(draw, kx, rowY, rowH, "Esc", "close");
-        float startW = ui.buttonWidth(Icons.PLAY, "Start", Tone.PRIMARY);
+        StartFace face = startFace(current);
+        float startW = ui.buttonWidth(face.icon(), face.label(), Tone.PRIMARY);
         float cancelW = ui.buttonWidth(null, "Cancel", Tone.GHOST);
         float bx = x + w - m.u(4) - startW - m.u(2) - cancelW;
         ImGui.setCursorScreenPos(bx, rowY);
@@ -486,7 +658,7 @@ final class ScriptPickerPopup {
             open = false;
         }
         ImGui.setCursorScreenPos(bx + cancelW + m.u(2), rowY);
-        return ui.button("##picker-start", Icons.PLAY, "Start", Tone.PRIMARY, canStart);
+        return ui.button("##picker-start", face.icon(), face.label(), Tone.PRIMARY, face.enabled());
     }
 
     private float keyHint(ImDrawList draw, float x, float y, float h, String key, String label) {
