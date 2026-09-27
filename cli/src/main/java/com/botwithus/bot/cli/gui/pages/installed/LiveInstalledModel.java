@@ -3,9 +3,13 @@ package com.botwithus.bot.cli.gui.pages.installed;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.clients.ClientLifecycle;
+import com.botwithus.bot.cli.clients.ClientRecord;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.inspector.InspectorRequest;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
 import com.botwithus.bot.cli.gui.inspector.InspectorTab;
+import com.botwithus.bot.cli.management.ManagedLinks;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.runtime.JarLoadOutcome;
@@ -25,10 +29,13 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -115,15 +122,56 @@ public final class LiveInstalledModel implements InstalledModel {
     private InstalledView build(Instant now) {
         List<Connection> connections = List.copyOf(ctx.getConnections());
         List<InstalledScript> rows = LiveRows.build(new LiveRows.Inputs(ctx.getLastLoadReport().results(),
-                connections, deps.ledger().all(), catalogueById(), now, deps.clock().getZone()));
+                connections, deps.ledger().all(), catalogueById(), now, deps.clock().getZone(), this::managedBy));
         List<JarLoadOutcome> pass = List.copyOf(ctx.getLastLoadReport().results());
         List<LoadProblem> problems = LoadProblems.of(ctx.getLoadIssues().issues(ScriptFolder.SCRIPTS), pass,
                 deps.folderLabel());
-        List<ClientChoice> clients = connections.stream()
-                .map(c -> new ClientChoice(c.getName(), RunnerDetails.clientName(c), c.isAlive(),
-                        RunnerDetails.offlineNote(c)))
-                .toList();
-        return new InstalledView(header(), rows, problems, clients);
+        return new InstalledView(header(), rows, problems, clientChoices(connections));
+    }
+
+    /**
+     * Every client the Start-on dialog can offer: each connection, live or
+     * dropped, then each client the registry remembers that has none, such as
+     * an account whose game is closed.
+     */
+    private List<ClientChoice> clientChoices(List<Connection> connections) {
+        List<ClientChoice> choices = new ArrayList<>();
+        Set<ClientKey> keys = new HashSet<>();
+        Set<String> pipes = new HashSet<>();
+        for (Connection c : connections) {
+            ClientKey key = ctx.clientKeyOf(c.getName());
+            keys.add(key);
+            pipes.add(c.getName());
+            choices.add(new ClientChoice(c.getName(), RunnerDetails.clientName(c), c.isAlive(),
+                    RunnerDetails.offlineNote(c), key));
+        }
+        for (ClientRecord client : ctx.getClientRegistry().clients()) {
+            boolean hasConnection = keys.contains(client.key()) || client.pipe().filter(pipes::contains).isPresent();
+            if (!hasConnection && !client.lifecycle().isOpen()) {
+                choices.add(new ClientChoice(client.key().value(), client.name().orElse(client.key().value()),
+                        false, closedNote(client.lifecycle()), client.key()));
+            }
+        }
+        return choices;
+    }
+
+    private static String closedNote(ClientLifecycle lifecycle) {
+        return switch (lifecycle) {
+            case ClientLifecycle.NotResponding _ -> "not responding";
+            case ClientLifecycle.Closed _ -> "game closed";
+            case ClientLifecycle.Identifying _, ClientLifecycle.Connected _, ClientLifecycle.Resuming _ ->
+                    "not connected";
+        };
+    }
+
+    /**
+     * The management scripts that name {@code script} on {@code conn}'s
+     * account, directly or by a group; see {@link ManagedLinks}.
+     */
+    private List<String> managedBy(Connection conn, String script) {
+        return ctx.clientKeyOf(conn.getName()).accountUuid()
+                .map(uuid -> ManagedLinks.names(ctx.getManagementTargets(), uuid, script))
+                .orElse(List.of());
     }
 
     private InstalledHeader header() {
@@ -196,10 +244,36 @@ public final class LiveInstalledModel implements InstalledModel {
         deps.folderOpener().accept(deps.scriptsDir());
     }
 
+    /**
+     * Starts {@code key} now on each of {@code clientIds} that is connected, and
+     * queues it for when they are back on those the dialog offers that for.
+     */
     @Override
     public void startOn(String key, List<String> clientIds) {
         List<String> ids = List.copyOf(clientIds);
-        submit("start " + key, () -> startNow(key, ids));
+        List<String> accounts = whenBackAccounts(key, ids);
+        submit("start " + key, () -> {
+            startNow(key, ids);
+            accounts.forEach(uuid -> ctx.startWhenBack(uuid, key));
+        });
+    }
+
+    /**
+     * The accounts among {@code ids} whose client is not connected and can have
+     * {@code key} wait for it: the same rule the Start-on dialog ticks by.
+     */
+    private List<String> whenBackAccounts(String key, List<String> ids) {
+        InstalledView now = view();
+        Map<String, ClientChoice> byId = now.clients().stream()
+                .collect(Collectors.toMap(ClientChoice::clientId, c -> c, (a, b) -> a));
+        return now.find(key)
+                .map(script -> StartTargets.of(script, now.clients()))
+                .orElse(List.of())
+                .stream()
+                .filter(t -> t.startsWhenBack() && ids.contains(t.clientId()))
+                .map(t -> byId.get(t.clientId()).key().accountUuid())
+                .flatMap(Optional::stream)
+                .toList();
     }
 
     @Override

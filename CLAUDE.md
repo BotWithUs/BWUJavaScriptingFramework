@@ -105,7 +105,7 @@ Three things that will bite if changed carelessly:
 
 `ci.yml` provides the required `build` check. **Its job must stay named `build`** — the required-check context is matched by job name, so renaming the job blocks every merge to `master` until the ruleset is updated to match.
 
-**CI does not run `./gradlew build`.** It builds `:api :core :test-support :quest-core :skilling-core`, the modules that compile from a bare clone. `cli` needs `NXTCache.dll`, `worldwalker.dll`, an Atlas database and a jlink JDK home from `local.properties`; `example-script` and `sdn-test-script` reference quest constants that `quest-core` only generates when `quest.research.dir` points at the research data, and emits as a stub otherwise. Adding a module to CI means making it build without `local.properties` first.
+**CI does not run `./gradlew build`.** It builds `:api :core :test-support :quest-core :skilling-core` and runs `:cli:check` (the `cli` tests, plus compiling the `preview` source set). `cli` needs nothing from `local.properties` to configure or test — every key it reads is optional and used only by `run` and the jlink/jpackage tasks — so keep it that way: a key that becomes required at configuration time breaks CI. The preview renders (`:cli:renderPreviews`, `:cli:previewSmokeTest`) need a desktop with OpenGL and are not run in CI. `example-script` and `sdn-test-script` stay out: they reference quest constants that `quest-core` only generates when `quest.research.dir` points at the research data, and emits as a stub otherwise. Pull requests run CI whatever branch they target, so stacked PRs are checked too.
 
 ### Machine-specific paths (`local.properties`)
 

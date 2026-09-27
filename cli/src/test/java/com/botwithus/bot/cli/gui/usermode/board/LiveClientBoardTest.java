@@ -4,6 +4,12 @@ import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.groups.GroupId;
+import com.botwithus.bot.cli.groups.GroupStore;
+import com.botwithus.bot.cli.groups.GroupsFile;
+import com.botwithus.bot.cli.management.ManagementFile;
+import com.botwithus.bot.cli.management.ManagementTargets;
+import com.botwithus.bot.cli.management.Target;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.runtime.RunnerLiveness;
 import com.botwithus.bot.core.runtime.ScriptProfiler;
@@ -24,6 +30,7 @@ import java.time.Instant;
 import java.time.InstantSource;
 import java.util.ArrayDeque;
 import java.util.List;
+import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.Executor;
 
@@ -57,6 +64,8 @@ class LiveClientBoardTest {
     private final BoardRegistry registry = new BoardRegistry(Clock.systemUTC());
     private CliContext ctx;
     private ScriptProfileStore profiles;
+    private GroupStore groups;
+    private ManagementTargets targets;
     private LiveClientBoard board;
 
     @BeforeEach
@@ -65,6 +74,9 @@ class LiveClientBoardTest {
         profiles = new ScriptProfileStore(tempDir.resolve("home"));
         when(ctx.getClientRegistry()).thenReturn(registry.registry);
         when(ctx.getProfileStore()).thenReturn(profiles);
+        groups = new GroupStore(new GroupsFile(tempDir.resolve(GroupsFile.FILE_NAME)));
+        targets = new ManagementTargets(new ManagementFile(tempDir.resolve(ManagementFile.FILE_NAME)), groups);
+        when(ctx.getManagementTargets()).thenReturn(targets);
         SdnCatalogueRefresher catalogue = new SdnCatalogueRefresher(
                 () -> new SdnCatalogueResult.Delivered(List.of(), false), Runnable::run,
                 InstantSource.system(), () -> MID_JITTER);
@@ -89,6 +101,26 @@ class LiveClientBoardTest {
                 () -> assertTrue(view.scripts().get(1).state().isRunning()),
                 () -> assertEquals(1, view.runningCount()),
                 () -> assertTrue(view.isRunning(), "a running script after a stopped one still counts"));
+    }
+
+    @Test
+    void aScriptAManagementScriptNames_carriesItsRobotLink_butNotForOneThatManagesTheWholeHost() {
+        ScriptRunner probe = runner("Location Probe", false);
+        ScriptRunner walk = runner("Walk to Flag", true);
+        ScriptRunner fish = runner("Fishing", false);
+        registry.connect(connection(probe, walk, fish), UUID, "Kestrel Moor");
+        GroupId flaggers = groups.create("Flaggers", Optional.empty()).orElseThrow().id();
+        groups.addMember(flaggers, ClientKey.account(UUID));
+        targets.add("Break Scheduler", new Target.ClientScript(UUID, "Walk to Flag"));
+        targets.add("World Balancer", new Target.Group(flaggers));
+        targets.add("Restart on Crash", Target.host());
+
+        List<ScriptRow> rows = board.clients().getFirst().scripts();
+
+        assertEquals(List.of(Optional.of("World Balancer"), Optional.of("Break Scheduler"),
+                        Optional.of("World Balancer")),
+                rows.stream().map(ScriptRow::managedBy).toList(),
+                "the most specific first; Restart on Crash covers every script, so it links none");
     }
 
     @Test

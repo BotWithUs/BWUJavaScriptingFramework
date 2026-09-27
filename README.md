@@ -18,7 +18,38 @@ A modular Java 21 game scripting framework that communicates with a game server 
 ./gradlew :cli:run
 ```
 
-The GUI provides a tabbed interface for connecting to the game server, managing scripts, viewing logs, and rendering custom script UIs.
+The GUI has a Normal mode for everyday use and an Advanced mode with the host's full set of pages; see [The GUI](#the-gui).
+
+## The GUI
+
+`./gradlew :cli:run` opens the host's window. It has two modes that share one shell: the top bar, the status bar along the bottom, the config inspector and the pop-up notifications. **F12** switches between them, and Settings chooses which one the window opens in.
+
+**Normal mode** is the everyday view: one card per game-client account. A card shows the account, its world, how long it has been online, its average RPC latency and each of its scripts, and a running script ends in a pulse lane of its last 24 loop times, so a slow loop stands out without reading a number. Cards follow the account rather than the pipe. A client that stops answering keeps its card and shows its retries. A client that closes keeps its card too, and with **Resume after restart** on, its scripts start again when the account logs back in, on whatever pipe it comes back on.
+
+![Normal mode: one card per client, each in a different state](docs/images/normal-mode.png)
+
+A script's settings open in the **config inspector**, docked on the right. It has two tabs: **Settings**, with the script's typed fields, and **Script UI**, with the script's own ImGui (see [Script UI](#script-ui)).
+
+![The config inspector docked beside the client cards](docs/images/config-inspector.png)
+
+**Advanced mode** adds a sidebar with the host's pages:
+
+| Sidebar | Page | What it is for |
+|---|---|---|
+| Clients | Dashboard | Every script runner in one table, RPC latency by method, what needs attention, the script folder's watch and reload, and a dock with the console, the logs and the host's events |
+| | Clients | The Normal-mode cards |
+| | Connections | Every pipe the host sees (connected, reconnecting, found or closed), its history, the retry controls, and which connection the console runs commands on |
+| | Groups | Named sets of accounts to start and stop scripts on together, each optionally run by a management script |
+| On this PC | Installed scripts | The JARs in `scripts/`: where each one runs, which failed to load, and starting one on several clients at once |
+| | Management | Host-level management scripts, what each one applies to, and a log of what they did |
+| Online | Script Store | The scripts you subscribe to on BotWithUs, installed through the launcher |
+| Foot of the sidebar | Settings | Every host setting, saved as you change it to `~/.botwithus/config.properties`, including alerts to ntfy, Slack or Discord |
+
+![Advanced mode: the Dashboard](docs/images/advanced-dashboard.png)
+
+![Advanced mode: Installed scripts](docs/images/advanced-installed-scripts.png)
+
+The screenshots are rendered from fixture data, not from a live game. `./gradlew :cli:renderPreviews` renders every page and state the same way, into `cli/build/preview/`, so a UI change can be checked without a game client. `./gradlew :cli:previewSmokeTest` does the same render and fails if any page throws or draws nothing. Both open a window, so they need a desktop session.
 
 ## Module Architecture
 
@@ -96,13 +127,7 @@ Commands:
 | `clear` | | Clear the console |
 | `exit` | | Exit the application |
 
-GUI panels:
-- **Console** — Command input and output with copy-to-clipboard
-- **Logs** — In-memory log capture with copy-to-clipboard
-- **Scripts** — Script management (alphabetically sorted)
-- **Management Scripts** — Load, start/stop/restart management scripts and their configs
-- **Config inspector** — One docked panel on the right, in both modes, with a script's **Settings** and its own **Script UI**
-- **Blueprint Editor** — Visual node-graph workflow editor with drag-and-drop, linking, and save/load
+The commands run in the console on the Advanced-mode Dashboard. The GUI's modes and pages are described in [The GUI](#the-gui).
 
 ### example-script
 
@@ -216,6 +241,26 @@ Each management script is applied to a set of targets that the user picks on the
 - A script with no targets can still run, but it sees no clients.
 
 `ManagementContext.targets()` returns the targets as they are now. They can change while the script runs, so read them when you need them. Management scripts that were installed before targets existed are given the whole host the first time the host loads them, so they keep working as before.
+
+### Settings per target
+
+A management script's settings have **defaults**, which every target uses, and each group or client-script target can have values of its own; the inspector's *Settings for* picker edits either. For a given client, a value comes from the first of these that sets it:
+
+1. the client script's own value;
+2. the value of a group the client is in, if that group is also one of the script's targets;
+3. the defaults.
+
+Setting a target's value back to the one it would inherit removes it, so the target follows its group or the defaults again. A script that manages the whole host uses only the defaults.
+
+`onConfigUpdate` receives the defaults, as it always has. To act on one client with that client's values, ask the context:
+
+```java
+ScriptConfig forOakheart = ctx.configFor(accountUuid);               // the account's merged settings
+ScriptConfig forItsWoodcutting = ctx.configFor(accountUuid, "Woodcutting"); // one script on it
+int breakEvery = forOakheart.getInt("breakEvery", 90);
+```
+
+A target's values can change without `onConfigUpdate` being called, so read them when you act rather than keeping them. The host keeps them under `~/.botwithus/config/__management/<script>/`: `defaults.json` and one file per target with values of its own. A management script's settings file from before per-target settings becomes its `defaults.json` the first time the host reads it, and the old file is kept beside it with a `.bak` suffix.
 
 ### Script Scheduling
 
@@ -332,6 +377,8 @@ Personality traits include speed, path curvature, precision, tremor, timing, fat
 ./gradlew :cli:run                 # Run the GUI application
 ./gradlew :example-script:build    # Build and install example script only
 ./gradlew test                     # Run all tests
+./gradlew :cli:renderPreviews      # Render every GUI page and state from fixtures to cli/build/preview/
+./gradlew :cli:previewSmokeTest    # The same render; fails if a page throws or draws nothing
 ```
 
 ## Auto-Start System

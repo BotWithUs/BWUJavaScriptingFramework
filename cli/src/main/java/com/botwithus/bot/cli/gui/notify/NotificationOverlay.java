@@ -5,7 +5,6 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.notify.Notification.Action;
 import com.botwithus.bot.cli.gui.notify.Notification.Kind;
 
@@ -229,9 +228,9 @@ public final class NotificationOverlay implements ToastSink {
                             Consumer<Notification> onAction) {
         ImGuiTheme.Metrics m = ui.m();
         float h = height(ui, n, width);
-        float in = Motion.easeOutCubic(progress(n.createdAt(), ImGuiTheme.DURATION_S));
+        float in = ui.motion().ease(progress(n.createdAt(), ImGuiTheme.DURATION_S));
         float out = n.expiresAt()
-                .map(end -> Motion.easeOutCubic(progress(end.minus(slide()), ImGuiTheme.DURATION_S)))
+                .map(end -> ui.motion().ease(progress(end.minus(slide()), ImGuiTheme.DURATION_S)))
                 .orElse(0f);
         float alpha = in * (1f - out);
         float x = x0 + (1f - alpha) * ui.fonts().body().getFontSize() * SLIDE_EM;

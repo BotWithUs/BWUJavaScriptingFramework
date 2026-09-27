@@ -2,10 +2,12 @@ package com.botwithus.bot.cli.gui.inspector;
 
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
+import com.botwithus.bot.cli.management.Target;
 import com.botwithus.bot.core.runtime.ManagementScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * A request to show the inspector on {@code subject}, opened on {@code tab}.
@@ -33,5 +35,16 @@ public record InspectorRequest(InspectorSubject subject, InspectorTab tab) {
         boolean hasFields = !ScriptCode.fields(runner::getConfigFields, name).isEmpty();
         boolean hasUi = ScriptCode.ui(() -> runner.getScript().getUI(), name) != null;
         return new InspectorRequest(new ManagementScript(name), InspectorTab.initialFor(hasFields, hasUi));
+    }
+
+    /**
+     * The inspector on one target's own settings for a management script, as a
+     * target's settings button opens it. The form falls back to the defaults if
+     * {@code target} is not one the picker offers.
+     */
+    public static InspectorRequest forManagementTarget(ManagementScriptRunner runner, Target target) {
+        Objects.requireNonNull(target, "target");
+        return new InspectorRequest(new ManagementScript(runner.getScriptName(), Optional.of(target)),
+                InspectorTab.SETTINGS);
     }
 }

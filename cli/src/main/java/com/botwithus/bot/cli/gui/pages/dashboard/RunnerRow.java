@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli.gui.pages.dashboard;
 
 import com.botwithus.bot.api.ScriptCategory;
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
 import com.botwithus.bot.cli.gui.usermode.PulseLane;
 
 import java.time.Instant;

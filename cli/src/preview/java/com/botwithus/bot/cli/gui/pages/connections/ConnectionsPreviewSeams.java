@@ -1,8 +1,8 @@
 package com.botwithus.bot.cli.gui.pages.connections;
 
 /**
- * The dev preview's reach into the Connections page: selecting a row and a
- * Show choice, which a real user does by clicking. Lives in the preview source
+ * The dev preview's reach into the Connections page: selecting a row, a Show
+ * choice and a search, which a real user does by clicking and typing. Lives in the preview source
  * set only; nothing here ships.
  */
 public final class ConnectionsPreviewSeams {
@@ -16,5 +16,10 @@ public final class ConnectionsPreviewSeams {
 
     public static void showFilter(ConnectionsPage page, RowFilter filter) {
         page.showFilter(filter);
+    }
+
+    /** Types {@code text} into the search box. */
+    public static void search(ConnectionsPage page, String text) {
+        page.search(text);
     }
 }

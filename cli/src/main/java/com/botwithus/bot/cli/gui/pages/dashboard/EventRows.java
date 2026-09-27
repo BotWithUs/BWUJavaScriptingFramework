@@ -18,6 +18,7 @@ import com.botwithus.bot.cli.events.HostEvent.ScriptLoadFailed;
 import com.botwithus.bot.cli.events.HostEvent.ScriptStalled;
 import com.botwithus.bot.cli.events.HostEvent.ScriptStarted;
 import com.botwithus.bot.cli.events.HostEvent.ScriptStopped;
+import com.botwithus.bot.cli.gui.runners.CrashText;
 
 import java.nio.file.Path;
 import java.util.function.Function;
@@ -106,18 +107,14 @@ final class EventRows {
             case ON_STOP -> "onStop";
             case ON_CONFIG_UPDATE -> "onConfigUpdate";
         };
-        return phase + " · " + typeOf(crash.cause());
+        return phase + " · " + CrashText.typeOf(crash.cause());
     }
 
     /** "IllegalStateException: pipe gone", or just the type when there is no message. */
     static String oneLine(Throwable cause) {
         String message = cause.getMessage();
-        String type = typeOf(cause);
+        String type = CrashText.typeOf(cause);
         return message == null || message.isBlank() ? type : type + ": " + message.lines().findFirst().orElse("");
-    }
-
-    private static String typeOf(Throwable cause) {
-        return cause != null ? cause.getClass().getSimpleName() : "Error";
     }
 
     private static String fileName(Path jar) {

@@ -1,6 +1,6 @@
 module com.botwithus.bot.cli {
-    // transitive: cli's exported gui classes (UserModeRenderer, ManagementScriptsPanel,
-    // ImGuiApp, etc.) expose api / core / desktop / imgui-app types in their public
+    // transitive: cli's exported gui classes (UserModeRenderer, ImGuiApp, the pages,
+    // etc.) expose api / core / desktop / imgui-app types in their public
     // signatures. Re-exporting avoids -Xlint [exports] warnings on every panel ctor.
     requires transitive com.botwithus.bot.api;
     requires transitive com.botwithus.bot.core;
@@ -24,6 +24,8 @@ module com.botwithus.bot.cli {
     opens com.botwithus.bot.cli.log to ch.qos.logback.core;
 
     exports com.botwithus.bot.cli;
+    // CliContext hands out the alert integrations the Settings page binds to.
+    exports com.botwithus.bot.cli.alerts;
     // Exported because CliContext leaks LogBuffer / LogCapture / StreamManager /
     // CommandRegistry through its public methods. Consumers (panels, commands)
     // legitimately depend on these types so they must be addressable.

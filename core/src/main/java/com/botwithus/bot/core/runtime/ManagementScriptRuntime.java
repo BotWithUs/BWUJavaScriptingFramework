@@ -2,6 +2,7 @@ package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
+import com.botwithus.bot.core.config.ManagementSettingsStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,6 +43,8 @@ public class ManagementScriptRuntime {
     private final LivenessWatchdog watchdog = new LivenessWatchdog(
             () -> "mgmt-script-watchdog", this::watchdogSubjects, () -> stallAfterMs.getAsLong());
     private final RunnerListener runnerListener;
+    /** Where every registered runner keeps its script's defaults. */
+    private final ManagementSettingsStore settings;
     private Runnable onStateChange;
     /** Builds each registered runner's context; {@code null} hands every runner {@link #context}. */
     private volatile ContextFactory contextFactory;
@@ -55,8 +58,20 @@ public class ManagementScriptRuntime {
      *                       every runner this runtime registers
      */
     public ManagementScriptRuntime(ManagementContext context, RunnerListener runnerListener) {
+        this(context, runnerListener, ManagementSettingsStore.inUserHome());
+    }
+
+    /**
+     * @param runnerListener told when a management script crashes; handed to
+     *                       every runner this runtime registers
+     * @param settings       where every runner keeps its script's defaults; the
+     *                       host passes the store its per-target settings use
+     */
+    public ManagementScriptRuntime(ManagementContext context, RunnerListener runnerListener,
+                                   ManagementSettingsStore settings) {
         this.context = context;
         this.runnerListener = runnerListener != null ? runnerListener : RunnerListener.NONE;
+        this.settings = Objects.requireNonNull(settings, "settings");
     }
 
     /** Same as {@link ScriptRuntime#setStallThreshold}, for management scripts. */
@@ -95,7 +110,7 @@ public class ManagementScriptRuntime {
 
     /** Registers a management script without starting it. */
     public ManagementScriptRunner registerScript(ManagementScript script) {
-        ManagementScriptRunner runner = new ManagementScriptRunner(script, contextOf(script));
+        ManagementScriptRunner runner = new ManagementScriptRunner(script, contextOf(script), settings);
         runner.setWatchdogArmer(this::ensureWatchdog);
         runner.setRunnerListener(runnerListener);
         runners.add(runner);

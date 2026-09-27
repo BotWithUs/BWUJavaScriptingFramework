@@ -8,9 +8,10 @@ import java.util.Optional;
 /**
  * "Find a setting": narrows the page to what matches the words typed. A row is
  * kept when its label, description or key contains the query; a whole section
- * is kept when its title does; the accounts and config-key tables are narrowed
- * row by row. Sections with nothing left are dropped, which the section list
- * shows by dimming them.
+ * is kept when its title does; the accounts and config-key tables and the
+ * Integrations event grid are narrowed row by row. An Integrations card is kept
+ * whole when its service, a field or one of its keys matches. Sections with
+ * nothing left are dropped, which the section list shows by dimming them.
  */
 public final class SettingsFind {
 
@@ -58,8 +59,13 @@ public final class SettingsFind {
                 List<RawKeyRow> rows = keys.rows().stream().filter(r -> r.findText().contains(q)).toList();
                 yield rows.isEmpty() ? Optional.empty() : Optional.of(new SettingsItem.RawKeys(rows));
             }
+            case SettingsItem.EventGrid grid -> {
+                List<GridRow> rows = grid.rows().stream().filter(r -> r.findText().contains(q)).toList();
+                yield rows.isEmpty() ? Optional.empty() : Optional.of(new SettingsItem.EventGrid(grid.columns(), rows));
+            }
             case SettingsItem.KeyRow _, SettingsItem.WaitPreview _, SettingsItem.PlaceRow _,
-                 SettingsItem.ActionRow _ -> Optional.empty();
+                 SettingsItem.ActionRow _, SettingsItem.ServiceCard _, SettingsItem.QuietHours _,
+                 SettingsItem.Notice _ -> Optional.empty();
         };
     }
 }
