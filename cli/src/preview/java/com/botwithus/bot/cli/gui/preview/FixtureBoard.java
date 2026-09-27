@@ -20,6 +20,7 @@ import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionEntry;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionState;
+import com.botwithus.bot.cli.management.Target;
 
 import imgui.ImGui;
 
@@ -262,9 +263,12 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
 
     private Optional<InspectorTarget> managementTarget(ManagementScript subject) {
         if (subject.scriptName().equals(BREAK_SCHEDULER.name())) {
-            return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, BREAK_SCHEDULER,
-                    BREAK_FIELDS, () -> applied, cfg -> { }, null, id -> Optional.ofNullable(ITEMS.get(id)),
-                    () -> false));
+            FixtureManagementSettings targets = new FixtureManagementSettings(BREAK_FIELDS);
+            Optional<Target> picked = targets.picked(subject.settingsFor());
+            ScriptConfig current = targets.current(picked);
+            return Optional.of(new InspectorTarget(subject.withSettingsFor(picked),
+                    LiveInspectorSource.MANAGEMENT_CONTEXT, BREAK_SCHEDULER, BREAK_FIELDS, () -> current, cfg -> { },
+                    null, id -> Optional.ofNullable(ITEMS.get(id)), () -> false, targets.picker(picked)));
         }
         if (subject.scriptName().equals(LOGIN_WATCHER.name())) {
             return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, LOGIN_WATCHER,

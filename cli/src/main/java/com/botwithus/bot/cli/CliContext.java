@@ -1,6 +1,8 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.config.ConfigField;
+import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.diag.StubGuard;
 
 import org.slf4j.Logger;
@@ -28,6 +30,7 @@ import com.botwithus.bot.cli.groups.StartWhenBackQueue;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.management.ManagementControl;
 import com.botwithus.bot.cli.management.ManagementFile;
+import com.botwithus.bot.cli.management.ManagementSettings;
 import com.botwithus.bot.cli.management.ManagementTargets;
 import com.botwithus.bot.cli.management.OrchestratorAuditLog;
 import com.botwithus.bot.cli.management.Scope;
@@ -56,6 +59,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.rpc.ReconnectPolicy;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.config.ManagementSettingsStore;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
@@ -75,6 +79,7 @@ import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.cli.watch.ScriptWatchControl;
 import com.botwithus.bot.core.impl.ManagementContextImpl;
 import com.botwithus.bot.core.impl.SharedStateImpl;
+import com.botwithus.bot.core.runtime.ManagementScriptRunner;
 import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
 import com.botwithus.bot.core.runtime.ManagementLoadReport;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
@@ -182,6 +187,9 @@ public class CliContext {
     private final ManagementTargets managementTargets;
     private final OrchestratorAuditLog orchestratorAudit = new OrchestratorAuditLog(hostEvents::publish, clock);
     private final ManagementControl managementControl;
+    /** Management scripts' defaults and per-target settings, shared with their runners. */
+    private final ManagementSettingsStore managementSettingsStore;
+    private final ManagementSettings managementSettings;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this(logBuffer, logCapture, DEFAULT_GROUPS_FILE);
@@ -219,6 +227,9 @@ public class CliContext {
                 new ManagementFile(groupsFile.resolveSibling(ManagementFile.FILE_NAME)), groupStore);
         this.managementControl = new ManagementControl(this::managementRuntimeOrInit, managementTargets,
                 groupStore, clientManager);
+        this.managementSettingsStore = new ManagementSettingsStore(
+                groupsFile.resolveSibling(CONFIG_DIR_NAME), background);
+        this.managementSettings = new ManagementSettings(managementSettingsStore, managementTargets, groupStore);
         hostEvents.subscribe(connectionHistory);
         hostEvents.subscribe(clientRegistry);
     }
@@ -436,14 +447,15 @@ public class CliContext {
         var sharedState = new SharedStateImpl();
         var mgmtContext = new ManagementContextImpl(
                 clientManager, clientProvider, messageBus, sharedState);
-        managementRuntime = new ManagementScriptRuntime(mgmtContext, runnerEvents);
+        managementRuntime = new ManagementScriptRuntime(mgmtContext, runnerEvents, managementSettingsStore);
         managementRuntime.setStallThreshold(this::stallAfterMs);
         managementRuntime.setContextFactory(script -> scopedManagementContext(script, messageBus, sharedState));
     }
 
     /**
      * The context a management script runs with: an orchestrator and a client
-     * provider limited to its targets, recording what it does.
+     * provider limited to its targets, recording what it does, and its
+     * settings as they apply to each client.
      */
     private ManagementContext scopedManagementContext(String script, MessageBus messageBus,
                                                       SharedState sharedState) {
@@ -451,7 +463,42 @@ public class CliContext {
         return new ManagementContextImpl(
                 new ScopedClientOrchestrator(script, clientManager, scope, this::accountOfClient, orchestratorAudit),
                 new ScopedClientProvider(clientProvider, scope, this::accountOfClient),
-                messageBus, sharedState, () -> managementTargets.apiTargetsOf(script));
+                messageBus, sharedState, () -> managementTargets.apiTargetsOf(script),
+                managementConfigs(script));
+    }
+
+    /** Answers a management script's {@code configFor} from its settings and declared fields. */
+    private ManagementContextImpl.ConfigLookup managementConfigs(String script) {
+        return new ManagementContextImpl.ConfigLookup() {
+            @Override
+            public ScriptConfig forAccount(String accountUuid) {
+                return managementSettings.configFor(script, managementFieldsOf(script), accountUuid);
+            }
+
+            @Override
+            public ScriptConfig forClientScript(String accountUuid, String scriptName) {
+                return managementSettings.configFor(script, managementFieldsOf(script), accountUuid, scriptName);
+            }
+        };
+    }
+
+    /**
+     * The fields the management script registered as {@code script} declares;
+     * none when it is not registered or its {@code getConfigFields} throws.
+     */
+    private List<ConfigField> managementFieldsOf(String script) {
+        ManagementScriptRuntime runtime = managementRuntime;
+        ManagementScriptRunner runner = runtime != null ? runtime.findRunner(script) : null;
+        if (runner == null) {
+            return List.of();
+        }
+        try {
+            return Objects.requireNonNullElse(runner.getConfigFields(), List.of());
+        } catch (RuntimeException e) {
+            log.warn("{}'s getConfigFields threw; its settings fall back to the saved ones: {}", script,
+                    e.toString());
+            return List.of();
+        }
     }
 
     /**
@@ -481,6 +528,9 @@ public class CliContext {
 
     /** Start, stop and restart management scripts, and stop a group without its manager restarting it. */
     public ManagementControl getManagementControl() { return managementControl; }
+
+    /** Each management script's defaults and per-target settings, and the order they are inherited in. */
+    public ManagementSettings getManagementSettings() { return managementSettings; }
 
     /**
      * Loads management scripts from {@code scripts/management/} and registers
@@ -956,6 +1006,9 @@ public class CliContext {
     }
 
     // --- Groups and the start-when-back queue ---
+
+    /** The folder beside the groups file that scripts' settings are kept in. */
+    private static final String CONFIG_DIR_NAME = "config";
 
     private static final Path DEFAULT_GROUPS_FILE =
             Path.of(System.getProperty("user.home"), ".botwithus", GroupsFile.FILE_NAME);

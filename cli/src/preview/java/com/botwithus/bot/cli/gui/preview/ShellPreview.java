@@ -54,6 +54,7 @@ import com.botwithus.bot.cli.gui.usermode.PreviewSeams;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.cli.gui.window.WindowRect;
+import com.botwithus.bot.cli.management.Target;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SaveStatus;
 import com.botwithus.bot.cli.settings.SettingKeys;
@@ -403,7 +404,8 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::everyState,
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
-                installedScenarios(), settingsScenarios(), groupsScenarios(), toastScenarios())
+                installedScenarios(), settingsScenarios(), groupsScenarios(), toastScenarios(),
+                managementSettingsScenarios())
                 .flatMap(List::stream).toList();
     }
 
@@ -747,6 +749,43 @@ public final class ShellPreview extends Application {
                     "Could not save settings: config.properties is in use by another program", Instant.now()));
         }
     }
+
+    /**
+     * The inspector's "Settings for" picker on Break Scheduler, which manages
+     * Woodcutters, Fernmoss's Divination and Kestrel Moor's Walk to Flag.
+     */
+    private static List<Scenario> managementSettingsScenarios() {
+        Consumer<InspectorDock> noEdits = dock -> { };
+        return List.of(
+                Scenario.advanced("120-management-settings-for-defaults", FixtureBoard::everyState,
+                        settingsFor(Optional.empty(), noEdits)),
+                Scenario.advanced("121-management-settings-for-group", FixtureBoard::everyState,
+                        settingsFor(Optional.of(FixtureManagementSettings.WOODCUTTERS), noEdits)),
+                Scenario.advanced("122-management-settings-for-client-script-in-group", FixtureBoard::everyState,
+                        settingsFor(Optional.of(FixtureManagementSettings.FERNMOSS_DIVINATION), noEdits)),
+                Scenario.advanced("123-management-settings-for-new-own-value", FixtureBoard::everyState,
+                        settingsFor(Optional.of(FixtureManagementSettings.KESTREL_WALK),
+                                dock -> InspectorPreviewSeams.stageEdit(dock, "breakLength", 30))),
+                Scenario.advanced("124-management-settings-for-back-to-inherited", FixtureBoard::everyState,
+                        settingsFor(Optional.of(FixtureManagementSettings.WOODCUTTERS),
+                                dock -> InspectorPreviewSeams.stageEdit(dock, "breakEvery", 90))));
+    }
+
+    /** Opens Break Scheduler's settings for {@code target} from Management, then makes {@code edits}. */
+    private static BiConsumer<Stage, Integer> settingsFor(Optional<Target> target, Consumer<InspectorDock> edits) {
+        BiConsumer<Stage, Integer> open = fromPage(PageId.MANAGEMENT, new InspectorRequest(
+                new InspectorSubject.ManagementScript(FixtureBoard.BREAK_SCHEDULER.name(), target),
+                InspectorTab.SETTINGS));
+        return (s, f) -> {
+            open.accept(s, f);
+            if (f == STAGE_EDITS_FRAME) {
+                edits.accept(s.inspector());
+            }
+        };
+    }
+
+    /** The frame a staged edit lands on: after the request has routed and the form has drawn once. */
+    private static final int STAGE_EDITS_FRAME = 3;
 
     /** A short management form with one field off its default, so "Restore defaults" is live. */
     private static void managementOffDefaults(Stage s, int f) {

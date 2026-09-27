@@ -16,6 +16,7 @@ import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
+import com.botwithus.bot.cli.gui.inspector.SettingsFor.InheritedValue;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -23,6 +24,7 @@ import imgui.ImGui;
 import imgui.flag.ImGuiChildFlags;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiStyleVar;
+import imgui.type.ImInt;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +38,11 @@ import java.util.Optional;
  * only one is ever open; {@link InspectorState} says which.
  *
  * <p>The Settings tab edits the script's declared fields and applies them in one
- * go; changed fields carry an amber dot and the footer counts them. The Script
+ * go; changed fields carry an amber dot and the footer counts them. A management
+ * script with targets gets a "Settings for" picker above its fields: the
+ * defaults, or one target's own values. On a target, a field it does not set
+ * says where its value comes from ("from defaults", "from Woodcutters"), and one
+ * it does set says "own value" with a link back to the inherited one. The Script
  * UI tab, offered only when the script draws its own UI, frames that ImGui
  * without restyling it and has no footer: Apply and Reset act on the fields,
  * which are not on screen there.</p>
@@ -54,9 +60,14 @@ final class ConfigInspector {
     private static final float LINE = 1.35f;
     private static final float NAME_LINE = 1.25f;
     private static final float NAME_SHARE = 0.7f;
+    /** The longest inherited value a "use …" link spells out before it is cut short. */
+    private static final int LINK_VALUE_CHARS = 24;
+    private static final String PICKER_LOCKED_NOTE = "Apply or reset your changes to pick another target.";
 
     private final Controls ui;
     private final InspectorState state;
+    /** The picker's selection, reset from the target every frame. */
+    private final ImInt pickerChoice = new ImInt();
     private ConfigEdits edits;
     private InspectorSubject editsFor;
 
@@ -196,14 +207,131 @@ final class ConfigInspector {
             return;
         }
         float w = ImGui.getContentRegionAvailX();
+        SettingsFor picker = target.settingsFor();
+        if (picker.isShown()) {
+            renderPicker(picker, form, w);
+        }
         for (ConfigField field : form.fields()) {
             ImGui.pushID(field.key());
             renderLabel(field, form.isDirty(field), w);
             renderControl(field, form, target, w);
+            picker.inheritedOf(field.key()).ifPresent(inherited -> renderSource(field, form, inherited));
             ImGui.popID();
         }
-        if (ui.button("##inspector-defaults", Icons.ROTATE, "Restore defaults", Tone.GHOST, !form.isAtDefaults())) {
+        if (picker.selected().isPresent()) {
+            renderUseInherited(form, picker);
+        } else if (ui.button("##inspector-defaults", Icons.ROTATE, "Restore defaults", Tone.GHOST,
+                !form.isAtDefaults())) {
             form.restoreDefaults();
+        }
+    }
+
+    // ── Settings for ───────────────────────────────────────────────────────
+
+    /**
+     * The "Settings for" picker and the line under it. Picking reopens the
+     * inspector on that target; with unsaved changes the picker is locked, so
+     * switching can never throw an edit away.
+     */
+    private void renderPicker(SettingsFor picker, ConfigEdits form, float w) {
+        ImGuiTheme.Metrics m = ui.m();
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY();
+        ImFont font = ui.fonts().small();
+        float lineH = font.getFontSize() * LINE;
+        ui.textCentredY(draw, font, x, y, lineH, ImGuiTheme.COL_FG2, "Settings for");
+        ImGui.setCursorScreenPos(x, y + lineH + ui.fonts().body().getFontSize() * FIELD_GAP_EM);
+        boolean isLocked = form.dirtyCount() > 0;
+        pickerChoice.set(picker.selectedIndex());
+        ImGui.beginDisabled(isLocked);
+        boolean isPicked = ui.select("##settings-for", pickerChoice, picker.options(), w);
+        ImGui.endDisabled();
+        if (isPicked && !isLocked) {
+            state.pickSettingsFor(picker.targetAt(pickerChoice.get()));
+        }
+        float noteY = ImGui.getCursorScreenPosY() - m.u(4) + m.u(1.5f);
+        float noteH = renderNote(draw, x, noteY, w, isLocked ? PICKER_LOCKED_NOTE : picker.note(),
+                isLocked ? ImGuiTheme.COL_WARN : ImGuiTheme.COL_FG2);
+        ImGui.setCursorScreenPos(x, noteY);
+        ImGui.dummy(w, noteH + m.u(2));
+        draw.addLine(x, ImGui.getCursorScreenPosY() - m.u(2), x + w, ImGui.getCursorScreenPosY() - m.u(2),
+                ImGuiTheme.COL_BORDER, m.hairline());
+    }
+
+    /** Wrapped caption text; returns its height. */
+    private float renderNote(ImDrawList draw, float x, float y, float w, String text, int col) {
+        ImFont font = ui.fonts().caption();
+        float lineH = font.getFontSize() * LINE;
+        float ty = y;
+        for (String line : ui.wrap(font, text, w)) {
+            ui.text(draw, font, x, ty, col, line);
+            ty += lineH;
+        }
+        return ty - y;
+    }
+
+    /**
+     * Under a field on a target: "from defaults" in grey while the value is the
+     * inherited one, else "own value" and a link that puts the inherited value
+     * back. Applying a value equal to the inherited one stores nothing, so the
+     * link is how a target goes back to following.
+     */
+    private void renderSource(ConfigField field, ConfigEdits form, InheritedValue inherited) {
+        ImGuiTheme.Metrics m = ui.m();
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY() - m.u(4) + m.u(1.5f);
+        ImFont font = ui.fonts().caption();
+        float h = font.getFontSize() * LINE;
+        if (form.pending(field).equals(inherited.value())) {
+            ui.textCentredY(draw, font, x, y, h, ImGuiTheme.COL_FG3, "from " + inherited.from());
+        } else {
+            String own = "own value";
+            ui.textCentredY(draw, font, x, y, h, ImGuiTheme.COL_INFO, own);
+            String link = "use " + inherited.from() + " (" + shown(field, inherited.value()) + ")";
+            if (inlineLink("##use-inherited", link, font, x + ui.width(font, own) + m.u(2), y, h)) {
+                form.set(field, inherited.value());
+            }
+        }
+        ImGui.setCursorScreenPos(x, y);
+        ImGui.dummy(1f, h);
+    }
+
+    /** Link text: grey, the text colour and underlined while hovered. Returns true when clicked. */
+    private boolean inlineLink(String id, String label, ImFont font, float x, float y, float h) {
+        float wide = ui.width(font, label);
+        ImGui.setCursorScreenPos(x, y);
+        boolean clicked = ImGui.invisibleButton(id, wide, h);
+        boolean isHovered = ImGui.isItemHovered();
+        ImDrawList draw = ImGui.getWindowDrawList();
+        int col = isHovered ? ImGuiTheme.COL_FG : ImGuiTheme.COL_FG2;
+        ui.textCentredY(draw, font, x, y, h, col, label);
+        float underline = y + (h + font.getFontSize()) * 0.5f;
+        draw.addLine(x, underline, x + wide, underline, col, ui.m().hairline());
+        return clicked;
+    }
+
+    /** A value as the link spells it: a toggle as on or off, long text cut short. */
+    private static String shown(ConfigField field, String value) {
+        return switch (field) {
+            case BoolField ignored -> Boolean.parseBoolean(value) ? "on" : "off";
+            case IntField ignored -> value;
+            case ItemIdField ignored -> value;
+            case ChoiceField ignored -> value;
+            case StringField ignored -> value.length() <= LINK_VALUE_CHARS ? value
+                    : value.substring(0, LINK_VALUE_CHARS) + "…";
+        };
+    }
+
+    /** On a target, in place of "Restore defaults": put every inherited value back. */
+    private void renderUseInherited(ConfigEdits form, SettingsFor picker) {
+        boolean hasOwn = form.fields().stream().anyMatch(field -> picker.inheritedOf(field.key())
+                .filter(inherited -> !form.pending(field).equals(inherited.value())).isPresent());
+        if (ui.button("##inspector-inherit", Icons.ROTATE, "Clear own values", Tone.GHOST, hasOwn)) {
+            for (ConfigField field : form.fields()) {
+                picker.inheritedOf(field.key()).ifPresent(inherited -> form.set(field, inherited.value()));
+            }
         }
     }
 

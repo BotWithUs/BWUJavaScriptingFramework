@@ -217,6 +217,26 @@ Each management script is applied to a set of targets that the user picks on the
 
 `ManagementContext.targets()` returns the targets as they are now. They can change while the script runs, so read them when you need them. Management scripts that were installed before targets existed are given the whole host the first time the host loads them, so they keep working as before.
 
+### Settings per target
+
+A management script's settings have **defaults**, which every target uses, and each group or client-script target can have values of its own; the inspector's *Settings for* picker edits either. For a given client, a value comes from the first of these that sets it:
+
+1. the client script's own value;
+2. the value of a group the client is in, if that group is also one of the script's targets;
+3. the defaults.
+
+Setting a target's value back to the one it would inherit removes it, so the target follows its group or the defaults again. A script that manages the whole host uses only the defaults.
+
+`onConfigUpdate` receives the defaults, as it always has. To act on one client with that client's values, ask the context:
+
+```java
+ScriptConfig forOakheart = ctx.configFor(accountUuid);               // the account's merged settings
+ScriptConfig forItsWoodcutting = ctx.configFor(accountUuid, "Woodcutting"); // one script on it
+int breakEvery = forOakheart.getInt("breakEvery", 90);
+```
+
+A target's values can change without `onConfigUpdate` being called, so read them when you act rather than keeping them. The host keeps them under `~/.botwithus/config/__management/<script>/`: `defaults.json` and one file per target with values of its own. A management script's settings file from before per-target settings becomes its `defaults.json` the first time the host reads it, and the old file is kept beside it with a `.bak` suffix.
+
 ### Script Scheduling
 
 ManagementScripts schedule scripts through `ClientOrchestrator`. The orchestrator owns per-client targeting, so each call states *which* client(s) the schedule applies to. Single-client, group, and all-client variants exist for one-shot (`scheduleScript` / `scheduleScriptAt`) and recurring (`scheduleScriptEvery`) operations, each with optional `Map<String, Object>` config for the started script:
