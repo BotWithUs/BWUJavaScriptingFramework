@@ -18,7 +18,8 @@ import java.util.List;
 /**
  * The Start on… dialog: every connected client with a tick box (the ones
  * already running the script, or that cannot take it, disabled with the
- * reason), then the clients that are not connected, and "Start on N".
+ * reason), then the clients that are not connected (a remembered account's
+ * can be ticked, and starts when it is back), and "Start on N".
  */
 final class StartOnDialog {
 
@@ -231,6 +232,17 @@ final class StartOnDialog {
                 Controls.scaleAlpha(ImGuiTheme.COL_BORDER_HOVER, alpha), BOX_RADIUS_PX);
     }
 
+    /** Says when ticked clients that are not connected will start; otherwise what a start leaves alone. */
+    private static String note(List<StartTarget> targets, List<String> ticked) {
+        long waiting = targets.stream().filter(t -> t.startsWhenBack() && ticked.contains(t.clientId())).count();
+        if (waiting == 0) {
+            return NOTE;
+        }
+        return waiting == 1
+                ? "1 not connected: it starts when it is back."
+                : waiting + " not connected: they start when they are back.";
+    }
+
     private void footer(InstalledScript script, List<StartTarget> targets, InstalledState state, float x,
                         float y, float width) {
         Controls ui = w.ui();
@@ -245,7 +257,7 @@ final class StartOnDialog {
         float by = y + (h - m.controlHeight()) * 0.5f;
         float noteW = width - m.u(4) * 2f - goW - cancelW - m.u(2) * 2f;
         ui.textCentredY(draw, ui.fonts().caption(), x + m.u(4), y, h, ImGuiTheme.COL_FG2,
-                ui.ellipsize(ui.fonts().caption(), NOTE, noteW));
+                ui.ellipsize(ui.fonts().caption(), note(targets, ticked), noteW));
         ImGui.setCursorScreenPos(x + width - m.u(4) - goW - m.u(2) - cancelW, by);
         if (ui.button("##start-on-cancel", null, "Cancel", Tone.GHOST, true)) {
             close(state);

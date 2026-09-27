@@ -372,10 +372,11 @@ public class ImGuiApp extends Application {
         all.add(managementPage());
         all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state(), this::openManagement), board));
         all.add(dashboardPage());
-        all.add(storePage(sdnCatalogue, sdnInstaller));
+        StorePage store = storePage(sdnCatalogue, sdnInstaller);
+        all.add(store);
         all.add(connectionsPage());
         all.add(groupsPage());
-        all.add(installedPage(sdnCatalogue, sdnInstaller));
+        all.add(installedPage(sdnCatalogue, sdnInstaller, store));
         all.add(settingsPage());
         return all;
     }
@@ -425,15 +426,22 @@ public class ImGuiApp extends Application {
         return new ConnectionsPage(ui, model, id -> pages.select(id));
     }
 
-    /** Installed scripts, over the host's load report, runners, failed-load list and Store ledger. */
-    private InstalledPage installedPage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
+    /**
+     * Installed scripts, over the host's load report, runners, failed-load list and Store ledger. Its
+     * Install again and Update open {@code store} on the script.
+     */
+    private InstalledPage installedPage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller,
+                                        StorePage store) {
         Path scriptsDir = LocalScriptLoader.scriptsDir();
         SecondLine.FolderPath folder = SecondLine.FolderPath.of(scriptsDir, Path.of(""),
                 Path.of(System.getProperty("user.home")));
         LiveInstalledModel model = new LiveInstalledModel(new LiveInstalledModel.Deps(ctx, sdnInstaller.ledger(),
                 sdnCatalogue::shown, inspector.state()::request, executor, LiveInstalledModel.desktopOpener(executor),
                 Clock.systemDefaultZone(), scriptsDir, folder.text(), INSTALLED_VIEW_MAX_AGE));
-        return new InstalledPage(ui, model, folder, id -> pages.select(id));
+        return new InstalledPage(ui, model, folder, id -> pages.select(id), catalogueId -> {
+            store.show(catalogueId);
+            pages.select(PageId.STORE);
+        });
     }
 
     /**

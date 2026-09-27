@@ -111,7 +111,7 @@ final class InstalledDetail {
         ImGui.setCursorScreenPos(x + m.u(4), y + m.u(3));
         if (s.provenance().isStoreNotLoaded()) {
             if (w.ui().button("##detail-install", Icons.BAG_SHOPPING, "Install again", Tone.SOFT, true)) {
-                state.openStore();
+                state.showInStore(s);
             }
             return;
         }

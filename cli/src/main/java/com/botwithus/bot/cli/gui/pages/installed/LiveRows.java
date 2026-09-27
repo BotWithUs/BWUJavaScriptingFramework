@@ -140,7 +140,8 @@ final class LiveRows {
 
     private Provenance localJar(ScriptLoadResult jar) {
         Optional<String> changed = jar.lastModified().map(t -> WhenText.changed(t, in.now(), in.zone()));
-        return new Provenance(ScriptSource.LOCAL, true, Optional.of(jar.jar()), changed, Optional.empty());
+        return new Provenance(ScriptSource.LOCAL, true, Optional.of(jar.jar()), changed, Optional.empty(),
+                Optional.empty());
     }
 
     /** A script a client runs that no JAR in the folder declares: a Store delivery when the ledger says so. */
@@ -148,7 +149,8 @@ final class LiveRows {
         Optional<InstalledSdnScript> installed = Optional.ofNullable(in.ledger().get(scriptClass));
         ScriptSource source = installed.isPresent() ? ScriptSource.STORE : ScriptSource.LOCAL;
         Optional<UpdateBadge> update = UpdateBadge.of(installed, entryFor(installed), version);
-        return new Provenance(source, true, Optional.<Path>empty(), Optional.empty(), update);
+        return new Provenance(source, true, Optional.<Path>empty(), Optional.empty(), update,
+                installed.map(InstalledSdnScript::catalogueId));
     }
 
     private Optional<SdnCatalogueEntry> entryFor(Optional<InstalledSdnScript> installed) {
@@ -175,7 +177,8 @@ final class LiveRows {
                         e.scriptCategory(), 0, false))
                 .orElse(new ScriptIdentity(simpleName, "", "", "", ScriptCategory.UNCATEGORIZED, 0, false));
         Provenance provenance = new Provenance(ScriptSource.STORE, false, Optional.empty(), Optional.empty(),
-                UpdateBadge.of(Optional.of(installed), entry, identity.version()));
+                UpdateBadge.of(Optional.of(installed), entry, identity.version()),
+                Optional.of(installed.catalogueId()));
         return new InstalledScript(NOT_LOADED_PREFIX + scriptClass, identity, provenance, List.of(), Set.of(),
                 List.of());
     }

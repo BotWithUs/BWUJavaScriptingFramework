@@ -22,6 +22,7 @@ final class InstalledState {
 
     private final InstalledModel model;
     private final Consumer<PageId> navigate;
+    private final Consumer<String> storeShower;
     private final Set<Path> openTraces = new HashSet<>();
     private final Set<String> ticked = new LinkedHashSet<>();
     private InstalledQuery query = InstalledQuery.DEFAULT;
@@ -31,9 +32,14 @@ final class InstalledState {
     private String startOnKey;
     private boolean isStartOnPending;
 
-    InstalledState(InstalledModel model, Consumer<PageId> navigate) {
+    /**
+     * @param navigate    switches the Advanced page
+     * @param storeShower opens the Script Store on one script, by its catalogue id
+     */
+    InstalledState(InstalledModel model, Consumer<PageId> navigate, Consumer<String> storeShower) {
         this.model = model;
         this.navigate = navigate;
+        this.storeShower = storeShower;
     }
 
     InstalledModel model() {
@@ -167,6 +173,14 @@ final class InstalledState {
     /** The Store is where a script is installed again or updated, and where more are found. */
     void openStore() {
         navigate.accept(PageId.STORE);
+    }
+
+    /**
+     * Install again and Update: the Store with {@code script} picked, when the
+     * host knows its catalogue id, else the Store as it was.
+     */
+    void showInStore(InstalledScript script) {
+        script.provenance().catalogueId().ifPresentOrElse(storeShower, this::openStore);
     }
 
     void openManagement() {

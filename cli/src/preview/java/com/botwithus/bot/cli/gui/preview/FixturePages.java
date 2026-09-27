@@ -59,7 +59,7 @@ final class FixturePages {
         ConnectionsPage connections = new ConnectionsPage(ui, connectionsModel, id -> { });
         FixtureInstalledModel installedModel = new FixtureInstalledModel();
         InstalledPage installed = new InstalledPage(ui, installedModel,
-                SecondLine.FolderPath.of(CWD.resolve("scripts"), CWD, HOME), id -> { });
+                SecondLine.FolderPath.of(CWD.resolve("scripts"), CWD, HOME), id -> { }, catalogueId -> { });
         FixtureSettingsModel settingsModel = new FixtureSettingsModel();
         SettingsPage settings = new SettingsPage(ui, settingsModel);
         FixtureGroupsModel groupsModel = new FixtureGroupsModel(board.catalog());

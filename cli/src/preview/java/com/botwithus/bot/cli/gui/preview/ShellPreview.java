@@ -640,7 +640,9 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("96-installed-start-on-dialog", FixtureBoard::everyState,
                         ShellPreview::installedStartOn),
                 installed("97-installed-stop-everywhere-confirm", (s, page) ->
-                        InstalledPreviewSeams.armStop(page, woodcutting)));
+                        InstalledPreviewSeams.armStop(page, woodcutting)),
+                Scenario.advanced("98-installed-start-on-when-back", FixtureBoard::everyState,
+                        ShellPreview::installedStartOnWhenBack));
     }
 
     private static Scenario installed(String name, BiConsumer<Stage, InstalledPage> setUp) {
@@ -664,6 +666,20 @@ public final class ShellPreview extends Application {
         if (f == 2) {
             InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_4468");
             InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_8936");
+        }
+    }
+
+    /**
+     * Start on… for a local script with offline clients: the two remembered
+     * accounts ticked to start when back, the pipe-only client refused.
+     */
+    private static void installedStartOnWhenBack(Stage s, int f) {
+        installed((stage, page) -> InstalledPreviewSeams.openStartOn(page, FixtureInstalledModel.EXAMPLE))
+                .accept(s, f);
+        if (f == 2) {
+            InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_1117");
+            InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_2234");
+            InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_6702");
         }
     }
 
