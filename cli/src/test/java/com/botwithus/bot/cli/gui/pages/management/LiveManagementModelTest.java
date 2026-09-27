@@ -418,7 +418,7 @@ class LiveManagementModelTest {
                 new InspectorRequest(new InspectorSubject.ManagementScript(BREAKS), InspectorTab.SETTINGS),
                 new InspectorRequest(new InspectorSubject.ManagementScript(BREAKS, Optional.of(target)),
                         InspectorTab.SETTINGS),
-                new InspectorRequest(new InspectorSubject.ManagementScript(BREAKS), InspectorTab.SCRIPT_UI)),
+                InspectorRequest.scriptUi(new InspectorSubject.ManagementScript(BREAKS))),
                 inspected);
     }
 

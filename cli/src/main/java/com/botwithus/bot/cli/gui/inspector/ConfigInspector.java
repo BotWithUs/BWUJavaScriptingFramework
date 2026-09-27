@@ -43,8 +43,9 @@ import java.util.Optional;
  * says where its value comes from ("from defaults", "from Woodcutters"), and one
  * it does set says "own value" with a link back to the inherited one. The Script
  * UI tab, offered only when the script draws its own UI, frames that ImGui
- * without restyling it and has no footer: Apply and Reset act on the fields,
- * which are not on screen there.</p>
+ * without restyling it, with a button to pop it out into a window of its own;
+ * while it is popped out the tab says so and offers to bring it back. The tab
+ * has no footer: Apply and Reset act on the fields, which are not on screen there.</p>
  */
 final class ConfigInspector {
 
@@ -62,6 +63,9 @@ final class ConfigInspector {
     /** The longest inherited value a "use …" link spells out before it is cut short. */
     private static final int LINK_VALUE_CHARS = 24;
     private static final String PICKER_LOCKED_NOTE = "Apply or reset your changes to pick another target.";
+    private static final String POP_OUT = "Pop out";
+    private static final String POPPED_OUT_NOTE = "Open in its own window";
+    private static final String BRING_BACK = "Bring back here";
 
     private final Controls ui;
     private final InspectorState state;
@@ -415,32 +419,79 @@ final class ConfigInspector {
         ImGui.dummy(1f, h);
     }
 
+    /**
+     * The Script UI tab: the script's UI framed in the drawer with a way to pop
+     * it out, or, while it is popped out, a way to bring it back.
+     */
     private void renderScriptUi(InspectorTarget target) {
-        ScriptUI scriptUi = target.customUi();
+        state.reopenIfRemembered(target.subject());
+        if (state.isPoppedOut(target.subject())) {
+            renderPoppedOut(target.subject());
+        } else {
+            renderDockedScriptUi(target);
+        }
+    }
+
+    private void renderDockedScriptUi(InspectorTarget target) {
         ImGuiTheme.Metrics m = ui.m();
         ImDrawList draw = ImGui.getWindowDrawList();
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         float w = ImGui.getContentRegionAvailX();
         float h = ImGui.getContentRegionAvailY();
-        String by = "Drawn by " + target.script().name()
-                + (target.script().version().isBlank() ? "" : " " + target.script().version());
-        ImFont cap = ui.fonts().caption();
-        ui.text(draw, cap, x + m.u(3), y + m.u(3), ImGuiTheme.COL_FG3, Icons.PUZZLE);
-        ui.text(draw, cap, x + m.u(3) + ui.width(cap, Icons.PUZZLE) + m.u(1.5f), y + m.u(3), ImGuiTheme.COL_FG3, by);
         dashedFrame(draw, x, y, w, h);
         float inset = m.u(3);
-        float top = inset + cap.getFontSize() * LINE + m.u(3);
+        float top = inset + renderScriptUiHeader(target, x + inset, y + inset, w - inset * 2f) + m.u(3);
         ImGui.setCursorScreenPos(x + inset, y + top);
         ImGui.pushStyleVar(ImGuiStyleVar.ItemSpacing, ImGui.getStyle().getItemSpacingX(), m.u(1.5f));
         ImGui.beginChild("##script-ui", w - inset * 2f, Math.max(0f, h - top - inset), false);
-        drawScriptUi(scriptUi, target.script().name());
+        drawScriptUi(target.customUi(), target.script().name());
         ImGui.endChild();
         ImGui.popStyleVar();
     }
 
-    /** Script code: whatever it throws is shown in place, not propagated into the frame. */
-    private static void drawScriptUi(ScriptUI scriptUi, String name) {
+    /** "Drawn by" the script on the left, "Pop out" on the right; returns the row's height. */
+    private float renderScriptUiHeader(InspectorTarget target, float x, float y, float w) {
+        ImGuiTheme.Metrics m = ui.m();
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float rowH = m.controlSmallHeight();
+        float buttonW = ui.buttonWidth(Icons.WINDOW, POP_OUT, Tone.GHOST);
+        String by = "Drawn by " + target.script().name()
+                + (target.script().version().isBlank() ? "" : " " + target.script().version());
+        ImFont cap = ui.fonts().caption();
+        float tx = x + ui.width(cap, Icons.PUZZLE) + m.u(1.5f);
+        ui.textCentredY(draw, cap, x, y, rowH, ImGuiTheme.COL_FG3, Icons.PUZZLE);
+        ui.textCentredY(draw, cap, tx, y, rowH, ImGuiTheme.COL_FG3,
+                ui.ellipsize(cap, by, Math.max(0f, x + w - buttonW - m.u(2) - tx)));
+        ImGui.setCursorScreenPos(x + w - buttonW, y);
+        if (ui.button("##script-ui-pop-out", Icons.WINDOW, POP_OUT, Tone.GHOST, true, rowH)) {
+            state.popOut(target.subject());
+        }
+        return rowH;
+    }
+
+    /** In place of a popped-out UI: where it went, and a button to bring it back into the drawer. */
+    private void renderPoppedOut(InspectorSubject subject) {
+        ImGuiTheme.Metrics m = ui.m();
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY();
+        ImFont font = ui.fonts().small();
+        float lineH = font.getFontSize() * LINE;
+        ui.textCentredY(draw, font, x, y, lineH, ImGuiTheme.COL_FG2, Icons.WINDOW);
+        ui.textCentredY(draw, font, x + ui.width(font, Icons.WINDOW) + m.u(1.5f), y, lineH, ImGuiTheme.COL_FG2,
+                POPPED_OUT_NOTE);
+        ImGui.setCursorScreenPos(x, y + lineH + m.u(3));
+        if (ui.button("##script-ui-bring-back", Icons.COMPRESS, BRING_BACK, Tone.GHOST, true)) {
+            state.bringBack(subject);
+        }
+    }
+
+    /**
+     * Script code: whatever it throws is shown in place, not propagated into the
+     * frame. Shared with the popped-out windows, which draw the same UI.
+     */
+    static void drawScriptUi(ScriptUI scriptUi, String name) {
         try {
             scriptUi.render();
         } catch (RuntimeException e) {

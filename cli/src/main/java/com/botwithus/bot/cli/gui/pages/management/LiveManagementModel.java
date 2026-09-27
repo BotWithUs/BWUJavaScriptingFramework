@@ -204,7 +204,7 @@ public final class LiveManagementModel implements ManagementModel {
     @Override
     public void openScriptUi(String script) {
         runner(script).ifPresent(runner -> deps.inspector().accept(
-                new InspectorRequest(new InspectorSubject.ManagementScript(script), InspectorTab.SCRIPT_UI)));
+                InspectorRequest.scriptUi(new InspectorSubject.ManagementScript(script))));
     }
 
     private Optional<ManagementScriptRunner> runner(String script) {

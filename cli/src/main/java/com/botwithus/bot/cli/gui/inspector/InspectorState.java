@@ -10,13 +10,16 @@ import com.botwithus.bot.core.runtime.ScriptRunner;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.InstantSource;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
  * Which script the one shared inspector is open on, and on which tab. Both modes
- * read the same state, so there is only ever one inspector.
+ * read the same state, so there is only ever one inspector. It also owns which
+ * scripts' own UIs are popped out into windows of their own, since a "Settings"
+ * request may open the drawer, pop a UI out, or both.
  *
  * <p>Everything here runs on the render thread except {@link #request}, which
  * any thread may call: console commands run on the command executor. A request
@@ -34,6 +37,7 @@ public final class InspectorState {
 
     private final InstantSource clock;
     private final AtomicReference<InspectorRequest> pending = new AtomicReference<>();
+    private final ScriptUiPopouts popouts = new ScriptUiPopouts();
     private InspectorSubject subject;
     private InspectorTab tab = InspectorTab.SETTINGS;
     private Instant openedAt = Instant.EPOCH;
@@ -59,7 +63,9 @@ public final class InspectorState {
     }
 
     /**
-     * Opens the pending request, if any, and selects the page it docks beside.
+     * Shows the pending request, if any. When it opens the drawer, also selects
+     * the page the drawer docks beside; a request that only pops a script's UI
+     * out leaves the page and the mode alone, as that window floats over any page.
      *
      * @return the mode to draw this frame: Advanced when that page is not Normal mode's
      */
@@ -68,12 +74,27 @@ public final class InspectorState {
         if (next == null) {
             return mode;
         }
-        open(next.subject(), next.tab());
+        show(next);
+        if (next.drawer().isEmpty()) {
+            return mode;
+        }
         PageId owner = next.subject().ownerPage();
         if (!pages.select(owner) || owner == PageRegistry.DEFAULT_PAGE) {
             return mode;
         }
         return AppMode.ADVANCED;
+    }
+
+    /**
+     * Shows {@code request} now, without switching page: pops the script's UI
+     * out when asked, and opens the drawer on the tab it names. Render thread;
+     * a caller already on the owning page uses this rather than {@link #request}.
+     */
+    public void show(InspectorRequest request) {
+        if (request.popsOutUi()) {
+            popouts.popOut(request.subject());
+        }
+        request.drawer().ifPresent(drawerTab -> open(request.subject(), drawerTab));
     }
 
     /** Opens the inspector on {@code subject}, replacing whatever it showed. */
@@ -142,5 +163,34 @@ public final class InspectorState {
         }
         close();
         return Optional.empty();
+    }
+
+    // -- Popped-out script UIs ----------------------------------------------
+
+    /** Opens {@code subject}'s own UI in a window of its own. */
+    void popOut(InspectorSubject subject) {
+        popouts.popOut(subject);
+    }
+
+    /** Closes {@code subject}'s window, if open; its UI draws in the drawer's Script UI tab again. */
+    void bringBack(InspectorSubject subject) {
+        popouts.bringBack(subject);
+    }
+
+    boolean isPoppedOut(InspectorSubject subject) {
+        return popouts.isPoppedOut(subject);
+    }
+
+    /** The drawer is showing {@code subject}'s Script UI tab: see {@link ScriptUiPopouts#reopenIfRemembered}. */
+    void reopenIfRemembered(InspectorSubject subject) {
+        popouts.reopenIfRemembered(subject);
+    }
+
+    /**
+     * The popped-out windows to draw this frame, each script as it is now.
+     * A window whose runner is disposed or gone closes here.
+     */
+    List<InspectorTarget> poppedOut(InspectorSource source) {
+        return popouts.resolve(source);
     }
 }

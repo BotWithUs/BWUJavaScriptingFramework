@@ -24,7 +24,9 @@ import java.util.function.Consumer;
  * Normal mode's body is the Clients page; Advanced adds the sidebar and shows
  * whichever page it has selected, Clients included. In both, the one config
  * inspector docks on the right of the page body when that page owns the open
- * script, and opening it from elsewhere switches to that page. The real app and the
+ * script, and opening it from elsewhere switches to that page. A script's own UI
+ * popped out of the inspector floats in a window of its own above the shell,
+ * whatever page is showing. The real app and the
  * dev-only preview both draw through this class, so what the preview captures
  * is what users get.
  */
@@ -91,6 +93,7 @@ public final class Shell {
         statusBar.render(board, next);
         ImGui.end();
 
+        inspector.renderWindows();
         toasts.render(ui, vp.getPosY() + top + ui.m().u(3), onToast);
         chrome.renderEdges();
         return next;

@@ -265,9 +265,12 @@ public class ImGuiApp extends Application {
     }
 
     private void setupTheme() {
-        // No ViewportsEnable: nothing floats outside the main window any more, so an
-        // ImGui window a script opens stays inside it rather than becoming an OS window.
-        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.NavEnableKeyboard);
+        // ViewportsEnable: a script UI popped out of the inspector (and any window a
+        // script opens itself) can be dragged out of the host window and becomes an
+        // OS window of its own, resized independently. The framework's endFrame
+        // renders those platform windows. Everything the shell places reads the main
+        // viewport's position, since with viewports on ImGui works in desktop coordinates.
+        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable | ImGuiConfigFlags.NavEnableKeyboard);
         ImGuiTheme.apply(dpiScale);
     }
 
