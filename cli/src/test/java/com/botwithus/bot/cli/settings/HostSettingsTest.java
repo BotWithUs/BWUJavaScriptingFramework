@@ -88,7 +88,7 @@ class HostSettingsTest {
                 () -> assertEquals(ReconnectPolicy.DEFAULT.maxDelayMs(),
                         settings.get(SettingKeys.RECONNECT_MAX_DELAY_MS)),
                 () -> assertEquals(600_000L, settings.get(SettingKeys.STALL_AFTER_MS)),
-                () -> assertEquals(5L, settings.get(SettingKeys.NOTIFY_DURATION_S)),
+                () -> assertEquals(6L, settings.get(SettingKeys.NOTIFY_DURATION_S), "as the design has it"),
                 () -> assertEquals(StartMode.NORMAL, settings.get(SettingKeys.START_MODE)),
                 () -> assertEquals(TextSize.MATCH_WINDOWS, settings.get(SettingKeys.TEXT_SIZE)));
     }

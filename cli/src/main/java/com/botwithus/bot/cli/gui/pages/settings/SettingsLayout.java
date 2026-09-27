@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.cli.settings.NotificationKind;
 import com.botwithus.bot.cli.settings.SettingKeys;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -87,10 +88,16 @@ public final class SettingsLayout {
                 DisplayUnit.MILLISECONDS, "Never wait longer than this between tries."));
     }
 
+    /** The stall row is in seconds, which would show the default as 600; say it in minutes. */
+    private static long stallDefaultMinutes() {
+        return Duration.ofMillis(SettingKeys.STALL_AFTER_MS.defaultValue()).toMinutes();
+    }
+
     private static void addScripts(List<Placement> rows) {
         rows.add(Placement.of(SettingsSection.SCRIPTS, SettingKeys.AUTO_RELOAD));
         rows.add(Placement.of(SettingsSection.SCRIPTS, SettingKeys.RESTART_AFTER_RELOAD));
         rows.add(new Placement(SettingsSection.SCRIPTS, SettingKeys.STALL_AFTER_MS, DisplayUnit.SECONDS_FROM_MS,
-                "Flag a script when one loop runs longer than this."));
+                "Flag a script when one loop runs longer than this. The default, " + stallDefaultMinutes()
+                        + " minutes, leaves room for scripts that wait a long time on purpose."));
     }
 }
