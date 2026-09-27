@@ -373,7 +373,7 @@ public class ImGuiApp extends Application {
         CommandConsole console = new CommandConsole(outputBuffer, registry, executor, ctx, this::shutdown);
         String scriptsFolder = folderLine(LocalScriptLoader.scriptsDir()).text();
         LiveDashboardModel model = new LiveDashboardModel(ctx, console, scriptsFolder,
-                inspector.state().clientScriptOpener(), board.actions()::reconnect, clock);
+                inspector.state().clientScriptOpener(), board.actions(), clock);
         dashboard = new DashboardPage(ui, model, clock);
         return dashboard;
     }

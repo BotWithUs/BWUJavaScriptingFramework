@@ -18,8 +18,12 @@ public interface DashboardActions {
     /** Prints the runner's thread stack to the console. */
     void threadDump(RunnerRef runner);
 
-    /** Tears the client's connection down and connects to its pipe again. */
-    void reconnect(String pipe);
+    /**
+     * Retries the client's connection at once, as the Clients board's Retry does:
+     * cuts a reconnect back-off short, or starts recovering again after giving up,
+     * and rebuilds the connection only when there is nothing to retry.
+     */
+    void retryNow(String pipe);
 
     /** Runs the {@code reload} command on the command thread. */
     void reload();

@@ -361,7 +361,7 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("39-advanced-dashboard-live-model-empty-host", FixtureBoard::waiting, (s, f) -> {
                     s.pages().registry().select(PageId.DASHBOARD);
                     if (f == 0) {
-                        s.pages().dashboardModel().useLive(s.pages().host());
+                        s.pages().dashboardModel().useLive(s.pages().host(), s.board().actions());
                     }
                 }));
     }

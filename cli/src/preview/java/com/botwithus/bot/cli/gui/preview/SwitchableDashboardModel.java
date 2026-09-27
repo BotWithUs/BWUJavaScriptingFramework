@@ -13,6 +13,7 @@ import com.botwithus.bot.cli.gui.pages.dashboard.LiveDashboardModel;
 import com.botwithus.bot.cli.gui.pages.dashboard.LogLevel;
 import com.botwithus.bot.cli.gui.pages.dashboard.LogsView;
 import com.botwithus.bot.cli.gui.pages.dashboard.Scope;
+import com.botwithus.bot.cli.gui.usermode.board.ClientActions;
 
 import java.time.Clock;
 import java.util.List;
@@ -39,15 +40,16 @@ final class SwitchableDashboardModel implements DashboardModel {
     }
 
     /**
-     * Switches to the live model over {@code ctx}. The console's command thread
+     * Switches to the live model over {@code ctx}, sharing {@code clientActions}
+     * as the app shares the Clients board's. The console's command thread
      * is never started: the preview submits nothing, and an executor starts its
      * thread on the first task.
      */
-    void useLive(CliContext ctx) {
+    void useLive(CliContext ctx, ClientActions clientActions) {
         ExecutorService unused = Executors.newSingleThreadExecutor();
         CommandConsole console = new CommandConsole(new AnsiOutputBuffer(), new CommandRegistry(), unused, ctx,
                 () -> { });
-        current = new LiveDashboardModel(ctx, console, "scripts/", runner -> { }, pipe -> { },
+        current = new LiveDashboardModel(ctx, console, "scripts/", runner -> { }, clientActions,
                 Clock.systemDefaultZone());
     }
 

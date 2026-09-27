@@ -12,6 +12,7 @@ import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.ConnectionHistory;
 import com.botwithus.bot.cli.events.HostEvent;
 import com.botwithus.bot.cli.gui.AnsiOutputBuffer;
+import com.botwithus.bot.cli.gui.usermode.board.ClientActions;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogEntry;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -40,6 +41,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class LiveDashboardModelTest {
@@ -53,6 +56,7 @@ class LiveDashboardModelTest {
     private static final int SAMPLES_PER_CLIENT = 50;
 
     private final CliContext ctx = mock(CliContext.class);
+    private final ClientActions clientActions = mock(ClientActions.class);
     private final ConnectionHistory history = new ConnectionHistory();
     private final LogBuffer logBuffer = new LogBuffer();
     private final List<Connection> connections = new ArrayList<>();
@@ -69,7 +73,7 @@ class LiveDashboardModelTest {
         InstantSource clock = () -> now;
         CommandConsole console = new CommandConsole(new AnsiOutputBuffer(), new CommandRegistry(), executor,
                 ctx, () -> { });
-        model = new LiveDashboardModel(ctx, console, "scripts/", r -> { }, pipe -> { }, clock);
+        model = new LiveDashboardModel(ctx, console, "scripts/", r -> { }, clientActions, clock);
     }
 
     @AfterEach
@@ -137,6 +141,19 @@ class LiveDashboardModelTest {
         when(ctx.getLastLoadReport()).thenReturn(failedToLoad(Path.of("scripts", "broken.jar")));
 
         assertEquals(List.of("gaveup:" + FERNMOSS), keys(model.view(Scope.of(FERNMOSS)).attention()));
+    }
+
+    /**
+     * "Reconnect now" and "Try again" are the board's Retry: they wake or restart
+     * the client's own recovery, which rebuilds the connection itself only when
+     * there is nothing to retry, rather than always tearing it down.
+     */
+    @Test
+    void reconnectControls_retryThroughTheBoard_ratherThanTearingTheConnectionDown() {
+        model.actions().retryNow(FERNMOSS);
+
+        verify(clientActions).retryNow(FERNMOSS);
+        verify(clientActions, never()).reconnect(FERNMOSS);
     }
 
     // ── Loop thresholds ─────────────────────────────────────────────────

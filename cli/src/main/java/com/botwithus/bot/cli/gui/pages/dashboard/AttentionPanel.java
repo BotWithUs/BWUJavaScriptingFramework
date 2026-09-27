@@ -107,11 +107,11 @@ final class AttentionPanel {
                     List.of(new Act("Thread dump", () -> dump(c.ref(), state, actions))), "");
             case AttentionItem.NotResponding n -> new Entry(Icons.PLUG_EXCLAMATION, ImGuiTheme.COL_WARN,
                     n.clientLabel() + " not responding", notResponding(n, now),
-                    List.of(new Act("Reconnect now", () -> actions.reconnect(n.pipe()))), "");
+                    List.of(new Act("Reconnect now", () -> actions.retryNow(n.pipe()))), "");
             case AttentionItem.GaveUp g -> new Entry(Icons.PLUG_XMARK, ImGuiTheme.COL_DANGER,
                     g.clientLabel() + " stopped reconnecting",
                     g.pipe() + " · gave up after " + g.attempts() + " attempts",
-                    List.of(new Act("Try again", () -> actions.reconnect(g.pipe()))), "");
+                    List.of(new Act("Try again", () -> actions.retryNow(g.pipe()))), "");
             case AttentionItem.LoadFailed f -> new Entry(Icons.FILE_XMARK, ImGuiTheme.COL_DANGER,
                     fileName(f.jar()) + " failed to load", f.error(),
                     List.of(new Act("Reload", actions::reload), copy(f.trace())), f.trace());

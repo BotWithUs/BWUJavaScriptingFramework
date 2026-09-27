@@ -281,7 +281,7 @@ final class FixtureDashboardModel implements DashboardModel {
         @Override public void run(RunnerRef runner) { }
         @Override public void openSettings(RunnerRef runner) { }
         @Override public void threadDump(RunnerRef runner) { }
-        @Override public void reconnect(String pipe) { }
+        @Override public void retryNow(String pipe) { }
         @Override public void reload() { }
         @Override public void setWatch(boolean isOn) { }
         @Override public void setRestartAfterReload(boolean isOn) { }

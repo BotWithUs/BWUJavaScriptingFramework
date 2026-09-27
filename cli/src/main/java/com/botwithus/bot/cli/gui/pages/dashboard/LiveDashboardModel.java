@@ -7,6 +7,7 @@ import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.events.HostEvent;
+import com.botwithus.bot.cli.gui.usermode.board.ClientActions;
 import com.botwithus.bot.cli.log.LogEntry;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.settings.HostSettings;
@@ -68,7 +69,7 @@ public final class LiveDashboardModel implements DashboardModel {
     private final CommandConsole console;
     private final String scriptsFolder;
     private final Consumer<ScriptRunner> settingsOpener;
-    private final Consumer<String> reconnector;
+    private final ClientActions clientActions;
     private final InstantSource clock;
     private final RpcSpread rpcSpread = new RpcSpread();
     private final DashboardActions actions = new Actions();
@@ -83,16 +84,16 @@ public final class LiveDashboardModel implements DashboardModel {
     /**
      * @param scriptsFolder  the scripts folder as the sidebar shows it
      * @param settingsOpener opens the shared inspector on a runner
-     * @param reconnector    tears a client's connection down and connects again, off the render thread
+     * @param clientActions  the Clients board's actions, which the Dashboard's reconnect controls share
      */
     public LiveDashboardModel(CliContext ctx, CommandConsole console, String scriptsFolder,
-                              Consumer<ScriptRunner> settingsOpener, Consumer<String> reconnector,
+                              Consumer<ScriptRunner> settingsOpener, ClientActions clientActions,
                               InstantSource clock) {
         this.ctx = ctx;
         this.console = console;
         this.scriptsFolder = scriptsFolder;
         this.settingsOpener = settingsOpener;
-        this.reconnector = reconnector;
+        this.clientActions = clientActions;
         this.clock = clock;
         this.since = clock.instant();
         this.seenReport = ctx.getLastLoadReport();
@@ -459,8 +460,8 @@ public final class LiveDashboardModel implements DashboardModel {
         }
 
         @Override
-        public void reconnect(String pipe) {
-            reconnector.accept(pipe);
+        public void retryNow(String pipe) {
+            clientActions.retryNow(pipe);
         }
 
         @Override
