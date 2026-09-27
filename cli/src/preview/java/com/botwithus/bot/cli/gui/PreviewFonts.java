@@ -20,9 +20,9 @@ public final class PreviewFonts {
     private PreviewFonts() {
     }
 
-    public static void rebuild(Controls ui, ImGuiImplGl3 gl3, TextSize size, float advancedFontPx) {
+    public static void rebuild(Controls ui, ImGuiImplGl3 gl3, TextSize size, float defaultFontPx) {
         FontRebuild rebuild = new FontRebuild(PreviewSettings.inMemory(Map.of(SettingKeys.TEXT_SIZE.name(),
-                size.name())), ui, MONITOR_SCALE, advancedFontPx);
+                size.name())), ui, MONITOR_SCALE, defaultFontPx);
         rebuild.applyIfDue(gl3);
     }
 }

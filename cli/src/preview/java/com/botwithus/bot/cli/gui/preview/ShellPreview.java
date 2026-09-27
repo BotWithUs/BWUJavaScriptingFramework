@@ -125,7 +125,7 @@ public final class ShellPreview extends Application {
     private static final int WIDTH = 1100;
     private static final int HEIGHT = 670;
     private static final float SCALE = 1f;
-    private static final float ADVANCED_FONT_PX = 17f;
+    private static final float DEFAULT_FONT_PX = 17f;
     /** Frames to let entrance, drawer and toast animations settle before capturing. */
     private static final int SETTLE_FRAMES = 45;
     private static final int RGBA = 4;
@@ -261,7 +261,7 @@ public final class ShellPreview extends Application {
         super.initImGui(config);
         ImGui.getIO().setIniFilename(null);
         ImGui.getIO().addConfigFlags(ImGuiConfigFlags.NavEnableKeyboard);
-        ui = new Controls(FontLoader.loadAll(SCALE, ADVANCED_FONT_PX), Motion.full(Motion.FrameClock.imGui()));
+        ui = new Controls(FontLoader.loadAll(SCALE, DEFAULT_FONT_PX), Motion.full(Motion.FrameClock.imGui()));
         ImGuiTheme.apply(SCALE);
         fbo = createFramebuffer();
         toastSettings = HostSettings.open(outDir.resolve("toast-settings"));
@@ -290,7 +290,7 @@ public final class ShellPreview extends Application {
     @Override
     protected void startFrame() {
         if (textSize != shownTextSize) {
-            PreviewFonts.rebuild(ui, imGuiGl3, textSize, ADVANCED_FONT_PX);
+            PreviewFonts.rebuild(ui, imGuiGl3, textSize, DEFAULT_FONT_PX);
             shownTextSize = textSize;
         }
         super.startFrame();

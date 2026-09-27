@@ -587,6 +587,17 @@ public final class Controls {
         return (packed & RGB_MASK) | (scaled << ALPHA_SHIFT);
     }
 
+    /** Adds {@code amount} (0-1) to each colour channel of a packed colour, capped at full; alpha is kept. */
+    public static int lighten(int packed, float amount) {
+        int step = Math.round(OPAQUE * Math.max(0f, amount));
+        int out = packed & ~RGB_MASK;
+        for (int shift = 0; shift < ALPHA_SHIFT; shift += Byte.SIZE) {
+            int channel = (packed >>> shift) & OPAQUE;
+            out |= Math.min(OPAQUE, channel + step) << shift;
+        }
+        return out;
+    }
+
     /** Component-wise lerp between two packed colours, alpha included. */
     public static int lerp(int from, int to, float t) {
         float k = Math.max(0f, Math.min(1f, t));

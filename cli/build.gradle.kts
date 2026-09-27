@@ -139,9 +139,9 @@ tasks.named<Test>("test") {
 
 // ── Dev-only UI preview ──────────────────────────────────────────────────────
 // Renders the UI with fixture data and writes one PNG per scenario to
-// build/preview/: Normal mode (every card state, 6 and 12 clients, empty, host
-// offline, picker, inspector, toasts) and Advanced mode (the sidebar and its
-// pages). It is how a UI change is checked without a game client or a person
+// build/preview/: Normal mode (every card and script state, 7 and 13 clients,
+// empty, a client restarting, the picker, the inspector, toasts) and Advanced
+// mode (the sidebar and every page in its states). It is how a UI change is checked without a game client or a person
 // clicking through it.
 //
 // Gated by construction: the code lives in its own `preview` source set, which
