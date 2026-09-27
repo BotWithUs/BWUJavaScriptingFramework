@@ -44,7 +44,8 @@ public final class SamePidPipeResolver {
      * alone cannot: an agent that never re-opens its pipe, and a pid recycled
      * by the OS onto an unrelated process (which would otherwise read as
      * "alive" forever). With {@code ReconnectPolicy.DEFAULT}'s backoff this is
-     * roughly four minutes — far beyond the ~30s a client restart needs.
+     * roughly four minutes — far beyond the ~30s a client restart needs. The
+     * count is per recovery, so a retry the user asks for later waits afresh.
      */
     static final int MAX_WAIT_ATTEMPTS = 20;
 
@@ -90,12 +91,14 @@ public final class SamePidPipeResolver {
             return new PipeResolution.Found(pipeName);
         }
         if (!processAlive.test(pid)) {
-            return new PipeResolution.Gone("game process " + pid + " has exited, so pipe '"
-                    + pipeName + "' will not return; reconnect to the new game instance");
+            return new PipeResolution.Gone(PipeResolution.Gone.Reason.PROCESS_EXITED,
+                    "game process " + pid + " has exited, so pipe '" + pipeName
+                            + "' will not return; reconnect to the new game instance");
         }
         if (attempt >= MAX_WAIT_ATTEMPTS) {
-            return new PipeResolution.Gone("process " + pid + " is alive but did not re-open pipe '"
-                    + pipeName + "' within " + MAX_WAIT_ATTEMPTS + " attempts");
+            return new PipeResolution.Gone(PipeResolution.Gone.Reason.PIPE_NOT_REOPENED,
+                    "process " + pid + " is alive but did not re-open pipe '" + pipeName
+                            + "' within " + MAX_WAIT_ATTEMPTS + " attempts");
         }
         return new PipeResolution.NotYet("pipe '" + pipeName
                 + "' not listening yet; process " + pid + " is still alive");

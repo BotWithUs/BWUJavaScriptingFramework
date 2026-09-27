@@ -15,8 +15,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.LongSupplier;
 import java.util.stream.Stream;
 
 /**
@@ -27,6 +29,14 @@ public class ScriptRuntime {
     private static final Logger log = LoggerFactory.getLogger(ScriptRuntime.class);
     /** How long to wait for a script thread to drain before abandoning it (matches restart paths). */
     private static final long STOP_AWAIT_MS = 2000L;
+
+    /**
+     * How long one {@code onLoop} call may run before it is flagged stalled, when
+     * nothing has set a threshold. Deliberately generous: a blocking walk
+     * legitimately parks inside {@code onLoop} for up to {@code Walker}'s 300 s
+     * timeout, so a shorter default would flag healthy scripts.
+     */
+    public static final long DEFAULT_STALL_AFTER_MS = 600_000L;
     private final ScriptContext context;
     private final Consumer<String> connectionTagger;
     private final Runnable connectionCleaner;
@@ -42,15 +52,27 @@ public class ScriptRuntime {
     /** Guards the check-then-add in {@link #registerScript} so two concurrent
      *  registrations of the same script name can't both append a runner. */
     private final Object registrationLock = new Object();
-    private final LivenessWatchdog watchdog =
-            new LivenessWatchdog(this::watchdogThreadName, this::watchdogSubjects);
+    private volatile LongSupplier stallAfterMs = () -> DEFAULT_STALL_AFTER_MS;
+    private final LivenessWatchdog watchdog = new LivenessWatchdog(
+            this::watchdogThreadName, this::watchdogSubjects, () -> stallAfterMs.getAsLong());
     private String connectionName;
-    private String accountUuid;
+    /** Written under {@link #registrationLock}; volatile for {@link #getAccountUuid}. */
+    private volatile String accountUuid;
     private Runnable onStateChange;
     private Function<String, ScriptContextPublisher> publisherFactory;
     private ScriptGate scriptGate;
     /** Written under {@link #registrationLock}. */
     private RunnerListener runnerListener = RunnerListener.NONE;
+    /**
+     * Runs inside {@link #registerScript}, under the registration lock, after the
+     * new runner is configured and just before it becomes visible in the runner
+     * list. A no-op in production; package-private only so
+     * {@code ScriptRuntimeTest} can park a registration there and race
+     * {@link #setAccountUuid} against it deterministically.
+     */
+    private volatile Runnable beforeRunnerPublished = () -> { };
+    /** Written under {@link #registrationLock}. */
+    private BooleanSupplier loopTimingGate = () -> true;
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
@@ -81,6 +103,21 @@ public class ScriptRuntime {
         this(context, ConnectionContext::set, ConnectionContext::clear, e -> {});
     }
 
+    /**
+     * Sets how long one {@code onLoop} call may run, with no stop pending, before
+     * the watchdog flags the runner {@link com.botwithus.bot.api.runtime.Liveness#STALLED}.
+     * Read on every sweep, so a supplier over a live setting applies at once.
+     * Until this is called the threshold is {@link #DEFAULT_STALL_AFTER_MS}.
+     */
+    public void setStallThreshold(LongSupplier stallAfterMs) {
+        this.stallAfterMs = stallAfterMs;
+    }
+
+    /** The stall threshold in milliseconds as it stands now. */
+    public long stallThresholdMs() {
+        return stallAfterMs.getAsLong();
+    }
+
     public void setConnectionName(String connectionName) {
         this.connectionName = connectionName;
     }
@@ -97,11 +134,19 @@ public class ScriptRuntime {
      * registered runners are updated in place so a uuid that arrives after the
      * runners (e.g. account-info resolves after auto-start registers scripts)
      * still reaches them.
+     *
+     * <p>Called from connection probe threads while scripts register and run.</p>
      */
     public void setAccountUuid(String accountUuid) {
-        this.accountUuid = accountUuid;
-        for (ScriptRunner runner : runners) {
-            runner.setAccountUuid(accountUuid);
+        // Under the registration lock, so a runner registered concurrently
+        // either reads the new uuid or is already in the list below. Without it
+        // a registration that read the old value before this write, and joined
+        // the list after this loop, kept that old value for the life of the run.
+        synchronized (registrationLock) {
+            this.accountUuid = accountUuid;
+            for (ScriptRunner runner : runners) {
+                runner.setAccountUuid(accountUuid);
+            }
         }
     }
 
@@ -126,6 +171,22 @@ public class ScriptRuntime {
         this.scriptGate = scriptGate;
         for (ScriptRunner runner : runners) {
             runner.setScriptGate(scriptGate);
+        }
+    }
+
+    /**
+     * Decides whether each runner's profiler keeps its loop aggregates (see
+     * {@link ScriptProfiler#setAggregating}). Propagated to every runner,
+     * including those already registered and those registered later.
+     * {@code null} restores always-on.
+     */
+    public void setLoopTimingGate(BooleanSupplier gate) {
+        BooleanSupplier resolved = gate != null ? gate : () -> true;
+        synchronized (registrationLock) {
+            this.loopTimingGate = resolved;
+            for (ScriptRunner runner : runners) {
+                runner.getProfiler().setAggregating(resolved);
+            }
         }
     }
 
@@ -160,6 +221,11 @@ public class ScriptRuntime {
      */
     public void setPublisherFactory(Function<String, ScriptContextPublisher> factory) {
         this.publisherFactory = factory;
+    }
+
+    /** Test seam; see {@link #beforeRunnerPublished}. {@code null} restores the no-op. */
+    void setBeforeRunnerPublished(Runnable hook) {
+        this.beforeRunnerPublished = hook != null ? hook : () -> { };
     }
 
     private void fireStateChange() {
@@ -227,6 +293,8 @@ public class ScriptRuntime {
                 runner.setScriptGate(scriptGate);
             }
             runner.setRunnerListener(runnerListener);
+            runner.getProfiler().setAggregating(loopTimingGate);
+            beforeRunnerPublished.run();
             runners.add(runner);
             return runner;
         }
