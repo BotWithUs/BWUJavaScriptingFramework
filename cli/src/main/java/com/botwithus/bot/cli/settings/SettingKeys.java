@@ -230,7 +230,9 @@ public final class SettingKeys {
         for (NotificationKind kind : NotificationKind.values()) {
             keys.add(notifyEnabled(kind));
         }
-        keys.addAll(List.of(NOTIFY_DURATION_S, START_MODE, TEXT_SIZE, REDUCE_MOTION, NATIVE_FRAME,
+        keys.add(NOTIFY_DURATION_S);
+        keys.addAll(AlertSettingKeys.ALL);
+        keys.addAll(List.of(START_MODE, TEXT_SIZE, REDUCE_MOTION, NATIVE_FRAME,
                 WINDOW_X, WINDOW_Y, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_MAXIMISED,
                 COLLECT_RPC_TIMING, COLLECT_LOOP_TIMING));
         return List.copyOf(keys);

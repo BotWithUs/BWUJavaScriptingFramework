@@ -24,6 +24,8 @@ module com.botwithus.bot.cli {
     opens com.botwithus.bot.cli.log to ch.qos.logback.core;
 
     exports com.botwithus.bot.cli;
+    // CliContext hands out the alert integrations the Settings page binds to.
+    exports com.botwithus.bot.cli.alerts;
     // Exported because CliContext leaks LogBuffer / LogCapture / StreamManager /
     // CommandRegistry through its public methods. Consumers (panels, commands)
     // legitimately depend on these types so they must be addressable.

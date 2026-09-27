@@ -7,6 +7,9 @@ import com.botwithus.bot.api.diag.StubGuard;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.botwithus.bot.cli.alerts.Alerts;
+import com.botwithus.bot.cli.alerts.Integrations;
+import com.botwithus.bot.cli.alerts.LiveClientDirectory;
 import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.clients.ClientRegistry;
 import com.botwithus.bot.cli.clients.JsonClientStore;
@@ -171,6 +174,8 @@ public class CliContext {
     private final Executor background;
     // Volatile: connections and runtimes read it from their own threads.
     private volatile HostSettings settings;
+    /** Guarded by {@code this}; set by {@link #startAlerts()}. */
+    private Alerts alerts;
     /** Host-level events; unlike a connection's bus it exists with no client connected. */
     private final HostEventBus hostEvents = new HostEventBus();
     private final ConnectionHistory connectionHistory = new ConnectionHistory();
@@ -297,6 +302,38 @@ public class CliContext {
         if (gamevals != null) {
             gamevals.close();
             gamevals = null;
+        }
+    }
+
+    /**
+     * Starts sending alerts to ntfy, Slack and Discord, as the {@code alerts.*}
+     * settings say (all off until the user turns a service on). Call once, from the
+     * composition root, after {@link #setSettings}; a second call returns the same
+     * integrations.
+     *
+     * @return what the Integrations section of the Settings page binds to
+     * @throws IllegalStateException if no settings are set
+     */
+    public synchronized Integrations startAlerts() {
+        if (settings == null) {
+            throw new IllegalStateException("settings must be set before alerts start");
+        }
+        if (alerts == null) {
+            alerts = Alerts.start(settings, hostEvents, new LiveClientDirectory(this), connectionHistory);
+        }
+        return alerts.integrations();
+    }
+
+    /** The alert integrations, once {@link #startAlerts()} has run. */
+    public synchronized Optional<Integrations> getIntegrations() {
+        return Optional.ofNullable(alerts).map(Alerts::integrations);
+    }
+
+    /** Stops the alerts. Called from the two shutdown paths, beside {@link #closeGamevals()}. */
+    public synchronized void stopAlerts() {
+        if (alerts != null) {
+            alerts.close();
+            alerts = null;
         }
     }
 

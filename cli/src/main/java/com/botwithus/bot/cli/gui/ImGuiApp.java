@@ -209,6 +209,7 @@ public class ImGuiApp extends Application {
         // Before anything can connect or load scripts, so no toast-worthy event is missed.
         notificationOverlay = new NotificationOverlay(Clock.systemDefaultZone());
         HostToasts.attach(ctx, notificationOverlay);
+        ctx.startAlerts();
         currentMode = AppMode.openingIn(settings.get(SettingKeys.START_MODE));
         AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore, ctx.getSettings());
         ctx.setAutoStartManager(autoStartManager);
@@ -550,6 +551,7 @@ public class ImGuiApp extends Application {
         }
         ctx.disconnectAll();
         ctx.saveClients();
+        ctx.stopAlerts();
         ctx.closeGamevals();
         if (catalogueTicker != null) {
             catalogueTicker.shutdownNow();
