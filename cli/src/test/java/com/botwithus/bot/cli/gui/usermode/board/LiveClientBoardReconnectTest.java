@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.gui.usermode.board;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.core.pipe.PipeException;
 import com.botwithus.bot.core.rpc.PipeResolution;
 import com.botwithus.bot.core.rpc.ReconnectController;
@@ -24,6 +25,7 @@ import java.time.InstantSource;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Queue;
 import java.util.concurrent.Executor;
@@ -33,10 +35,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,11 +47,15 @@ import static org.mockito.Mockito.when;
 
 /**
  * What a card shows and does for a client whose pipe dropped. The board reads a
- * real {@link ReconnectController}; only the connection around it is a mock.
+ * real client registry and a real {@link ReconnectController}; only the
+ * connection around them is a mock. A card is addressed by its account, and the
+ * board finds the pipe and the controller behind it.
  */
 class LiveClientBoardReconnectTest {
 
-    private static final String CLIENT = "BotWithUs_1";
+    private static final String PIPE = "BotWithUs_1";
+    private static final String UUID = "0123456789abcdef0123456789abcdef";
+    private static final ClientKey ACCOUNT = ClientKey.account(UUID);
     private static final double MID_JITTER = 0.5;
     private static final long LONG_BACKOFF_MS = 600_000L;
     private static final long PROMPT_MS = 5_000L;
@@ -61,12 +68,14 @@ class LiveClientBoardReconnectTest {
     private final Queue<Runnable> commandQueue = new ArrayDeque<>();
     private final Executor queued = commandQueue::add;
     private final List<ReconnectController> controllers = new ArrayList<>();
+    private final BoardRegistry registry = new BoardRegistry(Clock.systemUTC());
     private CliContext ctx;
     private LiveClientBoard board;
 
     @BeforeEach
     void setUp() {
         ctx = mock(CliContext.class);
+        when(ctx.getClientRegistry()).thenReturn(registry.registry);
         SdnCatalogueRefresher catalogue = new SdnCatalogueRefresher(
                 () -> new SdnCatalogueResult.Delivered(List.of(), false), Runnable::run,
                 InstantSource.system(), () -> MID_JITTER);
@@ -82,13 +91,16 @@ class LiveClientBoardReconnectTest {
     }
 
     @Test
-    void anUnlimitedPolicyShowsNoAttemptCap() {
+    void aReconnectingClient_showsNotResponding_withNoCapUnderAnUnlimitedPolicy() {
         ReconnectController controller = reconnecting(policy(ReconnectPolicy.UNLIMITED));
         connect(controller);
 
-        ClientStatus.Reconnecting shown = reconnectingStatus(onlyStatus());
+        ClientState.NotResponding shown = notResponding(onlyView().state());
 
-        assertEquals(OptionalInt.empty(), shown.maxAttempts(), "no \"of 2147483647\" on the card");
+        assertAll(
+                () -> assertEquals(OptionalInt.empty(), shown.maxAttempts(), "no \"of 2147483647\" on the card"),
+                () -> assertTrue(shown.isRetrying()),
+                () -> assertTrue(shown.attempt() >= 1));
     }
 
     @Test
@@ -96,51 +108,57 @@ class LiveClientBoardReconnectTest {
         ReconnectController controller = reconnecting(policy(BUDGET));
         connect(controller);
 
-        assertEquals(OptionalInt.of(BUDGET), reconnectingStatus(onlyStatus()).maxAttempts());
+        assertEquals(OptionalInt.of(BUDGET), notResponding(onlyView().state()).maxAttempts());
     }
 
     @Test
-    void stopRetrying_stopsTheControllerSoEveryViewSeesIt() {
+    void stopRetrying_byAccount_stopsThatClientsController() {
         ReconnectController controller = reconnecting(policy(ReconnectPolicy.UNLIMITED));
         connect(controller);
 
-        board.actions().stopRetrying(CLIENT);
+        board.actions().stopRetrying(ACCOUNT);
 
         awaitState(controller, LiveClientBoardReconnectTest::isGivingUp);
-        ClientStatus.Lost lost = lostStatus(onlyStatus());
-        assertTrue(lost.canRetry());
+        registry.linkState(ACCOUNT, PIPE, controller.currentState());
+        assertEquals(Optional.empty(), notResponding(onlyView().state()).nextIn(),
+                "stopped, but the game may still be running, so the card still offers a retry");
     }
 
     @Test
     void retryNow_afterGivingUp_restartsTheControllersRecovery() {
         AtomicInteger attempts = new AtomicInteger();
-        ReconnectController controller = gaveUp(new PipeResolution.Found(CLIENT), attempts);
+        ReconnectController controller = gaveUp(new PipeResolution.Found(PIPE), attempts);
         connect(controller);
         int before = attempts.get();
 
-        board.actions().retryNow(CLIENT);
+        board.actions().retryNow(ACCOUNT);
 
         awaitState(controller, state -> attempts.get() > before);
         verify(ctx, never()).connect(any());
     }
 
     @Test
-    void aClientWhoseProcessExitedOffersForgetInsteadOfRetry() {
+    void aClientWhoseProcessExited_isClosed_andKeepsItsPipeSoItCanBeDismissed() {
         ReconnectController controller = gaveUp(
                 new PipeResolution.Gone(PipeResolution.Gone.Reason.PROCESS_EXITED, "exited"),
                 new AtomicInteger());
         connect(controller);
 
-        assertFalse(lostStatus(onlyStatus()).canRetry());
+        ClientView view = onlyView();
+
+        assertAll(
+                () -> assertTrue(view.isClosed(), "got " + view.state()),
+                () -> assertEquals(Optional.of(PIPE), view.pipe()));
     }
 
     @Test
-    void forget_runsOnTheCommandExecutor() {
-        board.actions().forget(CLIENT);
+    void forget_runsOnTheCommandExecutor_withTheCardsKey() {
+        board.actions().forget(ACCOUNT);
 
-        verify(ctx, never()).forget(any());
+        verify(ctx, never()).forget(any(ClientKey.class));
+        verify(ctx, never()).forget(anyString());
         drain();
-        verify(ctx).forget(CLIENT);
+        verify(ctx).forget(ACCOUNT);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
@@ -153,7 +171,7 @@ class LiveClientBoardReconnectTest {
     private ReconnectController reconnecting(ReconnectPolicy policy) {
         AtomicReference<Consumer<Throwable>> handler = new AtomicReference<>();
         ReconnectController controller = new ReconnectController(handler::set, pipe -> { },
-                attempt -> new PipeResolution.Found(CLIENT), CLIENT, policy, state -> { }, ev -> { });
+                attempt -> new PipeResolution.Found(PIPE), PIPE, policy, state -> { }, ev -> { });
         controllers.add(controller);
         controller.arm();
         handler.get().accept(new PipeException("drop"));
@@ -169,7 +187,7 @@ class LiveClientBoardReconnectTest {
             throw new PipeException("down");
         };
         ReconnectController controller = new ReconnectController(handler::set, failing,
-                attempt -> verdict, CLIENT, new ReconnectPolicy(1, 0, 1.0, 0), state -> { }, ev -> { });
+                attempt -> verdict, PIPE, new ReconnectPolicy(1, 0, 1.0, 0), state -> { }, ev -> { });
         controllers.add(controller);
         controller.arm();
         handler.get().accept(new PipeException("drop"));
@@ -177,37 +195,34 @@ class LiveClientBoardReconnectTest {
         return controller;
     }
 
-    /** A dead connection whose recovery {@code controller} runs. */
+    /**
+     * A dead connection on an identified account whose recovery {@code controller}
+     * runs, with the controller's state reported to the registry as the host would.
+     */
     private void connect(ReconnectController controller) {
         Connection conn = mock(Connection.class);
         ScriptRuntime runtime = mock(ScriptRuntime.class);
         when(runtime.getRunners()).thenReturn(List.of());
-        when(conn.getName()).thenReturn(CLIENT);
+        when(conn.getName()).thenReturn(PIPE);
         when(conn.getRuntime()).thenReturn(runtime);
         when(conn.isAlive()).thenReturn(false);
         when(conn.getReconnectController()).thenReturn(controller);
         when(conn.currentReconnectState()).thenAnswer(call -> controller.currentState());
-        when(conn.getWorldId()).thenReturn(OptionalInt.empty());
         when(ctx.getConnections()).thenReturn(List.of(conn));
+        registry.connect(conn, UUID, "Oakheart");
+        registry.linkState(ACCOUNT, PIPE, controller.currentState());
     }
 
-    private ClientStatus onlyStatus() {
+    private ClientView onlyView() {
         List<ClientView> views = board.clients();
         assertEquals(1, views.size());
-        return views.getFirst().status();
+        return views.getFirst();
     }
 
-    private static ClientStatus.Reconnecting reconnectingStatus(ClientStatus status) {
-        return switch (status) {
-            case ClientStatus.Reconnecting r -> r;
-            default -> throw new AssertionError("expected reconnecting, got " + status);
-        };
-    }
-
-    private static ClientStatus.Lost lostStatus(ClientStatus status) {
-        return switch (status) {
-            case ClientStatus.Lost l -> l;
-            default -> throw new AssertionError("expected lost, got " + status);
+    private static ClientState.NotResponding notResponding(ClientState state) {
+        return switch (state) {
+            case ClientState.NotResponding r -> r;
+            default -> throw new AssertionError("expected not responding, got " + state);
         };
     }
 

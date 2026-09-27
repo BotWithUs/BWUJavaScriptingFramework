@@ -1,7 +1,5 @@
 package com.botwithus.bot.cli;
 
-import com.botwithus.bot.cli.log.LogBuffer;
-import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.config.ScriptProfileStore;
@@ -42,7 +40,7 @@ class AutoStartManagerTest {
     @BeforeEach
     void setUp() {
         PrintStream sink = new PrintStream(new ByteArrayOutputStream());
-        CliContext ctx = new CliContext(new LogBuffer(), new LogCapture(new LogBuffer(), sink, sink));
+        CliContext ctx = TestContexts.inDir(dir, sink);
         settings = HostSettings.open(dir);
         settings.set(SettingKeys.SCAN_INTERVAL_MS, FASTEST_SCAN_MS);
         manager = new AutoStartManager(ctx, new ScriptProfileStore(dir), settings,

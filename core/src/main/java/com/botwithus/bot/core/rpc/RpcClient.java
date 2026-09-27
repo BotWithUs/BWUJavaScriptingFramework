@@ -80,7 +80,7 @@ public class RpcClient implements AutoCloseable {
     private volatile boolean closed;
 
     /** Default per-call deadline before doCall gives up and throws RpcException. */
-    private static final long DEFAULT_TIMEOUT_MS = 10_000L;
+    public static final long DEFAULT_TIMEOUT_MS = 10_000L;
 
     /**
      * Reader idle re-poll interval. Bounds worst-case latency for unsolicited
@@ -89,7 +89,8 @@ public class RpcClient implements AutoCloseable {
      */
     private static final long READER_IDLE_WAIT_NANOS = 1_000_000L;
 
-    private long timeoutMs = DEFAULT_TIMEOUT_MS;
+    // Volatile: the host changes it from its settings thread while calls run on others.
+    private volatile long timeoutMs = DEFAULT_TIMEOUT_MS;
     private RetryPolicy retryPolicy = RetryPolicy.NONE;
     private final RpcMetrics metrics = new RpcMetrics();
 

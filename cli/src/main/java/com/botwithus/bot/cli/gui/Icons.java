@@ -15,6 +15,8 @@ public final class Icons {
     public static final String CODE        = "\uF121";  // fa-code
     public static final String WRENCH      = "\uF0AD";  // fa-wrench
     public static final String WINDOW      = "\uF2D0";  // fa-window-maximize
+    public static final String WINDOW_MINIMIZE = "\uF2D1"; // fa-window-minimize
+    public static final String WINDOW_RESTORE  = "\uF2D2"; // fa-window-restore
     public static final String USERS       = "\uF0C0";  // fa-users
     public static final String LIST        = "\uF03A";  // fa-list
     public static final String GEAR        = "\uF013";  // fa-gear
@@ -53,6 +55,15 @@ public final class Icons {
     public static final String CIRCLE_CHECK = "\uF058"; // fa-circle-check
     public static final String PLUG_XMARK  = "\uE560";  // fa-plug-circle-xmark
     public static final String FILE_XMARK  = "\uE5A1";  // fa-file-circle-xmark
+    public static final String CIRCLE_XMARK = "\uF057";  // fa-circle-xmark
+    public static final String PLUG_EXCLAMATION = "\uE55D";  // fa-plug-circle-exclamation
+    public static final String HOURGLASS   = "\uF252";  // fa-hourglass-half
+    public static final String BAN         = "\uF05E";  // fa-ban
+    public static final String ROTATE_LEFT = "\uF2EA";  // fa-rotate-left
+    public static final String CHEVRON_UP  = "\uF077";  // fa-chevron-up
+    public static final String CHEVRON_DOWN = "\uF078";  // fa-chevron-down
+    public static final String CARET_UP    = "\uF0D8";  // fa-caret-up
+    public static final String CARET_DOWN  = "\uF0D7";  // fa-caret-down
 
     // Objects
     public static final String SERVER      = "\uF233";  // fa-server
@@ -64,12 +75,20 @@ public final class Icons {
     public static final String CLOCK       = "\uF017";  // fa-clock
     public static final String FOLDER      = "\uF07B";  // fa-folder
     public static final String FILE        = "\uF15B";  // fa-file
+    public static final String FILE_LINES  = "\uF15C";  // fa-file-lines
     public static final String NETWORK     = "\uF6FF";  // fa-network-wired
     public static final String PLUG        = "\uF1E6";  // fa-plug
     public static final String ROBOT       = "\uF544";  // fa-robot
     public static final String SCROLL      = "\uF70E";  // fa-scroll
     public static final String LAYER_GROUP = "\uF5FD";  // fa-layer-group
     public static final String DIAGRAM     = "\uE4A6";  // fa-diagram-project
+
+    // Settings page
+    public static final String USER        = "\uF007";  // fa-user
+    public static final String BELL        = "\uF0F3";  // fa-bell
+    public static final String DISPLAY     = "\uE163";  // fa-display
+    public static final String FILE_EXPORT = "\uF56E";  // fa-file-export
+    public static final String ERASER      = "\uF12D";  // fa-eraser
 
     // Misc
     public static final String SEARCH      = "\uF002";  // fa-magnifying-glass
