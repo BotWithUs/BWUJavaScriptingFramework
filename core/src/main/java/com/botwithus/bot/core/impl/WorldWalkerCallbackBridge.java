@@ -7,6 +7,7 @@ import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.VarbitRead;
+import com.botwithus.bot.api.model.VarpRead;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
@@ -59,11 +60,29 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     // at the same offset structure.
     private static final int[] ACTION_BAR_IFACES = { 1670, 1430 };
 
+    // Varps the walker's transitions gate on through `varp` / `varp_at_least`.
+    // STAND-IN: the executor batches every varbit and item id its artifact's
+    // requirements reference, but it has no way to name varps to the host --
+    // it learns them only from readCapability, and an absent varp reads 0, so
+    // every varp gate is denied. Until the walker exports the artifact's
+    // requirement varp ids (see the WorldWalker datasets README, "A varp gate
+    // is denied by the live bot today"), the host supplies the ones the
+    // shipped dataset uses. Replace this list with the artifact's own once
+    // that export exists; a varp gate added to the dataset without a matching
+    // id here stays denied, which is the safe direction.
+    private static final int VARP_TREE_GNOME_VILLAGE = 2661;  // spirit trees, complete at 9
+    private static final int VARP_THE_GRAND_TREE     = 2740;  // Gnome Stronghold tree, 160
+    private static final int VARP_CABIN_FEVER        = 2326;  // Mos Le'Harmless charter, 140
+    private static final int VARP_REGICIDE           = 2102;  // Port Tyras charter, 15
+    static final List<Integer> REQUIREMENT_VARPS = List.of(
+            VARP_TREE_GNOME_VILLAGE, VARP_THE_GRAND_TREE, VARP_CABIN_FEVER, VARP_REGICIDE);
+
     private final GameAPI api;
     private final Supplier<GameSnapshot> snapshotSource;
     private final AtomicBoolean cancel;
     private final Consumer<WwEvent> eventSink;
     private final WwGoal goal;
+    private final List<Integer> requirementVarps;
 
     // Surge slot cache: resolved once per run on the first eligible walkTo, then
     // reused. -1 in surgeIface means "not yet attempted"; SURGE_DISABLED in it
@@ -79,11 +98,22 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                               AtomicBoolean cancel,
                               Consumer<WwEvent> eventSink,
                               WwGoal goal) {
+        this(api, snapshotSource, cancel, eventSink, goal, REQUIREMENT_VARPS);
+    }
+
+    /** As above, reading {@code requirementVarps} into every capability snapshot. */
+    WorldWalkerCallbackBridge(GameAPI api,
+                              Supplier<GameSnapshot> snapshotSource,
+                              AtomicBoolean cancel,
+                              Consumer<WwEvent> eventSink,
+                              WwGoal goal,
+                              List<Integer> requirementVarps) {
         this.api = Objects.requireNonNull(api, "api");
         this.snapshotSource = Objects.requireNonNull(snapshotSource, "snapshotSource");
         this.cancel = Objects.requireNonNull(cancel, "cancel");
         this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
         this.goal = goal;
+        this.requirementVarps = List.copyOf(requirementVarps);
     }
 
     @Override
@@ -102,6 +132,10 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
      * outright and the transitions behind it are never planned. Base rather than boosted level, so
      * a route is not planned through a gate whose boost has lapsed by the time the player gets
      * there.
+     *
+     * <p>Varps are the other class the executor cannot request, so the snapshot also carries
+     * {@link #REQUIREMENT_VARPS}, read in one batched call per (re-)plan. Not cached across
+     * plans: a re-plan must see a quest completed mid-walk.</p>
      */
     @Override
     public CapabilitySnapshot readCapability() {
@@ -113,7 +147,37 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         for (Skill s : lp.skills()) {
             caps.skill(s.typeId(), s.actualLevel());
         }
+        readRequirementVarps(caps);
         return caps.build();
+    }
+
+    // One readVarps round-trip for every requirement varp. A varp with no value
+    // (no such varp, or the read could not be made) is left out, so the walker
+    // reads it as 0 ("not present") rather than the host's -1 sentinel, as
+    // readVarbit does. A failed or mis-sized read adds none of them, so each
+    // varp gate is denied -- never a partial write that pairs an id with
+    // another's value.
+    private void readRequirementVarps(CapabilitySnapshot.Builder caps) {
+        if (requirementVarps.isEmpty()) {
+            return;
+        }
+        try {
+            List<VarpRead> reads = api.readVarps(requirementVarps);
+            if (reads == null || reads.size() != requirementVarps.size()) {
+                log.warn("ww readCapability: readVarps returned {} reads for {} varps",
+                        reads == null ? 0 : reads.size(), requirementVarps.size());
+                return;
+            }
+            for (int i = 0; i < reads.size(); i++) {
+                VarpRead read = reads.get(i);
+                if (read.hasValue()) {
+                    caps.varp(requirementVarps.get(i), read.value());
+                }
+            }
+        } catch (RuntimeException e) {
+            log.debug("ww readCapability: readVarps({} varps) failed: {}",
+                    requirementVarps.size(), e.toString());
+        }
     }
 
     /**

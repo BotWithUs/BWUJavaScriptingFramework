@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.model.VarKind;
 import com.botwithus.bot.api.model.VarpState;
 import com.botwithus.bot.api.model.VarpRead;
 import com.botwithus.bot.api.model.VarbitRead;
@@ -32,6 +33,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
@@ -206,6 +208,93 @@ class WorldWalkerCallbackBridgeTest {
         CapabilitySnapshot caps = bridge.readCapability();
 
         assertEquals(70, caps.skills().get(MAGIC_SKILL_TYPE));
+    }
+
+    private static VarpRead setVarp(int id, int value) {
+        return new VarpRead(id, VarpState.SET, value, value, VarKind.INT, true);
+    }
+
+    private static List<VarpRead> setVarps(List<Integer> ids, List<Integer> values) {
+        List<VarpRead> reads = new ArrayList<>();
+        for (int i = 0; i < ids.size(); i++) {
+            reads.add(setVarp(ids.get(i), values.get(i)));
+        }
+        return reads;
+    }
+
+    // The executor learns varps only from this snapshot, so a varp_at_least gate
+    // (Tree Gnome Village's spirit trees) is denied unless the host puts it here.
+    @Test
+    void readCapabilityCarriesRequirementVarpsInOneBatchedRead() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(WorldWalkerCallbackBridge.REQUIREMENT_VARPS)).thenReturn(setVarps(
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, List.of(9, 160, 140, 15)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(9, caps.varps().get(2661));
+        assertEquals(160, caps.varps().get(2740));
+        assertEquals(140, caps.varps().get(2326));
+        assertEquals(15, caps.varps().get(2102));
+        verify(api, times(1)).readVarps(anyList());
+        verify(api, never()).readVarp(anyInt());
+        verify(api, never()).getVarp(anyInt());
+    }
+
+    @Test
+    void readCapabilityReadsTheVarpsItIsGiven() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                List.of(7, 8));
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(List.of(7, 8))).thenReturn(setVarps(List.of(7, 8), List.of(1, 2)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(Map.of(7, 1, 8, 2), caps.varps());
+    }
+
+    // The walker's ABI reads 0 as "not present"; a varp with no value is left out
+    // rather than handed over as the host's -1 sentinel. A varp at its default
+    // has a value, and is carried.
+    @Test
+    void readCapabilityLeavesOutVarpsWithNoValue() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                List.of(7, 8, 9));
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(List.of(7, 8, 9))).thenReturn(List.of(
+                new VarpRead(7, VarpState.UNAVAILABLE, VarpRead.NO_VALUE, VarpRead.NO_VALUE,
+                        VarKind.UNKNOWN, true),
+                new VarpRead(8, VarpState.DEFAULT_NOT_SET_CLIENTSIDE, 0, 0, VarKind.UNKNOWN, true),
+                new VarpRead(9, VarpState.NO_SUCH_VARP, VarpRead.NO_VALUE, VarpRead.NO_VALUE,
+                        VarKind.UNKNOWN, true)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(Map.of(8, 0), caps.varps());
+    }
+
+    // A mis-sized reply cannot be paired with its ids, so it adds no varp at
+    // all: every varp gate stays denied rather than admitting on another's value.
+    @Test
+    void readCapabilityAddsNoVarpsWhenBatchIsMisSized() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(anyList())).thenReturn(List.of(setVarp(2661, 9)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertTrue(caps.varps().isEmpty());
+        assertEquals(73, caps.skills().get(MAGIC_SKILL_TYPE));
+    }
+
+    @Test
+    void readCapabilityKeepsSkillsWhenVarpReadFails() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(anyList())).thenThrow(new RuntimeException("rpc down"));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertTrue(caps.varps().isEmpty());
+        assertEquals(73, caps.skills().get(MAGIC_SKILL_TYPE));
     }
 
     private LocalPlayer playerWithSkill(int typeId, int actualLevel, int boostedLevel) {
