@@ -45,12 +45,21 @@ public class ScriptRuntime {
     private final LivenessWatchdog watchdog =
             new LivenessWatchdog(this::watchdogThreadName, this::watchdogSubjects);
     private String connectionName;
-    private String accountUuid;
+    /** Written under {@link #registrationLock}; volatile for {@link #getAccountUuid}. */
+    private volatile String accountUuid;
     private Runnable onStateChange;
     private Function<String, ScriptContextPublisher> publisherFactory;
     private ScriptGate scriptGate;
     /** Written under {@link #registrationLock}. */
     private RunnerListener runnerListener = RunnerListener.NONE;
+    /**
+     * Runs inside {@link #registerScript}, under the registration lock, after the
+     * new runner is configured and just before it becomes visible in the runner
+     * list. A no-op in production; package-private only so
+     * {@code ScriptRuntimeTest} can park a registration there and race
+     * {@link #setAccountUuid} against it deterministically.
+     */
+    private volatile Runnable beforeRunnerPublished = () -> { };
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
@@ -97,11 +106,19 @@ public class ScriptRuntime {
      * registered runners are updated in place so a uuid that arrives after the
      * runners (e.g. account-info resolves after auto-start registers scripts)
      * still reaches them.
+     *
+     * <p>Called from connection probe threads while scripts register and run.</p>
      */
     public void setAccountUuid(String accountUuid) {
-        this.accountUuid = accountUuid;
-        for (ScriptRunner runner : runners) {
-            runner.setAccountUuid(accountUuid);
+        // Under the registration lock, so a runner registered concurrently
+        // either reads the new uuid or is already in the list below. Without it
+        // a registration that read the old value before this write, and joined
+        // the list after this loop, kept that old value for the life of the run.
+        synchronized (registrationLock) {
+            this.accountUuid = accountUuid;
+            for (ScriptRunner runner : runners) {
+                runner.setAccountUuid(accountUuid);
+            }
         }
     }
 
@@ -160,6 +177,11 @@ public class ScriptRuntime {
      */
     public void setPublisherFactory(Function<String, ScriptContextPublisher> factory) {
         this.publisherFactory = factory;
+    }
+
+    /** Test seam; see {@link #beforeRunnerPublished}. {@code null} restores the no-op. */
+    void setBeforeRunnerPublished(Runnable hook) {
+        this.beforeRunnerPublished = hook != null ? hook : () -> { };
     }
 
     private void fireStateChange() {
@@ -227,6 +249,7 @@ public class ScriptRuntime {
                 runner.setScriptGate(scriptGate);
             }
             runner.setRunnerListener(runnerListener);
+            beforeRunnerPublished.run();
             runners.add(runner);
             return runner;
         }

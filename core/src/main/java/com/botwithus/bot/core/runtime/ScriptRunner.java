@@ -69,7 +69,8 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private volatile Thread thread;
     private volatile Instant lastStartedAt;
     private String connectionName;
-    private String accountUuid;
+    /** Set from connection probe threads; read by the script thread and the UI. */
+    private volatile String accountUuid;
 
     @FunctionalInterface
     public interface ErrorHandler {
@@ -531,14 +532,16 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     }
 
     private void loadPersistedConfig(String name) {
-        if (accountUuid == null) {
+        // One read: the check and the load must see the same value.
+        String uuid = accountUuid;
+        if (uuid == null) {
             log.info("loadPersistedConfig({}): no accountUuid set, using field defaults", name);
             return;
         }
         try {
             List<ConfigField> fields = script.getConfigFields();
             if (fields != null && !fields.isEmpty()) {
-                ScriptConfig config = ScriptConfigStore.load(name, accountUuid, fields);
+                ScriptConfig config = ScriptConfigStore.load(name, uuid, fields);
                 currentConfig.set(config);
                 script.onConfigUpdate(config);
             }
