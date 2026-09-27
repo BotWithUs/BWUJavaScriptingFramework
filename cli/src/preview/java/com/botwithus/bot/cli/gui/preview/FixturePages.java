@@ -11,6 +11,7 @@ import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.gui.pages.ClientsPage;
 import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
+import com.botwithus.bot.cli.gui.pages.store.StorePage;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
 import com.botwithus.bot.cli.log.LogBuffer;
@@ -19,18 +20,20 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * DEV ONLY. The Advanced page set the preview draws: the real Clients page over
  * the fixture board, the real Dashboard over {@link FixtureDashboardModel}, the
- * interim Groups page over a host with nothing connected, and fixture pages for
- * the rest so every kind of sidebar entry shows.
+ * interim Groups page over a host with nothing connected, the real Script Store
+ * over a {@link FixtureStoreModel}, and fixture pages for the rest so every kind
+ * of sidebar entry shows.
  */
 final class FixturePages {
 
     /** What a scenario can reach after building the pages. */
     record Built(PageRegistry registry, DashboardPage dashboard, SwitchableDashboardModel dashboardModel,
-                 CliContext host) {}
+                 CliContext host, StorePage store) {}
 
     private static final int INSTALLED_PROBLEMS = 3;
     private static final Path CWD = Path.of("").toAbsolutePath();
@@ -38,11 +41,14 @@ final class FixturePages {
 
     private FixturePages() {}
 
-    static Built build(Controls ui, UserModeRenderer clients, ClientBoard board, SecondLine.AccountStatus store) {
+    static Built build(Controls ui, UserModeRenderer clients, ClientBoard board, FixtureStoreModel storeModel) {
         CliContext ctx = new CliContext(new LogBuffer(), null);
         SwitchableDashboardModel dashboardModel = new SwitchableDashboardModel(
                 new FixtureDashboardModel(FixtureDashboardModel.Fleet.BUSY));
         DashboardPage dashboard = new DashboardPage(ui, dashboardModel, Clock.systemDefaultZone());
+        // The Store's "Open" switches page through the registry built below.
+        AtomicReference<PageRegistry> registry = new AtomicReference<>();
+        StorePage store = new StorePage(ui, storeModel, id -> registry.get().select(id));
         List<Page> pages = List.of(
                 new ClientsPage(clients, board),
                 dashboard,
@@ -50,9 +56,10 @@ final class FixturePages {
                 LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
                 fixture(PageId.INSTALLED, ui, folder("scripts"), Optional.of(NavBadge.problems(INSTALLED_PROBLEMS))),
                 fixture(PageId.MANAGEMENT, ui, folder("scripts/management"), Optional.empty()),
-                fixture(PageId.STORE, ui, Optional.of(store), Optional.empty()),
+                store,
                 fixture(PageId.SETTINGS, ui, Optional.empty(), Optional.empty()));
-        return new Built(new PageRegistry(pages), dashboard, dashboardModel, ctx);
+        registry.set(new PageRegistry(pages));
+        return new Built(registry.get(), dashboard, dashboardModel, ctx, store);
     }
 
     private static FixturePage fixture(PageId id, Controls ui, Optional<SecondLine> line, Optional<NavBadge> badge) {

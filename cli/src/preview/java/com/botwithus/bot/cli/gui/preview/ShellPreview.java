@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.preview;
 
+import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.event.ConnectionLostEvent;
 import com.botwithus.bot.api.event.ReconnectStateChangedEvent;
 import com.botwithus.bot.api.event.ScriptCrashedEvent;
@@ -25,16 +26,18 @@ import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.DockTab;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerFilter;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
-import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
-import com.botwithus.bot.cli.gui.pages.StoreSignInLine;
+import com.botwithus.bot.cli.gui.pages.store.PriceFilter;
+import com.botwithus.bot.cli.gui.pages.store.StorePage;
+import com.botwithus.bot.cli.gui.pages.store.StorePreviewSeams;
+import com.botwithus.bot.cli.gui.pages.store.StoreQuery;
+import com.botwithus.bot.cli.gui.pages.store.StoreTab;
 import com.botwithus.bot.cli.gui.usermode.PreviewSeams;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.cli.gui.window.WindowRect;
 import com.botwithus.bot.core.impl.EventBusImpl;
-import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 
 import imgui.ImGui;
 import imgui.app.Application;
@@ -56,12 +59,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import javax.imageio.ImageIO;
 
@@ -96,23 +99,27 @@ public final class ShellPreview extends Application {
     private static final int MIN_WINDOW_WIDTH = 640;
     private static final int MIN_WINDOW_HEIGHT = 400;
 
-    /** The store's sidebar line in every scenario that does not set its own. */
-    private static final SecondLine.AccountStatus SIGNED_IN =
-            new SecondLine.AccountStatus("Signed in · 4 scripts", true);
-
     /**
      * One captured state: the mode, which fixtures, and what to do on a given
      * frame to reach it.
      */
     private record Scenario(String name, AppMode mode, Supplier<FixtureBoard> board,
-                            SecondLine.AccountStatus store, BiConsumer<Stage, Integer> onFrame) {
+                            Supplier<FixtureStoreModel> store, BiConsumer<Stage, Integer> onFrame) {
 
         Scenario(String name, Supplier<FixtureBoard> board, BiConsumer<Stage, Integer> onFrame) {
-            this(name, AppMode.NORMAL, board, SIGNED_IN, onFrame);
+            this(name, AppMode.NORMAL, board, FixtureStoreModel::signedIn, onFrame);
         }
 
         static Scenario advanced(String name, Supplier<FixtureBoard> board, BiConsumer<Stage, Integer> onFrame) {
-            return new Scenario(name, AppMode.ADVANCED, board, SIGNED_IN, onFrame);
+            return new Scenario(name, AppMode.ADVANCED, board, FixtureStoreModel::signedIn, onFrame);
+        }
+
+        /** The Script Store page over {@code store}, with {@code onFrame} standing in for clicks. */
+        static Scenario store(String name, Supplier<FixtureStoreModel> store, BiConsumer<StorePage, Integer> onFrame) {
+            return new Scenario(name, AppMode.ADVANCED, FixtureBoard::sixClients, store, (s, f) -> {
+                s.pages().registry().select(PageId.STORE);
+                onFrame.accept(s.pages().store(), f);
+            });
         }
     }
 
@@ -169,7 +176,7 @@ public final class ShellPreview extends Application {
                 name -> board.clients().stream().filter(c -> c.id().equals(name)).map(ClientView::account)
                         .findFirst().orElse(name));
         toasts.subscribeTo(bus);
-        FixturePages.Built pages = FixturePages.build(ui, page, board, s.store());
+        FixturePages.Built pages = FixturePages.build(ui, page, board, s.store().get());
         FixtureWindow window = new FixtureWindow(new WindowRect(0, 0, WIDTH, HEIGHT));
         stage = new Stage(board, page, bus, pages, inspector, window);
         shell = new Shell(ui, pages.registry(), inspector, toasts,
@@ -306,8 +313,7 @@ public final class ShellPreview extends Application {
                         select(PageId.INSTALLED)),
                 Scenario.advanced("25-advanced-groups-interim", FixtureBoard::waiting, select(PageId.GROUPS)),
                 new Scenario("26-advanced-store-signed-out", AppMode.ADVANCED, FixtureBoard::sixClients,
-                        StoreSignInLine.of(Optional.of(new SdnCatalogueResult.NotSignedIn())),
-                        select(PageId.STORE)),
+                        FixtureStoreModel::signedOut, select(PageId.STORE)),
                 Scenario.advanced("27-advanced-settings-selected", FixtureBoard::offline,
                         select(PageId.SETTINGS)),
                 Scenario.advanced("28-advanced-inspector-client-settings-from-installed", FixtureBoard::sixClients,
@@ -327,9 +333,7 @@ public final class ShellPreview extends Application {
                 new Scenario("40-window-frameless-normal", FixtureBoard::sixClients, nothing),
                 Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::sixClients,
                         (s, f) -> s.window().maximise()));
-        List<Scenario> all = new ArrayList<>(scenarios);
-        all.addAll(dashboardScenarios());
-        return List.copyOf(all);
+        return Stream.of(scenarios, dashboardScenarios(), storeScenarios()).flatMap(List::stream).toList();
     }
 
     /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
@@ -366,6 +370,51 @@ public final class ShellPreview extends Application {
                 }));
     }
 
+    /** The Script Store in every state it can be in, plus a catalogue big enough to scroll. */
+    private static List<Scenario> storeScenarios() {
+        BiConsumer<StorePage, Integer> nothing = (p, f) -> { };
+        return List.of(
+                Scenario.store("60-store-signed-in-detail", FixtureStoreModel::signedIn,
+                        (p, f) -> StorePreviewSeams.showDetail(p, "woodcutting")),
+                Scenario.store("61-store-ticked-install-bar", FixtureStoreModel::signedIn,
+                        (p, f) -> onFirst(f, () -> StorePreviewSeams.tick(p, "woodcutting-fletcher", "restless-ghost"))),
+                Scenario.store("62-store-loading", FixtureStoreModel::loading, nothing),
+                Scenario.store("63-store-stale-launcher-not-answering", FixtureStoreModel::stale, nothing),
+                Scenario.store("64-store-launcher-not-running", FixtureStoreModel::launcherNotRunning, nothing),
+                Scenario.store("65-store-no-subscription", FixtureStoreModel::noSubscription, nothing),
+                Scenario.store("66-store-catalogue-failed", FixtureStoreModel::failed, nothing),
+                Scenario.store("67-store-no-favourites", FixtureStoreModel::noFavourites, nothing),
+                Scenario.store("68-store-busy-catalogue", FixtureStoreModel::busy,
+                        (p, f) -> onFirst(f, () -> StorePreviewSeams.tick(p, "s1", "s2", "s7"))),
+                Scenario.store("69-store-nothing-matches", FixtureStoreModel::signedIn,
+                        (p, f) -> StorePreviewSeams.showQuery(p,
+                                StoreQuery.DEFAULT.withPrice(PriceFilter.PAID).withSearch("ghost"))),
+                Scenario.store("70-store-filtered-free-questing", FixtureStoreModel::signedIn,
+                        (p, f) -> StorePreviewSeams.showQuery(p, StoreQuery.DEFAULT.withPrice(PriceFilter.FREE)
+                                .withCategoryToggled(ScriptCategory.QUESTING))),
+                Scenario.store("71-store-delivery-disabled", FixtureStoreModel::deliveryDisabled, nothing),
+                Scenario.store("72-store-installing", FixtureStoreModel::installing,
+                        (p, f) -> StorePreviewSeams.showQuery(p, StoreQuery.DEFAULT.withTab(StoreTab.NOT_INSTALLED))),
+                Scenario.store("73-store-install-failed", FixtureStoreModel::installFailed, nothing),
+                Scenario.store("74-store-installed", FixtureStoreModel::installed, nothing),
+                Scenario.store("75-store-refresh-failed", FixtureStoreModel::refreshFailed, nothing),
+                Scenario.store("76-store-empty-catalogue", FixtureStoreModel::emptyCatalogue, nothing),
+                Scenario.store("77-store-updates-view", FixtureStoreModel::signedIn, (p, f) -> {
+                    StorePreviewSeams.showQuery(p, StoreQuery.DEFAULT.withTab(StoreTab.UPDATES));
+                    StorePreviewSeams.showDetail(p, "woodcutting");
+                }),
+                Scenario.store("78-store-older-agent-detail", FixtureStoreModel::signedIn,
+                        (p, f) -> StorePreviewSeams.showDetail(p, "location-probe")),
+                Scenario.store("79-store-category-list", FixtureStoreModel::busy, (p, f) -> {
+                    if (f == 0) {
+                        StorePreviewSeams.showQuery(p, StoreQuery.DEFAULT.withCategoryToggled(ScriptCategory.MINING)
+                                .withCategoryToggled(ScriptCategory.FISHING));
+                    } else if (f == 1) {
+                        StorePreviewSeams.openCategoryList(p);
+                    }
+                }));
+    }
+
     private static final String TAMSIN_VALE = "BotWithUs_15002";
     private static final String CRASH_KEY = "crash:" + TAMSIN_VALE + ":Cook's Assistant";
     private static final float SCROLL_TOP = 0f;
@@ -381,6 +430,12 @@ public final class ShellPreview extends Application {
             }
             DashboardPreviewSeams.holdScroll(s.pages().dashboard(), scroll);
         };
+    }
+
+    private static void onFirst(int frame, Runnable action) {
+        if (frame == 0) {
+            action.run();
+        }
     }
 
     /** A short management form with one field off its default, so "Restore defaults" is live. */

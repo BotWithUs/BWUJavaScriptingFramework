@@ -37,10 +37,12 @@ import com.botwithus.bot.cli.gui.notify.Notification;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.pages.ClientsPage;
 import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
-import com.botwithus.bot.cli.gui.pages.StoreSignInLine;
 import com.botwithus.bot.cli.gui.pages.dashboard.CommandConsole;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.LiveDashboardModel;
+import com.botwithus.bot.cli.gui.pages.store.LiveStoreModel;
+import com.botwithus.bot.cli.gui.pages.store.StoreCatalogue;
+import com.botwithus.bot.cli.gui.pages.store.StorePage;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
 import com.botwithus.bot.cli.gui.usermode.board.LiveClientBoard;
@@ -48,6 +50,7 @@ import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
+import com.botwithus.bot.cli.sdn.FavouritesStore;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.stream.StreamManager;
@@ -77,11 +80,13 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 /**
  * Main imgui-based application. The shell draws Normal mode's Clients page, or
@@ -127,7 +132,9 @@ public class ImGuiApp extends Application {
     // Pages. The Dashboard is kept so "View log" can bring its Logs tab forward.
     private PageRegistry pages;
     private DashboardPage dashboard;
-    private SdnScriptsPanel sdnScriptsPanel;
+    // The Script Store's background catalogue ticker, and the user's favourite and seen scripts.
+    private ScheduledExecutorService catalogueTicker;
+    private FavouritesStore favourites;
     private float dpiScale = 1f;
 
     // The one config inspector, shared by both modes and every "Settings" button
@@ -318,10 +325,12 @@ public class ImGuiApp extends Application {
         // Notification overlay (event-driven). Subscribed to each connection's
         // event bus the moment connect() succeeds.
         notificationOverlay = new NotificationOverlay(clock, this::accountOf);
-        // One catalogue for the whole host: the Scripts Store panel and Normal mode's
+        // One catalogue for the whole host: the Script Store and Normal mode's
         // "Your subscriptions" group read the same refresher, so there is one fetch loop.
-        SdnCatalogueRefresher sdnCatalogue = SdnScriptsPanel.catalogueRefresher(new SdnCatalogueSource());
+        SdnCatalogueRefresher sdnCatalogue = StoreCatalogue.refresherFor(new SdnCatalogueSource());
+        catalogueTicker = StoreCatalogue.tickInBackground(sdnCatalogue);
         SdnInstaller sdnInstaller = new SdnInstaller();
+        favourites = FavouritesStore.inUserHome();
         board = new LiveClientBoard(ctx, this::openLogs, clock, sdnCatalogue, sdnInstaller, executor);
         pages = new PageRegistry(buildPages(sdnCatalogue, sdnInstaller));
         shell = new Shell(ui, pages, inspector, notificationOverlay, hostWindow.chrome(ui));
@@ -338,10 +347,9 @@ public class ImGuiApp extends Application {
      * missing. A script's own UI is the inspector's Script UI tab, so it has no
      * page of its own.
      */
-    private List<LegacyPanelPage> legacyPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
+    private List<LegacyPanelPage> legacyPages() {
         ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
         mgmtPanel.setConfigOpener(inspector.state().managementScriptOpener());
-        sdnScriptsPanel = new SdnScriptsPanel(executor, sdnCatalogue, sdnInstaller);
         Path scriptsDir = LocalScriptLoader.scriptsDir();
         Optional<SecondLine> scriptsLine = Optional.of(folderLine(scriptsDir));
         Optional<SecondLine> managementLine = Optional.of(folderLine(ManagementScriptLoader.managementDirIn(scriptsDir)));
@@ -351,15 +359,14 @@ public class ImGuiApp extends Application {
                 new LegacyPanelPage(PageId.INSTALLED, ui, ctx, List.of(new ScriptsPanel(executor)),
                         () -> scriptsLine),
                 new LegacyPanelPage(PageId.MANAGEMENT, ui, ctx, List.of(mgmtPanel), () -> managementLine),
-                new LegacyPanelPage(PageId.STORE, ui, ctx, List.of(sdnScriptsPanel),
-                        () -> Optional.of(StoreSignInLine.of(sdnCatalogue.shown()))),
                 LegacyPanelPage.of(PageId.SETTINGS, ui, ctx, new SettingsPanel()));
     }
 
     private List<Page> buildPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
-        List<Page> all = new ArrayList<>(legacyPages(sdnCatalogue, sdnInstaller));
+        List<Page> all = new ArrayList<>(legacyPages());
         all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state()), board));
         all.add(dashboardPage());
+        all.add(storePage(sdnCatalogue, sdnInstaller));
         return all;
     }
 
@@ -376,6 +383,15 @@ public class ImGuiApp extends Application {
                 inspector.state().clientScriptOpener(), board.actions(), clock);
         dashboard = new DashboardPage(ui, model, clock);
         return dashboard;
+    }
+
+    /** The Script Store over the host's catalogue; its "Open" goes to Installed scripts. */
+    private StorePage storePage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
+        LiveStoreModel model = new LiveStoreModel(sdnCatalogue, sdnInstaller::install,
+                sdnInstaller.ledger()::find, sdnInstaller::isDeliveryEnabled, favourites, ctx::getConnections,
+                () -> ctx.getLastLoadReport().scripts(),
+                task -> Thread.ofVirtual().name("sdn-store-install").start(task), InstantSource.system());
+        return new StorePage(ui, model, id -> pages.select(id));
     }
 
     /** A folder as the sidebar's second line shows it, relative to where the host runs from. */
@@ -487,8 +503,8 @@ public class ImGuiApp extends Application {
         ctx.disconnectAll();
         ctx.saveClients();
         ctx.closeGamevals();
-        if (sdnScriptsPanel != null) {
-            sdnScriptsPanel.close();
+        if (catalogueTicker != null) {
+            catalogueTicker.shutdownNow();
         }
         executor.shutdownNow();
         if (glfwWindow != 0) {
