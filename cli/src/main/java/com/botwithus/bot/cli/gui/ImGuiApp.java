@@ -39,7 +39,6 @@ import com.botwithus.bot.cli.gui.notify.HostToasts;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.notify.ToastRoutes;
 import com.botwithus.bot.cli.gui.pages.ClientsPage;
-import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
 import com.botwithus.bot.cli.gui.pages.connections.ConnectCommandPipes;
 import com.botwithus.bot.cli.gui.pages.connections.ConnectionsPage;
 import com.botwithus.bot.cli.gui.pages.connections.LiveConnectionsModel;
@@ -50,6 +49,8 @@ import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.LiveDashboardModel;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
 import com.botwithus.bot.cli.gui.pages.installed.LiveInstalledModel;
+import com.botwithus.bot.cli.gui.pages.management.LiveManagementModel;
+import com.botwithus.bot.cli.gui.pages.management.ManagementPage;
 import com.botwithus.bot.cli.gui.pages.settings.LiveSettingsModel;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsPage;
 import com.botwithus.bot.cli.gui.pages.store.LiveStoreModel;
@@ -117,6 +118,8 @@ public class ImGuiApp extends Application {
     private static final String WINDOW_TITLE = "BotWithUs";
     /** How long the Installed scripts page reuses one read of the host: its badge and body share it. */
     private static final Duration INSTALLED_VIEW_MAX_AGE = Duration.ofMillis(250);
+    /** How long the Management page reuses one read of the host: its badge and body share it. */
+    private static final Duration MANAGEMENT_VIEW_MAX_AGE = Duration.ofMillis(250);
 
     // The ASCII-art \\ sequences javac reads as line-continuation markers; suppression
     // is narrower than rewriting the banner as concatenated string literals.
@@ -144,9 +147,11 @@ public class ImGuiApp extends Application {
         return t;
     });
 
-    // Pages. The Dashboard is kept so "View log" can bring its Logs tab forward.
+    // Pages. The Dashboard is kept so "View log" can bring its Logs tab forward, and
+    // Management so a robot link elsewhere can open it on one script.
     private PageRegistry pages;
     private DashboardPage dashboard;
+    private ManagementPage management;
     // The Script Store's background catalogue ticker, and the user's favourite and seen scripts.
     private ScheduledExecutorService catalogueTicker;
     private FavouritesStore favourites;
@@ -221,6 +226,9 @@ public class ImGuiApp extends Application {
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
 
         ctx.initManagementRuntime();
+        // The first management load pass, which also starts the scripts that were
+        // running when the host last stopped. Loading JARs blocks, so off the render thread.
+        executor.submit(this::loadManagementAtStartup);
         autoStartManager.start();
 
         buildPanels();
@@ -358,24 +366,10 @@ public class ImGuiApp extends Application {
                 () -> openLogs(Optional.empty()));
     }
 
-    /**
-     * The Advanced pages not yet redesigned. Until each redesigned page lands,
-     * the pre-redesign panel is hosted as an interim page so nothing goes
-     * missing. A script's own UI is the inspector's Script UI tab, so it has no
-     * page of its own.
-     */
-    private List<LegacyPanelPage> legacyPages() {
-        ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
-        mgmtPanel.setConfigOpener(inspector.state().managementScriptOpener());
-        Path scriptsDir = LocalScriptLoader.scriptsDir();
-        Optional<SecondLine> managementLine = Optional.of(folderLine(ManagementScriptLoader.managementDirIn(scriptsDir)));
-        return List.of(
-                new LegacyPanelPage(PageId.MANAGEMENT, ui, ctx, List.of(mgmtPanel), () -> managementLine));
-    }
-
     private List<Page> buildPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
-        List<Page> all = new ArrayList<>(legacyPages());
-        all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state()), board));
+        List<Page> all = new ArrayList<>();
+        all.add(managementPage());
+        all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state(), this::openManagement), board));
         all.add(dashboardPage());
         all.add(storePage(sdnCatalogue, sdnInstaller));
         all.add(connectionsPage());
@@ -412,10 +406,11 @@ public class ImGuiApp extends Application {
     /**
      * Groups over the live host. Its Start script dialog lists the scripts the
      * Clients board last loaded, off the render thread; every change runs on the
-     * console's queue.
+     * console's queue. A member's robot link opens Management.
      */
     private GroupsPage groupsPage() {
-        return new GroupsPage(ui, new LiveGroupsModel(ctx, board::catalog, executor));
+        return new GroupsPage(ui, new LiveGroupsModel(ctx, board::catalog, executor, inspector.state()::request,
+                this::openManagement, Clock.systemDefaultZone()));
     }
 
     /**
@@ -438,6 +433,38 @@ public class ImGuiApp extends Application {
                 sdnCatalogue::shown, inspector.state()::request, executor, LiveInstalledModel.desktopOpener(executor),
                 Clock.systemDefaultZone(), scriptsDir, folder.text(), INSTALLED_VIEW_MAX_AGE));
         return new InstalledPage(ui, model, folder, id -> pages.select(id));
+    }
+
+    /**
+     * Management over the live host: the management runtime, each script's
+     * targets and settings, and the orchestrator audit log. Its Open folder
+     * runs on a virtual thread, as the file browser can take a while to answer.
+     */
+    private ManagementPage managementPage() {
+        Path dir = ManagementScriptLoader.managementDirIn(LocalScriptLoader.scriptsDir());
+        SecondLine.FolderPath folder = SecondLine.FolderPath.of(dir, Path.of(""),
+                Path.of(System.getProperty("user.home")));
+        LiveManagementModel model = new LiveManagementModel(new LiveManagementModel.Deps(ctx,
+                inspector.state()::request, executor,
+                LiveInstalledModel.desktopOpener(task -> Thread.ofVirtual().name("open-folder").start(task)),
+                Clock.systemDefaultZone(), dir, folder.text(), MANAGEMENT_VIEW_MAX_AGE));
+        management = new ManagementPage(ui, model, folder, id -> pages.select(id));
+        return management;
+    }
+
+    /** Opens Management on {@code script}, from anywhere: a robot link on a card or a group member. */
+    private void openManagement(String script) {
+        modeRequest.request(AppMode.ADVANCED);
+        pages.select(PageId.MANAGEMENT);
+        management.show(script);
+    }
+
+    private void loadManagementAtStartup() {
+        try {
+            ctx.loadManagementAtStartup();
+        } catch (RuntimeException e) {
+            log.error("The first management load pass failed", e);
+        }
     }
 
     /** Settings over the live host; a text size change there rebuilds the fonts between frames. */

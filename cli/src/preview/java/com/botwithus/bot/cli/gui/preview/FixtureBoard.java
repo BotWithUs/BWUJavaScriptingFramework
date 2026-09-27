@@ -21,6 +21,7 @@ import com.botwithus.bot.cli.gui.usermode.board.SubscriptionEntry;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionState;
 import com.botwithus.bot.cli.management.Target;
+import com.botwithus.bot.cli.management.TargetLabels;
 
 import imgui.ImGui;
 
@@ -81,6 +82,12 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
     /** A management script with two fields, so the whole form and its footer fit on screen. */
     static final ScriptInfo LOGIN_WATCHER = new ScriptInfo("Login Watcher", "BotWithUs", "1.0",
             ScriptCategory.UTILITY, "Logs a client back in when it drops to the lobby.", 2, false);
+
+    /** Break Scheduler manages Woodcutters and two client scripts; see {@link FixtureManagementSettings}. */
+    private static final String BREAK_SCHEDULER_CONTEXT = LiveInspectorSource.managementContext(
+            List.of("Woodcutters", "Fernmoss · Divination", "Kestrel Moor · Walk to Flag"));
+    private static final String WHOLE_HOST_CONTEXT = LiveInspectorSource.managementContext(
+            List.of(TargetLabels.WHOLE_HOST));
 
     private static final List<ConfigField> LOGIN_FIELDS = List.of(
             ConfigField.boolField("relog", "Log back in", true),
@@ -267,15 +274,15 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
             Optional<Target> picked = targets.picked(subject.settingsFor());
             ScriptConfig current = targets.current(picked);
             return Optional.of(new InspectorTarget(subject.withSettingsFor(picked),
-                    LiveInspectorSource.MANAGEMENT_CONTEXT, BREAK_SCHEDULER, BREAK_FIELDS, () -> current, cfg -> { },
+                    BREAK_SCHEDULER_CONTEXT, BREAK_SCHEDULER, BREAK_FIELDS, () -> current, cfg -> { },
                     null, id -> Optional.ofNullable(ITEMS.get(id)), () -> false, targets.picker(picked)));
         }
         if (subject.scriptName().equals(LOGIN_WATCHER.name())) {
-            return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, LOGIN_WATCHER,
+            return Optional.of(new InspectorTarget(subject, WHOLE_HOST_CONTEXT, LOGIN_WATCHER,
                     LOGIN_FIELDS, () -> applied, cfg -> { }, null, id -> Optional.empty(), () -> false));
         }
         if (subject.scriptName().equals(FLEET_MONITOR.name())) {
-            return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, FLEET_MONITOR,
+            return Optional.of(new InspectorTarget(subject, WHOLE_HOST_CONTEXT, FLEET_MONITOR,
                     List.of(), () -> applied, cfg -> { }, FixtureBoard::sampleFleetUi, id -> Optional.empty(),
                     () -> false));
         }

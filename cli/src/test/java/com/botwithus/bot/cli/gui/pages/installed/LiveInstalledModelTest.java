@@ -9,9 +9,16 @@ import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.groups.GroupId;
+import com.botwithus.bot.cli.groups.GroupStore;
+import com.botwithus.bot.cli.groups.GroupsFile;
 import com.botwithus.bot.cli.gui.inspector.InspectorRequest;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
 import com.botwithus.bot.cli.gui.inspector.InspectorTab;
+import com.botwithus.bot.cli.management.ManagementFile;
+import com.botwithus.bot.cli.management.ManagementTargets;
+import com.botwithus.bot.cli.management.Target;
 import com.botwithus.bot.cli.scripts.AfterReload;
 import com.botwithus.bot.core.runtime.LoadIssues;
 import com.botwithus.bot.core.runtime.LoadReport;
@@ -44,6 +51,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -91,6 +99,8 @@ class LiveInstalledModelTest {
     private final List<Connection> connections = new ArrayList<>();
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
     private InstalledScriptsLedger ledger;
+    private GroupStore groups;
+    private ManagementTargets targets;
     private Optional<SdnCatalogueResult> catalogue = Optional.empty();
     private LiveInstalledModel model;
 
@@ -101,6 +111,10 @@ class LiveInstalledModelTest {
         when(ctx.getLastLoadReport()).thenReturn(LoadReport.EMPTY);
         when(ctx.getLoadIssues()).thenReturn(new LoadIssues(clock));
         when(ctx.afterReloadSetting()).thenReturn(AfterReload.REGISTER_ONLY);
+        when(ctx.clientKeyOf(anyString())).thenAnswer(call -> new ClientKey.Pipe(call.getArgument(0)));
+        groups = new GroupStore(new GroupsFile(tmp.resolve(GroupsFile.FILE_NAME)));
+        targets = new ManagementTargets(new ManagementFile(tmp.resolve(ManagementFile.FILE_NAME)), groups);
+        when(ctx.getManagementTargets()).thenReturn(targets);
         model = new LiveInstalledModel(new LiveInstalledModel.Deps(ctx, ledger, () -> catalogue, inspected::add,
                 queued::add, dir -> { }, clock, tmp, "scripts/", Duration.ZERO));
     }
@@ -176,6 +190,26 @@ class LiveInstalledModelTest {
         assertEquals("Waiting · not connected", row.runs().get(1).detail());
         assertEquals(Set.of("BotWithUs_1", "BotWithUs_2", "BotWithUs_3"), row.registeredOn());
         assertEquals("1 of 2 running", row.summary().text());
+    }
+
+    @Test
+    void aScriptManagementScriptsName_onSomeClient_listsThem_butNotOneThatManagesTheWholeHost() {
+        String oakheart = "3f9a1c2e58b04d7a9e216c0f4b7d2a18";
+        String wrenfield = "6b1e8c04d2f64a32c6e8a0b2d4f6b8c0";
+        jarsInFolder(jar(WC_JAR, new Woodcutting(), JAR_CHANGED));
+        client("BotWithUs_1", "Oakheart", true, runner(new Woodcutting(), true, Liveness.LIVE, STARTED));
+        client("BotWithUs_2", "Wrenfield", true, runner(new Woodcutting(), true, Liveness.LIVE, STARTED));
+        when(ctx.clientKeyOf("BotWithUs_1")).thenReturn(ClientKey.account(oakheart));
+        when(ctx.clientKeyOf("BotWithUs_2")).thenReturn(ClientKey.account(wrenfield));
+        GroupId woodcutters = groups.create("Woodcutters", Optional.empty()).orElseThrow().id();
+        groups.addMember(woodcutters, ClientKey.account(wrenfield));
+        targets.add("Break Scheduler", new Target.ClientScript(oakheart, WOODCUTTING));
+        targets.add("World Balancer", new Target.Group(woodcutters));
+        targets.add("Restart on Crash", Target.host());
+
+        InstalledScript row = model.view().find(WOODCUTTING).orElseThrow();
+
+        assertEquals(List.of("Break Scheduler", "World Balancer"), row.managedBy());
     }
 
     @Test

@@ -35,6 +35,8 @@ final class FixtureFleet {
     private static final ResumeSwitch ON = new ResumeSwitch.Available(true);
     private static final ResumeSwitch OFF = new ResumeSwitch.Available(false);
 
+    /** The management script whose robot link two cards show: it targets their scripts directly. */
+    private static final String MANAGER = "Break Scheduler";
     static final String OAKHEART_UUID = "3f9a1c2e-58b0-4d7a-9e21-6c0f4b7d2a18";
     static final String OAKHEART_PIPE = "BotWithUs_14208";
     static final String QUILLON_UUID = "5c20aa91-7e44-4b18-b3c0-2f8d61e9a705";
@@ -94,7 +96,8 @@ final class FixtureFleet {
     private List<ClientView> base() {
         return List.of(
                 account("Oakheart", OAKHEART_UUID, OAKHEART_PIPE, 84, connected(Duration.ofMinutes(134), 2.8),
-                        List.of(running(FixtureBoard.WOODCUTTING, Duration.ofSeconds(41 * 60 + 7), 142, -1)), ON),
+                        List.of(running(FixtureBoard.WOODCUTTING, Duration.ofSeconds(41 * 60 + 7), 142, -1)
+                                .withManagedBy(Optional.of(MANAGER))), ON),
                 account("Fernmoss", "b71d09e4-2c61-4f3e-8a57-1d9e0c4b6f33", "BotWithUs_9932", 2,
                         connected(Duration.ofMinutes(362), 3.4),
                         List.of(row(FixtureBoard.DIVINATION, new ScriptState.Stalled(Duration.ofSeconds(38)))), ON),
@@ -127,7 +130,8 @@ final class FixtureFleet {
                         connected(Duration.ofMinutes(51), 2.4), List.of(), OFF),
                 account("Kestrel Moor", "81c5e0b2-6d4f-4a37-b9e8-3f0a2c7d5e16", "BotWithUs_18104", 2,
                         connected(Duration.ofMinutes(258), 2.2),
-                        List.of(running(FixtureBoard.FLAG, Duration.ofSeconds(48), 74, -1),
+                        List.of(running(FixtureBoard.FLAG, Duration.ofSeconds(48), 74, -1)
+                                        .withManagedBy(Optional.of(MANAGER)),
                                 row(FixtureBoard.PROBE, new ScriptState.Stopped())), ON),
                 account("Duskwater", "4e92d71a-3c08-4b6f-a2d5-e7b1f9c04a38", "BotWithUs_18466", 117,
                         connected(Duration.ofMinutes(309), 3.1),

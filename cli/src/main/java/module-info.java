@@ -1,6 +1,6 @@
 module com.botwithus.bot.cli {
-    // transitive: cli's exported gui classes (UserModeRenderer, ManagementScriptsPanel,
-    // ImGuiApp, etc.) expose api / core / desktop / imgui-app types in their public
+    // transitive: cli's exported gui classes (UserModeRenderer, ImGuiApp, the pages,
+    // etc.) expose api / core / desktop / imgui-app types in their public
     // signatures. Re-exporting avoids -Xlint [exports] warnings on every panel ctor.
     requires transitive com.botwithus.bot.api;
     requires transitive com.botwithus.bot.core;

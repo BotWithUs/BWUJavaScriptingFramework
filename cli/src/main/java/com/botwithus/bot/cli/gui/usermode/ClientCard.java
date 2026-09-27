@@ -44,6 +44,9 @@ final class ClientCard {
 
         /** Open the inspector on {@code scriptName}. */
         record Configure(String scriptName) implements Intent { }
+
+        /** Open Management on {@code managementScript}, which manages a script on the card. */
+        record OpenManagement(String managementScript) implements Intent { }
     }
 
     private static final float NAME_LINE = 1.3f;
@@ -119,7 +122,7 @@ final class ClientCard {
     private static boolean isNone(Intent intent) {
         return switch (intent) {
             case Intent.None _ -> true;
-            case Intent.Select _, Intent.StartScript _, Intent.Configure _ -> false;
+            case Intent.Select _, Intent.StartScript _, Intent.Configure _, Intent.OpenManagement _ -> false;
         };
     }
 
@@ -300,8 +303,9 @@ final class ClientCard {
         for (ScriptRow row : view.scripts()) {
             divider(draw, x, ry, w);
             ry += ui.m().hairline();
-            if (rows.render(view, row, x, ry, w, actions)) {
-                intent = new Intent.Configure(row.name());
+            Intent clicked = rows.render(view, row, x, ry, w, actions);
+            if (!isNone(clicked)) {
+                intent = clicked;
             }
             ry += rows.height(view, row, w);
         }

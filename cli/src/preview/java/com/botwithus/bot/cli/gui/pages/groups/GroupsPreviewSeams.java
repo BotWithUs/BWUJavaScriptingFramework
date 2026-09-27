@@ -46,6 +46,12 @@ public final class GroupsPreviewSeams {
         page.pickDialog().fill(name, clients);
     }
 
+    /** Opens the Assign manager dialog on {@code id} with row {@code row} highlighted. */
+    public static void openAssignManager(GroupsPage page, GroupId id, int row) {
+        page.assignDialog().open(id);
+        page.assignDialog().highlight(row);
+    }
+
     public static void askStopAll(GroupsPage page) {
         page.state().ask(Confirm.STOP_ALL);
     }

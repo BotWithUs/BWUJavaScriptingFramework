@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 /**
  * Builds the page's rows from the host as it is now: one row per script the
@@ -46,10 +47,11 @@ final class LiveRows {
      * @param connections every connection, in the order the host lists them
      * @param ledger      the Store installs this host recorded, keyed by script class
      * @param catalogue   the Store catalogue's entries by id; empty when it has not answered
+     * @param managedBy   the management scripts that manage a script on a connection, by name
      */
     record Inputs(List<ScriptLoadResult> latestPass, List<Connection> connections,
                   Map<String, InstalledSdnScript> ledger, Map<String, SdnCatalogueEntry> catalogue,
-                  Instant now, ZoneId zone) {}
+                  Instant now, ZoneId zone, BiFunction<Connection, String, List<String>> managedBy) {}
 
     private final Inputs in;
 
@@ -116,11 +118,13 @@ final class LiveRows {
                 : fromRuntime(script.getClass().getName(), identity.version());
         List<ClientRun> runs = new ArrayList<>();
         Set<String> registeredOn = new LinkedHashSet<>();
+        Set<String> managedBy = new LinkedHashSet<>();
         for (Runner r : runners) {
             registeredOn.add(r.conn().getName());
             clientRun(r, identity.hasSettings()).ifPresent(runs::add);
+            managedBy.addAll(in.managedBy().apply(r.conn(), name));
         }
-        return new InstalledScript(name, identity, provenance, runs, registeredOn, List.of());
+        return new InstalledScript(name, identity, provenance, runs, registeredOn, List.copyOf(managedBy));
     }
 
     private Optional<ClientRun> clientRun(Runner r, boolean hasSettings) {

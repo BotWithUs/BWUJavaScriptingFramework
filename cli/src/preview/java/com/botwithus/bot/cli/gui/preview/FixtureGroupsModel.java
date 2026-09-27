@@ -8,8 +8,11 @@ import com.botwithus.bot.cli.groups.MemberChange;
 import com.botwithus.bot.cli.gui.pages.groups.BusyChoice;
 import com.botwithus.bot.cli.gui.pages.groups.GroupsModel;
 import com.botwithus.bot.cli.gui.pages.groups.GroupsSnapshot;
+import com.botwithus.bot.cli.gui.pages.groups.ManagerChoice;
+import com.botwithus.bot.cli.gui.pages.groups.ManagerInfo;
 import com.botwithus.bot.cli.gui.pages.groups.MemberFacts;
 import com.botwithus.bot.cli.gui.pages.groups.MemberLink;
+import com.botwithus.bot.cli.gui.pages.groups.MemberManagement;
 import com.botwithus.bot.cli.gui.pages.groups.Notice;
 import com.botwithus.bot.cli.gui.pages.groups.PickableClient;
 import com.botwithus.bot.cli.gui.pages.groups.ScriptFact;
@@ -17,6 +20,7 @@ import com.botwithus.bot.cli.gui.pages.groups.ScriptState;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptEntry;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -67,9 +71,23 @@ final class FixtureGroupsModel implements GroupsModel {
     private static final double ASH_MS = 211;
     private static final double KESTREL_MS = 74;
 
+    private static final Duration MANAGER_UPTIME = Duration.ofMinutes(42).plusSeconds(10);
+    private static final String LAST_ACTION = "14:05 stopScript · Woodcutting on Duskwater";
+    private static final int OAKHEART_OWN = 2;
+    private static final int FERNMOSS_OWN = 1;
+    /**
+     * Which member scripts Break Scheduler also targets on their own, with how
+     * many values of its own each: the design's Oakheart, Wrenfield and Fernmoss.
+     */
+    private static final Map<String, Integer> DIRECT = Map.of(
+            OAKHEART + "/" + WOODCUTTING, OAKHEART_OWN,
+            WRENFIELD + "/" + WOODCUTTING, 0,
+            FERNMOSS + "/" + DIVINATION, FERNMOSS_OWN);
+
     private final List<ScriptEntry> catalog;
     private GroupsSnapshot snapshot;
     private Optional<Notice> notice = Optional.empty();
+    private ManagerInfo.State managerState = ManagerInfo.State.MANAGING;
 
     FixtureGroupsModel(List<ScriptEntry> catalog) {
         this.catalog = List.copyOf(catalog);
@@ -100,6 +118,11 @@ final class FixtureGroupsModel implements GroupsModel {
         snapshot = new GroupsSnapshot(groups, snapshot.members(), snapshot.clients());
         String reason = MemberChange.refusalFor(new ClientKey.Pipe(DEV_PIPE)).orElseThrow().reason();
         notice = Optional.of(Notice.problem("Could not add " + DEV_PIPE + ": " + reason));
+    }
+
+    /** Woodcutters' manager as Stop all leaves it: paused. */
+    void showManagerPaused() {
+        managerState = ManagerInfo.State.PAUSED;
     }
 
     @Override
@@ -161,6 +184,54 @@ final class FixtureGroupsModel implements GroupsModel {
 
     @Override
     public void restart(String uuid, String script) { }
+
+    @Override
+    public Optional<ManagerInfo> manager(GroupId id) {
+        boolean isManaging = managerState == ManagerInfo.State.MANAGING;
+        return snapshot.group(id).flatMap(ClientGroup::manager).map(slot -> new ManagerInfo(slot.script(), "1.2",
+                managerState, isManaging ? Optional.of(MANAGER_UPTIME) : Optional.empty(),
+                Optional.of(LAST_ACTION), true));
+    }
+
+    @Override
+    public List<ManagerChoice> managers() {
+        return List.of(
+                new ManagerChoice(BREAK_SCHEDULER, "1.2", "Staggers breaks so a group's members don't all play"
+                        + " at once.", managedBy(BREAK_SCHEDULER)),
+                new ManagerChoice("Restart on Crash", "1.0", "Restarts a client's script after a crash, at most"
+                        + " three times an hour.", List.of()),
+                new ManagerChoice("World Balancer", "0.2", "Moves members off worlds that get crowded.", List.of()));
+    }
+
+    private List<String> managedBy(String script) {
+        return snapshot.groups().stream()
+                .filter(g -> g.manager().filter(slot -> slot.script().equals(script)).isPresent())
+                .map(ClientGroup::name)
+                .toList();
+    }
+
+    @Override
+    public void assignManager(GroupId id, String script, boolean isStartNow) { }
+
+    @Override
+    public void startManager(GroupId id) { }
+
+    @Override
+    public void openManagerSettings(GroupId id) { }
+
+    /** Break Scheduler's direct targets, labelled by the host's own rules. */
+    @Override
+    public Optional<MemberManagement> memberManagement(GroupId id, String uuid, String script) {
+        Integer own = DIRECT.get(uuid + "/" + script);
+        if (own == null) {
+            return Optional.empty();
+        }
+        Optional<String> groupManager = snapshot.group(id).flatMap(ClientGroup::manager).map(ManagerSlot::script);
+        return Optional.of(MemberManagement.of(groupManager, BREAK_SCHEDULER, own, script));
+    }
+
+    @Override
+    public void openManagement(String script) { }
 
     // ── Fixtures ───────────────────────────────────────────────────────────
 

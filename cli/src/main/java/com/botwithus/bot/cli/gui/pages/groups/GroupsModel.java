@@ -75,4 +75,33 @@ public interface GroupsModel {
 
     /** Starts the crashed {@code script} again on the connected client on account {@code uuid}. */
     void restart(String uuid, String script);
+
+    // ── The group's manager ────────────────────────────────────────────────
+
+    /** The group's manager as its slot shows it; empty when it has none. */
+    Optional<ManagerInfo> manager(GroupId id);
+
+    /** The management scripts loaded now, by name: what the Assign manager dialog offers. */
+    List<ManagerChoice> managers();
+
+    /**
+     * Makes {@code script} the group's manager, in place of any other, and
+     * starts it when {@code isStartNow}. A group has one manager.
+     */
+    void assignManager(GroupId id, String script, boolean isStartNow);
+
+    /** Lets a paused or stopped manager manage the group again: resumes it, and starts it if it is not running. */
+    void startManager(GroupId id);
+
+    /** Opens the shared inspector on the manager's settings for this group. */
+    void openManagerSettings(GroupId id);
+
+    /**
+     * The robot link under a member whose {@code script} a management script
+     * targets directly, not only through the group; empty when none does.
+     */
+    Optional<MemberManagement> memberManagement(GroupId id, String uuid, String script);
+
+    /** Opens the Management page on {@code script}. */
+    void openManagement(String script);
 }

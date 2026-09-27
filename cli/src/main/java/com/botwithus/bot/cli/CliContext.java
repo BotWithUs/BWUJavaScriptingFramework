@@ -34,6 +34,7 @@ import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.management.ManagementControl;
 import com.botwithus.bot.cli.management.ManagementFile;
 import com.botwithus.bot.cli.management.ManagementSettings;
+import com.botwithus.bot.cli.management.ManagementStartup;
 import com.botwithus.bot.cli.management.ManagementTargets;
 import com.botwithus.bot.cli.management.OrchestratorAuditLog;
 import com.botwithus.bot.cli.management.Scope;
@@ -192,6 +193,8 @@ public class CliContext {
     private final ManagementTargets managementTargets;
     private final OrchestratorAuditLog orchestratorAudit = new OrchestratorAuditLog(hostEvents::publish, clock);
     private final ManagementControl managementControl;
+    /** Starts the scripts that should run once the first management load pass has registered them. */
+    private final ManagementStartup managementStartup;
     /** Management scripts' defaults and per-target settings, shared with their runners. */
     private final ManagementSettingsStore managementSettingsStore;
     private final ManagementSettings managementSettings;
@@ -232,6 +235,7 @@ public class CliContext {
                 new ManagementFile(groupsFile.resolveSibling(ManagementFile.FILE_NAME)), groupStore);
         this.managementControl = new ManagementControl(this::managementRuntimeOrInit, managementTargets,
                 groupStore, clientManager);
+        this.managementStartup = new ManagementStartup(managementControl);
         this.managementSettingsStore = new ManagementSettingsStore(
                 groupsFile.resolveSibling(CONFIG_DIR_NAME), background);
         this.managementSettings = new ManagementSettings(managementSettingsStore, managementTargets, groupStore);
@@ -394,6 +398,13 @@ public class CliContext {
 
     /** Every client the host knows, live or remembered, one per account. */
     public ClientRegistry getClientRegistry() { return clientRegistry; }
+
+    /** The name the client on account {@code accountUuid} last showed, if the host knows the account. */
+    public Optional<String> accountNameOf(String accountUuid) {
+        return AccountReply.identified(accountUuid)
+                .flatMap(account -> clientRegistry.get(ClientKey.account(account)))
+                .flatMap(ClientRecord::name);
+    }
 
     /** The key the client on {@code pipe} is known by now; the pipe's own key until it is identified. */
     public ClientKey clientKeyOf(String pipe) {
@@ -1176,14 +1187,35 @@ public class CliContext {
         return reloadScripts(getConnections().stream().filter(Connection::isAlive).toList(), after);
     }
 
-    /** Reloads {@code scripts/management/} into the management runtime. */
+    /**
+     * Reloads {@code scripts/management/} into the management runtime. The
+     * first pass since the host started then starts each script that should
+     * be running, as it was before the host stopped; later passes leave that
+     * to {@code after}.
+     */
     public ManagementReload reloadManagementScripts(AfterReload after) {
         if (managementRuntime == null) {
             initManagementRuntime();
         }
         synchronized (reloadLock) {
-            return newReloader().reloadManagement(managementRuntime, after);
+            ManagementReload summary = newReloader().reloadManagement(managementRuntime, after);
+            managementStartup.afterLoadPass();
+            return summary;
         }
+    }
+
+    /**
+     * The host's first management load pass: registers every script in
+     * {@code scripts/management/} and starts the ones that should be running.
+     * Blocks while scripts load; call it off the render thread.
+     */
+    public ManagementReload loadManagementAtStartup() {
+        return reloadManagementScripts(AfterReload.REGISTER_ONLY);
+    }
+
+    /** Whether a management load pass has finished since the host started. */
+    public boolean hasLoadedManagement() {
+        return managementStartup.hasLoaded();
     }
 
     /** Built per call so each load pass goes through this object's own load methods. */

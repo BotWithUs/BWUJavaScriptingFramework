@@ -38,6 +38,8 @@ import com.botwithus.bot.cli.gui.pages.groups.GroupsPage;
 import com.botwithus.bot.cli.gui.pages.groups.GroupsPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPreviewSeams;
+import com.botwithus.bot.cli.gui.pages.management.ManagementPage;
+import com.botwithus.bot.cli.gui.pages.management.ManagementPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.notify.ToastFeed;
@@ -406,7 +408,7 @@ public final class ShellPreview extends Application {
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
                 installedScenarios(), settingsScenarios(), integrationsScenarios(), groupsScenarios(),
-                toastScenarios(), managementSettingsScenarios())
+                toastScenarios(), managementSettingsScenarios(), managementScenarios())
                 .flatMap(List::stream).toList();
     }
 
@@ -758,6 +760,48 @@ public final class ShellPreview extends Application {
             s.pages().settingsModel().showStatus(new SaveStatus.Failed(
                     "Could not save settings: config.properties is in use by another program", Instant.now()));
         }
+    }
+
+    /**
+     * Management: busy, a script not applied, a crashed one, a failed JAR's
+     * trace, an empty folder, the add-target row, the Activity tab, the restart
+     * confirm a running script's target change waits on, and the Settings tab;
+     * then the Groups page's Assign manager dialog.
+     */
+    private static List<Scenario> managementScenarios() {
+        String breaks = FixtureManagementModel.BREAK_SCHEDULER;
+        return List.of(
+                management("140-management-busy", (s, page) -> ManagementPreviewSeams.selectOverview(page, breaks)),
+                management("141-management-not-applied", (s, page) ->
+                        ManagementPreviewSeams.selectOverview(page, FixtureManagementModel.LOGIN_WATCHER)),
+                management("142-management-crashed", (s, page) ->
+                        ManagementPreviewSeams.selectOverview(page, FixtureManagementModel.WORLD_BALANCER)),
+                management("143-management-failed-load-trace", (s, page) -> {
+                    ManagementPreviewSeams.selectOverview(page, breaks);
+                    ManagementPreviewSeams.openTrace(page, FixtureManagementModel.FAILED_JAR);
+                }),
+                management("144-management-empty-folder", (s, page) -> s.pages().managementModel().showEmpty()),
+                management("145-management-add-target-row", (s, page) ->
+                        ManagementPreviewSeams.pickGroup(page, FixtureManagementModel.WORLD_BALANCER, 1)),
+                management("146-management-activity-tab", (s, page) ->
+                        ManagementPreviewSeams.selectActivity(page, breaks)),
+                management("147-management-restart-confirm", (s, page) -> {
+                    ManagementPreviewSeams.selectOverview(page, FixtureManagementModel.RESTART_ON_CRASH);
+                    ManagementPreviewSeams.requestAdd(page, FixtureManagementModel.QUESTERS, "Questers");
+                }),
+                management("148-management-settings-tab", (s, page) ->
+                        ManagementPreviewSeams.selectSettings(page, breaks)),
+                groups("149-groups-assign-manager", (s, page) ->
+                        GroupsPreviewSeams.openAssignManager(page, FixtureGroupsModel.WOODCUTTERS, 2)));
+    }
+
+    private static Scenario management(String name, BiConsumer<Stage, ManagementPage> setUp) {
+        return Scenario.advanced(name, FixtureBoard::everyState, (s, f) -> {
+            if (f == 0) {
+                s.pages().registry().select(PageId.MANAGEMENT);
+                setUp.accept(s, s.pages().management());
+            }
+        });
     }
 
     /**

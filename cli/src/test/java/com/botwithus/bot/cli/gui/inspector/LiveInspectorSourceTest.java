@@ -78,7 +78,7 @@ class LiveInspectorSourceTest {
 
         assertAll(
                 () -> assertEquals(BREAKS, target.subject()),
-                () -> assertEquals(LiveInspectorSource.MANAGEMENT_CONTEXT, target.context()),
+                () -> assertEquals("Management script · not applied", target.context()),
                 () -> assertEquals("Break Scheduler", target.script().name()),
                 () -> assertEquals("1.2", target.script().version()),
                 () -> assertEquals(runner.getConfigFields(), target.fields()),
@@ -153,6 +153,21 @@ class LiveInspectorSourceTest {
 
         private InspectorTarget resolved(Optional<Target> settingsFor) {
             return source.resolve(BREAKS.withSettingsFor(settingsFor)).orElseThrow();
+        }
+
+        @Test
+        void theHeader_saysWhatTheScriptManages_ratherThanTheWholeHost() {
+            String three = resolved(Optional.empty()).context();
+            targets.remove(BREAKS_NAME, OAKHEART_WOODCUTTING);
+            targets.remove(BREAKS_NAME, FERNMOSS_DIVINATION);
+            String group = resolved(Optional.empty()).context();
+            targets.add(BREAKS_NAME, Target.host());
+            String host = resolved(Optional.empty()).context();
+
+            assertAll(
+                    () -> assertEquals("Management script · 3 targets", three),
+                    () -> assertEquals("Management script · Woodcutters", group),
+                    () -> assertEquals("Management script · Whole host", host));
         }
 
         @Test

@@ -6,6 +6,7 @@ import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.gui.inspector.InspectorRequest;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
 import com.botwithus.bot.cli.gui.inspector.InspectorTab;
+import com.botwithus.bot.cli.management.ManagedLinks;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.runtime.JarLoadOutcome;
@@ -115,7 +116,7 @@ public final class LiveInstalledModel implements InstalledModel {
     private InstalledView build(Instant now) {
         List<Connection> connections = List.copyOf(ctx.getConnections());
         List<InstalledScript> rows = LiveRows.build(new LiveRows.Inputs(ctx.getLastLoadReport().results(),
-                connections, deps.ledger().all(), catalogueById(), now, deps.clock().getZone()));
+                connections, deps.ledger().all(), catalogueById(), now, deps.clock().getZone(), this::managedBy));
         List<JarLoadOutcome> pass = List.copyOf(ctx.getLastLoadReport().results());
         List<LoadProblem> problems = LoadProblems.of(ctx.getLoadIssues().issues(ScriptFolder.SCRIPTS), pass,
                 deps.folderLabel());
@@ -124,6 +125,16 @@ public final class LiveInstalledModel implements InstalledModel {
                         RunnerDetails.offlineNote(c)))
                 .toList();
         return new InstalledView(header(), rows, problems, clients);
+    }
+
+    /**
+     * The management scripts that name {@code script} on {@code conn}'s
+     * account, directly or by a group; see {@link ManagedLinks}.
+     */
+    private List<String> managedBy(Connection conn, String script) {
+        return ctx.clientKeyOf(conn.getName()).accountUuid()
+                .map(uuid -> ManagedLinks.names(ctx.getManagementTargets(), uuid, script))
+                .orElse(List.of());
     }
 
     private InstalledHeader header() {

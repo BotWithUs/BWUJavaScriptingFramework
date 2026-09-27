@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * The Clients page — Normal mode's only screen, and the first page of
@@ -58,6 +59,7 @@ public class UserModeRenderer {
     private final ClientCard card;
     private final ScriptPickerPopup picker;
     private final InspectorState inspector;
+    private final Consumer<String> openManagement;
 
     private final ImString query = new ImString(QUERY_CAPACITY);
     private final Map<ClientKey, Double> firstSeen = new HashMap<>();
@@ -69,10 +71,19 @@ public class UserModeRenderer {
 
     /** @param inspector the one inspector both modes share */
     public UserModeRenderer(Controls ui, InspectorState inspector) {
+        this(ui, inspector, script -> { });
+    }
+
+    /**
+     * @param inspector      the one inspector both modes share
+     * @param openManagement opens Management on a management script, for a row's robot link
+     */
+    public UserModeRenderer(Controls ui, InspectorState inspector, Consumer<String> openManagement) {
         this.ui = ui;
         this.card = new ClientCard(ui);
         this.picker = new ScriptPickerPopup(ui);
         this.inspector = inspector;
+        this.openManagement = openManagement;
     }
 
     /** Opens the picker for {@code client}, as its card's "Start script" would. */
@@ -289,6 +300,7 @@ public class UserModeRenderer {
                 picker.open(v, board.catalog());
             }
             case ClientCard.Intent.Configure configure -> configure(v, configure.scriptName());
+            case ClientCard.Intent.OpenManagement open -> openManagement.accept(open.managementScript());
         }
     }
 
