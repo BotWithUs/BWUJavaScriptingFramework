@@ -146,7 +146,6 @@ public class CliContext {
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
-    private Consumer<Connection> onConnect;
     private volatile LoadReport lastLoadReport = LoadReport.EMPTY;
     /**
      * The failed-load list across load passes and both script folders. Kept
@@ -705,13 +704,6 @@ public class CliContext {
         // runtime is bound to the account UUID for a manual connect too.
         statusTracker.attach(conn);
         statusTracker.startPolling(this::getConnections);
-        if (onConnect != null) {
-            try {
-                onConnect.accept(conn);
-            } catch (RuntimeException e) {
-                log.warn("onConnect hook threw for '{}': {}", name, e.getMessage());
-            }
-        }
         out().println("Connected to pipe: " + conn.getPipe().getPipePath());
         if (connections.values().size() > 1) {
             out().println("Active connection set to '" + name + "'.");
@@ -1038,13 +1030,6 @@ public class CliContext {
 
     public void setProgressDisplay(ProgressDisplay d) { this.progressDisplay = d; }
     public ProgressDisplay getProgressDisplay() { return progressDisplay; }
-
-    /**
-     * Wiring hook for an observer that wants to react to a successful
-     * {@link #connect}, e.g. the notification overlay subscribing to the
-     * new connection's event bus.
-     */
-    public void setOnConnect(Consumer<Connection> hook) { this.onConnect = hook; }
 
     public void setConfigPanelOpener(Consumer<ScriptRunner> opener) { this.configPanelOpener = opener; }
     public void openConfigPanel(ScriptRunner runner) {
