@@ -22,6 +22,8 @@ import com.botwithus.bot.cli.gui.inspector.InspectorState;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
 import com.botwithus.bot.cli.gui.inspector.InspectorTab;
 import com.botwithus.bot.cli.gui.nav.PageId;
+import com.botwithus.bot.cli.gui.pages.connections.ConnectionsPreviewSeams;
+import com.botwithus.bot.cli.gui.pages.connections.RowFilter;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.DockTab;
@@ -105,7 +107,13 @@ public final class ShellPreview extends Application {
      * frame to reach it.
      */
     private record Scenario(String name, AppMode mode, Supplier<FixtureBoard> board,
-                            Supplier<FixtureStoreModel> store, BiConsumer<Stage, Integer> onFrame) {
+                            Supplier<FixtureStoreModel> store, Supplier<FixtureConnectionsModel> connections,
+                            BiConsumer<Stage, Integer> onFrame) {
+
+        Scenario(String name, AppMode mode, Supplier<FixtureBoard> board, Supplier<FixtureStoreModel> store,
+                 BiConsumer<Stage, Integer> onFrame) {
+            this(name, mode, board, store, FixtureConnectionsModel::busy, onFrame);
+        }
 
         Scenario(String name, Supplier<FixtureBoard> board, BiConsumer<Stage, Integer> onFrame) {
             this(name, AppMode.NORMAL, board, FixtureStoreModel::signedIn, onFrame);
@@ -121,6 +129,17 @@ public final class ShellPreview extends Application {
                 s.pages().registry().select(PageId.STORE);
                 onFrame.accept(s.pages().store(), f);
             });
+        }
+
+        /** Advanced mode on the Connections page over {@code model}, then {@code onFrame}. */
+        static Scenario connections(String name, Supplier<FixtureConnectionsModel> model,
+                                    BiConsumer<Stage, Integer> onFrame) {
+            BiConsumer<Stage, Integer> onPage = (s, f) -> {
+                s.pages().registry().select(PageId.CONNECTIONS);
+                onFrame.accept(s, f);
+            };
+            return new Scenario(name, AppMode.ADVANCED, FixtureBoard::everyState, FixtureStoreModel::signedIn, model,
+                    onPage);
         }
     }
 
@@ -177,7 +196,7 @@ public final class ShellPreview extends Application {
                 name -> board.clients().stream().filter(c -> c.pipe().filter(name::equals).isPresent())
                         .flatMap(c -> c.account().stream()).findFirst().orElse(name));
         toasts.subscribeTo(bus);
-        FixturePages.Built pages = FixturePages.build(ui, page, board, s.store().get());
+        FixturePages.Built pages = FixturePages.build(ui, page, board, s.store().get(), s.connections().get());
         FixtureWindow window = new FixtureWindow(new WindowRect(0, 0, WIDTH, HEIGHT));
         stage = new Stage(board, page, bus, pages, inspector, window);
         shell = new Shell(ui, pages.registry(), inspector, toasts,
@@ -349,7 +368,7 @@ public final class ShellPreview extends Application {
                 new Scenario("40-window-frameless-normal", FixtureBoard::everyState, nothing),
                 Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::everyState,
                         (s, f) -> s.window().maximise()));
-        return Stream.of(scenarios, dashboardScenarios(), storeScenarios()).flatMap(List::stream).toList();
+        return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios()).flatMap(List::stream).toList();
     }
 
     /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
@@ -452,6 +471,36 @@ public final class ShellPreview extends Application {
         if (frame == 0) {
             action.run();
         }
+    }
+
+    /** The Connections page: busy, each detail pane, scanning, no pipes, auto-connect off, and a filter. */
+    private static List<Scenario> connectionsScenarios() {
+        BiConsumer<Stage, Integer> nothing = (s, f) -> { };
+        return List.of(
+                Scenario.connections("80-connections-busy", FixtureConnectionsModel::busy, nothing),
+                Scenario.connections("81-connections-reconnecting-detail", FixtureConnectionsModel::busy,
+                        selectConnection(FixtureConnectionsModel.HOLLOWMERE)),
+                Scenario.connections("82-connections-closed-detail", FixtureConnectionsModel::busy,
+                        selectConnection(FixtureConnectionsModel.BRACKENRIDGE)),
+                Scenario.connections("83-connections-live-detail-output-filtered",
+                        () -> FixtureConnectionsModel.busy().filteredToFernmoss(),
+                        selectConnection(FixtureConnectionsModel.OAKHEART)),
+                Scenario.connections("84-connections-scanning", FixtureConnectionsModel::scanningEmpty, nothing),
+                Scenario.connections("85-connections-no-pipes", FixtureConnectionsModel::noPipes, nothing),
+                Scenario.connections("86-connections-auto-connect-off", FixtureConnectionsModel::autoConnectOff,
+                        selectConnection(FixtureConnectionsModel.QUILL_PIPE)),
+                Scenario.connections("87-connections-problems-output-filtered",
+                        () -> FixtureConnectionsModel.busy().filteredToFernmoss(),
+                        (s, f) -> ConnectionsPreviewSeams.showFilter(s.pages().connections(), RowFilter.PROBLEMS)));
+    }
+
+    /** Selects the Connections row with {@code id}, opening its detail pane. */
+    private static BiConsumer<Stage, Integer> selectConnection(String id) {
+        return (s, f) -> {
+            if (f == 0) {
+                ConnectionsPreviewSeams.select(s.pages().connections(), id);
+            }
+        };
     }
 
     /** A short management form with one field off its default, so "Restore defaults" is live. */

@@ -39,6 +39,9 @@ import com.botwithus.bot.cli.gui.notify.Notification;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.pages.ClientsPage;
 import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
+import com.botwithus.bot.cli.gui.pages.connections.ConnectCommandPipes;
+import com.botwithus.bot.cli.gui.pages.connections.ConnectionsPage;
+import com.botwithus.bot.cli.gui.pages.connections.LiveConnectionsModel;
 import com.botwithus.bot.cli.gui.pages.dashboard.CommandConsole;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.LiveDashboardModel;
@@ -356,7 +359,6 @@ public class ImGuiApp extends Application {
         Optional<SecondLine> scriptsLine = Optional.of(folderLine(scriptsDir));
         Optional<SecondLine> managementLine = Optional.of(folderLine(ManagementScriptLoader.managementDirIn(scriptsDir)));
         return List.of(
-                LegacyPanelPage.of(PageId.CONNECTIONS, ui, ctx, new ConnectionsPanel(executor, registry)),
                 LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
                 new LegacyPanelPage(PageId.INSTALLED, ui, ctx, List.of(new ScriptsPanel(executor)),
                         () -> scriptsLine),
@@ -369,6 +371,7 @@ public class ImGuiApp extends Application {
         all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state()), board));
         all.add(dashboardPage());
         all.add(storePage(sdnCatalogue, sdnInstaller));
+        all.add(connectionsPage());
         return all;
     }
 
@@ -394,6 +397,17 @@ public class ImGuiApp extends Application {
                 () -> ctx.getLastLoadReport().scripts(),
                 task -> Thread.ofVirtual().name("sdn-store-install").start(task), InstantSource.system());
         return new StorePage(ui, model, id -> pages.select(id));
+    }
+
+    /**
+     * Connections over the live host. Scans run on their own virtual thread, as
+     * they probe every pipe; connects and disconnects share the console's queue.
+     */
+    private ConnectionsPage connectionsPage() {
+        LiveConnectionsModel model = new LiveConnectionsModel(ctx, new ConnectCommandPipes(registry, ctx), executor,
+                task -> Thread.ofVirtual().name("pipe-scan").start(task), ClipboardHelper::copyToClipboard,
+                Clock.systemUTC());
+        return new ConnectionsPage(ui, model, id -> pages.select(id));
     }
 
     /** A folder as the sidebar's second line shows it, relative to where the host runs from. */
