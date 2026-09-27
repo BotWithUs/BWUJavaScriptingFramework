@@ -3,14 +3,22 @@ package com.botwithus.bot.cli;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.script.ClientOrchestrator;
 import com.botwithus.bot.api.script.ScriptScheduler;
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.groups.ClientGroup;
+import com.botwithus.bot.cli.groups.GroupId;
+import com.botwithus.bot.cli.groups.GroupStore;
+import com.botwithus.bot.cli.groups.MemberChange;
+import com.botwithus.bot.cli.groups.StartWhenBackQueue;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -32,6 +40,13 @@ public class ClientManager implements ClientOrchestrator {
      * a "restart" affordance so the user-visible wait stays consistent.
      */
     public static final int RESTART_STOP_TIMEOUT_MS = 2000;
+
+    /** The result message for a group member that is not connected. */
+    public static final String CLIENT_DISCONNECTED = "client disconnected";
+    /** The result message for a group member carried over by pipe whose account is not known. */
+    public static final String UNKNOWN_CLIENT = "unknown client";
+    /** The result message for a stop that cancelled a queued start on a client that is not connected. */
+    public static final String QUEUED_START_CANCELLED = "queued start cancelled";
 
     private final CliContext ctx;
 
@@ -70,91 +85,115 @@ public class ClientManager implements ClientOrchestrator {
     }
 
     // ── Group management ────────────────────────────────────────────────────
+    //
+    // The orchestrator API names groups; the store keys them by id, so these
+    // resolve the name first. A client is named by its connection's pipe, as
+    // everywhere in this API, or, for one that is not connected, by its account
+    // UUID. Members are stored by account.
 
     @Override
     public boolean createGroup(String name, String description) {
-        if (ctx.getGroup(name) != null) {
-            return false;
-        }
-        ctx.createGroup(name);
-        ConnectionGroup created = ctx.getGroup(name);
-        if (created != null && description != null) {
-            created.setDescription(description);
-        }
-        return true;
+        return name != null && groups().create(name, Optional.ofNullable(description)).isPresent();
     }
 
-    /** Creates a new group, returning the group object. */
-    public ConnectionGroup createGroupAndGet(String name, String description) {
-        ConnectionGroup existing = ctx.getGroup(name);
-        if (existing != null) {
-            return existing;
-        }
-        ctx.createGroup(name);
-        ConnectionGroup created = ctx.getGroup(name);
-        if (created != null && description != null) {
-            created.setDescription(description);
-        }
-        return created;
+    /** Creates a group, or returns the one that already has {@code name}; empty if {@code name} is blank. */
+    public Optional<ClientGroup> createGroupAndGet(String name, String description) {
+        Optional<ClientGroup> existing = groups().byName(name);
+        return existing.isPresent() ? existing : groups().create(name, Optional.ofNullable(description));
     }
 
     @Override
     public boolean deleteGroup(String name) {
-        return ctx.deleteGroup(name);
+        return groups().byName(name).map(group -> groups().delete(group.id())).orElse(false);
     }
 
-    /** Returns the group with the given name, or {@code null}. */
-    public ConnectionGroup getGroup(String name) {
-        return ctx.getGroup(name);
+    /** The group called {@code name}. */
+    public Optional<ClientGroup> getGroup(String name) {
+        return groups().byName(name);
     }
 
-    /** Returns all groups as a map. */
-    public Map<String, ConnectionGroup> getGroups() {
-        return ctx.getGroups();
+    /** Every group, in the order they were created. */
+    public List<ClientGroup> getGroups() {
+        return groups().all();
     }
 
     @Override
     public Set<String> getGroupNames() {
-        return ctx.getGroups().keySet();
+        Set<String> names = new LinkedHashSet<>();
+        groups().all().forEach(group -> names.add(group.name()));
+        return names;
     }
 
     @Override
     public String getGroupDescription(String groupName) {
-        ConnectionGroup group = ctx.getGroup(groupName);
-        return group != null ? group.getDescription() : null;
+        return groups().byName(groupName).flatMap(ClientGroup::description).orElse(null);
     }
 
     @Override
     public void setGroupDescription(String groupName, String description) {
-        ConnectionGroup group = ctx.getGroup(groupName);
-        if (group != null) {
-            group.setDescription(description);
-            ctx.saveGroups();
-        }
+        groups().byName(groupName).ifPresent(group ->
+                groups().setDescription(group.id(), Optional.ofNullable(description)));
     }
 
+    /**
+     * The pipe names of the group's members that are connected now, which are
+     * the names the rest of this API takes. A member that is not connected has
+     * no pipe, so it is not included.
+     */
     @Override
     public Set<String> getGroupMembers(String groupName) {
-        ConnectionGroup group = ctx.getGroup(groupName);
-        return group != null ? group.getConnectionNames() : Set.of();
+        Set<String> names = new LinkedHashSet<>();
+        getGroupClients(groupName).forEach(conn -> names.add(conn.getName()));
+        return names;
     }
 
+    /** @return {@code true} if the client is a member afterwards; see {@link #addMember} for why not */
     @Override
     public boolean addToGroup(String groupName, String clientName) {
-        if (ctx.getGroup(groupName) == null) {
-            return false;
-        }
-        ctx.addToGroup(groupName, clientName);
-        return true;
+        return switch (addMember(groupName, clientName)) {
+            case MemberChange.Added _, MemberChange.AlreadyMember _ -> true;
+            case MemberChange.Refused _, MemberChange.NoSuchGroup _ -> false;
+        };
     }
 
+    /**
+     * Adds a client to the group called {@code groupName}.
+     *
+     * @param client the pipe of a connected client, or the account UUID of one
+     *               that is not connected
+     * @return what happened; a {@link MemberChange.Refused} says why, in words
+     *         for the user
+     */
+    public MemberChange addMember(String groupName, String client) {
+        Optional<ClientGroup> group = groups().byName(groupName);
+        if (group.isEmpty()) {
+            return new MemberChange.NoSuchGroup();
+        }
+        Optional<ClientKey> key = keyOfClient(client);
+        if (key.isEmpty()) {
+            return new MemberChange.Refused("No client called '" + client
+                    + "' is connected, and it is not an account UUID.");
+        }
+        return groups().addMember(group.get().id(), key.get());
+    }
+
+    /**
+     * Removes a client from the group called {@code groupName}.
+     *
+     * @param clientName the pipe of a connected client, the account UUID of any
+     *                   member, or the pipe of an unresolved member
+     * @return {@code true} if it was a member
+     */
     @Override
     public boolean removeFromGroup(String groupName, String clientName) {
-        if (ctx.getGroup(groupName) == null) {
+        Optional<ClientGroup> group = groups().byName(groupName);
+        if (group.isEmpty()) {
             return false;
         }
-        ctx.removeFromGroup(groupName, clientName);
-        return true;
+        GroupId id = group.get().id();
+        Optional<String> account = keyOfClient(clientName).flatMap(ClientKey::accountUuid);
+        boolean removed = account.isPresent() && groups().removeMember(id, account.get());
+        return removed || groups().removeUnresolved(id, clientName);
     }
 
     /** Returns the active (alive) connections in a group. */
@@ -171,7 +210,7 @@ public class ClientManager implements ClientOrchestrator {
             return new OpResult(false, clientName, scriptName, "client not found");
         }
         if (!conn.isAlive()) {
-            return new OpResult(false, clientName, scriptName, "client disconnected");
+            return new OpResult(false, clientName, scriptName, CLIENT_DISCONNECTED);
         }
 
         ScriptRunner runner = conn.getRuntime().findRunner(scriptName);
@@ -186,14 +225,25 @@ public class ClientManager implements ClientOrchestrator {
         return new OpResult(true, clientName, scriptName, "started");
     }
 
+    /**
+     * Stops a script on a client, and cancels a start of it queued for when the
+     * client is back: a stop the user asks for outranks a start asked for earlier.
+     *
+     * @param clientName the pipe of a connected client, or the account UUID of
+     *                   one that is not connected, whose queued start is then
+     *                   all there is to cancel
+     */
     @Override
     public OpResult stopScript(String clientName, String scriptName) {
+        boolean isCancelled = cancelQueuedStart(clientName, scriptName);
         Connection conn = getClient(clientName);
         if (conn == null) {
-            return new OpResult(false, clientName, scriptName, "client not found");
+            return isCancelled
+                    ? new OpResult(true, clientName, scriptName, QUEUED_START_CANCELLED)
+                    : new OpResult(false, clientName, scriptName, "client not found");
         }
         if (!conn.isAlive()) {
-            return new OpResult(false, clientName, scriptName, "client disconnected");
+            return new OpResult(false, clientName, scriptName, CLIENT_DISCONNECTED);
         }
 
         if (conn.getRuntime().stopScript(scriptName)) {
@@ -209,7 +259,7 @@ public class ClientManager implements ClientOrchestrator {
             return new OpResult(false, clientName, scriptName, "client not found");
         }
         if (!conn.isAlive()) {
-            return new OpResult(false, clientName, scriptName, "client disconnected");
+            return new OpResult(false, clientName, scriptName, CLIENT_DISCONNECTED);
         }
 
         ScriptRunner runner = conn.getRuntime().findRunner(scriptName);
@@ -232,8 +282,11 @@ public class ClientManager implements ClientOrchestrator {
         return executeOnGroup(groupName, scriptName, "start");
     }
 
+    /** Stops a script on the group's connected members, and cancels its queued start on every member. */
     @Override
     public List<OpResult> stopScriptOnGroup(String groupName, String scriptName) {
+        groups().byName(groupName).ifPresent(group ->
+                group.members().forEach(uuid -> queue().dequeue(uuid, scriptName)));
         return executeOnGroup(groupName, scriptName, "stop");
     }
 
@@ -242,12 +295,15 @@ public class ClientManager implements ClientOrchestrator {
         return executeOnGroup(groupName, scriptName, "restart");
     }
 
+    /** Stops everything on the group's connected members, and cancels every start queued on its members. */
     @Override
     public List<OpResult> stopAllScriptsOnGroup(String groupName) {
-        ConnectionGroup group = ctx.getGroup(groupName);
-        if (group == null) {
+        Optional<ClientGroup> found = groups().byName(groupName);
+        if (found.isEmpty()) {
             return List.of(new OpResult(false, groupName, null, "group not found"));
         }
+        ClientGroup group = found.get();
+        group.members().forEach(queue()::dequeueAll);
 
         List<OpResult> results = new ArrayList<>();
         for (Connection conn : getGroupClients(groupName)) {
@@ -265,8 +321,10 @@ public class ClientManager implements ClientOrchestrator {
         return executeOnAll(scriptName, "start");
     }
 
+    /** Stops a script on every connected client, and cancels its queued start on every client. */
     @Override
     public List<OpResult> stopScriptOnAll(String scriptName) {
+        queue().dequeueScript(scriptName);
         return executeOnAll(scriptName, "stop");
     }
 
@@ -275,8 +333,10 @@ public class ClientManager implements ClientOrchestrator {
         return executeOnAll(scriptName, "restart");
     }
 
+    /** Stops everything on every connected client, and empties the start-when-back queue. */
     @Override
     public void stopAllScriptsOnAll() {
+        queue().clear();
         for (Connection conn : getClients()) {
             if (conn.isAlive()) {
                 conn.getRuntime().stopAll();
@@ -417,8 +477,8 @@ public class ClientManager implements ClientOrchestrator {
 
     @Override
     public List<ScheduleOpResult> cancelAllSchedulesOnGroup(String groupName) {
-        ConnectionGroup group = ctx.getGroup(groupName);
-        if (group == null) {
+        Optional<ClientGroup> group = groups().byName(groupName);
+        if (group.isEmpty()) {
             return List.of(new ScheduleOpResult(false, groupName, null, null, "group not found"));
         }
         List<ScheduleOpResult> results = new ArrayList<>();
@@ -429,7 +489,7 @@ public class ClientManager implements ClientOrchestrator {
                         ok ? "cancelled" : "cancel failed"));
             }
         }
-        addScheduleDisconnectedWarnings(group, results);
+        addScheduleDisconnectedWarnings(group.get(), results);
         return results;
     }
 
@@ -478,8 +538,8 @@ public class ClientManager implements ClientOrchestrator {
     // ── Internal helpers ────────────────────────────────────────────────────
 
     private List<OpResult> executeOnGroup(String groupName, String scriptName, String action) {
-        ConnectionGroup group = ctx.getGroup(groupName);
-        if (group == null) {
+        Optional<ClientGroup> group = groups().byName(groupName);
+        if (group.isEmpty()) {
             return List.of(new OpResult(false, groupName, scriptName, "group not found"));
         }
 
@@ -492,7 +552,7 @@ public class ClientManager implements ClientOrchestrator {
         for (Connection conn : clients) {
             results.add(executeAction(conn.getName(), scriptName, action));
         }
-        addDisconnectedWarnings(group, results);
+        addDisconnectedWarnings(group.get(), results);
         return results;
     }
 
@@ -515,12 +575,17 @@ public class ClientManager implements ClientOrchestrator {
         };
     }
 
-    private void addDisconnectedWarnings(ConnectionGroup group, List<OpResult> results) {
-        List<Connection> activeClients = getGroupClients(group.getName());
-        for (String memberName : group.getConnectionNames()) {
-            if (activeClients.stream().noneMatch(c -> c.getName().equals(memberName))) {
-                results.add(new OpResult(false, memberName, null, "client disconnected"));
-            }
+    /**
+     * One failure per member that was not acted on: each member not connected,
+     * named by its account UUID, then each unresolved member, by its pipe.
+     */
+    private void addDisconnectedWarnings(ClientGroup group, List<OpResult> results) {
+        List<Connection> activeClients = getGroupClients(group.name());
+        for (String uuid : GroupMembers.offline(group, activeClients)) {
+            results.add(new OpResult(false, uuid, null, CLIENT_DISCONNECTED));
+        }
+        for (String pipe : group.unresolved()) {
+            results.add(new OpResult(false, pipe, null, UNKNOWN_CLIENT));
         }
     }
 
@@ -542,7 +607,7 @@ public class ClientManager implements ClientOrchestrator {
             return new ScheduleOpResult(false, clientName, scriptName, null, "client not found");
         }
         if (!conn.isAlive()) {
-            return new ScheduleOpResult(false, clientName, scriptName, null, "client disconnected");
+            return new ScheduleOpResult(false, clientName, scriptName, null, CLIENT_DISCONNECTED);
         }
         if (conn.getRuntime().findRunner(scriptName) == null) {
             return new ScheduleOpResult(false, clientName, scriptName, null, "script not found");
@@ -552,8 +617,8 @@ public class ClientManager implements ClientOrchestrator {
 
     private List<ScheduleOpResult> scheduleOnGroup(String groupName, String scriptName,
                                                    BiFunction<String, String, ScheduleOpResult> perClient) {
-        ConnectionGroup group = ctx.getGroup(groupName);
-        if (group == null) {
+        Optional<ClientGroup> group = groups().byName(groupName);
+        if (group.isEmpty()) {
             return List.of(new ScheduleOpResult(false, groupName, scriptName, null, "group not found"));
         }
         List<Connection> clients = getGroupClients(groupName);
@@ -564,7 +629,7 @@ public class ClientManager implements ClientOrchestrator {
         for (Connection conn : clients) {
             results.add(perClient.apply(conn.getName(), scriptName));
         }
-        addScheduleDisconnectedWarnings(group, results);
+        addScheduleDisconnectedWarnings(group.get(), results);
         return results;
     }
 
@@ -579,13 +644,43 @@ public class ClientManager implements ClientOrchestrator {
         return results;
     }
 
-    private void addScheduleDisconnectedWarnings(ConnectionGroup group, List<ScheduleOpResult> results) {
-        List<Connection> activeClients = getGroupClients(group.getName());
-        for (String memberName : group.getConnectionNames()) {
-            if (activeClients.stream().noneMatch(c -> c.getName().equals(memberName))) {
-                results.add(new ScheduleOpResult(false, memberName, null, null, "client disconnected"));
-            }
+    /** As {@link #addDisconnectedWarnings}, for schedule results. */
+    private void addScheduleDisconnectedWarnings(ClientGroup group, List<ScheduleOpResult> results) {
+        List<Connection> activeClients = getGroupClients(group.name());
+        for (String uuid : GroupMembers.offline(group, activeClients)) {
+            results.add(new ScheduleOpResult(false, uuid, null, null, CLIENT_DISCONNECTED));
         }
+        for (String pipe : group.unresolved()) {
+            results.add(new ScheduleOpResult(false, pipe, null, null, UNKNOWN_CLIENT));
+        }
+    }
+
+    /**
+     * The key of the client named {@code client}: a connection's pipe, else an
+     * account UUID for a client that is not connected.
+     */
+    private Optional<ClientKey> keyOfClient(String client) {
+        if (getClient(client) != null) {
+            return Optional.of(ctx.clientKeyOf(client));
+        }
+        return AccountReply.identified(client).map(ClientKey::account);
+    }
+
+    /** Cancels the start of {@code script} queued for when {@code client} is back; {@code false} if none was. */
+    private boolean cancelQueuedStart(String client, String script) {
+        return keyOfClient(client)
+                .filter(ClientKey::isRemembered)
+                .flatMap(ClientKey::accountUuid)
+                .map(uuid -> queue().dequeue(uuid, script))
+                .orElse(false);
+    }
+
+    private GroupStore groups() {
+        return ctx.getGroupStore();
+    }
+
+    private StartWhenBackQueue queue() {
+        return ctx.getStartWhenBackQueue();
     }
 
     private void collectSchedules(Connection conn, List<ScheduledScriptEntry> out) {

@@ -2,7 +2,10 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
-import com.botwithus.bot.cli.ConnectionGroup;
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.groups.ClientGroup;
+import com.botwithus.bot.cli.groups.GroupStore;
+import com.botwithus.bot.cli.groups.MemberChange;
 
 import imgui.ImGui;
 import imgui.flag.ImGuiInputTextFlags;
@@ -11,12 +14,12 @@ import imgui.flag.ImGuiTreeNodeFlags;
 import imgui.type.ImInt;
 import imgui.type.ImString;
 
-import java.util.ArrayList;
-import java.util.Map;
-import java.util.Set;
+import java.util.List;
+import java.util.Optional;
 
 /**
- * Groups management panel — create/delete groups, add/remove connections to groups.
+ * Groups management panel — create/delete groups, add/remove clients. Members
+ * are accounts; a client that is not connected stays in its groups.
  */
 public class GroupsPanel implements GuiPanel {
 
@@ -34,7 +37,7 @@ public class GroupsPanel implements GuiPanel {
         renderCreateGroupControls(ctx);
 
         // Groups list
-        Map<String, ConnectionGroup> groups = ctx.getGroups();
+        List<ClientGroup> groups = ctx.getGroupStore().all();
         if (groups.isEmpty()) {
             ImGui.spacing();
             GuiHelpers.textSecondary("No groups created. Use the form above to create one.");
@@ -59,13 +62,13 @@ public class GroupsPanel implements GuiPanel {
         if (GuiHelpers.buttonPrimary(Icons.PLUS + "  Create")) {
             String name = newGroupName.get().trim();
             if (!name.isEmpty()) {
-                ctx.createGroup(name);
+                ctx.getGroupStore().create(name, Optional.empty());
                 newGroupName.set("");
             }
         }
     }
 
-    private void renderGroupsTable(CliContext ctx, Map<String, ConnectionGroup> groups) {
+    private void renderGroupsTable(CliContext ctx, List<ClientGroup> groups) {
         int flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
         if (ImGui.beginTable("groupsTable", 4, flags)) {
             ImGui.tableSetupColumn("Group Name", 0, 1.0f);
@@ -75,8 +78,8 @@ public class GroupsPanel implements GuiPanel {
             ImGui.tableHeadersRow();
 
             int groupIdx = 0;
-            for (var entry : groups.entrySet()) {
-                renderGroupRow(ctx, entry.getKey(), entry.getValue(), groupIdx);
+            for (ClientGroup group : groups) {
+                renderGroupRow(ctx, group, groupIdx);
                 groupIdx++;
             }
 
@@ -84,65 +87,69 @@ public class GroupsPanel implements GuiPanel {
         }
     }
 
-    private void renderGroupRow(CliContext ctx, String groupName, ConnectionGroup group, int groupIdx) {
-        Set<String> members = group.getConnectionNames();
-
+    private void renderGroupRow(CliContext ctx, ClientGroup group, int groupIdx) {
         ImGui.tableNextRow();
 
         ImGui.tableSetColumnIndex(0);
-        ImGui.text(groupName);
+        ImGui.text(group.name());
 
         ImGui.tableSetColumnIndex(1);
-        ImGui.text(String.valueOf(members.size()));
+        ImGui.text(String.valueOf(group.members().size() + group.unresolved().size()));
 
         ImGui.tableSetColumnIndex(2);
-        renderAddConnectionDropdown(ctx, groupName, group, groupIdx);
+        renderAddConnectionDropdown(ctx, group, groupIdx);
 
         ImGui.tableSetColumnIndex(3);
         ImGui.pushID("grp_del_" + groupIdx);
         if (GuiHelpers.smallButtonDanger(Icons.TRASH + " Delete")) {
-            ctx.deleteGroup(groupName);
+            ctx.getGroupStore().delete(group.id());
         }
         ImGui.popID();
     }
 
-    private void renderGroupMembers(CliContext ctx, Map<String, ConnectionGroup> groups) {
+    private void renderGroupMembers(CliContext ctx, List<ClientGroup> groups) {
         int grpIdx = 0;
-        for (var entry : groups.entrySet()) {
-            renderGroupMemberTree(ctx, entry.getKey(), entry.getValue(), grpIdx);
+        for (ClientGroup group : groups) {
+            renderGroupMemberTree(ctx, group, grpIdx);
             grpIdx++;
         }
     }
 
-    private void renderGroupMemberTree(CliContext ctx, String groupName, ConnectionGroup group, int grpIdx) {
-        Set<String> members = group.getConnectionNames();
+    private void renderGroupMemberTree(CliContext ctx, ClientGroup group, int grpIdx) {
+        int count = group.members().size() + group.unresolved().size();
         int treeFlags = ImGuiTreeNodeFlags.DefaultOpen;
-        if (ImGui.treeNodeEx("grp_tree_" + grpIdx, treeFlags, groupName + " (" + members.size() + " members)")) {
-            if (members.isEmpty()) {
+        if (ImGui.treeNodeEx("grp_tree_" + grpIdx, treeFlags, group.name() + " (" + count + " members)")) {
+            if (count == 0) {
                 ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
                         "  No members");
-            } else {
-                int memberIdx = 0;
-                for (String memberName : members) {
-                    renderMemberRow(ctx, groupName, memberName, grpIdx, memberIdx);
-                    memberIdx++;
-                }
+            }
+            int memberIdx = 0;
+            for (String uuid : group.members()) {
+                renderMemberRow(ctx, group, uuid, grpIdx, memberIdx);
+                memberIdx++;
+            }
+            for (String pipe : group.unresolved()) {
+                renderUnresolvedRow(ctx.getGroupStore(), group, pipe, grpIdx, memberIdx);
+                memberIdx++;
             }
             ImGui.treePop();
         }
     }
 
-    private void renderMemberRow(CliContext ctx, String groupName, String memberName, int grpIdx, int memberIdx) {
-        ImGui.text("  " + memberName);
-
-        // Check if connection is alive
-        boolean alive = false;
-        for (Connection conn : ctx.getConnections()) {
-            if (conn.getName().equals(memberName) && conn.isAlive()) {
-                alive = true;
-                break;
-            }
+    private void renderUnresolvedRow(GroupStore store, ClientGroup group, String pipe, int grpIdx, int memberIdx) {
+        ImGui.text("  unknown client (pipe " + pipe + ")");
+        ImGui.sameLine(0, 12);
+        ImGui.pushID("member_rm_" + grpIdx + "_" + memberIdx);
+        if (ImGui.smallButton("Remove")) {
+            store.removeUnresolved(group.id(), pipe);
         }
+        ImGui.popID();
+    }
+
+    private void renderMemberRow(CliContext ctx, ClientGroup group, String uuid, int grpIdx, int memberIdx) {
+        ImGui.text("  " + ctx.describeAccount(uuid));
+
+        boolean alive = !ctx.liveConnectionsOf(uuid).isEmpty();
         ImGui.sameLine();
         if (alive) {
             ImGui.textColored(ImGuiTheme.GREEN_R, ImGuiTheme.GREEN_G, ImGuiTheme.GREEN_B, 1f, "(connected)");
@@ -153,16 +160,15 @@ public class GroupsPanel implements GuiPanel {
         ImGui.sameLine(0, 12);
         ImGui.pushID("member_rm_" + grpIdx + "_" + memberIdx);
         if (ImGui.smallButton("Remove")) {
-            ctx.removeFromGroup(groupName, memberName);
+            ctx.getGroupStore().removeMember(group.id(), uuid);
         }
         ImGui.popID();
     }
 
-    private void renderAddConnectionDropdown(CliContext ctx, String groupName, ConnectionGroup group, int groupIdx) {
-        var connections = new ArrayList<>(ctx.getConnections());
-        // Filter out connections already in the group
-        var available = connections.stream()
-                .filter(c -> !group.contains(c.getName()))
+    private void renderAddConnectionDropdown(CliContext ctx, ClientGroup group, int groupIdx) {
+        // Only a connected client on a real account can join, and only once.
+        var available = ctx.getConnections().stream()
+                .filter(c -> canJoin(ctx.clientKeyOf(c.getName()), group))
                 .toList();
 
         if (available.isEmpty()) {
@@ -178,8 +184,13 @@ public class GroupsPanel implements GuiPanel {
         ImGui.popItemWidth();
         ImGui.sameLine();
         if (ImGui.smallButton("Add")) {
-            ctx.addToGroup(groupName, names[selected.get()]);
+            ctx.getGroupStore().addMember(group.id(), ctx.clientKeyOf(names[selected.get()]));
         }
         ImGui.popID();
+    }
+
+    private static boolean canJoin(ClientKey key, ClientGroup group) {
+        return MemberChange.refusalFor(key).isEmpty()
+                && key.accountUuid().filter(group::contains).isEmpty();
     }
 }

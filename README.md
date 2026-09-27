@@ -339,7 +339,9 @@ The auto-start system remembers which scripts were running on each account and c
 ~/.botwithus/
 ├── config.properties                 # Host settings (autoConnect, autoConnectPipes, scanIntervalMs, ...)
 ├── clients.json                      # Remembered clients: account UUID, name, last world
-├── groups.json                       # Persisted connection groups
+├── groups.json                       # Client groups: members by account UUID, optional manager
+├── groups.v1.json                    # The pre-UUID groups file, kept once it has been migrated
+├── start-when-back.json              # Scripts queued to start on clients that are not connected
 └── profiles/
     ├── PlayerOne.properties          # Per-account: scripts=Script1,Script2  autoStart=true
     ├── PlayerTwo.properties

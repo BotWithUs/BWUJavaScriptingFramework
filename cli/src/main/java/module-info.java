@@ -21,7 +21,6 @@ module com.botwithus.bot.cli {
     uses com.botwithus.bot.api.BotScript;
     uses com.botwithus.bot.api.script.ManagementScript;
 
-    opens com.botwithus.bot.cli to com.google.gson;
     opens com.botwithus.bot.cli.log to ch.qos.logback.core;
 
     exports com.botwithus.bot.cli;
@@ -38,6 +37,8 @@ module com.botwithus.bot.cli {
     exports com.botwithus.bot.cli.scripts;
     // CliContext hands out the client registry and its snapshots.
     exports com.botwithus.bot.cli.clients;
+    // CliContext hands out the group store and the start-when-back queue.
+    exports com.botwithus.bot.cli.groups;
     exports com.botwithus.bot.cli.gui;
     exports com.botwithus.bot.cli.gui.inspector;
     exports com.botwithus.bot.cli.gui.nav;

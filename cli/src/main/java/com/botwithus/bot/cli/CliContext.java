@@ -5,6 +5,7 @@ import com.botwithus.bot.api.diag.StubGuard;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.clients.ClientRegistry;
 import com.botwithus.bot.cli.clients.JsonClientStore;
 import com.botwithus.bot.cli.clients.LiveClient;
@@ -18,6 +19,12 @@ import com.botwithus.bot.cli.events.HostEvent.CloseCause;
 import com.botwithus.bot.cli.events.HostEvent.ScriptLoadFailed;
 import com.botwithus.bot.cli.events.HostEventBus;
 import com.botwithus.bot.cli.events.RunnerEventBridge;
+import com.botwithus.bot.cli.groups.ClientGroup;
+import com.botwithus.bot.cli.groups.GroupId;
+import com.botwithus.bot.cli.groups.GroupStore;
+import com.botwithus.bot.cli.groups.GroupsFile;
+import com.botwithus.bot.cli.groups.StartWhenBackDrain;
+import com.botwithus.bot.cli.groups.StartWhenBackQueue;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.scripts.AfterReload;
@@ -69,22 +76,13 @@ import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.core.gameval.SqliteGamevalIndex;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
-
 import java.awt.image.BufferedImage;
-import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -119,11 +117,8 @@ public class CliContext {
     // Read from the render thread every frame while the command thread, the pipe
     // scanner and reconnects mutate them: copy-on-write, insertion-ordered.
     private final OrderedSnapshotMap<String, Connection> connections = new OrderedSnapshotMap<>();
-    private final OrderedSnapshotMap<String, ConnectionGroup> groups = new OrderedSnapshotMap<>();
     /** Guards every change to the connection table together with the active name. */
     private final Object connectionLock = new Object();
-    /** Serialises group-file writes, so the file always holds a complete, recent state. */
-    private final Object groupsFileLock = new Object();
     private volatile String activeConnectionName;
     private volatile String mountedConnectionName;
     private ImageDisplay imageDisplay;
@@ -152,7 +147,11 @@ public class CliContext {
     private NXTCache nxtCache;
     private boolean nxtCacheInitAttempted;
     private GamevalIndex gamevals;
-    private final Path groupsFile;
+    private final GroupStore groupStore;
+    private final StartWhenBackQueue startWhenBack;
+    private final StartWhenBackDrain startWhenBackDrain;
+    /** Runs saves and other work that must not hold up the thread that asked for it. */
+    private final Executor background;
     private HostSettings settings;
     /** Host-level events; unlike a connection's bus it exists with no client connected. */
     private final HostEventBus hostEvents = new HostEventBus();
@@ -172,28 +171,33 @@ public class CliContext {
     }
 
     /**
-     * @param groupsFile where groups persist; remembered clients persist beside
-     *                   it. Package-private so tests can keep both out of the
-     *                   user's real home directory.
+     * @param groupsFile where groups persist; remembered clients and the
+     *                   start-when-back queue persist beside it. Package-private
+     *                   so tests can keep them out of the user's real home directory.
      */
     CliContext(LogBuffer logBuffer, LogCapture logCapture, Path groupsFile) {
         this(logBuffer, logCapture, groupsFile,
-                task -> Thread.ofVirtual().name("client-registry-save").start(task));
+                task -> Thread.ofVirtual().name("host-background").start(task));
     }
 
     /**
-     * @param clientSaves runs the writes of {@code clients.json}. Package-private
-     *                    so a test can run them in line and read the file as soon
-     *                    as the host events are delivered.
+     * @param background runs the writes of {@code clients.json} and the starts
+     *                   queued for a client that is back. Package-private so a
+     *                   test can run them in line and see their effects as soon
+     *                   as the host events are delivered.
      */
-    CliContext(LogBuffer logBuffer, LogCapture logCapture, Path groupsFile, Executor clientSaves) {
+    CliContext(LogBuffer logBuffer, LogCapture logCapture, Path groupsFile, Executor background) {
         this.logBuffer = logBuffer;
         this.logCapture = logCapture;
-        this.groupsFile = groupsFile;
+        this.background = background;
         this.clientManager = new ClientManager(this);
         this.clientRegistry = new ClientRegistry(
                 new JsonClientStore(groupsFile.resolveSibling(JsonClientStore.FILE_NAME)),
-                this::liveClient, connectionHistory, hostEvents::publish, clock, clientSaves);
+                this::liveClient, connectionHistory, hostEvents::publish, clock, background);
+        this.groupStore = new GroupStore(new GroupsFile(groupsFile));
+        this.startWhenBack = new StartWhenBackQueue(groupsFile.resolveSibling(StartWhenBackQueue.FILE_NAME));
+        this.startWhenBackDrain = new StartWhenBackDrain(startWhenBack, this::liveRuntime, this::loadScripts,
+                background, line -> out().println(line));
         hostEvents.subscribe(connectionHistory);
         hostEvents.subscribe(clientRegistry);
     }
@@ -330,13 +334,45 @@ public class CliContext {
     }
 
     /**
-     * Settles the key of a connection whose account was just read. A connection
-     * no longer in the table is past identifying.
+     * Settles the key of a connection whose account was just read, then treats a
+     * client on a remembered account as back; see {@link #clientBack}. A
+     * connection no longer in the table is past identifying.
      */
     private void onStatusRefreshed(Connection conn) {
-        if (connections.get(conn.getName()) == conn) {
-            clientKeys.identify(conn.getName(), conn.getAccountUuid(), conn.getDisplayName(), clock.instant());
+        String pipe = conn.getName();
+        if (connections.get(pipe) != conn) {
+            return;
         }
+        clientKeys.identify(pipe, conn.getAccountUuid(), conn.getDisplayName(), clock.instant());
+        rememberedAccountOn(pipe).ifPresent(uuid -> clientBack(pipe, uuid));
+    }
+
+    /**
+     * The client on {@code pipe} was read and is on account {@code uuid}: an
+     * unresolved group member on that pipe becomes the account, and what is
+     * queued to start on it starts. Both are checked in memory first, so a
+     * routine re-read does no work.
+     */
+    private void clientBack(String pipe, String uuid) {
+        if (groupStore.isUnresolved(pipe)) {
+            background.execute(() -> groupStore.resolve(pipe, uuid));
+        }
+        startWhenBackDrain.clientBack(pipe, uuid);
+    }
+
+    /**
+     * The account of the client on {@code pipe}, if it has been identified and
+     * can be remembered: a group member or a queued start can only name such an
+     * account. Empty for a pipe key and for a second client open on an account.
+     */
+    private Optional<String> rememberedAccountOn(String pipe) {
+        ClientKey key = clientKeyOf(pipe);
+        return key.isRemembered() ? key.accountUuid() : Optional.empty();
+    }
+
+    private Optional<ScriptRuntime> liveRuntime(String pipe) {
+        Connection conn = connections.get(pipe);
+        return conn != null && conn.isAlive() ? Optional.ofNullable(conn.getRuntime()) : Optional.empty();
     }
 
     public ManagementScriptRuntime getManagementRuntime() {
@@ -817,129 +853,94 @@ public class CliContext {
         }
     }
 
-    // --- Connection Group management & persistence ---
+    // --- Groups and the start-when-back queue ---
 
-    private static final Path DEFAULT_GROUPS_FILE = Path.of(System.getProperty("user.home"), ".botwithus", "groups.json");
+    private static final Path DEFAULT_GROUPS_FILE =
+            Path.of(System.getProperty("user.home"), ".botwithus", GroupsFile.FILE_NAME);
 
-    /** Simple DTO for JSON serialization of a group. */
-    private static class GroupData {
-        String description;
-        List<String> members;
-        GroupData() {}
-        GroupData(String description, List<String> members) {
-            this.description = description;
-            this.members = members;
-        }
-    }
-
-    /** Loads persisted groups from ~/.botwithus/groups.json. */
+    /**
+     * Loads the groups and the start-when-back queue saved by an earlier run.
+     * Call once, at startup. A groups file from a host that kept members by pipe
+     * name is migrated: a member whose pipe has an identified client now becomes
+     * that client's account, and the rest stay on their group as unresolved
+     * until a client on that pipe is identified or the user removes them.
+     */
     public void loadGroups() {
-        if (!Files.exists(groupsFile)) {
-            return;
-        }
-        try {
-            String json = Files.readString(groupsFile);
-            Gson gson = new Gson();
-            Map<String, GroupData> data = gson.fromJson(json,
-                    new TypeToken<LinkedHashMap<String, GroupData>>() {}.getType());
-            if (data != null) {
-                Map<String, ConnectionGroup> loaded = new LinkedHashMap<>();
-                for (var entry : data.entrySet()) {
-                    ConnectionGroup group = new ConnectionGroup(entry.getKey());
-                    GroupData gd = entry.getValue();
-                    if (gd.description != null) {
-                        group.setDescription(gd.description);
-                    }
-                    if (gd.members != null) {
-                        gd.members.forEach(group::add);
-                    }
-                    loaded.put(entry.getKey(), group);
-                }
-                groups.replaceAll(loaded);
-            }
-        } catch (Exception e) {
-            log.error("Failed to load groups", e);
-        }
+        groupStore.load(pipe -> isPipeLive(pipe) ? rememberedAccountOn(pipe) : Optional.empty());
+        startWhenBack.load();
     }
 
-    /** Persists current groups to ~/.botwithus/groups.json. */
-    void saveGroups() {
-        // The snapshot is taken inside the lock, so whichever save runs last
-        // writes a state that includes every change made before it.
-        synchronized (groupsFileLock) {
-            try {
-                Files.createDirectories(groupsFile.getParent());
-                Gson gson = new GsonBuilder().setPrettyPrinting().create();
-                Map<String, GroupData> data = new LinkedHashMap<>();
-                for (var entry : groups.asMap().entrySet()) {
-                    ConnectionGroup g = entry.getValue();
-                    data.put(entry.getKey(), new GroupData(g.getDescription(), new ArrayList<>(g.getConnectionNames())));
-                }
-                Files.writeString(groupsFile, gson.toJson(data));
-            } catch (Exception e) {
-                log.error("Failed to save groups", e);
-            }
-        }
+    /** The host's groups: create, rename, change members and managers, look up. */
+    public GroupStore getGroupStore() { return groupStore; }
+
+    /** Scripts waiting to start on clients that are not connected. */
+    public StartWhenBackQueue getStartWhenBackQueue() { return startWhenBack; }
+
+    /** The group called exactly {@code name}. */
+    public Optional<ClientGroup> findGroup(String name) {
+        return groupStore.byName(name);
     }
 
-    public void createGroup(String name) {
-        groups.put(name, new ConnectionGroup(name));
-        saveGroups();
-    }
-
-    public boolean deleteGroup(String name) {
-        boolean removed = groups.remove(name) != null;
-        if (removed) {
-            saveGroups();
-        }
-        return removed;
-    }
-
-    public ConnectionGroup getGroup(String name) {
-        return groups.get(name);
-    }
-
-    /**
-     * The groups in creation order. An immutable snapshot, safe to iterate from any
-     * thread; call again to see later changes. The groups themselves are live.
-     */
-    public Map<String, ConnectionGroup> getGroups() {
-        return groups.asMap();
-    }
-
-    public void addToGroup(String groupName, String connectionName) {
-        ConnectionGroup group = groups.get(groupName);
-        if (group != null) {
-            group.add(connectionName);
-            saveGroups();
-        }
-    }
-
-    public void removeFromGroup(String groupName, String connectionName) {
-        ConnectionGroup group = groups.get(groupName);
-        if (group != null) {
-            group.remove(connectionName);
-            saveGroups();
-        }
-    }
-
-    /**
-     * Returns the list of active (connected) Connection objects for a group.
-     * Connections that are in the group but not currently connected are skipped.
-     */
+    /** The live connections of the group called {@code groupName}; see {@link #getGroupConnections(ClientGroup)}. */
     public List<Connection> getGroupConnections(String groupName) {
-        ConnectionGroup group = groups.get(groupName);
-        if (group == null) {
+        return groupStore.byName(groupName).map(this::getGroupConnections).orElse(List.of());
+    }
+
+    /** The live connections of the group with id {@code id}; see {@link #getGroupConnections(ClientGroup)}. */
+    public List<Connection> getGroupConnections(GroupId id) {
+        return groupStore.get(id).map(this::getGroupConnections).orElse(List.of());
+    }
+
+    /**
+     * The live connections of {@code group}'s members, in member order. A member
+     * that is not connected now is skipped.
+     */
+    public List<Connection> getGroupConnections(ClientGroup group) {
+        return group.members().stream()
+                .flatMap(uuid -> liveConnectionsOf(uuid).stream())
+                .toList();
+    }
+
+    /**
+     * The live connection of the client on account {@code accountUuid}, as a
+     * list: empty while it is not connected. A second client open on the same
+     * account at once is a different client and is not included.
+     */
+    public List<Connection> liveConnectionsOf(String accountUuid) {
+        if (AccountReply.identified(accountUuid).isEmpty()) {
             return List.of();
         }
-        List<Connection> result = new ArrayList<>();
-        for (String connName : group.getConnectionNames()) {
-            Connection conn = connections.get(connName);
-            if (conn != null && conn.isAlive()) {
-                result.add(conn);
-            }
+        return clientKeys.pipesOf(ClientKey.account(accountUuid)).stream()
+                .map(connections::get)
+                .filter(Objects::nonNull)
+                .filter(Connection::isAlive)
+                .toList();
+    }
+
+    /**
+     * Queues {@code script} to start on the client on account {@code accountUuid}
+     * when it is back. If that client is connected already, it is started now,
+     * on a background thread, rather than waiting for it to come back.
+     *
+     * @return {@code false} if that start was already queued
+     * @throws IllegalArgumentException if {@code accountUuid} is not an account
+     *                                  UUID or {@code script} is blank
+     */
+    public boolean startWhenBack(String accountUuid, String script) {
+        boolean isQueued = startWhenBack.enqueue(accountUuid, script, clock.instant());
+        for (Connection conn : liveConnectionsOf(accountUuid)) {
+            startWhenBackDrain.clientBack(conn.getName(), accountUuid);
         }
-        return result;
+        return isQueued;
+    }
+
+    /** "Name (uuid)" when the host knows the account's name, else the UUID alone. */
+    public String describeAccount(String accountUuid) {
+        return AccountReply.identified(accountUuid)
+                .flatMap(uuid -> clientRegistry.get(ClientKey.account(uuid)))
+                .flatMap(ClientRecord::name)
+                .map(name -> name + " (" + accountUuid + ")")
+                .orElse(accountUuid);
     }
 
     public void mount(String connectionName) {

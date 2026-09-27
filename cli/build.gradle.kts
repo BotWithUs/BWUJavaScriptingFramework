@@ -123,6 +123,20 @@ tasks.named<JavaExec>("run") {
         ?.let { jvmArgs("-Dbotwithus.gameval=$it") }
 }
 
+// The host keeps its state under ~/.botwithus (groups, remembered clients, the
+// start-when-back queue, staged script copies, settings), and anything in a test
+// that reaches a default path writes there. Each run gets an empty home of its
+// own instead, so no test can read or overwrite the user's real files, whatever
+// constructor it happened to use.
+tasks.named<Test>("test") {
+    val testHome = layout.buildDirectory.dir("test-home").get().asFile
+    systemProperty("user.home", testHome.absolutePath)
+    doFirst {
+        testHome.deleteRecursively()
+        testHome.mkdirs()
+    }
+}
+
 // ── Dev-only UI preview ──────────────────────────────────────────────────────
 // Renders the UI with fixture data and writes one PNG per scenario to
 // build/preview/: Normal mode (every card state, 6 and 12 clients, empty, host

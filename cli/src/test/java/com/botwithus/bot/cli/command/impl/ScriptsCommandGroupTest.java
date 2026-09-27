@@ -2,24 +2,29 @@ package com.botwithus.bot.cli.command.impl;
 
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.TestContexts;
 import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.ParsedCommand;
-import com.botwithus.bot.cli.log.LogBuffer;
-import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ScriptsCommandGroupTest {
+
+    @TempDir
+    Path tempDir;
 
     private ScriptsCommand command;
     private CliContext ctx;
@@ -30,9 +35,7 @@ class ScriptsCommandGroupTest {
         command = new ScriptsCommand();
         output = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(output);
-        LogBuffer logBuffer = new LogBuffer();
-        LogCapture logCapture = new LogCapture(logBuffer, ps, ps);
-        ctx = spy(new CliContext(logBuffer, logCapture));
+        ctx = spy(TestContexts.inDir(tempDir, ps));
     }
 
     private ParsedCommand parse(String input) {
@@ -46,6 +49,8 @@ class ScriptsCommandGroupTest {
     private Connection mockConnection(String name) {
         Connection conn = mock(Connection.class);
         when(conn.getName()).thenReturn(name);
+        // Tests use the same name for a client's pipe and its account.
+        when(conn.getIdentifiedUuid()).thenReturn(Optional.of(name));
         when(conn.isAlive()).thenReturn(true);
         ScriptRuntime runtime = mock(ScriptRuntime.class);
         when(conn.getRuntime()).thenReturn(runtime);
@@ -61,17 +66,17 @@ class ScriptsCommandGroupTest {
 
     @Test
     void startWithGroupNoActiveConnections() {
-        ctx.createGroup("farm");
-        ctx.getGroup("farm").add("Bot1"); // not connected
+        TestContexts.createGroup(ctx, "farm");
+        TestContexts.addMember(ctx, "farm", "Bot1"); // not connected
         command.execute(parse("scripts start \"Test\" --group=farm"), ctx);
         assertTrue(output().contains("No active connections"));
     }
 
     @Test
     void startWithGroupCallsStartOnEachConnection() {
-        ctx.createGroup("farm");
-        ctx.getGroup("farm").add("Bot1");
-        ctx.getGroup("farm").add("Bot2");
+        TestContexts.createGroup(ctx, "farm");
+        TestContexts.addMember(ctx, "farm", "Bot1");
+        TestContexts.addMember(ctx, "farm", "Bot2");
 
         Connection conn1 = mockConnection("Bot1");
         Connection conn2 = mockConnection("Bot2");
@@ -99,8 +104,8 @@ class ScriptsCommandGroupTest {
 
     @Test
     void startWithGroupSkipsAlreadyRunning() {
-        ctx.createGroup("farm");
-        ctx.getGroup("farm").add("Bot1");
+        TestContexts.createGroup(ctx, "farm");
+        TestContexts.addMember(ctx, "farm", "Bot1");
 
         Connection conn1 = mockConnection("Bot1");
         ScriptRunner runner1 = mock(ScriptRunner.class);
@@ -118,8 +123,8 @@ class ScriptsCommandGroupTest {
 
     @Test
     void stopWithGroup() {
-        ctx.createGroup("farm");
-        ctx.getGroup("farm").add("Bot1");
+        TestContexts.createGroup(ctx, "farm");
+        TestContexts.addMember(ctx, "farm", "Bot1");
 
         Connection conn1 = mockConnection("Bot1");
         when(conn1.getRuntime().stopScript("Test")).thenReturn(true);
@@ -140,9 +145,9 @@ class ScriptsCommandGroupTest {
 
     @Test
     void startWithGroupWarnsDisconnected() {
-        ctx.createGroup("farm");
-        ctx.getGroup("farm").add("Bot1");
-        ctx.getGroup("farm").add("Bot2"); // not connected
+        TestContexts.createGroup(ctx, "farm");
+        TestContexts.addMember(ctx, "farm", "Bot1");
+        TestContexts.addMember(ctx, "farm", "Bot2"); // not connected
 
         Connection conn1 = mockConnection("Bot1");
         ScriptRunner runner1 = mock(ScriptRunner.class);
