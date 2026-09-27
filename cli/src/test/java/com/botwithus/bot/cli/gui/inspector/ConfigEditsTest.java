@@ -47,6 +47,19 @@ class ConfigEditsTest {
     }
 
     @Test
+    void settingAnInheritedValue_isAnEditLikeAnyOther_andTakesAChoiceByName() {
+        ConfigEdits edits = new ConfigEdits(FIELDS, config("95", "Drop"));
+
+        edits.set(STOP, "90");
+        edits.set(DISPOSAL, "Wood box");
+
+        assertAll(
+                () -> assertEquals("90", edits.pending(STOP)),
+                () -> assertEquals("Wood box", edits.pending(DISPOSAL)),
+                () -> assertEquals(2, edits.dirtyCount(), "pending until applied"));
+    }
+
+    @Test
     void sync_untouchedFieldsFollowTheScriptUisSave_editedFieldsKeepTheirEdit() {
         ConfigEdits edits = new ConfigEdits(FIELDS, config("90", "Bank"));
         edits.intOf("stopValue").set(95);

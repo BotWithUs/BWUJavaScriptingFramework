@@ -314,6 +314,33 @@ public class ClientManager implements ClientOrchestrator {
         return results;
     }
 
+    /**
+     * Stops each script running on the group's connected members, and cancels
+     * every start queued on its members, as the user's Stop all on a group
+     * does. Unlike {@link #stopAllScriptsOnGroup}, which unloads them, the
+     * scripts stay loaded, so each can be run again from where it is listed.
+     *
+     * @return one result per script stopped, then a warning per member not connected
+     */
+    public List<OpResult> stopRunningOnGroup(String groupName) {
+        Optional<ClientGroup> found = groups().byName(groupName);
+        if (found.isEmpty()) {
+            return List.of(new OpResult(false, groupName, null, "group not found"));
+        }
+        ClientGroup group = found.get();
+        group.members().forEach(queue()::dequeueAll);
+        List<OpResult> results = new ArrayList<>();
+        for (Connection conn : getGroupClients(groupName)) {
+            for (ScriptRunner runner : conn.getRuntime().getRunners()) {
+                if (runner.isRunning()) {
+                    results.add(stopScript(conn.getName(), runner.getScriptName()));
+                }
+            }
+        }
+        addDisconnectedWarnings(group, results);
+        return results;
+    }
+
     // ── All-client script operations ────────────────────────────────────────
 
     @Override

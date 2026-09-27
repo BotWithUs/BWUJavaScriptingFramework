@@ -43,7 +43,7 @@ final class DetailAboutTab {
         String description = s.identity().description().isBlank() ? "No description." : s.identity().description();
         float cy = paragraph(x, y, width, description, w.ui().fonts().small(), PARAGRAPH_LINE);
         if (s.provenance().update().isPresent()) {
-            cy = updatePanel(s.provenance().update().get(), state, x, cy + m.u(4), width);
+            cy = updatePanel(s, s.provenance().update().get(), state, x, cy + m.u(4), width);
         }
         cy = section(x, cy + m.u(4), width, "On disk", disk(view, s));
         cy = section(x, cy + m.u(4), width, "Script", script(s));
@@ -119,8 +119,9 @@ final class DetailAboutTab {
         return ly;
     }
 
-    /** The Store's newer build, with Update leading to the Store; returns the y under it. */
-    private float updatePanel(UpdateBadge update, InstalledState state, float x, float y, float width) {
+    /** The Store's newer build, with Update showing the script in the Store; returns the y under it. */
+    private float updatePanel(InstalledScript s, UpdateBadge update, InstalledState state, float x, float y,
+                              float width) {
         ImGuiTheme.Metrics m = w.m();
         Controls ui = w.ui();
         ImDrawList draw = ImGui.getWindowDrawList();
@@ -139,7 +140,7 @@ final class DetailAboutTab {
         ImGui.setCursorScreenPos(x + width - m.u(2) - bw, y + (h - m.controlSmallHeight()) * 0.5f);
         if (ui.button("##detail-update", InstalledWidgets.ARROW_UP, "Update", Tone.SOFT, true,
                 m.controlSmallHeight())) {
-            state.openStore();
+            state.showInStore(s);
         }
         return y + h;
     }

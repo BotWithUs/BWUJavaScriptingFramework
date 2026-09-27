@@ -35,7 +35,7 @@ public sealed interface HostEvent {
 
     /** Why a client left the host's connection table. */
     enum CloseCause {
-        /** The user, or a command, disconnected it. */
+        /** The user, or a command, disconnected or forgot it. */
         DISCONNECTED,
         /** The host found the connection dead and removed it. */
         CONNECTION_LOST

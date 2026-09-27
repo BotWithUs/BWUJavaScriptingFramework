@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.gui.pages.installed;
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.Phase;
+import com.botwithus.bot.cli.gui.runners.RunnerReading;
 
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +22,7 @@ class RunnerStateTest {
 
     private static RunnerFacts facts(boolean isAlive, boolean isRunning, Liveness liveness,
                                      Instant startedAt, Optional<LastCrash> crash) {
-        return new RunnerFacts(isAlive, isRunning, liveness, Optional.ofNullable(startedAt), crash);
+        return new RunnerFacts(isAlive, new RunnerReading(isRunning, liveness, Optional.ofNullable(startedAt), crash));
     }
 
     private static Optional<LastCrash> crashAt(Instant when) {
@@ -36,6 +37,11 @@ class RunnerStateTest {
     @Test
     void aRunnerStuckInOnLoop_isStalled() {
         assertEquals(RunnerState.STALLED, RunnerState.of(facts(true, true, Liveness.STALLED, STARTED, NO_CRASH)));
+    }
+
+    @Test
+    void aRunnerStillStuckInOnLoopAfterAStopWasAsked_isStalled_notStopped() {
+        assertEquals(RunnerState.STALLED, RunnerState.of(facts(true, false, Liveness.STALLED, STARTED, NO_CRASH)));
     }
 
     @Test

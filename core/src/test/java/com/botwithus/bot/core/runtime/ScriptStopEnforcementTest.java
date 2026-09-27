@@ -21,6 +21,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -170,6 +171,41 @@ class ScriptStopEnforcementTest {
         runtime.sweep(stopped + justPast(LivenessWatchdog.ABANDON_GRACE_MS));
         assertEquals(Liveness.ABANDONED, runner.liveness(),
                 "past the abandon grace the runner should be written off");
+    }
+
+    /** A threshold far below the default, so a sweep past it proves the setting was used. */
+    private static final long SHORT_STALL_MS = 20_000L;
+
+    @Test
+    @DisplayName("a long loop is flagged stalled after the configured threshold, read on every sweep")
+    void configuredStallThresholdReachesTheWatchdog() throws Exception {
+        ScriptRuntime runtime = new ScriptRuntime(mockContext());
+        AtomicLong threshold = new AtomicLong(SHORT_STALL_MS * 3);
+        runtime.setStallThreshold(threshold::get);
+        ScriptRunner runner = startSpinner(runtime);
+        long looping = System.nanoTime();
+
+        runtime.sweep(looping + justPast(SHORT_STALL_MS));
+        assertEquals(Liveness.LIVE, runner.liveness(), "still under the configured threshold");
+
+        threshold.set(SHORT_STALL_MS);
+        runtime.sweep(looping + justPast(SHORT_STALL_MS));
+        assertEquals(Liveness.STALLED, runner.liveness(),
+                "a threshold changed while the script runs must apply on the next sweep");
+    }
+
+    @Test
+    @DisplayName("with no threshold set, a loop is flagged stalled only past the default")
+    void defaultStallThresholdApplies() throws Exception {
+        ScriptRuntime runtime = new ScriptRuntime(mockContext());
+        ScriptRunner runner = startSpinner(runtime);
+        long looping = System.nanoTime();
+
+        runtime.sweep(looping + justPast(SHORT_STALL_MS));
+        assertEquals(Liveness.LIVE, runner.liveness());
+
+        runtime.sweep(looping + justPast(ScriptRuntime.DEFAULT_STALL_AFTER_MS));
+        assertEquals(Liveness.STALLED, runner.liveness());
     }
 
     /** Nanos corresponding to comfortably past a millisecond threshold. */
