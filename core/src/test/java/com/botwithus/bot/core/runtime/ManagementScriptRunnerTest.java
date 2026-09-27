@@ -3,12 +3,15 @@ package com.botwithus.bot.core.runtime;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.runtime.LastCrash;
+import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -221,6 +224,94 @@ class ManagementScriptRunnerTest {
             runner.start();
             runner.awaitStop(2000);
             assertFalse(runner.isRunning());
+        }
+    }
+
+    /**
+     * A management script whose {@code onStart} throws never runs, but its run
+     * still has to end: the stop latch released and the failure reported once.
+     */
+    @Nested
+    class StartFailure {
+
+        private static final String CAUSE = "no orchestrator";
+        private static final long WAIT_MS = 5000L;
+
+        @ScriptManifest(name = "BadStartMgmt", version = "1.0", author = "test")
+        private static final class BadStart implements ManagementScript {
+            private final AtomicInteger onStopCalls = new AtomicInteger();
+
+            @Override public void onStart(ManagementContext ctx) {
+                throw new IllegalStateException(CAUSE);
+            }
+
+            @Override public int onLoop() {
+                return -1;
+            }
+
+            @Override public void onStop() {
+                onStopCalls.incrementAndGet();
+            }
+        }
+
+        @Test
+        void awaitStop_afterOnStartThrows_returnsTrue() {
+            ManagementScriptRunner runner =
+                    new ManagementScriptRunner(new BadStart(), mock(ManagementContext.class));
+
+            runner.start();
+
+            assertTrue(runner.awaitStop(WAIT_MS),
+                    "a run that failed to start never released its stop latch");
+        }
+
+        @Test
+        void startFailure_isRecordedAsExactlyOneCrash() {
+            BadStart script = new BadStart();
+            ManagementScriptRunner runner =
+                    new ManagementScriptRunner(script, mock(ManagementContext.class));
+            List<String> handledPhases = new CopyOnWriteArrayList<>();
+            List<LastCrash> heard = new CopyOnWriteArrayList<>();
+            runner.setErrorHandler((name, phase, error) -> handledPhases.add(phase));
+            runner.setRunnerListener(new RunnerListener() {
+                @Override public void managementScriptCrashed(String scriptName, LastCrash crash) {
+                    heard.add(crash);
+                }
+            });
+
+            runner.start();
+            assertTrue(runner.awaitStop(WAIT_MS));
+
+            assertAll(
+                    () -> assertFalse(runner.isRunning()),
+                    () -> assertEquals(1L, runner.health().totalCrashes()),
+                    () -> assertEquals(Phase.ON_START,
+                            runner.health().lastCrash().orElseThrow().phase()),
+                    () -> assertEquals(List.of("onStart"), handledPhases),
+                    () -> assertEquals(1, heard.size(), "listener crash reports"),
+                    () -> assertEquals(CAUSE, heard.getFirst().cause().getMessage()),
+                    () -> assertEquals(0, script.onStopCalls.get(),
+                            "a script that never started is not stopped"));
+        }
+
+        @Test
+        void stopAll_afterStartFailure_doesNotQuarantineTheRunner() {
+            ManagementScriptRuntime runtime =
+                    new ManagementScriptRuntime(mock(ManagementContext.class));
+            ManagementScriptRunner runner = runtime.registerScript(new BadStart());
+            runner.start();
+            long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WAIT_MS);
+            while (runner.isThreadAlive()) {
+                if (System.nanoTime() > deadline) {
+                    fail("script thread never exited");
+                }
+                Thread.onSpinWait();
+            }
+
+            runtime.stopAll();
+
+            assertEquals(List.of(), runtime.getRunners(),
+                    "a runner whose thread has exited is not a zombie");
         }
     }
 

@@ -243,22 +243,24 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     public void run() {
         String name = getScriptName();
         MDC.put("script.name", name);
-        if (!runOnStart(name)) {
-            return;
-        }
-        loadPersistedConfig(name);
+        boolean started = false;
         try {
-            runLoop();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            log.error("onLoop error in {}: {}", name, e.getMessage());
-            notifyError(name, Phase.ON_LOOP, e);
+            started = runOnStart(name);
+            if (started) {
+                loadPersistedConfig(name);
+                runLoopReportingCrash(name);
+            }
         } finally {
-            cleanup(name);
+            // Also after a failed onStart: awaitStop() waits on the latch this
+            // releases. Mirrors ScriptRunner.run.
+            cleanup(name, started);
         }
     }
 
+    /**
+     * Runs {@code onStart}. A throw is recorded as this run's one crash; the
+     * caller still owes the run its cleanup.
+     */
     private boolean runOnStart(String name) {
         try {
             script.onStart(context);
@@ -266,8 +268,18 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         } catch (Exception e) {
             log.error("onStart error in {}: {}", name, e.getMessage());
             notifyError(name, Phase.ON_START, e);
-            running.set(false);
             return false;
+        }
+    }
+
+    private void runLoopReportingCrash(String name) {
+        try {
+            runLoop();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.error("onLoop error in {}: {}", name, e.getMessage());
+            notifyError(name, Phase.ON_LOOP, e);
         }
     }
 
@@ -306,17 +318,21 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         }
     }
 
-    private void cleanup(String name) {
+    /**
+     * Ends a run, whether or not it got past {@code onStart}. Only a run that
+     * {@code started} is handed {@code onStop}; one whose {@code onStart} threw
+     * has already been reported as a crash. The latch is released either way.
+     */
+    private void cleanup(String name, boolean started) {
         running.set(false);
         // Clear the interrupt for teardown, then restore it — stop() interrupts
         // the thread, so any blocking call in onStop would otherwise throw
         // InterruptedException immediately. Mirrors ScriptRunner.cleanup.
         boolean wasInterrupted = Thread.interrupted();
         try {
-            script.onStop();
-        } catch (Exception e) {
-            log.error("onStop error in {}: {}", name, e.getMessage());
-            notifyError(name, Phase.ON_STOP, e);
+            if (started) {
+                runOnStop(name);
+            }
         } finally {
             MDC.clear();
             if (wasInterrupted) {
@@ -326,6 +342,15 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             if (latch != null) {
                 latch.countDown();
             }
+        }
+    }
+
+    private void runOnStop(String name) {
+        try {
+            script.onStop();
+        } catch (Exception e) {
+            log.error("onStop error in {}: {}", name, e.getMessage());
+            notifyError(name, Phase.ON_STOP, e);
         }
     }
 

@@ -31,7 +31,9 @@ import java.util.function.Consumer;
 /**
  * Runs a single BotScript on its own platform thread (see {@link #start()} for
  * why it isn't a virtual one).
- * Lifecycle: onStart -> loop(onLoop + sleep) -> onStop
+ * Lifecycle: onStart -> loop(onLoop + sleep) -> onStop. A throwing onStart is
+ * recorded as a crash and skips both the loop and onStop, but still runs the
+ * host-side cleanup and releases {@link #awaitStop}.
  */
 public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
 
@@ -484,13 +486,31 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
 
     @Override
     public void run() {
+        String name = getScriptName();
+        enterScriptThread(name);
+        boolean started = false;
+        try {
+            started = runOnStart(name);
+            if (started) {
+                loadPersistedConfig(name);
+                runLoopReportingCrash(name);
+            }
+        } finally {
+            // Also after a failed onStart: the script may already have
+            // subscribed or started a walk, and awaitStop() waits on the latch
+            // this releases.
+            cleanup(name, started);
+        }
+    }
+
+    /** Tags the thread and its log context before any script code runs. */
+    private void enterScriptThread(String name) {
         if (connectionName != null) {
             connectionTagger.accept(connectionName);
         }
-        String name = getScriptName();
-        // Tag before any script code runs. The tag is inheritable, so threads
-        // the script spawns (notably the walk executor) are attributed back to
-        // it and are covered by the same revocation.
+        // The tag is inheritable, so threads the script spawns (notably the
+        // walk executor) are attributed back to it and are covered by the same
+        // revocation.
         ScriptGate gate = this.scriptGate;
         if (gate != null) {
             gate.enter(name);
@@ -499,22 +519,12 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         if (connectionName != null) {
             MDC.put("connection.name", connectionName);
         }
-        if (!runOnStart(name)) {
-            return;
-        }
-        loadPersistedConfig(name);
-        try {
-            runLoop();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            log.error("onLoop error in {}: {}", name, e.getMessage());
-            notifyError(Phase.ON_LOOP, e);
-        } finally {
-            cleanup(name);
-        }
     }
 
+    /**
+     * Runs {@code onStart}. A throw is recorded as this run's one crash; the
+     * caller still owes the run its cleanup.
+     */
     private boolean runOnStart(String name) {
         publishState(STATE_STARTING, null);
         try {
@@ -525,9 +535,18 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         } catch (Exception e) {
             log.error("onStart error in {}: {}", name, e.getMessage());
             notifyError(Phase.ON_START, e);
-            running.set(false);
-            connectionCleaner.run();
             return false;
+        }
+    }
+
+    private void runLoopReportingCrash(String name) {
+        try {
+            runLoop();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.error("onLoop error in {}: {}", name, e.getMessage());
+            notifyError(Phase.ON_LOOP, e);
         }
     }
 
@@ -579,7 +598,14 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         }
     }
 
-    private void cleanup(String name) {
+    /**
+     * Ends a run, whether or not it got past {@code onStart}. Only a run that
+     * {@code started} is handed {@code onStop} and reported stopped: one whose
+     * {@code onStart} threw has already been reported as a crash, and a
+     * started/stopped pair on top of that would tell the host it ran. The
+     * host-side teardown and the stop latch are owed either way.
+     */
+    private void cleanup(String name, boolean started) {
         running.set(false);
         // Clear the interrupt for the duration of teardown, then restore it.
         // stop() interrupts the thread, so by the time we get here the flag is
@@ -588,7 +614,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         // immediately, skipping the very quiescing this method exists to do.
         boolean wasInterrupted = Thread.interrupted();
         try {
-            cleanupPhases(name);
+            cleanupPhases(name, started);
         } finally {
             if (wasInterrupted) {
                 Thread.currentThread().interrupt();
@@ -600,12 +626,9 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         }
     }
 
-    private void cleanupPhases(String name) {
-        try {
-            script.onStop();
-        } catch (Exception e) {
-            log.error("onStop error in {}: {}", name, e.getMessage());
-            notifyError(Phase.ON_STOP, e);
+    private void cleanupPhases(String name, boolean started) {
+        if (started) {
+            runOnStop(name);
         }
         releaseSubscriptions(name);
         // Cancels *and joins* the walk executor this script started (owner-
@@ -616,8 +639,10 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         } catch (Exception e) {
             log.debug("Navigation cleanup error in {}: {}", name, e.getMessage());
         }
-        publishState(STATE_STOPPED, null);
-        tellListener(l -> l.scriptStopped(connectionName, name));
+        if (started) {
+            publishState(STATE_STOPPED, null);
+            tellListener(l -> l.scriptStopped(connectionName, name));
+        }
         MDC.clear();
         // Only a clean exit clears the tag. A zombie never reaches here, so it
         // keeps its tag — which is what lets the gate keep rejecting it. Any
@@ -628,6 +653,15 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
             gate.exit();
         }
         connectionCleaner.run();
+    }
+
+    private void runOnStop(String name) {
+        try {
+            script.onStop();
+        } catch (Exception e) {
+            log.error("onStop error in {}: {}", name, e.getMessage());
+            notifyError(Phase.ON_STOP, e);
+        }
     }
 
     /**
