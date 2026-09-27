@@ -125,6 +125,11 @@ final class FixtureGroupsModel implements GroupsModel {
         managerState = ManagerInfo.State.PAUSED;
     }
 
+    /** Woodcutters' manager assigned but not started, as "Start it now" off leaves it. */
+    void showManagerStopped() {
+        managerState = ManagerInfo.State.STOPPED;
+    }
+
     @Override
     public GroupsSnapshot snapshot() {
         return snapshot;

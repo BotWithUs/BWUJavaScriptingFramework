@@ -26,6 +26,11 @@ public final class InstalledPreviewSeams {
         page.showQuery(InstalledQuery.DEFAULT.withShow(InstalledQuery.Show.PROBLEMS));
     }
 
+    /** Sets the filter bar to {@code query}, as its controls and search box would. */
+    public static void showQuery(InstalledPage page, InstalledQuery query) {
+        page.showQuery(query);
+    }
+
     public static void openStartOn(InstalledPage page, String key) {
         page.openStartOn(key);
     }

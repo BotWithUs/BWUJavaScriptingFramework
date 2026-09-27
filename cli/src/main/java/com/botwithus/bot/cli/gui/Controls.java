@@ -41,6 +41,17 @@ public final class Controls {
         }
     }
 
+    /**
+     * A ticked box's colours: its fill and the tick drawn over it.
+     *
+     * @param fill the box when ticked
+     * @param tick the tick stroke
+     */
+    public record TickColors(int fill, int tick) {
+        /** The usual tick box: emerald with a dark tick. */
+        public static final TickColors ACCENT = new TickColors(ImGuiTheme.COL_ACCENT, ImGuiTheme.COL_ON_ACCENT);
+    }
+
     private static final float ICON_GAP_EM = 0.467f;
     private static final float SEG_INSET_PX = 2f;
     private static final float KBD_PAD_X_EM = 0.333f;
@@ -54,6 +65,17 @@ public final class Controls {
     private static final int OPAQUE = 0xFF;
     private static final int ALPHA_SHIFT = 24;
     private static final int RGB_MASK = 0x00FFFFFF;
+    private static final float TICK_BOX_EM = 1.067f;
+    private static final float TICK_BOX_RADIUS_PX = 3f;
+    private static final float TICK_STROKE_PX = 1.8f;
+    /** The tick's three points, as fractions of the box: in from the left, down to the base, up to the right. */
+    private static final float TICK_START_X = 0.24f;
+    private static final float TICK_START_Y = 0.5f;
+    private static final float TICK_MID_X = 0.42f;
+    private static final float TICK_MID_Y = 0.68f;
+    private static final float TICK_END_X = 0.76f;
+    private static final float TICK_END_Y = 0.32f;
+    private static final float DISABLED_TICK_ALPHA = 0.25f;
 
     // Replaced when the text size changes; render thread only.
     private UiFonts fonts;
@@ -490,6 +512,53 @@ public final class Controls {
         return changed;
     }
 
+    // ── Tick box ───────────────────────────────────────────────────────────
+
+    /** The side of a {@link #tickBox}, a little over the body font. */
+    public float tickBoxSize() {
+        return fonts.body().getFontSize() * TICK_BOX_EM;
+    }
+
+    /**
+     * A tick box at the cursor; {@code true} when clicked while enabled. A
+     * disabled box is faded and cannot be clicked.
+     */
+    public boolean tickBox(String id, boolean isTicked, boolean isEnabled) {
+        float size = tickBoxSize();
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY();
+        ImGui.beginDisabled(!isEnabled);
+        boolean clicked = ImGui.invisibleButton(id, size, size);
+        boolean isHovered = isEnabled && ImGui.isItemHovered();
+        ImGui.endDisabled();
+        paintTickBox(ImGui.getWindowDrawList(), x, y, size, isTicked, isHovered,
+                isEnabled ? 1f : DISABLED_TICK_ALPHA, TickColors.ACCENT);
+        return clicked && isEnabled;
+    }
+
+    /**
+     * Paints a tick box at (x, y) without making it a button, for a row or chip
+     * that is itself the button. Unticked it is an outline, lighter on hover.
+     *
+     * @param alpha  opacity of the whole box, for a faded row
+     * @param colors the fill and tick when ticked
+     */
+    public static void paintTickBox(ImDrawList draw, float x, float y, float size, boolean isTicked,
+                                    boolean isHovered, float alpha, TickColors colors) {
+        if (isTicked) {
+            draw.addRectFilled(x, y, x + size, y + size, scaleAlpha(colors.fill(), alpha), TICK_BOX_RADIUS_PX);
+            draw.pathClear();
+            draw.pathLineTo(x + size * TICK_START_X, y + size * TICK_START_Y);
+            draw.pathLineTo(x + size * TICK_MID_X, y + size * TICK_MID_Y);
+            draw.pathLineTo(x + size * TICK_END_X, y + size * TICK_END_Y);
+            draw.pathStroke(scaleAlpha(colors.tick(), alpha), 0, TICK_STROKE_PX);
+            return;
+        }
+        int border = isHovered ? ImGuiTheme.COL_FG2 : ImGuiTheme.COL_FG3;
+        draw.addRect(x + 0.5f, y + 0.5f, x + size - 0.5f, y + size - 0.5f, scaleAlpha(border, alpha),
+                TICK_BOX_RADIUS_PX);
+    }
+
     /** The width of the switch {@link #toggleRow} draws, for a row that is only the switch. */
     public float toggleWidth() {
         return fonts.body().getFontSize() * TOGGLE_W_EM;
@@ -585,6 +654,17 @@ public final class Controls {
         int a = (packed >>> ALPHA_SHIFT) & OPAQUE;
         int scaled = Math.round(a * Math.max(0f, Math.min(1f, factor)));
         return (packed & RGB_MASK) | (scaled << ALPHA_SHIFT);
+    }
+
+    /** Adds {@code amount} (0-1) to each colour channel of a packed colour, capped at full; alpha is kept. */
+    public static int lighten(int packed, float amount) {
+        int step = Math.round(OPAQUE * Math.max(0f, amount));
+        int out = packed & ~RGB_MASK;
+        for (int shift = 0; shift < ALPHA_SHIFT; shift += Byte.SIZE) {
+            int channel = (packed >>> shift) & OPAQUE;
+            out |= Math.min(OPAQUE, channel + step) << shift;
+        }
+        return out;
     }
 
     /** Component-wise lerp between two packed colours, alpha included. */

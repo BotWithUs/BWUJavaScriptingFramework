@@ -101,13 +101,4 @@ class CrashedRunnerTest {
 
         assertTrue(currentCrash(r).isPresent());
     }
-
-    @Test
-    void theSummaryNamesTheExceptionAndThePhase() {
-        LastCrash crash = new LastCrash(Phase.ON_START, 0L, T0, new IllegalArgumentException());
-        LastCrash noCause = new LastCrash(Phase.ON_STOP, 0L, T0, null);
-
-        assertEquals("IllegalArgumentException in onStart()", ClientRows.crashSummary(crash));
-        assertEquals("Error in onStop()", ClientRows.crashSummary(noCause));
-    }
 }

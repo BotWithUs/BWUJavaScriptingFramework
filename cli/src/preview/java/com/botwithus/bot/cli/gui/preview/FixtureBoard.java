@@ -195,26 +195,8 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
         return new FixtureBoard(FixtureFleet.restart(step), status(FixtureFleet.OAKHEART_PIPE));
     }
 
-    /** Round-1 name of {@link #everyState()}, kept so scenarios written against it still build. */
-    static FixtureBoard sixClients() {
-        return everyState();
-    }
-
-    /** Round-1 name of {@link #thirteenClients()}, kept so scenarios written against it still build. */
-    static FixtureBoard twelveClients() {
-        return thirteenClients();
-    }
-
     static FixtureBoard waiting() {
         return new FixtureBoard(List.of(), status(null));
-    }
-
-    /**
-     * Round-1 "host offline" board. The page no longer has an offline screen:
-     * a client that stopped answering keeps its card, so this is the empty board.
-     */
-    static FixtureBoard offline() {
-        return waiting();
     }
 
     private static BoardStatus status(String active) {

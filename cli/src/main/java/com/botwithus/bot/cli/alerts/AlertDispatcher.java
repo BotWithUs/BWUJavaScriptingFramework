@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli.alerts;
 
 import com.botwithus.bot.cli.events.HostEvent;
+import com.botwithus.bot.cli.settings.Subscription;
 import com.botwithus.bot.core.alerts.Alert;
 import com.botwithus.bot.core.alerts.AlertKind;
 import com.botwithus.bot.core.alerts.AlertMessage;
@@ -31,7 +32,8 @@ import java.util.function.Consumer;
  * <p>Subscribe it to the host event bus. {@link #accept} only hands the event to
  * the intake executor, so the bus thread never classifies, reads a setting or
  * touches the network. On the intake thread each event is
- * {@link AlertClassifier classified}, dropped if quiet hours hold it back, and
+ * {@link AlertClassifier classified}, handed to {@link QuietHold} if quiet hours
+ * hold it back (held for when they end, or muted), and otherwise
  * routed to every service that is switched on and ticked for its kind in the
  * event grid. Per service, alerts within the burst window are collected into one
  * message (a daily summary never waits); each send then runs on that service's
@@ -39,9 +41,11 @@ import java.util.function.Consumer;
  * {@link ServiceStatusBoard}.</p>
  *
  * <p>Every setting is read when the alert arrives, so changes apply to the next one.
- * Nothing is sent, and no request is made, until the user switches a service on.</p>
+ * Nothing is sent, and no request is made, until the user switches a service on.
+ * Call {@link #resumeHeld()} once when the host starts, and {@link #close()} when it
+ * stops.</p>
  */
-public final class AlertDispatcher implements Consumer<HostEvent> {
+public final class AlertDispatcher implements Consumer<HostEvent>, AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(AlertDispatcher.class);
 
@@ -52,6 +56,7 @@ public final class AlertDispatcher implements Consumer<HostEvent> {
     private final AlertScheduler scheduler;
     private final Executor intake;
     private final DeliveryLanes lanes;
+    private final QuietHold quietHold;
     private final Clock clock;
     private final ZoneId zone;
     private final Map<AlertService, BurstGrouper> bursts = new EnumMap<>(AlertService.class);
@@ -59,11 +64,12 @@ public final class AlertDispatcher implements Consumer<HostEvent> {
     /**
      * @param intake runs the classification and routing of each event, off the bus thread
      * @param lanes  runs each send, one lane per service
+     * @param held   what quiet hours are holding back, kept across restarts
      * @param zone   the zone quiet hours and message times are in
      */
     public AlertDispatcher(AlertSettings settings, AlertClassifier classifier, NotifierSource notifiers,
                            ServiceStatusBoard status, AlertScheduler scheduler, Executor intake,
-                           DeliveryLanes lanes, Clock clock, ZoneId zone) {
+                           DeliveryLanes lanes, HeldAlerts held, Clock clock, ZoneId zone) {
         this.settings = Objects.requireNonNull(settings, "settings");
         this.classifier = Objects.requireNonNull(classifier, "classifier");
         this.notifiers = Objects.requireNonNull(notifiers, "notifiers");
@@ -73,9 +79,26 @@ public final class AlertDispatcher implements Consumer<HostEvent> {
         this.lanes = Objects.requireNonNull(lanes, "lanes");
         this.clock = Objects.requireNonNull(clock, "clock");
         this.zone = Objects.requireNonNull(zone, "zone");
+        this.quietHold = new QuietHold(settings, Objects.requireNonNull(held, "held"), scheduler, intake, clock,
+                zone, (service, message) -> send(service, message, message.title()));
         for (AlertService service : AlertService.values()) {
             bursts.put(service, new BurstGrouper());
         }
+    }
+
+    /**
+     * Sends or schedules what quiet hours held back before the host last stopped,
+     * and from now on applies quiet-hours setting changes to what is held. Call once,
+     * when the host starts; closing the subscription stops following the settings.
+     */
+    public Subscription resumeHeld() {
+        return quietHold.resume();
+    }
+
+    /** Cancels the pending send of held alerts. They stay saved, for the next start. */
+    @Override
+    public void close() {
+        quietHold.close();
     }
 
     /** Hands {@code event} to the intake executor; never blocks the publishing thread. */
@@ -90,7 +113,7 @@ public final class AlertDispatcher implements Consumer<HostEvent> {
         LocalTime localTime = now.atZone(zone).toLocalTime();
         Optional<QuietHours> quiet = settings.quietHours();
         if (quiet.isPresent() && !quiet.get().lets(alert.kind(), localTime) && !isScheduled(alert.kind())) {
-            log.debug("Quiet hours: held back a {} alert", alert.kind().id());
+            quietHold.hold(alert);
             return;
         }
         Duration window = settings.burstWindow();

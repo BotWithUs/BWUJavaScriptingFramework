@@ -1,7 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.groups;
 
-import com.botwithus.bot.api.runtime.LastCrash;
-import com.botwithus.bot.api.runtime.Phase;
+import com.botwithus.bot.cli.gui.runners.CrashText;
 import com.botwithus.bot.cli.gui.runners.RunnerReading;
 import com.botwithus.bot.cli.gui.runners.RunnerStatus;
 import com.botwithus.bot.core.runtime.ScriptRunner;
@@ -42,7 +41,7 @@ final class RunnerFacts {
             case STALLED -> new ScriptFact(name, ScriptState.STALLED, avgLoopMs(runner), "stuck in onLoop()");
             case RUNNING -> new ScriptFact(name, ScriptState.RUNNING, avgLoopMs(runner), "");
             case CRASHED -> new ScriptFact(name, ScriptState.CRASHED, OptionalDouble.empty(),
-                    reading.currentCrash().map(RunnerFacts::crashSummary).orElse(""));
+                    reading.currentCrash().map(CrashText::summary).orElse(""));
             case STOPPED -> ScriptFact.of(name, ScriptState.STOPPED);
         });
     }
@@ -51,18 +50,4 @@ final class RunnerFacts {
         return OptionalDouble.of(runner.getProfiler().avgLoopMs());
     }
 
-    /** "NullPointerException in onLoop()". */
-    static String crashSummary(LastCrash crash) {
-        String type = crash.cause() != null ? crash.cause().getClass().getSimpleName() : "Error";
-        return type + " in " + methodOf(crash.phase());
-    }
-
-    private static String methodOf(Phase phase) {
-        return switch (phase) {
-            case ON_START -> "onStart()";
-            case ON_LOOP -> "onLoop()";
-            case ON_STOP -> "onStop()";
-            case ON_CONFIG_UPDATE -> "onConfigUpdate()";
-        };
-    }
 }

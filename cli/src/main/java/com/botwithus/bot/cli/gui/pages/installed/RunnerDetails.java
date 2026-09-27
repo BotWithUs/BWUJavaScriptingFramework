@@ -2,11 +2,10 @@ package com.botwithus.bot.cli.gui.pages.installed;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.config.ConfigField;
-import com.botwithus.bot.api.runtime.LastCrash;
-import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.gui.runners.CrashText;
 import com.botwithus.bot.cli.gui.runners.RunnerReading;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
@@ -57,7 +56,7 @@ final class RunnerDetails {
         return switch (state) {
             case RUNNING -> running(facts, runner, now);
             case STALLED -> "Stalled" + SEP + "inside onLoop()";
-            case CRASHED -> "Crashed" + SEP + facts.currentCrash().map(RunnerDetails::crashSummary).orElse("error");
+            case CRASHED -> "Crashed" + SEP + facts.currentCrash().map(CrashText::summary).orElse("error");
             case CUT_OFF -> "Cut off" + SEP + "would not stop";
             case STOPPED -> "Stopped";
             case OFFLINE -> "Waiting" + SEP + offlineNote(conn);
@@ -73,21 +72,6 @@ final class RunnerDetails {
             out.append(SEP).append(Math.round(avg)).append(" ms");
         }
         return out.toString();
-    }
-
-    /** {@code "NullPointerException in onLoop()"}. */
-    static String crashSummary(LastCrash crash) {
-        String type = crash.cause() != null ? crash.cause().getClass().getSimpleName() : "Error";
-        return type + " in " + phaseMethod(crash.phase());
-    }
-
-    private static String phaseMethod(Phase phase) {
-        return switch (phase) {
-            case ON_START -> "onStart()";
-            case ON_LOOP -> "onLoop()";
-            case ON_STOP -> "onStop()";
-            case ON_CONFIG_UPDATE -> "onConfigUpdate()";
-        };
     }
 
     /** How many settings fields {@code script} declares; script code, so a throw reads as none. */

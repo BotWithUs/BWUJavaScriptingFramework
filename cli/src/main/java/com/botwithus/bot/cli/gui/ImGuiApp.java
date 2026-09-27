@@ -112,7 +112,8 @@ public class ImGuiApp extends Application {
 
     private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
 
-    private static final float UI_FONT_BASE_PX = 17f;
+    /** The atlas default font, which a script's own UI and imgui's tooltips draw with; see FontLoader. */
+    private static final float DEFAULT_FONT_PX = 17f;
     /** The taskbar's name for the window. It names no connection: no one client owns the app. */
     private static final String WINDOW_TITLE = "BotWithUs";
     /** How long the Installed scripts page reuses one read of the host: its badge and body share it. */
@@ -199,7 +200,7 @@ public class ImGuiApp extends Application {
 
         redirectImGuiIniToConfigDir();
         dpiScale = detectDpiScale();
-        ui = new Controls(FontLoader.loadAll(dpiScale, UI_FONT_BASE_PX),
+        ui = new Controls(FontLoader.loadAll(dpiScale, DEFAULT_FONT_PX),
                 Motion.following(settings, Motion.FrameClock.imGui()));
         setupTheme();
 
@@ -338,8 +339,7 @@ public class ImGuiApp extends Application {
                 // Safe: handle is the OutputLine this same ProgressDisplay returned from start();
                 // the interface keeps it opaque so each implementation owns its handle type.
                 OutputLine line = (OutputLine) handle;
-                outputBuffer.completeProgressWithText(line, message,
-                        ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
+                outputBuffer.completeProgressWithText(line, message, ImGuiTheme.COL_DANGER);
             }
         });
     }
@@ -478,7 +478,7 @@ public class ImGuiApp extends Application {
     /** Settings over the live host; a text size change there rebuilds the fonts between frames. */
     private SettingsPage settingsPage() {
         HostSettings settings = ctx.getSettings();
-        fontRebuild = new FontRebuild(settings, ui, dpiScale, UI_FONT_BASE_PX);
+        fontRebuild = new FontRebuild(settings, ui, dpiScale, DEFAULT_FONT_PX);
         Path home = Path.of(System.getProperty("user.home"));
         LiveSettingsModel.Places places = new LiveSettingsModel.Places(HostSettings.defaultBaseDir(),
                 LocalScriptLoader.scriptsDir(), LiveSettingsModel.exportFolderIn(home), home, Path.of(""));
@@ -599,13 +599,6 @@ public class ImGuiApp extends Application {
         if (glfwWindow != 0) {
             GLFW.glfwSetWindowShouldClose(glfwWindow, true);
         }
-    }
-
-    /**
-     * Returns the CLI context for use by other components (e.g., the blueprint editor).
-     */
-    public CliContext getCliContext() {
-        return ctx;
     }
 
     public static void main(String[] args) {
