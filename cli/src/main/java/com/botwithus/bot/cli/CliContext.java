@@ -102,10 +102,20 @@ public class CliContext {
     private NXTCache nxtCache;
     private boolean nxtCacheInitAttempted;
     private GamevalIndex gamevals;
+    private final Path groupsFile;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
+        this(logBuffer, logCapture, DEFAULT_GROUPS_FILE);
+    }
+
+    /**
+     * @param groupsFile where groups persist. Package-private so tests can keep
+     *                   their groups out of the user's real home directory.
+     */
+    CliContext(LogBuffer logBuffer, LogCapture logCapture, Path groupsFile) {
         this.logBuffer = logBuffer;
         this.logCapture = logCapture;
+        this.groupsFile = groupsFile;
         this.clientManager = new ClientManager(this);
     }
 
@@ -277,8 +287,7 @@ public class CliContext {
             conn.setReconnectController(reconnect);
             conn.setGameAPI(gameAPI);
             conn.setScriptContextChannel(scriptCtxChannel);
-            connections.put(resolvedName, conn);
-            activeConnectionName = resolvedName;
+            registerConnection(conn);
             if (onConnect != null) {
                 try {
                     onConnect.accept(conn);
@@ -293,6 +302,22 @@ public class CliContext {
         } catch (Exception e) {
             out().println("Connection failed: " + e.getMessage());
         }
+    }
+
+    /**
+     * Adds a fully built connection to the table and makes it the active one.
+     * Package-private: {@link #connect} can only build a connection over a live
+     * pipe, so this is the seam the connection-table tests drive.
+     *
+     * @return {@code false} if a connection with the same name is already registered
+     */
+    boolean registerConnection(Connection conn) {
+        if (connections.containsKey(conn.getName())) {
+            return false;
+        }
+        connections.put(conn.getName(), conn);
+        activeConnectionName = conn.getName();
+        return true;
     }
 
     public void disconnect(String name, boolean force) {
@@ -472,7 +497,7 @@ public class CliContext {
 
     // --- Connection Group management & persistence ---
 
-    private static final Path GROUPS_FILE = Path.of(System.getProperty("user.home"), ".botwithus", "groups.json");
+    private static final Path DEFAULT_GROUPS_FILE = Path.of(System.getProperty("user.home"), ".botwithus", "groups.json");
 
     /** Simple DTO for JSON serialization of a group. */
     private static class GroupData {
@@ -487,11 +512,11 @@ public class CliContext {
 
     /** Loads persisted groups from ~/.botwithus/groups.json. */
     public void loadGroups() {
-        if (!Files.exists(GROUPS_FILE)) {
+        if (!Files.exists(groupsFile)) {
             return;
         }
         try {
-            String json = Files.readString(GROUPS_FILE);
+            String json = Files.readString(groupsFile);
             Gson gson = new Gson();
             Map<String, GroupData> data = gson.fromJson(json,
                     new TypeToken<LinkedHashMap<String, GroupData>>() {}.getType());
@@ -517,14 +542,14 @@ public class CliContext {
     /** Persists current groups to ~/.botwithus/groups.json. */
     void saveGroups() {
         try {
-            Files.createDirectories(GROUPS_FILE.getParent());
+            Files.createDirectories(groupsFile.getParent());
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
             Map<String, GroupData> data = new LinkedHashMap<>();
             for (var entry : groups.entrySet()) {
                 ConnectionGroup g = entry.getValue();
                 data.put(entry.getKey(), new GroupData(g.getDescription(), new ArrayList<>(g.getConnectionNames())));
             }
-            Files.writeString(GROUPS_FILE, gson.toJson(data));
+            Files.writeString(groupsFile, gson.toJson(data));
         } catch (Exception e) {
             log.error("Failed to save groups", e);
         }

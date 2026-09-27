@@ -4,14 +4,19 @@ import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class CliContextGroupTest {
+
+    @TempDir
+    Path tempDir;
 
     private CliContext ctx;
     private ByteArrayOutputStream outputStream;
@@ -22,7 +27,7 @@ class CliContextGroupTest {
         PrintStream ps = new PrintStream(outputStream);
         LogBuffer logBuffer = new LogBuffer();
         LogCapture logCapture = new LogCapture(logBuffer, ps, ps);
-        ctx = new CliContext(logBuffer, logCapture);
+        ctx = new CliContext(logBuffer, logCapture, tempDir.resolve("groups.json"));
     }
 
     @Test
