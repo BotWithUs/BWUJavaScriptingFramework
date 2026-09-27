@@ -65,6 +65,7 @@ public final class JBotCli {
         PrintStream out = logCapture.getOriginalOut();
         CliContext ctx = new CliContext(logBuffer, logCapture);
         ctx.loadGroups();
+        ctx.loadClients();
         ctx.setSettings(HostSettings.openForHost(HostSettings.defaultBaseDir()));
         CommandRegistry registry = new CommandRegistry();
 

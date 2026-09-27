@@ -191,6 +191,8 @@ class CliContextConcurrencyTest {
     private static Connection mockConnection(String name) {
         Connection conn = mock(Connection.class);
         when(conn.getName()).thenReturn(name);
+        // The client registry reads these from every registered connection.
+        when(conn.getGameStatus()).thenReturn(GameStatus.UNKNOWN);
         return conn;
     }
 

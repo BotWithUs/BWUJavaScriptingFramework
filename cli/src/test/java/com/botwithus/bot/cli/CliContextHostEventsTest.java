@@ -222,6 +222,8 @@ class CliContextHostEventsTest {
     private static Connection connection(String name, EventBusImpl bus, ScriptRuntime runtime) {
         Connection conn = mock(Connection.class);
         when(conn.getName()).thenReturn(name);
+        // The client registry reads these from every registered connection.
+        when(conn.getGameStatus()).thenReturn(GameStatus.UNKNOWN);
         when(conn.getEventBus()).thenReturn(bus);
         when(conn.getRuntime()).thenReturn(runtime);
         return conn;

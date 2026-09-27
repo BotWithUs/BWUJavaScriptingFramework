@@ -225,6 +225,7 @@ public class ImGuiApp extends Application {
 
         ctx = new CliContext(logBuffer, logCapture);
         ctx.loadGroups();
+        ctx.loadClients();
         ctx.setStreamManager(new StreamManager(outputBuffer, textureManager, guiOut));
     }
 
@@ -471,6 +472,7 @@ public class ImGuiApp extends Application {
             ctx.getManagementRuntime().stopAll();
         }
         ctx.disconnectAll();
+        ctx.saveClients();
         ctx.closeGamevals();
         if (sdnScriptsPanel != null) {
             sdnScriptsPanel.close();

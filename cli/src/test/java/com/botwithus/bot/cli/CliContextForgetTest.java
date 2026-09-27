@@ -62,7 +62,7 @@ class CliContextForgetTest {
         flush();
         assertTrue(ctx.getConnections().isEmpty());
         verify(dead).close();
-        assertFalse(ctx.getConnectionHistory().clients().contains(PIPE), "its history must go too");
+        assertFalse(ctx.getConnectionHistory().clients().contains(CLIENT.key()), "its history must go too");
         assertEquals(List.of(ClientOpened.class, ClientClosed.class, ClientForgotten.class), publishedTypes());
         assertEquals(CLIENT, clientOf(published.getLast()));
     }
@@ -86,12 +86,12 @@ class CliContextForgetTest {
         ctx.registerConnection(connection(false));
         ctx.handleConnectionError(PIPE);
         flush();
-        assertTrue(ctx.getConnectionHistory().clients().contains(PIPE), "history outlives the connection");
+        assertTrue(ctx.getConnectionHistory().clients().contains(CLIENT.key()), "history outlives the connection");
 
         assertEquals(ForgetResult.FORGOTTEN, ctx.forget(PIPE));
 
         flush();
-        assertFalse(ctx.getConnectionHistory().clients().contains(PIPE));
+        assertFalse(ctx.getConnectionHistory().clients().contains(CLIENT.key()));
         assertEquals(List.of(ClientOpened.class, ClientClosed.class, ClientForgotten.class), publishedTypes());
     }
 
@@ -121,6 +121,8 @@ class CliContextForgetTest {
     private static Connection connection(boolean isAlive) {
         Connection conn = mock(Connection.class);
         when(conn.getName()).thenReturn(PIPE);
+        // The client registry reads these from every registered connection.
+        when(conn.getGameStatus()).thenReturn(GameStatus.UNKNOWN);
         when(conn.isAlive()).thenReturn(isAlive);
         return conn;
     }

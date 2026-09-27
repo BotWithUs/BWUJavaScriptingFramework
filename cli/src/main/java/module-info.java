@@ -36,6 +36,8 @@ module com.botwithus.bot.cli {
     exports com.botwithus.bot.cli.events;
     // CliContext hands out reload modes and summaries.
     exports com.botwithus.bot.cli.scripts;
+    // CliContext hands out the client registry and its snapshots.
+    exports com.botwithus.bot.cli.clients;
     exports com.botwithus.bot.cli.gui;
     exports com.botwithus.bot.cli.gui.inspector;
     exports com.botwithus.bot.cli.gui.nav;

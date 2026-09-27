@@ -1,6 +1,6 @@
 package com.botwithus.bot.cli;
 
-/** What {@link CliContext#forget(String)} did. */
+/** What {@link CliContext#forget(com.botwithus.bot.cli.events.ClientKey)} did. */
 public enum ForgetResult {
     /** The client is gone from the host, along with everything it remembered about it. */
     FORGOTTEN,

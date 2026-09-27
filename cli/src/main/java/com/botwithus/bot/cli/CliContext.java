@@ -5,12 +5,15 @@ import com.botwithus.bot.api.diag.StubGuard;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.botwithus.bot.cli.events.ClientRef;
+import com.botwithus.bot.cli.clients.ClientRegistry;
+import com.botwithus.bot.cli.clients.JsonClientStore;
+import com.botwithus.bot.cli.clients.LiveClient;
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.events.ClientKeys;
 import com.botwithus.bot.cli.events.ConnectionHistory;
 import com.botwithus.bot.cli.events.GameEventBridge;
 import com.botwithus.bot.cli.events.HostEvent.ClientClosed;
 import com.botwithus.bot.cli.events.HostEvent.ClientForgotten;
-import com.botwithus.bot.cli.events.HostEvent.ClientOpened;
 import com.botwithus.bot.cli.events.HostEvent.CloseCause;
 import com.botwithus.bot.cli.events.HostEvent.ScriptLoadFailed;
 import com.botwithus.bot.cli.events.HostEventBus;
@@ -76,17 +79,24 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 
 public class CliContext {
 
     private static final Logger log = LoggerFactory.getLogger(CliContext.class);
+
+    /** How long forgetting a client, or saving the clients at shutdown, waits for queued host events. */
+    private static final Duration HOST_EVENT_FLUSH = Duration.ofSeconds(2);
 
     @FunctionalInterface
     public interface ImageDisplay {
@@ -148,26 +158,44 @@ public class CliContext {
     private final HostEventBus hostEvents = new HostEventBus();
     private final ConnectionHistory connectionHistory = new ConnectionHistory();
     private final Clock clock = Clock.systemUTC();
-    private final RunnerEventBridge runnerEvents = new RunnerEventBridge(hostEvents, clock);
-    private final GameEventBridge gameEvents = new GameEventBridge(hostEvents);
+    /** Keys and publishes every client event; see {@link ClientKeys}. */
+    private final ClientKeys clientKeys = new ClientKeys(hostEvents, this::isPipeLive);
+    private final RunnerEventBridge runnerEvents = new RunnerEventBridge(hostEvents, clientKeys, clock);
+    private final GameEventBridge gameEvents = new GameEventBridge(clientKeys);
     private final ConnectionStatusTracker statusTracker = new ConnectionStatusTracker(
             task -> Thread.ofVirtual().name("connection-status").start(task),
-            ConnectionStatusTracker.POLL_INTERVAL);
+            ConnectionStatusTracker.POLL_INTERVAL, this::onStatusRefreshed);
+    private final ClientRegistry clientRegistry;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this(logBuffer, logCapture, DEFAULT_GROUPS_FILE);
     }
 
     /**
-     * @param groupsFile where groups persist. Package-private so tests can keep
-     *                   their groups out of the user's real home directory.
+     * @param groupsFile where groups persist; remembered clients persist beside
+     *                   it. Package-private so tests can keep both out of the
+     *                   user's real home directory.
      */
     CliContext(LogBuffer logBuffer, LogCapture logCapture, Path groupsFile) {
+        this(logBuffer, logCapture, groupsFile,
+                task -> Thread.ofVirtual().name("client-registry-save").start(task));
+    }
+
+    /**
+     * @param clientSaves runs the writes of {@code clients.json}. Package-private
+     *                    so a test can run them in line and read the file as soon
+     *                    as the host events are delivered.
+     */
+    CliContext(LogBuffer logBuffer, LogCapture logCapture, Path groupsFile, Executor clientSaves) {
         this.logBuffer = logBuffer;
         this.logCapture = logCapture;
         this.groupsFile = groupsFile;
         this.clientManager = new ClientManager(this);
+        this.clientRegistry = new ClientRegistry(
+                new JsonClientStore(groupsFile.resolveSibling(JsonClientStore.FILE_NAME)),
+                this::liveClient, connectionHistory, hostEvents::publish, clock, clientSaves);
         hostEvents.subscribe(connectionHistory);
+        hostEvents.subscribe(clientRegistry);
     }
 
     /**
@@ -267,6 +295,49 @@ public class CliContext {
 
     /** Keeps every connection's account, game state and world current. */
     public ConnectionStatusTracker getStatusTracker() { return statusTracker; }
+
+    /** Every client the host knows, live or remembered, one per account. */
+    public ClientRegistry getClientRegistry() { return clientRegistry; }
+
+    /** The key the client on {@code pipe} is known by now; the pipe's own key until it is identified. */
+    public ClientKey clientKeyOf(String pipe) {
+        return clientKeys.refFor(pipe).key();
+    }
+
+    /** Adds the clients remembered by an earlier run. Call once, at startup. */
+    public void loadClients() {
+        clientRegistry.load();
+    }
+
+    /**
+     * Saves the remembered clients as they are now, after every host event
+     * already published has been applied. Call at shutdown, off the render thread.
+     */
+    public void saveClients() {
+        if (!hostEvents.flush(HOST_EVENT_FLUSH)) {
+            log.warn("Host events were not all applied before saving the remembered clients");
+        }
+        clientRegistry.saveNow();
+    }
+
+    private boolean isPipeLive(String pipe) {
+        Connection conn = connections.get(pipe);
+        return conn != null && conn.isAlive();
+    }
+
+    private Optional<LiveClient> liveClient(String pipe) {
+        return Optional.ofNullable(connections.get(pipe)).map(ConnectionClient::new);
+    }
+
+    /**
+     * Settles the key of a connection whose account was just read. A connection
+     * no longer in the table is past identifying.
+     */
+    private void onStatusRefreshed(Connection conn) {
+        if (connections.get(conn.getName()) == conn) {
+            clientKeys.identify(conn.getName(), conn.getAccountUuid(), conn.getDisplayName(), clock.instant());
+        }
+    }
 
     public ManagementScriptRuntime getManagementRuntime() {
         return managementRuntime;
@@ -441,7 +512,7 @@ public class CliContext {
             }
             activeConnectionName = conn.getName();
             // Published under the lock, so a close of this connection can only queue after it.
-            hostEvents.publish(new ClientOpened(new ClientRef(conn.getName()), clock.instant()));
+            clientKeys.opened(conn.getName(), clock.instant());
         }
         reportToHostEvents(conn);
         return true;
@@ -491,7 +562,8 @@ public class CliContext {
     }
 
     private void publishClosed(String name, CloseCause cause) {
-        hostEvents.publish(new ClientClosed(new ClientRef(name), cause, clock.instant()));
+        Instant at = clock.instant();
+        clientKeys.publish(name, client -> new ClientClosed(client, cause, at));
     }
 
     private void reassignActiveIfGone() {
@@ -665,25 +737,39 @@ public class CliContext {
 
     /**
      * Forgets a client that has gone: removes its connection if one is still
-     * registered, drops its history, and publishes {@link ClientForgotten}.
+     * registered, drops it from the client registry (and from the remembered
+     * clients, if it was one) and its history, and publishes {@link ClientForgotten}.
      * Refuses a client whose pipe is still open. Blocks while a registered
      * connection stops its scripts, so call it off the render thread.
      *
-     * @param pipe the client's pipe name, which is how clients are keyed today
+     * @param key the client's key; see {@link #clientKeyOf}
      */
-    public ForgetResult forget(String pipe) {
-        Connection conn = connections.get(pipe);
-        if (conn != null && conn.isAlive()) {
+    public ForgetResult forget(ClientKey key) {
+        // Applies what is already published first, so a client that closed a
+        // moment ago is found as closed.
+        if (!hostEvents.flush(HOST_EVENT_FLUSH)) {
+            log.warn("Host events were not all applied before forgetting {}", key);
+        }
+        List<Connection> registered = clientKeys.pipesOf(key).stream()
+                .map(connections::get)
+                .filter(Objects::nonNull)
+                .toList();
+        if (registered.stream().anyMatch(Connection::isAlive)) {
             return ForgetResult.STILL_CONNECTED;
         }
-        if (conn != null) {
-            handleConnectionError(pipe);
-        } else if (!connectionHistory.clients().contains(pipe)) {
+        if (registered.isEmpty() && !clientRegistry.contains(key)
+                && !connectionHistory.clients().contains(key)) {
             return ForgetResult.NOT_FOUND;
         }
-        // The bus delivers in order, so the history drops this client after its close.
-        hostEvents.publish(new ClientForgotten(new ClientRef(pipe), clock.instant()));
+        registered.forEach(conn -> handleConnectionError(conn.getName()));
+        // Published after the close, so every subscriber drops the client after it.
+        clientKeys.forget(key, clock.instant());
         return ForgetResult.FORGOTTEN;
+    }
+
+    /** As {@link #forget(ClientKey)}, for the client the host last knew on {@code pipe}. */
+    public ForgetResult forget(String pipe) {
+        return forget(clientKeyOf(pipe));
     }
 
     public boolean hasConnections() { return !connections.isEmpty(); }
