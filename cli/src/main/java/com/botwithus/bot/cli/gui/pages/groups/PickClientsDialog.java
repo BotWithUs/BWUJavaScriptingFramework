@@ -202,8 +202,8 @@ final class PickClientsDialog {
         if (isHovered && !canJoin) {
             w.tooltip(client.refusal().orElse(""));
         }
-        rowText(draw, client, snapshot, x + m.u(4) + w.checkboxSize() + m.u(3), y,
-                width - m.u(4) * 2f - w.checkboxSize() - m.u(3), h);
+        float box = w.ui().tickBoxSize();
+        rowText(draw, client, snapshot, x + m.u(4) + box + m.u(3), y, width - m.u(4) * 2f - box - m.u(3), h);
         ImGui.setCursorScreenPos(x, y + h);
     }
 

@@ -3,8 +3,10 @@ package com.botwithus.bot.cli.gui.preview;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.AnsiOutputBuffer;
 import com.botwithus.bot.cli.gui.pages.dashboard.AttentionItem;
+import com.botwithus.bot.cli.gui.pages.dashboard.ConsoleTarget;
 import com.botwithus.bot.cli.gui.pages.dashboard.ConsoleView;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardActions;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardModel;
@@ -17,16 +19,18 @@ import com.botwithus.bot.cli.gui.pages.dashboard.LogsView;
 import com.botwithus.bot.cli.gui.pages.dashboard.RpcRow;
 import com.botwithus.bot.cli.gui.pages.dashboard.RunnerRef;
 import com.botwithus.bot.cli.gui.pages.dashboard.RunnerRow;
-import com.botwithus.bot.cli.gui.pages.dashboard.RunnerStatus;
 import com.botwithus.bot.cli.gui.pages.dashboard.Scope;
 import com.botwithus.bot.cli.gui.pages.dashboard.ScopeOption;
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
 import com.botwithus.bot.cli.log.LogEntry;
 
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -50,7 +54,12 @@ final class FixtureDashboardModel implements DashboardModel {
     private static final Duration SINCE_RESET = Duration.ofMinutes(6).plusSeconds(12);
     private static final double SCOPED_SHARE = 0.16;
 
-    private record Client(String pipe, String name, boolean isAlive) { }
+    private record Client(String pipe, String name, boolean isAlive) {
+
+        ClientKey key() {
+            return keyOf(pipe);
+        }
+    }
 
     private static final Client OAKHEART = new Client("BotWithUs_14208", "Oakheart", true);
     private static final Client FERNMOSS = new Client("BotWithUs_9932", "Fernmoss", true);
@@ -64,6 +73,11 @@ final class FixtureDashboardModel implements DashboardModel {
     private final AnsiOutputBuffer console = new AnsiOutputBuffer();
     private final DashboardActions actions = new NoActions();
     private Fleet fleet;
+
+    /** The made-up account key of the sample client on {@code pipe}. */
+    static ClientKey keyOf(String pipe) {
+        return ClientKey.account("fixture-account-" + pipe);
+    }
 
     FixtureDashboardModel(Fleet fleet) {
         show(fleet);
@@ -100,14 +114,17 @@ final class FixtureDashboardModel implements DashboardModel {
         List<LogEntry> lines = new ArrayList<>();
         int errors = 0;
         for (LogEntry e : all) {
-            if (scope.includes(e.connection())) {
+            boolean isShown = e.connection() == null ? scope.isAll() : scope.includes(keyOf(e.connection()));
+            if (isShown) {
                 errors += "ERROR".equals(e.level()) ? 1 : 0;
                 if (level.admits(e.level())) {
                     lines.add(e);
                 }
             }
         }
-        return new LogsView(lines, errors);
+        Map<String, String> names = new HashMap<>();
+        clients().forEach(c -> names.put(c.pipe(), c.name()));
+        return new LogsView(lines, errors, names);
     }
 
     @Override
@@ -122,8 +139,8 @@ final class FixtureDashboardModel implements DashboardModel {
 
     @Override
     public ConsoleView console() {
-        List<ScopeOption> targets = clients().stream()
-                .map(c -> new ScopeOption(Scope.of(c.pipe()), c.name())).toList();
+        List<ConsoleTarget> targets = clients().stream()
+                .map(c -> new ConsoleTarget(c.pipe(), c.name())).toList();
         Optional<String> target = targets.isEmpty() ? Optional.empty() : Optional.of(OAKHEART.pipe());
         return new ConsoleView(console.snapshot(), target, targets, false, List.of("help", "reload", "scripts"));
     }
@@ -134,7 +151,7 @@ final class FixtureDashboardModel implements DashboardModel {
     }
 
     private String nameOf(Scope scope) {
-        return clients().stream().filter(c -> scope.includes(c.pipe())).findFirst().map(Client::name).orElse("");
+        return clients().stream().filter(c -> scope.includes(c.key())).findFirst().map(Client::name).orElse("");
     }
 
     // ── Runners ─────────────────────────────────────────────────────────
@@ -177,7 +194,7 @@ final class FixtureDashboardModel implements DashboardModel {
         long[] lane = isLooping ? lane(avg, hasSpike) : new long[0];
         Optional<Instant> stalled = status == RunnerStatus.STALLED
                 ? Optional.of(now.minusSeconds(38)) : Optional.empty();
-        return new RunnerRow(new RunnerRef(c.pipe(), script), c.name(), version, category, status, loops, avg,
+        return new RunnerRow(new RunnerRef(c.key(), script), c.name(), version, category, status, loops, avg,
                 last, max, lane, crashes, stalled, "Woodcutting".equals(script) || "Example Script".equals(script));
     }
 
@@ -229,16 +246,16 @@ final class FixtureDashboardModel implements DashboardModel {
                 new AttentionItem.LoadFailed(Path.of("scripts", "woodcutting-1.0-SNAPSHOT.jar"),
                         "ServiceConfigurationError: provider not found", FixtureConsole.LOAD_TRACE,
                         Optional.of(now.minusSeconds(128))),
-                new AttentionItem.Crashed(new RunnerRef(TAMSIN.pipe(), "Cook's Assistant"), TAMSIN.name(), crash, 1,
+                new AttentionItem.Crashed(new RunnerRef(TAMSIN.key(), "Cook's Assistant"), TAMSIN.name(), crash, 1,
                         FixtureConsole.CRASH_TRACE),
-                new AttentionItem.NotResponding(HOLLOWMERE.pipe(), HOLLOWMERE.name(), 4, 8_000L,
+                new AttentionItem.NotResponding(HOLLOWMERE.key(), HOLLOWMERE.pipe(), HOLLOWMERE.name(), 4, 8_000L,
                         Optional.of(now.minusSeconds(42))),
-                new AttentionItem.Stalled(new RunnerRef(FERNMOSS.pipe(), "Divination"), FERNMOSS.name(),
+                new AttentionItem.Stalled(new RunnerRef(FERNMOSS.key(), "Divination"), FERNMOSS.name(),
                         Optional.of(now.minusSeconds(38)), 4_410));
     }
 
     private Kpis kpis(Scope scope, List<RunnerRow> runners, List<RpcRow> rpc) {
-        List<Client> inScope = clients().stream().filter(c -> scope.includes(c.pipe())).toList();
+        List<Client> inScope = clients().stream().filter(c -> scope.includes(c.key())).toList();
         int alive = (int) inScope.stream().filter(Client::isAlive).count();
         int reconnecting = inScope.size() - alive;
         long calls = rpc.stream().mapToLong(RpcRow::calls).sum();
@@ -270,7 +287,7 @@ final class FixtureDashboardModel implements DashboardModel {
         List<ScopeOption> out = new ArrayList<>();
         out.add(new ScopeOption(Scope.ALL, "All clients (" + clients().size() + ")"));
         for (Client c : clients()) {
-            out.add(new ScopeOption(Scope.of(c.pipe()), c.name(), c.isAlive() ? "" : "not responding"));
+            out.add(new ScopeOption(Scope.of(c.key()), c.name(), c.isAlive() ? "" : "not responding"));
         }
         return out;
     }
@@ -281,7 +298,7 @@ final class FixtureDashboardModel implements DashboardModel {
         @Override public void run(RunnerRef runner) { }
         @Override public void openSettings(RunnerRef runner) { }
         @Override public void threadDump(RunnerRef runner) { }
-        @Override public void retryNow(String pipe) { }
+        @Override public void retryNow(ClientKey client) { }
         @Override public void reload() { }
         @Override public void setWatch(boolean isOn) { }
         @Override public void setRestartAfterReload(boolean isOn) { }

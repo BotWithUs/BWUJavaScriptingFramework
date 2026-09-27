@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.gui.usermode.board;
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ScriptHealth;
+import com.botwithus.bot.cli.gui.runners.RunnerReading;
 import com.botwithus.bot.core.runtime.RunnerLiveness;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
@@ -46,6 +47,11 @@ class CrashedRunnerTest {
         return r;
     }
 
+    /** The crash the row's Restart acts on: the shared rule's, as the row reads it. */
+    private static Optional<LastCrash> currentCrash(ScriptRunner r) {
+        return RunnerReading.of(r).currentCrash();
+    }
+
     private static boolean showsCrashed(ScriptRunner r) {
         return switch (ClientRows.stateOf(r, at(10), System.nanoTime(), ZoneOffset.UTC)) {
             case ScriptState.Crashed _ -> true;
@@ -59,7 +65,7 @@ class CrashedRunnerTest {
         // crash is from an earlier run.
         ScriptRunner b = runner(at(4), at(3), false);
 
-        assertTrue(ClientRows.currentCrash(b).isEmpty());
+        assertTrue(currentCrash(b).isEmpty());
         assertEquals(false, showsCrashed(b));
     }
 
@@ -69,15 +75,15 @@ class CrashedRunnerTest {
         ScriptRunner b = runner(at(2), at(3), false);
 
         assertEquals(List.of(true, true), List.of(showsCrashed(a), showsCrashed(b)));
-        assertEquals(Optional.of(at(1)), ClientRows.currentCrash(a).map(LastCrash::when));
-        assertEquals(Optional.of(at(3)), ClientRows.currentCrash(b).map(LastCrash::when));
+        assertEquals(Optional.of(at(1)), currentCrash(a).map(LastCrash::when));
+        assertEquals(Optional.of(at(3)), currentCrash(b).map(LastCrash::when));
     }
 
     @Test
     void aRunningRunner_isNeverTheCrashedOne() {
         ScriptRunner a = runner(at(0), at(1), true);
 
-        assertTrue(ClientRows.currentCrash(a).isEmpty());
+        assertTrue(currentCrash(a).isEmpty());
     }
 
     @Test
@@ -85,23 +91,14 @@ class CrashedRunnerTest {
         ScriptRunner neverStarted = runner(null, at(1), false);
         ScriptRunner healthy = runner(at(0), null, false);
 
-        assertTrue(ClientRows.currentCrash(neverStarted).isEmpty());
-        assertTrue(ClientRows.currentCrash(healthy).isEmpty());
+        assertTrue(currentCrash(neverStarted).isEmpty());
+        assertTrue(currentCrash(healthy).isEmpty());
     }
 
     @Test
     void aCrashAtTheSameInstantAsTheStart_belongsToThatRun() {
         ScriptRunner r = runner(at(0), at(0), false);
 
-        assertTrue(ClientRows.currentCrash(r).isPresent());
-    }
-
-    @Test
-    void theSummaryNamesTheExceptionAndThePhase() {
-        LastCrash crash = new LastCrash(Phase.ON_START, 0L, T0, new IllegalArgumentException());
-        LastCrash noCause = new LastCrash(Phase.ON_STOP, 0L, T0, null);
-
-        assertEquals("IllegalArgumentException in onStart()", ClientRows.crashSummary(crash));
-        assertEquals("Error in onStop()", ClientRows.crashSummary(noCause));
+        assertTrue(currentCrash(r).isPresent());
     }
 }

@@ -1,6 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.installed;
 
-import com.botwithus.bot.api.runtime.Liveness;
+import com.botwithus.bot.cli.gui.runners.RunnerReading;
 
 /**
  * One client's dot in a script's row: where the script stands on that client.
@@ -29,21 +29,21 @@ public enum RunnerState {
     OFFLINE;
 
     /**
-     * Derives the state from what the runner reports. A client that is not
-     * connected wins over everything else, because what its runner last said
-     * is no longer news.
+     * Derives the state from what the runner reports, by the shared
+     * {@link RunnerReading#status()} rule. A client that is not connected wins
+     * over everything else, because what its runner last said is no longer news.
      */
     public static RunnerState of(RunnerFacts facts) {
         if (!facts.isClientAlive()) {
             return OFFLINE;
         }
-        if (facts.liveness().isTerminal()) {
-            return CUT_OFF;
-        }
-        if (facts.isRunning()) {
-            return facts.liveness() == Liveness.STALLED ? STALLED : RUNNING;
-        }
-        return facts.currentCrash().isPresent() ? CRASHED : STOPPED;
+        return switch (facts.reading().status()) {
+            case CUT_OFF -> CUT_OFF;
+            case STALLED -> STALLED;
+            case RUNNING -> RUNNING;
+            case CRASHED -> CRASHED;
+            case STOPPED -> STOPPED;
+        };
     }
 
     /** Running or stalled: the script is on, whether or not it is making progress. */

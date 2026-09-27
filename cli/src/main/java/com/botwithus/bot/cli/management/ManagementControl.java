@@ -1,6 +1,5 @@
 package com.botwithus.bot.cli.management;
 
-import com.botwithus.bot.api.script.ClientOrchestrator;
 import com.botwithus.bot.api.script.ClientOrchestrator.OpResult;
 import com.botwithus.bot.cli.ClientManager;
 import com.botwithus.bot.cli.groups.ClientGroup;
@@ -26,7 +25,7 @@ public final class ManagementControl {
     private final Supplier<ManagementScriptRuntime> runtime;
     private final ManagementTargets targets;
     private final GroupStore groups;
-    private final ClientOrchestrator host;
+    private final ClientManager host;
 
     /**
      * @param runtime the management runtime, created on first use
@@ -35,7 +34,7 @@ public final class ManagementControl {
      * @param host    the host's own orchestrator, over every client
      */
     public ManagementControl(Supplier<ManagementScriptRuntime> runtime, ManagementTargets targets,
-                             GroupStore groups, ClientOrchestrator host) {
+                             GroupStore groups, ClientManager host) {
         this.runtime = Objects.requireNonNull(runtime, "runtime");
         this.targets = Objects.requireNonNull(targets, "targets");
         this.groups = Objects.requireNonNull(groups, "groups");
@@ -87,11 +86,13 @@ public final class ManagementControl {
     }
 
     /**
-     * Stops every script on the group's clients, pausing the group's manager
-     * first so it does not start them again. Client scripts elsewhere, and the
-     * manager's work on its other targets, carry on.
+     * Stops every script on the group's clients, and cancels the starts queued
+     * for them, pausing the group's manager first so it does not start them
+     * again. The scripts stay loaded, so each can be run again from where it is
+     * listed. Client scripts elsewhere, and the manager's work on its other
+     * targets, carry on.
      *
-     * @return one result per client, as {@link ClientOrchestrator#stopAllScriptsOnGroup}
+     * @return one result per script stopped, as {@link ClientManager#stopRunningOnGroup}
      *         gives them; empty if there is no such group
      */
     public List<OpResult> stopAllOnGroup(GroupId id) {
@@ -100,7 +101,7 @@ public final class ManagementControl {
             return List.of();
         }
         targets.setManagerPaused(id, true);
-        return host.stopAllScriptsOnGroup(group.get().name());
+        return host.stopRunningOnGroup(group.get().name());
     }
 
     /**

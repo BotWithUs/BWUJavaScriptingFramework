@@ -4,7 +4,6 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.usermode.CardText.Chip;
 import com.botwithus.bot.cli.gui.usermode.CardText.Note;
 import com.botwithus.bot.cli.gui.usermode.CardText.Stat;
@@ -44,6 +43,9 @@ final class ClientCard {
 
         /** Open the inspector on {@code scriptName}. */
         record Configure(String scriptName) implements Intent { }
+
+        /** Open Management on {@code managementScript}, which manages a script on the card. */
+        record OpenManagement(String managementScript) implements Intent { }
     }
 
     private static final float NAME_LINE = 1.3f;
@@ -90,7 +92,7 @@ final class ClientCard {
      */
     Intent render(ClientView view, float x, float y, float w, boolean selected, float appear,
                   ClientActions actions) {
-        float slide = (1f - Motion.easeOutCubic(appear)) * ui.fonts().body().getFontSize() * APPEAR_SLIDE_EM;
+        float slide = (1f - ui.motion().ease(appear)) * ui.fonts().body().getFontSize() * APPEAR_SLIDE_EM;
         float top = y + slide;
         float bodyH = bodyHeight(view, w);
         float h = headHeight() + bodyH + footerHeight();
@@ -119,7 +121,7 @@ final class ClientCard {
     private static boolean isNone(Intent intent) {
         return switch (intent) {
             case Intent.None _ -> true;
-            case Intent.Select _, Intent.StartScript _, Intent.Configure _ -> false;
+            case Intent.Select _, Intent.StartScript _, Intent.Configure _, Intent.OpenManagement _ -> false;
         };
     }
 
@@ -128,7 +130,7 @@ final class ClientCard {
     private void paintFrame(ImDrawList draw, ClientView view, float x, float y, float w, float h,
                             boolean selected, boolean hovered) {
         float r = ui.m().radiusLarge();
-        float t = Motion.step("card:" + view.id().value(), hovered ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
+        float t = ui.motion().step("card:" + view.id().value(), hovered ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
         draw.addRectFilled(x, y, x + w, y + h, ImGuiTheme.COL_SURFACE, r);
         int border = selected ? ImGuiTheme.COL_ACCENT
                 : Controls.lerp(ImGuiTheme.COL_BORDER, ImGuiTheme.COL_BORDER_HOVER, t);
@@ -300,8 +302,9 @@ final class ClientCard {
         for (ScriptRow row : view.scripts()) {
             divider(draw, x, ry, w);
             ry += ui.m().hairline();
-            if (rows.render(view, row, x, ry, w, actions)) {
-                intent = new Intent.Configure(row.name());
+            Intent clicked = rows.render(view, row, x, ry, w, actions);
+            if (!isNone(clicked)) {
+                intent = clicked;
             }
             ry += rows.height(view, row, w);
         }
@@ -326,7 +329,7 @@ final class ClientCard {
 
     private void paintSkeletonRow(ImDrawList draw, float x, float y, float w) {
         ImGuiTheme.Metrics m = ui.m();
-        float breathe = Motion.pulse(1.0 / ImGuiTheme.PULSE_PERIOD_S);
+        float breathe = ui.motion().pulse(1.0 / ImGuiTheme.PULSE_PERIOD_S);
         int col = Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, 1f - (1f - SKELETON_DIM) * breathe);
         float tile = m.iconTile();
         float left = x + m.u(4);

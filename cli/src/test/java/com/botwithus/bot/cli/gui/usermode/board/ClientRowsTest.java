@@ -91,6 +91,22 @@ class ClientRowsTest {
     }
 
     @Test
+    void aRunnerStillStuckInOnLoopAfterAStopWasAsked_isStalled_notStopped() {
+        Runner r = Runner.started(STARTED, false);
+        r.liveness().enterLoop();
+        r.liveness().markStalled();
+        long later = System.nanoTime() + TimeUnit.SECONDS.toNanos(STALL_SECONDS);
+
+        ScriptState state = ClientRows.stateOf(r.runner(), NOW, later, ZONE);
+
+        ScriptState.Stalled stalled = switch (state) {
+            case ScriptState.Stalled s -> s;
+            default -> throw new AssertionError("expected stalled, got " + state);
+        };
+        assertEquals(STALL_SECONDS, stalled.inLoop().toSeconds());
+    }
+
+    @Test
     void aStoppedRunnerWhoseCurrentRunCrashed_isCrashed_withTheCrashAndItsTime() {
         Instant crashed = STARTED.plusSeconds(90);
         Runner r = Runner.started(STARTED, false).crashedAt(crashed);

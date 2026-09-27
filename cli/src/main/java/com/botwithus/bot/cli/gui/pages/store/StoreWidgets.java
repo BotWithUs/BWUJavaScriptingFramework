@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui.pages.store;
 
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -28,17 +27,10 @@ final class StoreWidgets {
     private static final float STAR_RADIUS_OF_BOX = 0.3f;
     private static final float STAR_STROKE_PX = 1.3f;
     private static final float STAR_TOP = (float) (-Math.PI / 2);
-    private static final float BOX_EM = 1.067f;
     private static final float CHIP_BOX_EM = 0.933f;
-    private static final float BOX_RADIUS_PX = 3f;
-    private static final float TICK_STROKE_PX = 1.8f;
-    private static final float TICK_START_X = 0.24f;
-    private static final float TICK_MID_X = 0.42f;
-    private static final float TICK_MID_Y = 0.68f;
-    private static final float TICK_END_X = 0.76f;
-    private static final float TICK_END_Y = 0.32f;
-    private static final float TICK_START_Y = 0.5f;
-    private static final float DISABLED_TICK_ALPHA = 0.25f;
+    /** A category chip's box ticks light on dark, so it reads against the chip's raised fill. */
+    private static final Controls.TickColors CHIP_TICK =
+            new Controls.TickColors(ImGuiTheme.COL_FG, ImGuiTheme.COL_BG);
     private static final float SPIN_PERIOD_S = 0.9f;
     private static final float SPIN_SWEEP = (float) (Math.PI * 1.4);
     private static final float SPIN_STROKE_PX = 2f;
@@ -73,7 +65,7 @@ final class StoreWidgets {
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, size, size);
-        float t = Motion.step("star:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("star:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + size, y + size, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, t),
                 ui.m().radiusSmall());
@@ -100,43 +92,6 @@ final class StoreWidgets {
         }
     }
 
-    // ── Tick box ───────────────────────────────────────────────────────────
-
-    float boxSize() {
-        return ui.fonts().body().getFontSize() * BOX_EM;
-    }
-
-    /** A batch-install tick box. Returns true when clicked while enabled. */
-    boolean tickBox(String id, boolean isTicked, boolean enabled) {
-        float size = boxSize();
-        float x = ImGui.getCursorScreenPosX();
-        float y = ImGui.getCursorScreenPosY();
-        ImGui.beginDisabled(!enabled);
-        boolean clicked = ImGui.invisibleButton(id, size, size);
-        boolean hovered = enabled && ImGui.isItemHovered();
-        ImGui.endDisabled();
-        float alpha = enabled ? 1f : DISABLED_TICK_ALPHA;
-        paintBox(ImGui.getWindowDrawList(), x, y, size, isTicked, hovered, ImGuiTheme.COL_ACCENT,
-                ImGuiTheme.COL_ON_ACCENT, alpha);
-        return clicked && enabled;
-    }
-
-    private void paintBox(ImDrawList draw, float x, float y, float size, boolean isTicked, boolean hovered,
-                          int fill, int tick, float alpha) {
-        if (isTicked) {
-            draw.addRectFilled(x, y, x + size, y + size, Controls.scaleAlpha(fill, alpha), BOX_RADIUS_PX);
-            draw.pathClear();
-            draw.pathLineTo(x + size * TICK_START_X, y + size * TICK_START_Y);
-            draw.pathLineTo(x + size * TICK_MID_X, y + size * TICK_MID_Y);
-            draw.pathLineTo(x + size * TICK_END_X, y + size * TICK_END_Y);
-            draw.pathStroke(Controls.scaleAlpha(tick, alpha), 0, TICK_STROKE_PX);
-            return;
-        }
-        int border = hovered ? ImGuiTheme.COL_FG2 : ImGuiTheme.COL_FG3;
-        draw.addRect(x + 0.5f, y + 0.5f, x + size - 0.5f, y + size - 0.5f, Controls.scaleAlpha(border, alpha),
-                BOX_RADIUS_PX);
-    }
-
     // ── Buttons ────────────────────────────────────────────────────────────
 
     float linkWidth(String icon, String label) {
@@ -155,7 +110,7 @@ final class StoreWidgets {
         boolean clicked = ImGui.invisibleButton(id, w, height);
         boolean hovered = enabled && ImGui.isItemHovered();
         ImGui.endDisabled();
-        float t = Motion.step("link:" + id, hovered ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("link:" + id, hovered ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + w, y + height, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, t), m.radius());
         int fg = Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
@@ -201,7 +156,7 @@ final class StoreWidgets {
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, w, h);
-        float t = Motion.step("chk:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("chk:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         if (isOn) {
             draw.addRectFilled(x, y, x + w, y + h, ImGuiTheme.COL_ELEVATED, m.radius());
@@ -209,7 +164,7 @@ final class StoreWidgets {
         draw.addRect(x + 0.5f, y + 0.5f, x + w - 0.5f, y + h - 0.5f,
                 Controls.lerp(ImGuiTheme.COL_BORDER, ImGuiTheme.COL_BORDER_HOVER, t), m.radius());
         float box = chipBox();
-        paintBox(draw, x + m.u(3), y + (h - box) * 0.5f, box, isOn, t > 0.5f, ImGuiTheme.COL_FG, ImGuiTheme.COL_BG, 1f);
+        Controls.paintTickBox(draw, x + m.u(3), y + (h - box) * 0.5f, box, isOn, t > 0.5f, 1f, CHIP_TICK);
         int fg = isOn ? ImGuiTheme.COL_FG : Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
         ui.textCentredY(draw, ui.fonts().small(), x + m.u(3) + box + m.u(1.5f), y, h, fg, label);
         return clicked;

@@ -18,7 +18,8 @@ import java.util.function.BiFunction;
 /**
  * Draws one section's rows inside their rounded box: label and description on
  * the left, one control on the right, a hairline between rows. The accounts and
- * config-key tables are drawn by {@link SettingsTables}.
+ * config-key tables are drawn by {@link SettingsTables}, and the Integrations
+ * cards, grid and quiet hours by {@link IntegrationRows}.
  */
 final class SettingsRows {
 
@@ -44,12 +45,15 @@ final class SettingsRows {
     private final SettingsWidgets widgets;
     private final RowEdits edits;
     private final SettingsTables tables;
+    private final IntegrationRows integrations;
 
-    SettingsRows(Controls ui, SettingsWidgets widgets, RowEdits edits, SettingsTables tables) {
+    SettingsRows(Controls ui, SettingsWidgets widgets, RowEdits edits, SettingsTables tables,
+                 IntegrationRows integrations) {
         this.ui = ui;
         this.widgets = widgets;
         this.edits = edits;
         this.tables = tables;
+        this.integrations = integrations;
     }
 
     /** Draws {@code items} in their box at the cursor, {@code width} wide, and moves the cursor below it. */
@@ -84,6 +88,10 @@ final class SettingsRows {
             case SettingsItem.PlaceRow place -> placeRow(place, x, y, width, model);
             case SettingsItem.ActionRow action -> actionRow(action, x, y, width, model);
             case SettingsItem.RawKeys keys -> tables.rawKeys(keys.rows(), x, y, width, model);
+            case SettingsItem.ServiceCard card -> integrations.card(card, x, y, width, model);
+            case SettingsItem.EventGrid grid -> integrations.grid(grid, x, y, width, model);
+            case SettingsItem.QuietHours quiet -> integrations.quietHours(quiet, x, y, width, model);
+            case SettingsItem.Notice notice -> integrations.notice(notice, x, y, width);
         };
     }
 

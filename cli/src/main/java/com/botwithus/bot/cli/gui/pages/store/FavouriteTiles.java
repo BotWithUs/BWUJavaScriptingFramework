@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui.pages.store;
 
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -88,7 +87,7 @@ final class FavouriteTiles {
     private void tile(StoreRow row, StoreActions actions, float x, float y, float tw, float th, boolean isSelected) {
         ImGuiTheme.Metrics m = ui.m();
         boolean isHovered = ImGui.isWindowHovered() && ImGui.isMouseHoveringRect(x, y, x + tw, y + th);
-        float t = Motion.step("fav:" + row.id(), isHovered ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("fav:" + row.id(), isHovered ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + tw, y + th, ImGuiTheme.COL_SURFACE, m.radiusLarge());
         int border = isSelected ? ImGuiTheme.COL_INFO : Controls.lerp(ImGuiTheme.COL_BORDER, ImGuiTheme.COL_BORDER_HOVER, t);

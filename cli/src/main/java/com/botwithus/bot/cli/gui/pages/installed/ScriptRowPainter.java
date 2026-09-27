@@ -215,7 +215,7 @@ final class ScriptRowPainter {
         float by = y + (rowHeight() - bh) * 0.5f;
         String id = "##row:" + s.key();
         if (s.provenance().isStoreNotLoaded()) {
-            installAgain(id, state, c, by, bh);
+            installAgain(s, id, state, c, by, bh);
             return;
         }
         if (state.isStopArmed(s.key())) {
@@ -254,11 +254,11 @@ final class ScriptRowPainter {
         return "Stop on " + s.activeCount();
     }
 
-    private void installAgain(String id, InstalledState state, Columns c, float by, float bh) {
+    private void installAgain(InstalledScript s, String id, InstalledState state, Columns c, float by, float bh) {
         float bw = w.ui().buttonWidth(Icons.BAG_SHOPPING, "Install again", Tone.SOFT);
         ImGui.setCursorScreenPos(c.actions() + c.actionsW() - bw, by);
         if (w.ui().button(id + ":install", Icons.BAG_SHOPPING, "Install again", Tone.SOFT, true, bh)) {
-            state.openStore();
+            state.showInStore(s);
         }
     }
 
