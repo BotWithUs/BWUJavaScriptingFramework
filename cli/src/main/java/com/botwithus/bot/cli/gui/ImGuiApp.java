@@ -42,6 +42,8 @@ import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
 import com.botwithus.bot.cli.gui.pages.connections.ConnectCommandPipes;
 import com.botwithus.bot.cli.gui.pages.connections.ConnectionsPage;
 import com.botwithus.bot.cli.gui.pages.connections.LiveConnectionsModel;
+import com.botwithus.bot.cli.gui.pages.groups.GroupsPage;
+import com.botwithus.bot.cli.gui.pages.groups.LiveGroupsModel;
 import com.botwithus.bot.cli.gui.pages.dashboard.CommandConsole;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.LiveDashboardModel;
@@ -368,7 +370,6 @@ public class ImGuiApp extends Application {
         Path scriptsDir = LocalScriptLoader.scriptsDir();
         Optional<SecondLine> managementLine = Optional.of(folderLine(ManagementScriptLoader.managementDirIn(scriptsDir)));
         return List.of(
-                LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
                 new LegacyPanelPage(PageId.MANAGEMENT, ui, ctx, List.of(mgmtPanel), () -> managementLine));
     }
 
@@ -378,6 +379,7 @@ public class ImGuiApp extends Application {
         all.add(dashboardPage());
         all.add(storePage(sdnCatalogue, sdnInstaller));
         all.add(connectionsPage());
+        all.add(groupsPage());
         all.add(installedPage(sdnCatalogue, sdnInstaller));
         all.add(settingsPage());
         return all;
@@ -405,6 +407,15 @@ public class ImGuiApp extends Application {
                 () -> ctx.getLastLoadReport().scripts(),
                 task -> Thread.ofVirtual().name("sdn-store-install").start(task), InstantSource.system());
         return new StorePage(ui, model, id -> pages.select(id));
+    }
+
+    /**
+     * Groups over the live host. Its Start script dialog lists the scripts the
+     * Clients board last loaded, off the render thread; every change runs on the
+     * console's queue.
+     */
+    private GroupsPage groupsPage() {
+        return new GroupsPage(ui, new LiveGroupsModel(ctx, board::catalog, executor));
     }
 
     /**

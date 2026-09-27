@@ -9,6 +9,7 @@ import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.groups.GroupId;
 import com.botwithus.bot.cli.gui.AppMode;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.FontLoader;
@@ -29,6 +30,9 @@ import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.DockTab;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerFilter;
+import com.botwithus.bot.cli.gui.pages.groups.BusyChoice;
+import com.botwithus.bot.cli.gui.pages.groups.GroupsPage;
+import com.botwithus.bot.cli.gui.pages.groups.GroupsPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
@@ -369,7 +373,6 @@ public final class ShellPreview extends Application {
                 }),
                 Scenario.advanced("24-advanced-installed-selected", FixtureBoard::thirteenClients,
                         select(PageId.INSTALLED)),
-                Scenario.advanced("25-advanced-groups-interim", FixtureBoard::waiting, select(PageId.GROUPS)),
                 new Scenario("26-advanced-store-signed-out", AppMode.ADVANCED, FixtureBoard::everyState,
                         FixtureStoreModel::signedOut, select(PageId.STORE)),
                 Scenario.advanced("27-advanced-settings-selected", FixtureBoard::waiting,
@@ -392,7 +395,7 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::everyState,
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
-                installedScenarios(), settingsScenarios()).flatMap(List::stream).toList();
+                installedScenarios(), settingsScenarios(), groupsScenarios()).flatMap(List::stream).toList();
     }
 
     /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
@@ -525,6 +528,81 @@ public final class ShellPreview extends Application {
                 ConnectionsPreviewSeams.select(s.pages().connections(), id);
             }
         };
+    }
+
+    /**
+     * Groups: the busy page, an empty group, no groups, the Start script plan, the
+     * Add clients and New group dialogs, unresolved members with a refusal notice
+     * and ticked rows, the Stop all confirm, and a rename.
+     */
+    private static List<Scenario> groupsScenarios() {
+        GroupId woodcutters = FixtureGroupsModel.WOODCUTTERS;
+        return List.of(
+                groups("100-groups-busy", (s, page) -> GroupsPreviewSeams.select(page, woodcutters)),
+                groups("101-groups-empty-group", (s, page) -> {
+                    s.pages().groupsModel().showEmptyGroup();
+                    GroupsPreviewSeams.select(page, FixtureGroupsModel.YEW_TEAM);
+                }),
+                groups("102-groups-none", (s, page) -> s.pages().groupsModel().showNoGroups()),
+                Scenario.advanced("103-groups-start-plan", FixtureBoard::everyState, ShellPreview::groupsStartPlan),
+                Scenario.advanced("104-groups-add-clients", FixtureBoard::everyState, ShellPreview::groupsAddClients),
+                Scenario.advanced("105-groups-new-group", FixtureBoard::everyState, ShellPreview::groupsNewGroup),
+                groups("106-groups-unresolved-members", (s, page) -> {
+                    s.pages().groupsModel().showUnresolved();
+                    GroupsPreviewSeams.select(page, FixtureGroupsModel.OLD_GROUP);
+                    GroupsPreviewSeams.tick(page, FixtureGroupsModel.OLD_GROUP, "pipe:BotWithUs_9120");
+                }),
+                groups("107-groups-stop-all-confirm", (s, page) -> {
+                    GroupsPreviewSeams.select(page, woodcutters);
+                    GroupsPreviewSeams.askStopAll(page);
+                }),
+                groups("108-groups-rename", (s, page) -> {
+                    GroupsPreviewSeams.select(page, FixtureGroupsModel.QUESTERS);
+                    GroupsPreviewSeams.startRename(page, "Questers");
+                }));
+    }
+
+    private static Scenario groups(String name, BiConsumer<Stage, GroupsPage> setUp) {
+        return Scenario.advanced(name, FixtureBoard::everyState, groups(setUp));
+    }
+
+    /** Opens Groups and, on the first frame, puts it in a state through its seams. */
+    private static BiConsumer<Stage, Integer> groups(BiConsumer<Stage, GroupsPage> setUp) {
+        return (s, f) -> {
+            if (f == 0) {
+                s.pages().registry().select(PageId.GROUPS);
+                setUp.accept(s, s.pages().groups());
+            }
+        };
+    }
+
+    /** Start script on Woodcutters with Divination picked: every kind of member shows in the plan. */
+    private static void groupsStartPlan(Stage s, int f) {
+        groups((stage, page) -> GroupsPreviewSeams.openStartScript(page, FixtureGroupsModel.WOODCUTTERS))
+                .accept(s, f);
+        if (f == 2) {
+            GroupsPreviewSeams.choose(s.pages().groups(), DIVINATION_CATALOG_ROW, BusyChoice.SWITCH);
+        }
+    }
+
+    /** Add clients to Questers with two clients ticked; the dev client is listed but cannot join. */
+    private static void groupsAddClients(Stage s, int f) {
+        groups((stage, page) -> GroupsPreviewSeams.openAddClients(page, FixtureGroupsModel.QUESTERS))
+                .accept(s, f);
+        if (f == 2) {
+            GroupsPreviewSeams.fill(s.pages().groups(), "", List.of(
+                    ClientKey.account(FixtureGroupsModel.KESTREL), ClientKey.account(FixtureGroupsModel.SABLETON)));
+        }
+    }
+
+    /** New group, named, with one client ticked. */
+    private static void groupsNewGroup(Stage s, int f) {
+        // Filled on the frame it opens: once the name field has the keyboard, ImGui keeps its own copy of the text.
+        groups((stage, page) -> {
+            GroupsPreviewSeams.openNewGroup(page);
+            GroupsPreviewSeams.fill(page, "Yew team", List.of(ClientKey.account(FixtureGroupsModel.KESTREL),
+                    ClientKey.account(FixtureGroupsModel.SABLETON)));
+        }).accept(s, f);
     }
 
     /** Installed scripts: busy, empty, failures, both detail tabs, Start on… and an armed stop. */
@@ -718,6 +796,8 @@ public final class ShellPreview extends Application {
     private static final int DIVINATION_UPDATE_ROW = 1;
     private static final int HERBLORE_INSTALLING_ROW = 2;
     private static final int RUNECRAFTING_FAILED_ROW = 3;
+    /** Divination's row in the Groups Start script dialog, which lists {@link FixtureBoard}'s catalogue in order. */
+    private static final int DIVINATION_CATALOG_ROW = 2;
 
     /** Opens the picker on the idle client and highlights {@code row}. */
     private static BiConsumer<Stage, Integer> pickerOnRow(int row) {
