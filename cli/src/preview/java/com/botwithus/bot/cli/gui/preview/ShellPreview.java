@@ -1,14 +1,17 @@
 package com.botwithus.bot.cli.gui.preview;
 
 import com.botwithus.bot.api.ScriptCategory;
-import com.botwithus.bot.api.event.ConnectionLostEvent;
-import com.botwithus.bot.api.event.ReconnectStateChangedEvent;
-import com.botwithus.bot.api.event.ScriptCrashedEvent;
-import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.events.HostEvent;
+import com.botwithus.bot.cli.events.HostEvent.ClientResumed;
+import com.botwithus.bot.cli.events.HostEvent.ConnectionLost;
+import com.botwithus.bot.cli.events.HostEvent.ReconnectStateChanged;
+import com.botwithus.bot.cli.events.HostEvent.ScriptCrashed;
+import com.botwithus.bot.cli.events.HostEvent.ScriptLoadFailed;
+import com.botwithus.bot.cli.events.HostEvent.ScriptStalled;
 import com.botwithus.bot.cli.groups.GroupId;
 import com.botwithus.bot.cli.gui.AppMode;
 import com.botwithus.bot.cli.gui.Controls;
@@ -37,6 +40,7 @@ import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
+import com.botwithus.bot.cli.gui.notify.ToastFeed;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsAction;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsSection;
@@ -50,10 +54,11 @@ import com.botwithus.bot.cli.gui.usermode.PreviewSeams;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.cli.gui.window.WindowRect;
+import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SaveStatus;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.settings.TextSize;
-import com.botwithus.bot.core.impl.EventBusImpl;
+import com.botwithus.bot.core.pipe.PipeException;
 
 import imgui.ImGui;
 import imgui.app.Application;
@@ -77,6 +82,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -157,11 +163,14 @@ public final class ShellPreview extends Application {
     }
 
     /** What a scenario's frame hook can reach. */
-    private record Stage(FixtureBoard board, UserModeRenderer page, EventBusImpl bus, FixturePages.Built pages,
+    private record Stage(FixtureBoard board, UserModeRenderer page, Consumer<HostEvent> toasts,
+                         FixtureToasts fleet, FixturePages.Built pages,
                          InspectorDock inspector, FixtureWindow window, Consumer<TextSize> textSize) {}
 
     private final Path outDir;
     private final List<Scenario> scenarios = scenarios();
+    /** Defaults only, read by the toast feed; kept under the output folder, never the user's home. */
+    private HostSettings toastSettings;
     private int scenarioIndex;
     private int frame;
     private Controls ui;
@@ -199,6 +208,7 @@ public final class ShellPreview extends Application {
         ui = new Controls(FontLoader.loadAll(SCALE, ADVANCED_FONT_PX));
         ImGuiTheme.apply(SCALE);
         fbo = createFramebuffer();
+        toastSettings = HostSettings.open(outDir.resolve("toast-settings"));
         startScenario();
     }
 
@@ -207,14 +217,12 @@ public final class ShellPreview extends Application {
         FixtureBoard board = s.board().get();
         InspectorDock inspector = new InspectorDock(ui, new InspectorState(Clock.systemDefaultZone()), board);
         UserModeRenderer page = new UserModeRenderer(ui, inspector.state());
-        EventBusImpl bus = new EventBusImpl();
-        NotificationOverlay toasts = new NotificationOverlay(Clock.systemDefaultZone(),
-                name -> board.clients().stream().filter(c -> c.pipe().filter(name::equals).isPresent())
-                        .flatMap(c -> c.account().stream()).findFirst().orElse(name));
-        toasts.subscribeTo(bus);
+        NotificationOverlay toasts = new NotificationOverlay(Clock.systemDefaultZone());
+        FixtureToasts fleet = new FixtureToasts(board);
+        ToastFeed feed = new ToastFeed(toasts, toastSettings, fleet);
         FixturePages.Built pages = FixturePages.build(ui, page, board, s.store().get(), s.connections().get());
         FixtureWindow window = new FixtureWindow(new WindowRect(0, 0, WIDTH, HEIGHT));
-        stage = new Stage(board, page, bus, pages, inspector, window, size -> textSize = size);
+        stage = new Stage(board, page, feed, fleet, pages, inspector, window, size -> textSize = size);
         shell = new Shell(ui, pages.registry(), inspector, toasts,
                 new FramelessChrome(ui, window, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT));
         mode = s.mode();
@@ -395,7 +403,8 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::everyState,
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
-                installedScenarios(), settingsScenarios(), groupsScenarios()).flatMap(List::stream).toList();
+                installedScenarios(), settingsScenarios(), groupsScenarios(), toastScenarios())
+                .flatMap(List::stream).toList();
     }
 
     /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
@@ -820,26 +829,99 @@ public final class ShellPreview extends Application {
         }
     }
 
-    private static void failureToasts(Stage s, int f) {
-        if (f != 0) {
-            return;
+    // ── Toasts ─────────────────────────────────────────────────────────────
+
+    private static final String HOLLOWMERE = "Hollowmere";
+    private static final String OAKHEART_NAME = "Oakheart";
+    private static final String TAMSIN_VALE_NAME = "Tamsin Vale";
+    private static final int GAVE_UP_ATTEMPTS = 5;
+    private static final long FIRST_RETRY_MS = 500L;
+    private static final long LATER_RETRY_MS = 4000L;
+    /** When the stop lands in "stop retrying": after the retry toast has slid in. */
+    private static final int STOP_FRAME = 10;
+
+    /** Each toast kind, fed through the real toast feed as host events. */
+    private static List<Scenario> toastScenarios() {
+        return List.of(
+                new Scenario("110-toast-not-responding", FixtureBoard::everyState, once((s, at) -> {
+                    s.toasts().accept(new ConnectionLost(s.fleet().ref(HOLLOWMERE), new PipeException("eof"), at));
+                    s.toasts().accept(reconnect(s, HOLLOWMERE,
+                            new ReconnectState.Reconnecting(0L, 1, FIRST_RETRY_MS)));
+                })),
+                new Scenario("111-toast-gave-up-try-again", FixtureBoard::everyState, once((s, at) ->
+                        s.toasts().accept(reconnect(s, HOLLOWMERE, new ReconnectState.GivingUp(0L,
+                                GAVE_UP_ATTEMPTS, new PipeException("pipe did not come back")))))),
+                new Scenario("112-toast-client-closed", FixtureBoard::everyState, once((s, at) ->
+                        s.toasts().accept(reconnect(s, "Brackenridge", new ReconnectState.GivingUp(0L, 1,
+                                new PipeException("process exited")))))),
+                new Scenario("113-toast-client-back-new-pipe", FixtureBoard::everyState, once((s, at) ->
+                        s.toasts().accept(new ClientResumed(s.fleet().ref(OAKHEART_NAME),
+                                Optional.of("BotWithUs_19230"), at)))),
+                new Scenario("114-toast-reconnected", FixtureBoard::everyState, once((s, at) ->
+                        s.toasts().accept(reconnect(s, OAKHEART_NAME, new ReconnectState.Connected(0L))))),
+                new Scenario("115-toast-script-stalled", FixtureBoard::everyState, once((s, at) ->
+                        s.toasts().accept(new ScriptStalled(s.fleet().ref("Fernmoss"), "Divination", at)))),
+                new Scenario("116-toast-script-crashed", FixtureBoard::everyState, once(ShellPreview::crash)),
+                new Scenario("117-toast-load-failed-no-clients", FixtureBoard::waiting,
+                        once(ShellPreview::loadFailed)),
+                new Scenario("118-toast-stop-retrying-shows-none", FixtureBoard::everyState,
+                        ShellPreview::stopRetrying),
+                new Scenario("119-toasts-stack-of-three", FixtureBoard::everyState, once((s, at) -> {
+                    s.toasts().accept(new ScriptStalled(s.fleet().ref("Fernmoss"), "Divination", at));
+                    crash(s, at);
+                    loadFailed(s, at);
+                    s.toasts().accept(reconnect(s, OAKHEART_NAME, new ReconnectState.Connected(0L)));
+                })));
+    }
+
+    /** Runs {@code post} on the first frame only, with the time it happened. */
+    private static BiConsumer<Stage, Integer> once(BiConsumer<Stage, Instant> post) {
+        return (s, f) -> {
+            if (f == 0) {
+                post.accept(s, Instant.now());
+            }
+        };
+    }
+
+    private static ReconnectStateChanged reconnect(Stage s, String account, ReconnectState state) {
+        return new ReconnectStateChanged(s.fleet().ref(account), state, Instant.now());
+    }
+
+    private static void crash(Stage s, Instant at) {
+        s.toasts().accept(new ScriptCrashed(s.fleet().ref(TAMSIN_VALE_NAME), "Cook's Assistant",
+                new LastCrash(Phase.ON_LOOP, 0L, at, new NullPointerException()), at));
+    }
+
+    private static void loadFailed(Stage s, Instant at) {
+        s.toasts().accept(new ScriptLoadFailed(Path.of("scripts", "woodcutting-1.0-SNAPSHOT.jar"),
+                new IllegalStateException("missing module-info provides"), at));
+    }
+
+    /** A retry toast, then the user stops retrying: it slides out and no "gave up" error follows. */
+    private static void stopRetrying(Stage s, int f) {
+        if (f == 0) {
+            s.toasts().accept(reconnect(s, HOLLOWMERE, new ReconnectState.Reconnecting(0L, 1, FIRST_RETRY_MS)));
+        } else if (f == STOP_FRAME) {
+            s.toasts().accept(reconnect(s, HOLLOWMERE, new ReconnectState.GivingUp(0L, 1,
+                    new CancellationException("Stopped retrying on request"))));
         }
-        s.bus().publish(new ScriptLoadFailedEvent(Path.of("scripts", "woodcutting-1.0-SNAPSHOT.jar"),
-                new IllegalStateException("missing module-info provides")));
-        s.bus().publish(new ScriptCrashedEvent("Cook's Assistant", "BotWithUs_15002",
-                new LastCrash(Phase.ON_LOOP, 0L, Instant.now(), new NullPointerException())));
-        s.bus().publish(new ConnectionLostEvent("BotWithUs_10344", null));
+    }
+
+    private static void failureToasts(Stage s, int f) {
+        once((stage, at) -> {
+            loadFailed(stage, at);
+            crash(stage, at);
+            stage.toasts().accept(new ConnectionLost(stage.fleet().ref(HOLLOWMERE), null, at));
+        }).accept(s, f);
     }
 
     private static void reconnectToasts(Stage s, int f) {
-        if (f != 0) {
-            return;
-        }
-        s.bus().publish(new ReconnectStateChangedEvent(FixtureFleet.HOLLOWMERE_PIPE,
-                new ReconnectState.GivingUp(0L, 5, new IllegalStateException("pipe gone"))));
-        s.bus().publish(new ReconnectStateChangedEvent(FixtureFleet.HOLLOWMERE_PIPE,
-                new ReconnectState.Connected(0L)));
-        s.bus().publish(new ReconnectStateChangedEvent(FixtureFleet.HOLLOWMERE_PIPE,
-                new ReconnectState.Reconnecting(0L, 2, 4000L)));
+        once((stage, at) -> {
+            stage.toasts().accept(reconnect(stage, "Quillon", new ReconnectState.GivingUp(0L, GAVE_UP_ATTEMPTS,
+                    new PipeException("pipe did not come back"))));
+            stage.toasts().accept(reconnect(stage, OAKHEART_NAME, new ReconnectState.Connected(0L)));
+            stage.toasts().accept(reconnect(stage, HOLLOWMERE,
+                    new ReconnectState.Reconnecting(0L, 1, LATER_RETRY_MS)));
+        }).accept(s, f);
     }
 }

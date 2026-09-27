@@ -35,8 +35,9 @@ import com.botwithus.bot.cli.gui.nav.Page;
 import com.botwithus.bot.cli.gui.nav.PageId;
 import com.botwithus.bot.cli.gui.nav.PageRegistry;
 import com.botwithus.bot.cli.gui.nav.SecondLine;
-import com.botwithus.bot.cli.gui.notify.Notification;
+import com.botwithus.bot.cli.gui.notify.HostToasts;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
+import com.botwithus.bot.cli.gui.notify.ToastRoutes;
 import com.botwithus.bot.cli.gui.pages.ClientsPage;
 import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
 import com.botwithus.bot.cli.gui.pages.connections.ConnectCommandPipes;
@@ -157,8 +158,9 @@ public class ImGuiApp extends Application {
     // The one config inspector, shared by both modes and every "Settings" button
     private InspectorDock inspector;
 
-    // Toast/banner overlay (event-driven, fixed-position, top-right)
+    // Toasts (top-right), fed from the host event bus, and what their buttons do
     private NotificationOverlay notificationOverlay;
+    private ToastRoutes toastRoutes;
 
     // GLFW window handle, for closing the window from the console's `exit`
     private long glfwWindow;
@@ -204,6 +206,9 @@ public class ImGuiApp extends Application {
         ScriptProfileStore profileStore = new ScriptProfileStore();
         ctx.setProfileStore(profileStore);
         ctx.setSettings(settings);
+        // Before anything can connect or load scripts, so no toast-worthy event is missed.
+        notificationOverlay = new NotificationOverlay(Clock.systemDefaultZone());
+        HostToasts.attach(ctx, notificationOverlay);
         currentMode = AppMode.openingIn(settings.get(SettingKeys.START_MODE));
         AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore, ctx.getSettings());
         ctx.setAutoStartManager(autoStartManager);
@@ -339,9 +344,6 @@ public class ImGuiApp extends Application {
         inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx));
         ctx.setConfigPanelOpener(inspectorState.clientScriptOpener());
 
-        // Notification overlay (event-driven). Subscribed to each connection's
-        // event bus the moment connect() succeeds.
-        notificationOverlay = new NotificationOverlay(clock, this::accountOf);
         // One catalogue for the whole host: the Script Store and Normal mode's
         // "Your subscriptions" group read the same refresher, so there is one fetch loop.
         SdnCatalogueRefresher sdnCatalogue = StoreCatalogue.refresherFor(new SdnCatalogueSource());
@@ -351,11 +353,8 @@ public class ImGuiApp extends Application {
         board = new LiveClientBoard(ctx, this::openLogs, clock, sdnCatalogue, sdnInstaller, executor);
         pages = new PageRegistry(buildPages(sdnCatalogue, sdnInstaller));
         shell = new Shell(ui, pages, inspector, notificationOverlay, hostWindow.chrome(ui));
-        ctx.setOnConnect(conn -> {
-            if (conn.getEventBus() != null) {
-                notificationOverlay.subscribeTo(conn.getEventBus());
-            }
-        });
+        toastRoutes = new ToastRoutes(key -> board.actions().retryNow(key), this::openLogs,
+                () -> openLogs(Optional.empty()));
     }
 
     /**
@@ -483,7 +482,7 @@ public class ImGuiApp extends Application {
         // openLogs() runs inside render (card "View log", toast actions), so it
         // requests the switch rather than setting currentMode, which the render's
         // own result would overwrite.
-        currentMode = modeRequest.resolve(shell.render(currentMode, board, this::onToastAction));
+        currentMode = modeRequest.resolve(shell.render(currentMode, board, toastRoutes));
 
         hostWindow.endFrame();
     }
@@ -523,35 +522,11 @@ public class ImGuiApp extends Application {
         openLogs(ctx.getClientRegistry().get(client).flatMap(ClientRecord::pipe));
     }
 
-    /** "View log" for one client: Advanced, Dashboard, the Logs tab scoped to {@code clientId}. */
-    private void openLogs(String clientId) {
-        openLogs(Optional.ofNullable(clientId).filter(id -> !id.isBlank()));
-    }
-
     /** Switches to Advanced, Dashboard, Logs tab, scoped to {@code clientId} or to every client. */
     private void openLogs(Optional<String> clientId) {
         modeRequest.request(AppMode.ADVANCED);
         pages.select(PageId.DASHBOARD);
         dashboard.openLogs(clientId);
-    }
-
-    private void onToastAction(Notification n) {
-        switch (n.kind()) {
-            case GAVE_UP -> board.actions().reconnect(ctx.clientKeyOf(n.subject()));
-            case SCRIPT_CRASHED -> openLogs(n.subject());
-            case LOAD_FAILED -> openLogs(Optional.empty());
-            case CONNECTION_LOST, RECONNECTING, RECONNECTED -> { }
-        }
-    }
-
-    /** The account playing on connection {@code name}, or the name itself when unknown. */
-    private String accountOf(String name) {
-        for (var conn : new ArrayList<>(ctx.getConnections())) {
-            if (conn.getName().equals(name) && conn.getAccountName() != null) {
-                return conn.getAccountName();
-            }
-        }
-        return name;
     }
 
     private void shutdown() {

@@ -87,8 +87,6 @@ public final class ImGuiTheme {
     public static final float DURATION_S = 0.20f;
     /** Full period of the loading alpha pulse — the only looping animation. */
     public static final float PULSE_PERIOD_S = 1.4f;
-    /** How long a toast stays up before it slides out. */
-    public static final float TOAST_LIFE_S = 5f;
     /** Opacity of a disabled control. */
     public static final float DISABLED_ALPHA = 0.45f;
 
