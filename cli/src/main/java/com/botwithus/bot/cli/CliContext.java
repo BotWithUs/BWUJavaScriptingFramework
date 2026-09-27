@@ -65,6 +65,7 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -125,6 +126,9 @@ public class CliContext {
     private final Clock clock = Clock.systemUTC();
     private final RunnerEventBridge runnerEvents = new RunnerEventBridge(hostEvents, clock);
     private final GameEventBridge gameEvents = new GameEventBridge(hostEvents);
+    private final ConnectionStatusTracker statusTracker = new ConnectionStatusTracker(
+            task -> Thread.ofVirtual().name("connection-status").start(task),
+            ConnectionStatusTracker.POLL_INTERVAL);
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this(logBuffer, logCapture, DEFAULT_GROUPS_FILE);
@@ -232,6 +236,9 @@ public class CliContext {
     /** Recent host events per client and host-wide, fed by {@link #getHostEvents()}. */
     public ConnectionHistory getConnectionHistory() { return connectionHistory; }
 
+    /** Keeps every connection's account, game state and world current. */
+    public ConnectionStatusTracker getStatusTracker() { return statusTracker; }
+
     public ManagementScriptRuntime getManagementRuntime() {
         return managementRuntime;
     }
@@ -272,60 +279,79 @@ public class CliContext {
         long pid = SharedRegion.parsePid(resolvedName).orElseThrow(() ->
                 new IllegalStateException("Pipe '" + resolvedName + "' has no embedded pid"));
         try {
-            PipeClient pipe = new PipeClient(resolvedName);
-            RpcClient rpc = new RpcClient(pipe);
-            rpc.setConnectionName(resolvedName);
-            EventBusImpl eventBus = new EventBusImpl();
-            MessageBusImpl messageBus = new MessageBusImpl();
-
-            // Pump owns the SHM mapping; we open it before constructing
-            // GameAPIImpl so the entity facades (snapshot reads) can read from
-            // the same region. ClientImpl borrows the same region.
-            SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
-            GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(pid),
-                    () -> new GameSnapshotImpl(pump.region().snapshot()),
-                    new StubGuard(),
-                    eventBus::publish,
-                    getOrInitGamevals());
-            ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
-
-            rpc.start();
-
-            ScriptContextChannel scriptCtxChannel = new ScriptContextChannel(rpc, resolvedName);
-
-            ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen, pump.region());
-
-            ScriptRuntime runtime = new ScriptRuntime(context,
-                    ConnectionContext::set, ConnectionContext::clear, eventBus::publish);
-            runtime.setConnectionName(resolvedName);
-            runtime.setPublisherFactory(scriptCtxChannel::publisherFor);
-
-            // One gate per connection, shared by the runtime (which tags script
-            // threads and revokes) and the RPC client (which enforces). Both
-            // sides must see the same instance or revocation is a no-op.
-            ScriptGate scriptGate = new ScriptGate();
-            runtime.setScriptGate(scriptGate);
-            rpc.setScriptGate(scriptGate);
-            gameAPI.setScriptGate(scriptGate);
-
-            ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
-
-            ReconnectController reconnect = new ReconnectController(rpc, pipe, resolvedName,
-                    resolvedName, ReconnectPolicy.DEFAULT,
-                    state -> { /* state is observable via Connection.currentReconnectState() */ },
-                    eventBus::publish);
-            reconnect.arm();
-
-            Connection conn = new Connection(resolvedName, pipe, rpc, runtime, scriptManager);
-            conn.setEventBus(eventBus);
-            conn.setEventPump(pump);
-            conn.setReconnectController(reconnect);
-            conn.setGameAPI(gameAPI);
-            conn.setScriptContextChannel(scriptCtxChannel);
-            publishConnection(conn, client);
+            OpenedConnection opened = openConnection(resolvedName, pid);
+            publishConnection(opened.conn(), opened.client());
         } catch (Exception e) {
             out().println("Connection failed: " + e.getMessage());
         }
+    }
+
+    /** A connection built over a live pipe, with the client view scripts see of it. */
+    private record OpenedConnection(Connection conn, ClientImpl client) {}
+
+    private OpenedConnection openConnection(String name, long pid) {
+        Instant connectedAt = Instant.now();
+        PipeClient pipe = new PipeClient(name);
+        RpcClient rpc = new RpcClient(pipe);
+        rpc.setConnectionName(name);
+        EventBusImpl eventBus = new EventBusImpl();
+
+        // Pump owns the SHM mapping; we open it before constructing
+        // GameAPIImpl so the entity facades (snapshot reads) can read from
+        // the same region. ClientImpl borrows the same region.
+        SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+        GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(pid),
+                () -> new GameSnapshotImpl(pump.region().snapshot()),
+                new StubGuard(),
+                eventBus::publish,
+                getOrInitGamevals());
+        ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, new MessageBusImpl());
+
+        rpc.start();
+
+        ScriptContextChannel scriptCtxChannel = new ScriptContextChannel(rpc, name);
+        ClientImpl client = new ClientImpl(name, gameAPI, eventBus, pipe::isOpen, pump.region());
+        ScriptRuntime runtime = newRuntime(context, name, scriptCtxChannel, eventBus);
+        wireScriptGate(runtime, rpc, gameAPI);
+
+        Connection conn = new Connection(name, pipe, rpc, runtime, new ScriptManagerImpl(runtime), connectedAt);
+        conn.setEventBus(eventBus);
+        conn.setEventPump(pump);
+        conn.setGameAPI(gameAPI);
+        conn.setScriptContextChannel(scriptCtxChannel);
+        armReconnect(conn);
+        return new OpenedConnection(conn, client);
+    }
+
+    private static ScriptRuntime newRuntime(ScriptContextImpl context, String name,
+                                            ScriptContextChannel channel, EventBusImpl eventBus) {
+        ScriptRuntime runtime = new ScriptRuntime(context,
+                ConnectionContext::set, ConnectionContext::clear, eventBus::publish);
+        runtime.setConnectionName(name);
+        runtime.setPublisherFactory(channel::publisherFor);
+        return runtime;
+    }
+
+    /**
+     * One gate per connection, shared by the runtime (which tags script threads
+     * and revokes) and the RPC client (which enforces). Both sides must see the
+     * same instance or revocation is a no-op.
+     */
+    private static void wireScriptGate(ScriptRuntime runtime, RpcClient rpc, GameAPIImpl gameAPI) {
+        ScriptGate scriptGate = new ScriptGate();
+        runtime.setScriptGate(scriptGate);
+        rpc.setScriptGate(scriptGate);
+        gameAPI.setScriptGate(scriptGate);
+    }
+
+    /** Recovers transient pipe drops, recording each recovery on the connection. */
+    private static void armReconnect(Connection conn) {
+        ReconnectController reconnect = new ReconnectController(conn.getRpc(), conn.getPipe(),
+                conn.getName(), conn.getName(), ReconnectPolicy.DEFAULT,
+                conn::onReconnectState,
+                conn.getEventBus()::publish);
+        conn.setReconnectController(reconnect);
+        reconnect.arm();
     }
 
     /**
@@ -341,6 +367,10 @@ public class CliContext {
             return;
         }
         clientProvider.putClient(name, client);
+        // Reads the account right away, whatever connected the pipe, so the
+        // runtime is bound to the account UUID for a manual connect too.
+        statusTracker.attach(conn);
+        statusTracker.startPolling(this::getConnections);
         if (onConnect != null) {
             try {
                 onConnect.accept(conn);

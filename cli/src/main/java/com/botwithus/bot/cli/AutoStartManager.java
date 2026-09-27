@@ -131,16 +131,14 @@ public class AutoStartManager {
 
         conn.setAccountName(displayName);
 
-        String uuid = conn.getAccountUuid();
-        if (uuid == null || uuid.isBlank()) {
-            out().println("[AutoStart] No accountUuid for " + displayName
-                    + " — agent reply missing the field; auto-start skipped.");
+        // The runtime is already bound to the uuid: Connection.setAccountInfo does
+        // that as soon as a reply identifies the account.
+        String uuid = conn.getIdentifiedUuid().orElse(null);
+        if (uuid == null) {
+            out().println("[AutoStart] No account UUID for " + displayName
+                    + " — agent reply missing it, or a development launch; auto-start skipped.");
             return;
         }
-
-        // Push the uuid into the runtime so any scripts registered against this
-        // connection persist their config under the right per-account bucket.
-        conn.getRuntime().setAccountUuid(uuid);
 
         // Wire state change callback to auto-save
         conn.getRuntime().setOnStateChange(() -> saveState(conn));
@@ -286,15 +284,15 @@ public class AutoStartManager {
         }
     }
 
-    private void probeAndAutoStart(Connection conn) {
+    /**
+     * Reads the account (storing it, UUID included, whether or not it has a name
+     * yet) and auto-starts once it has a name; otherwise nudges the client toward
+     * the lobby. Package-private for {@code AutoStartManagerProbeTest}.
+     */
+    void probeAndAutoStart(Connection conn) {
         try {
-            Map<String, Object> info = conn.getRpc().callSync("get_account_info", Map.of());
-            String displayName = getString(info, "display_name");
-            if (displayName == null || displayName.isEmpty()) {
-                displayName = getString(info, "jx_display_name");
-            }
-            if (displayName != null && !displayName.isEmpty()) {
-                conn.setAccountInfo(info);
+            String displayName = ctx.getStatusTracker().refresh(conn).characterName().orElse(null);
+            if (displayName != null) {
                 // Load and register scripts before auto-starting
                 List<BotScript> scripts = ctx.loadScripts();
                 for (BotScript script : scripts) {
@@ -362,11 +360,6 @@ public class AutoStartManager {
             }
         }
         return null;
-    }
-
-    private static String getString(Map<String, Object> map, String key) {
-        Object v = map.get(key);
-        return v != null ? v.toString() : null;
     }
 
     private PrintStream out() {

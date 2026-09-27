@@ -13,7 +13,6 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.impl.GameAPIImpl;
-import com.botwithus.bot.core.impl.MapHelper;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.runtime.ScriptRunner;
@@ -54,7 +53,6 @@ public final class LiveClientBoard implements ClientBoard {
 
     private static final Logger log = LoggerFactory.getLogger(LiveClientBoard.class);
 
-    private static final String WORLD_KEY = "world_id";
     private static final String NO_ITEM_NAME = "null";
 
     private final CliContext ctx;
@@ -430,9 +428,9 @@ public final class LiveClientBoard implements ClientBoard {
         return account != null && !account.isBlank() ? account : conn.getName();
     }
 
+    /** The client's world, or {@code 0} (the card's "no world") when it is not in one. */
     private static int worldOf(Connection conn) {
-        Map<String, Object> info = conn.getAccountInfo();
-        return info != null ? MapHelper.getIntOr(info, WORLD_KEY, 0) : 0;
+        return conn.getWorldId().orElse(0);
     }
 
     private final class Actions implements ClientActions {
