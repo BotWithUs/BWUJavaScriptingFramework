@@ -465,7 +465,7 @@ public final class LiveDashboardModel implements DashboardModel {
 
         @Override
         public void retryNow(String pipe) {
-            clientActions.retryNow(pipe);
+            clientActions.retryNow(ctx.clientKeyOf(pipe));
         }
 
         @Override

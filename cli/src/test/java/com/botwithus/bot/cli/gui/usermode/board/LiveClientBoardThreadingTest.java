@@ -5,6 +5,7 @@ import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.sdn.InstalledScriptsLedger;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
@@ -65,12 +66,14 @@ class LiveClientBoardThreadingTest {
 
     private final Queue<Runnable> commandQueue = new ArrayDeque<>();
     private final Executor queued = commandQueue::add;
+    private final BoardRegistry registry = new BoardRegistry(Clock.systemUTC());
     private CliContext ctx;
     private LiveClientBoard board;
 
     @BeforeEach
     void setUp() {
         ctx = mock(CliContext.class);
+        when(ctx.getClientRegistry()).thenReturn(registry.registry);
         SdnCatalogueRefresher catalogue = new SdnCatalogueRefresher(
                 () -> new SdnCatalogueResult.Delivered(List.of(), false), Runnable::run,
                 InstantSource.system(), () -> MID_JITTER);
@@ -82,8 +85,9 @@ class LiveClientBoardThreadingTest {
     @Test
     void reconnectReturnsBeforeTouchingThePipeAndRunsOnTheCommandExecutor() {
         drain();
+        ClientKey client = registry.open(connectionOn(mock(ScriptRuntime.class)));
 
-        board.actions().reconnect(CLIENT);
+        board.actions().reconnect(client);
 
         verify(ctx, never()).disconnect(any(), anyBoolean());
         verify(ctx, never()).connect(any());
@@ -117,14 +121,20 @@ class LiveClientBoardThreadingTest {
         drain();
 
         ScriptRuntime runtime = mock(ScriptRuntime.class);
+        ClientKey client = registry.open(connectionOn(runtime));
+
+        board.actions().startScript(client, alphaRow);
+
+        verify(runtime).startScript(alpha);
+    }
+
+    /** A connection on {@link #CLIENT} running {@code runtime}, registered with the host. */
+    private Connection connectionOn(ScriptRuntime runtime) {
         Connection conn = mock(Connection.class);
         when(conn.getName()).thenReturn(CLIENT);
         when(conn.getRuntime()).thenReturn(runtime);
         when(ctx.getConnections()).thenReturn(List.of(conn));
-
-        board.actions().startScript(CLIENT, alphaRow);
-
-        verify(runtime).startScript(alpha);
+        return conn;
     }
 
     private void drain() {

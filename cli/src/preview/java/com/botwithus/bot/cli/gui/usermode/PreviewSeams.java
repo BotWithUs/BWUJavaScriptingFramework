@@ -13,6 +13,10 @@ public final class PreviewSeams {
         page.showView(ClientFilter.View.NEEDS_ATTENTION);
     }
 
+    public static void showRunning(UserModeRenderer page) {
+        page.showView(ClientFilter.View.RUNNING);
+    }
+
     /** Highlights row {@code index} of the open picker, as ↑↓ would. */
     public static void highlightPickerRow(UserModeRenderer page, int index) {
         page.highlightPickerRow(index);

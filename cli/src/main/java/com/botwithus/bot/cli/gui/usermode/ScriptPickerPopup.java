@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.usermode;
 
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.CategoryStyle;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
@@ -52,7 +53,7 @@ import java.util.function.Function;
 final class ScriptPickerPopup {
 
     /** What the user chose. */
-    record Pick(String clientId, PickerRow row, boolean reviewSettings) {}
+    record Pick(ClientKey client, PickerRow row, boolean reviewSettings) {}
 
     private static final String POPUP_ID = "##start-script";
     private static final int QUERY_CAPACITY = 128;
@@ -73,7 +74,7 @@ final class ScriptPickerPopup {
     private boolean pendingOpen;
     private boolean focusSearch;
     private boolean open;
-    private String clientId;
+    private ClientKey client;
     private String account;
     private List<ScriptEntry> catalog = List.of();
     private SubscriptionGroup group = new SubscriptionGroup.Pending();
@@ -89,9 +90,9 @@ final class ScriptPickerPopup {
         this.subscriptionRows = new SubscriptionRows(ui);
     }
 
-    void open(ClientView client, List<ScriptEntry> scripts) {
-        clientId = client.id();
-        account = client.account();
+    void open(ClientView view, List<ScriptEntry> scripts) {
+        client = view.id();
+        account = CardText.title(view);
         catalog = scripts.stream()
                 .sorted(Comparator.comparing((ScriptEntry e) -> e.info().category().ordinal()))
                 .toList();
@@ -117,7 +118,7 @@ final class ScriptPickerPopup {
      *
      * @param subscriptions the "Your subscriptions" group for a client id; asked every frame
      */
-    Optional<Pick> render(Function<String, SubscriptionGroup> subscriptions) {
+    Optional<Pick> render(Function<ClientKey, SubscriptionGroup> subscriptions) {
         if (pendingOpen) {
             ImGui.openPopup(POPUP_ID);
             pendingOpen = false;
@@ -132,7 +133,7 @@ final class ScriptPickerPopup {
         if (!open) {
             return Optional.empty();
         }
-        if (clientId == null) {
+        if (client == null) {
             // ImGui still has this modal on its popup stack (e.g. this picker was
             // rebuilt while it was up) but nothing opened it here: close it rather
             // than draw a picker for no client.
@@ -141,14 +142,14 @@ final class ScriptPickerPopup {
             open = false;
             return Optional.empty();
         }
-        group = subscriptions.apply(clientId);
+        group = subscriptions.apply(client);
         followInstall();
         Optional<Pick> pick = renderContent();
         boolean closes = !open || pick.map(this::closesOnPick).orElse(false);
         if (closes) {
             ImGui.closeCurrentPopup();
             open = false;
-            clientId = null;
+            client = null;
         }
         ImGui.endPopup();
         return pick;
@@ -245,7 +246,7 @@ final class ScriptPickerPopup {
         boolean startByButton = renderFooter(current, x, y + h - footerH, w);
         boolean chosen = startByKey || startByRow || startByButton;
         if (chosen && current.isPresent() && current.get().isChoosable()) {
-            return Optional.of(new Pick(clientId, current.get(), review));
+            return Optional.of(new Pick(client, current.get(), review));
         }
         return Optional.empty();
     }

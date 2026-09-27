@@ -8,6 +8,7 @@ import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ReconnectState;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.AppMode;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.FontLoader;
@@ -32,9 +33,9 @@ import com.botwithus.bot.cli.gui.pages.store.StorePage;
 import com.botwithus.bot.cli.gui.pages.store.StorePreviewSeams;
 import com.botwithus.bot.cli.gui.pages.store.StoreQuery;
 import com.botwithus.bot.cli.gui.pages.store.StoreTab;
+import com.botwithus.bot.cli.gui.preview.FixtureFleet.RestartStep;
 import com.botwithus.bot.cli.gui.usermode.PreviewSeams;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
-import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.cli.gui.window.WindowRect;
 import com.botwithus.bot.core.impl.EventBusImpl;
@@ -116,7 +117,7 @@ public final class ShellPreview extends Application {
 
         /** The Script Store page over {@code store}, with {@code onFrame} standing in for clicks. */
         static Scenario store(String name, Supplier<FixtureStoreModel> store, BiConsumer<StorePage, Integer> onFrame) {
-            return new Scenario(name, AppMode.ADVANCED, FixtureBoard::sixClients, store, (s, f) -> {
+            return new Scenario(name, AppMode.ADVANCED, FixtureBoard::everyState, store, (s, f) -> {
                 s.pages().registry().select(PageId.STORE);
                 onFrame.accept(s.pages().store(), f);
             });
@@ -173,8 +174,8 @@ public final class ShellPreview extends Application {
         UserModeRenderer page = new UserModeRenderer(ui, inspector.state());
         EventBusImpl bus = new EventBusImpl();
         NotificationOverlay toasts = new NotificationOverlay(Clock.systemDefaultZone(),
-                name -> board.clients().stream().filter(c -> c.id().equals(name)).map(ClientView::account)
-                        .findFirst().orElse(name));
+                name -> board.clients().stream().filter(c -> c.pipe().filter(name::equals).isPresent())
+                        .flatMap(c -> c.account().stream()).findFirst().orElse(name));
         toasts.subscribeTo(bus);
         FixturePages.Built pages = FixturePages.build(ui, page, board, s.store().get());
         FixtureWindow window = new FixtureWindow(new WindowRect(0, 0, WIDTH, HEIGHT));
@@ -264,74 +265,89 @@ public final class ShellPreview extends Application {
 
     // ── Scenarios ──────────────────────────────────────────────────────────
 
-    private static final String WOODCUTTER = "BotWithUs_14208";
-    private static final String IDLE = "BotWithUs_11820";
+    private static final String WOODCUTTER = FixtureFleet.OAKHEART_PIPE;
+    private static final ClientKey OAKHEART = ClientKey.account(FixtureFleet.OAKHEART_UUID);
+    private static final ClientKey IDLE = ClientKey.account(FixtureFleet.QUILLON_UUID);
     private static final String WOODCUTTING = FixtureBoard.WOODCUTTING.name();
 
     private static List<Scenario> scenarios() {
         BiConsumer<Stage, Integer> nothing = (s, f) -> { };
         List<Scenario> scenarios = List.of(
-                new Scenario("01-clients-6-every-state", FixtureBoard::sixClients, nothing),
-                new Scenario("02-clients-12", FixtureBoard::twelveClients, nothing),
-                new Scenario("03-clients-12-needs-attention", FixtureBoard::twelveClients,
+                new Scenario("01-clients-7-every-state", FixtureBoard::everyState, nothing),
+                new Scenario("02-clients-13", FixtureBoard::thirteenClients, nothing),
+                new Scenario("03-clients-13-needs-attention", FixtureBoard::thirteenClients,
                         (s, f) -> PreviewSeams.showNeedsAttention(s.page())),
-                new Scenario("04-waiting-for-client", FixtureBoard::waiting, nothing),
-                new Scenario("05-host-offline", FixtureBoard::offline, nothing),
-                new Scenario("06-script-picker", FixtureBoard::sixClients, (s, f) -> {
+                new Scenario("03b-clients-13-running", FixtureBoard::thirteenClients,
+                        (s, f) -> PreviewSeams.showRunning(s.page())),
+                new Scenario("04-no-clients-yet", FixtureBoard::waiting, nothing),
+                new Scenario("05a-restart-not-responding", () -> FixtureBoard.restart(RestartStep.NOT_RESPONDING),
+                        nothing),
+                new Scenario("05b-restart-closed-new-pipe-identifying",
+                        () -> FixtureBoard.restart(RestartStep.CLOSED_AND_NEW_PIPE), nothing),
+                new Scenario("05c-restart-resuming", () -> FixtureBoard.restart(RestartStep.RESUMING), nothing),
+                new Scenario("05d-restart-running-again", () -> FixtureBoard.restart(RestartStep.RUNNING_AGAIN),
+                        nothing),
+                new Scenario("05e-dev-client-without-account", FixtureBoard::devClient, nothing),
+                new Scenario("05f-clients-13-running-selected", FixtureBoard::thirteenClients, (s, f) -> {
+                    if (f == 0) {
+                        s.page().openInspector(s.board(), OAKHEART, WOODCUTTING, InspectorTab.SETTINGS);
+                    }
+                }),
+                new Scenario("06-script-picker", FixtureBoard::everyState, (s, f) -> {
                     if (f == 0) {
                         s.page().openPicker(s.board(), IDLE);
                     }
                 }),
-                new Scenario("07-inspector-settings", FixtureBoard::sixClients, ShellPreview::stagedEdits),
-                new Scenario("08-inspector-script-ui", FixtureBoard::sixClients, (s, f) -> {
+                new Scenario("07-inspector-settings", FixtureBoard::everyState, ShellPreview::stagedEdits),
+                new Scenario("08-inspector-script-ui", FixtureBoard::everyState, (s, f) -> {
                     if (f == 0) {
-                        s.page().openInspector(WOODCUTTER, WOODCUTTING, InspectorTab.SCRIPT_UI);
+                        s.page().openInspector(s.board(), OAKHEART, WOODCUTTING, InspectorTab.SCRIPT_UI);
                     }
                 }),
-                new Scenario("09-toasts-failures", FixtureBoard::sixClients, ShellPreview::failureToasts),
-                new Scenario("10-toasts-reconnect", FixtureBoard::twelveClients, ShellPreview::reconnectToasts),
+                new Scenario("09-toasts-failures", FixtureBoard::everyState, ShellPreview::failureToasts),
+                new Scenario("10-toasts-reconnect", FixtureBoard::thirteenClients, ShellPreview::reconnectToasts),
                 new Scenario("11-picker-subscriptions-installing", FixtureBoard::subscribed,
                         pickerOnRow(HERBLORE_INSTALLING_ROW)),
                 new Scenario("12-picker-subscriptions-install-failed", FixtureBoard::subscribed,
                         pickerOnRow(RUNECRAFTING_FAILED_ROW)),
                 new Scenario("13-picker-subscriptions-launcher-not-running",
-                        () -> FixtureBoard.sixClients().withSubscriptions(new SubscriptionGroup.Unavailable(
+                        () -> FixtureBoard.everyState().withSubscriptions(new SubscriptionGroup.Unavailable(
                                 SubscriptionGroup.Reason.LAUNCHER_NOT_RUNNING, "")),
                         pickerOnRow(0)),
                 new Scenario("14-picker-old-launcher-no-group",
-                        () -> FixtureBoard.sixClients().withSubscriptions(new SubscriptionGroup.Hidden()),
+                        () -> FixtureBoard.everyState().withSubscriptions(new SubscriptionGroup.Hidden()),
                         pickerOnRow(0)),
                 new Scenario("15-picker-subscriptions-update-available", FixtureBoard::subscribedWithUpdate,
                         pickerOnRow(DIVINATION_UPDATE_ROW)),
-                Scenario.advanced("20-advanced-opens-on-clients", FixtureBoard::sixClients, nothing),
-                Scenario.advanced("21-advanced-clients-inspector", FixtureBoard::sixClients, (s, f) -> {
+                Scenario.advanced("20-advanced-opens-on-clients", FixtureBoard::everyState, nothing),
+                Scenario.advanced("21-advanced-clients-inspector", FixtureBoard::everyState, (s, f) -> {
                     if (f == 0) {
-                        s.page().openInspector(WOODCUTTER, WOODCUTTING, InspectorTab.SETTINGS);
+                        s.page().openInspector(s.board(), OAKHEART, WOODCUTTING, InspectorTab.SETTINGS);
                     }
                 }),
-                Scenario.advanced("24-advanced-installed-selected", FixtureBoard::twelveClients,
+                Scenario.advanced("24-advanced-installed-selected", FixtureBoard::thirteenClients,
                         select(PageId.INSTALLED)),
                 Scenario.advanced("25-advanced-groups-interim", FixtureBoard::waiting, select(PageId.GROUPS)),
-                new Scenario("26-advanced-store-signed-out", AppMode.ADVANCED, FixtureBoard::sixClients,
+                new Scenario("26-advanced-store-signed-out", AppMode.ADVANCED, FixtureBoard::everyState,
                         FixtureStoreModel::signedOut, select(PageId.STORE)),
-                Scenario.advanced("27-advanced-settings-selected", FixtureBoard::offline,
+                Scenario.advanced("27-advanced-settings-selected", FixtureBoard::waiting,
                         select(PageId.SETTINGS)),
-                Scenario.advanced("28-advanced-inspector-client-settings-from-installed", FixtureBoard::sixClients,
+                Scenario.advanced("28-advanced-inspector-client-settings-from-installed", FixtureBoard::everyState,
                         ShellPreview::clientSettingsFromInstalled),
-                Scenario.advanced("29-advanced-inspector-client-script-ui", FixtureBoard::sixClients,
+                Scenario.advanced("29-advanced-inspector-client-script-ui", FixtureBoard::everyState,
                         fromPage(PageId.INSTALLED, new InspectorRequest(
                                 new InspectorSubject.ClientScript(WOODCUTTER, WOODCUTTING), InspectorTab.SCRIPT_UI))),
-                new Scenario("30-advanced-inspector-management-settings", FixtureBoard::sixClients,
+                new Scenario("30-advanced-inspector-management-settings", FixtureBoard::everyState,
                         ShellPreview::managementSettingsFromNormal),
-                Scenario.advanced("31-advanced-inspector-management-script-ui", FixtureBoard::sixClients,
+                Scenario.advanced("31-advanced-inspector-management-script-ui", FixtureBoard::everyState,
                         fromPage(PageId.MANAGEMENT, new InspectorRequest(
                                 new InspectorSubject.ManagementScript(FixtureBoard.FLEET_MONITOR.name()),
                                 InspectorTab.initialFor(false, true)))),
-                Scenario.advanced("32-advanced-inspector-restore-defaults", FixtureBoard::sixClients,
+                Scenario.advanced("32-advanced-inspector-restore-defaults", FixtureBoard::everyState,
                         ShellPreview::managementOffDefaults),
                 // The frameless window's own chrome: every scenario draws it, these two isolate it.
-                new Scenario("40-window-frameless-normal", FixtureBoard::sixClients, nothing),
-                Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::sixClients,
+                new Scenario("40-window-frameless-normal", FixtureBoard::everyState, nothing),
+                Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::everyState,
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios()).flatMap(List::stream).toList();
     }
@@ -339,26 +355,26 @@ public final class ShellPreview extends Application {
     /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
     private static List<Scenario> dashboardScenarios() {
         return List.of(
-                Scenario.advanced("22-advanced-dashboard-busy", FixtureBoard::sixClients,
+                Scenario.advanced("22-advanced-dashboard-busy", FixtureBoard::everyState,
                         select(PageId.DASHBOARD)),
-                Scenario.advanced("23-advanced-view-log-opens-client-logs", FixtureBoard::sixClients, (s, f) -> {
+                Scenario.advanced("23-advanced-view-log-opens-client-logs", FixtureBoard::everyState, (s, f) -> {
                     s.pages().registry().select(PageId.DASHBOARD);
                     if (f == 0) {
                         s.pages().dashboard().openLogs(Optional.of(TAMSIN_VALE));
                     }
                 }),
-                Scenario.advanced("33-advanced-dashboard-busy-attention", FixtureBoard::sixClients,
+                Scenario.advanced("33-advanced-dashboard-busy-attention", FixtureBoard::everyState,
                         dashboard(Fleet.BUSY, state -> {
                             state.setDockCollapsed(true);
                             state.toggleExpanded(CRASH_KEY);
                         }, SCROLL_BOTTOM)),
-                Scenario.advanced("34-advanced-dashboard-logs-tab", FixtureBoard::sixClients,
+                Scenario.advanced("34-advanced-dashboard-logs-tab", FixtureBoard::everyState,
                         dashboard(Fleet.BUSY, state -> state.showTab(DockTab.LOGS), SCROLL_TOP)),
-                Scenario.advanced("35-advanced-dashboard-events-tab", FixtureBoard::sixClients,
+                Scenario.advanced("35-advanced-dashboard-events-tab", FixtureBoard::everyState,
                         dashboard(Fleet.BUSY, state -> state.showTab(DockTab.EVENTS), SCROLL_TOP)),
-                Scenario.advanced("36-advanced-dashboard-problems-filter", FixtureBoard::sixClients,
+                Scenario.advanced("36-advanced-dashboard-problems-filter", FixtureBoard::everyState,
                         dashboard(Fleet.BUSY, state -> state.setFilter(RunnerFilter.PROBLEMS), SCROLL_TOP)),
-                Scenario.advanced("37-advanced-dashboard-quiet", FixtureBoard::sixClients,
+                Scenario.advanced("37-advanced-dashboard-quiet", FixtureBoard::everyState,
                         dashboard(Fleet.QUIET, state -> state.setDockCollapsed(true), SCROLL_BOTTOM)),
                 Scenario.advanced("38-advanced-dashboard-empty", FixtureBoard::waiting,
                         dashboard(Fleet.EMPTY, state -> { }, SCROLL_TOP)),
@@ -510,7 +526,7 @@ public final class ShellPreview extends Application {
     /** Opens the Woodcutting inspector and changes two fields, so the unsaved state shows. */
     private static void stagedEdits(Stage s, int f) {
         if (f == 0) {
-            s.page().openInspector(WOODCUTTER, WOODCUTTING, InspectorTab.SETTINGS);
+            s.page().openInspector(s.board(), OAKHEART, WOODCUTTING, InspectorTab.SETTINGS);
         } else if (f == 2) {
             InspectorPreviewSeams.stageEdit(s.inspector(), "stopValue", 95);
             InspectorPreviewSeams.stageEdit(s.inspector(), "disposal", 2);
@@ -532,11 +548,11 @@ public final class ShellPreview extends Application {
         if (f != 0) {
             return;
         }
-        s.bus().publish(new ReconnectStateChangedEvent("BotWithUs_17388",
+        s.bus().publish(new ReconnectStateChangedEvent(FixtureFleet.HOLLOWMERE_PIPE,
                 new ReconnectState.GivingUp(0L, 5, new IllegalStateException("pipe gone"))));
-        s.bus().publish(new ReconnectStateChangedEvent("BotWithUs_17388",
+        s.bus().publish(new ReconnectStateChangedEvent(FixtureFleet.HOLLOWMERE_PIPE,
                 new ReconnectState.Connected(0L)));
-        s.bus().publish(new ReconnectStateChangedEvent("BotWithUs_17388",
+        s.bus().publish(new ReconnectStateChangedEvent(FixtureFleet.HOLLOWMERE_PIPE,
                 new ReconnectState.Reconnecting(0L, 2, 4000L)));
     }
 }

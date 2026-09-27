@@ -75,6 +75,7 @@ public final class Icons {
     public static final String CLOCK       = "\uF017";  // fa-clock
     public static final String FOLDER      = "\uF07B";  // fa-folder
     public static final String FILE        = "\uF15B";  // fa-file
+    public static final String FILE_LINES  = "\uF15C";  // fa-file-lines
     public static final String NETWORK     = "\uF6FF";  // fa-network-wired
     public static final String PLUG        = "\uF1E6";  // fa-plug
     public static final String ROBOT       = "\uF544";  // fa-robot

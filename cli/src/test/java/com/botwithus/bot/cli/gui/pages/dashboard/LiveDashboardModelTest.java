@@ -48,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -64,6 +65,7 @@ class LiveDashboardModelTest {
     private static final String OAKHEART_BEFORE = "BotWithUs_12001";
     private static final String OAKHEART_UUID = "0f6b3c521d7e4a8e9b1f5c2d7e8a9b10";
     private static final ClientKey OAKHEART_ACCOUNT = ClientKey.account(OAKHEART_UUID);
+    private static final ClientKey FERNMOSS_ACCOUNT = ClientKey.account("5a1c9e2b7d3f4e6a8b0c1d2e3f4a5b6c");
     private static final String QUERY = "query_entities";
     private static final int SAMPLES_PER_CLIENT = 50;
 
@@ -169,14 +171,17 @@ class LiveDashboardModelTest {
     /**
      * "Reconnect now" and "Try again" are the board's Retry: they wake or restart
      * the client's own recovery, which rebuilds the connection itself only when
-     * there is nothing to retry, rather than always tearing it down.
+     * there is nothing to retry, rather than always tearing it down. The board is
+     * keyed by account, so the pipe is handed over as the key it is known by now.
      */
     @Test
     void reconnectControls_retryThroughTheBoard_ratherThanTearingTheConnectionDown() {
+        when(ctx.clientKeyOf(FERNMOSS)).thenReturn(FERNMOSS_ACCOUNT);
+
         model.actions().retryNow(FERNMOSS);
 
-        verify(clientActions).retryNow(FERNMOSS);
-        verify(clientActions, never()).reconnect(FERNMOSS);
+        verify(clientActions).retryNow(FERNMOSS_ACCOUNT);
+        verify(clientActions, never()).reconnect(any());
     }
 
     // ── Loop thresholds ─────────────────────────────────────────────────

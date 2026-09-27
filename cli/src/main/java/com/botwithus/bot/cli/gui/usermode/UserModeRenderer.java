@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.usermode;
 
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Segment;
 import com.botwithus.bot.cli.gui.Controls.Tone;
@@ -13,9 +14,9 @@ import com.botwithus.bot.cli.gui.inspector.InspectorTab;
 import com.botwithus.bot.cli.gui.usermode.ClientFilter.View;
 import com.botwithus.bot.cli.gui.usermode.board.BoardStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
-import com.botwithus.bot.cli.gui.usermode.board.ClientStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
+import com.botwithus.bot.cli.gui.usermode.board.ScriptRow;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -28,12 +29,13 @@ import imgui.type.ImString;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The Clients page — Normal mode's only screen, and the first page of
  * Advanced. A page header with counts and the view filter, a responsive grid of
- * {@link ClientCard}s, and the empty and host-offline states. A card's
- * "Configure" opens the shared inspector, which the shell docks beside this page.
+ * {@link ClientCard}s, one per account, and the empty state. A script row's
+ * "Settings" opens the shared inspector, which the shell docks beside this page.
  */
 public class UserModeRenderer {
 
@@ -44,12 +46,13 @@ public class UserModeRenderer {
     private static final float RADAR_INNER_EM = 0.8f;
     private static final float RADAR_PERIOD_S = 1.6f;
     private static final float RADAR_SWEEP = (float) (Math.PI / 2);
-    private static final float RADAR_OFF_ANGLE = (float) (-Math.PI / 4);
     private static final float RADAR_STROKE_PX = 2f;
     private static final String ZERO = "0";
     private static final int PAGE_COLOR_COUNT = 5;
-    /** The filter box is 200 px where a card is 290 px at the base size. */
-    private static final float SEARCH_WIDTH_OF_CARD = 200f / 290f;
+    /** The round-2 grid column minimum, 320 px at a 15 px body. */
+    private static final float CARD_MIN_EM = 21.33f;
+    /** The filter box is 200 px where a card is 320 px at the base size. */
+    private static final float SEARCH_WIDTH_OF_CARD = 200f / 320f;
 
     private final Controls ui;
     private final ClientCard card;
@@ -57,9 +60,11 @@ public class UserModeRenderer {
     private final InspectorState inspector;
 
     private final ImString query = new ImString(QUERY_CAPACITY);
-    private final Map<String, Double> firstSeen = new HashMap<>();
+    private final Map<ClientKey, Double> firstSeen = new HashMap<>();
     private View view = View.ALL;
-    private String selectedId;
+    private ClientKey selectedId;
+    /** The pipe the inspector was last opened on from elsewhere; selects its card once seen. */
+    private String inspectedPipe;
     private InspectorSubject lastInspected;
 
     /** @param inspector the one inspector both modes share */
@@ -70,16 +75,27 @@ public class UserModeRenderer {
         this.inspector = inspector;
     }
 
-    /** Opens the picker for {@code clientId}, as its card's "Start script" would. */
-    public void openPicker(ClientBoard board, String clientId) {
-        board.clients().stream().filter(c -> c.id().equals(clientId)).findFirst()
+    /** Opens the picker for {@code client}, as its card's "Start script" would. */
+    public void openPicker(ClientBoard board, ClientKey client) {
+        board.clients().stream().filter(c -> c.id().equals(client)).findFirst()
                 .ifPresent(c -> picker.open(c, board.catalog()));
     }
 
-    /** Opens the inspector on {@code scriptName} on {@code clientId}, as its card's "Configure" would. */
-    public void openInspector(String clientId, String scriptName, InspectorTab tab) {
-        inspector.open(new ClientScript(clientId, scriptName), tab);
-        selectedId = clientId;
+    /**
+     * Opens the inspector on {@code scriptName} on {@code client}, as the
+     * script row's "Settings" would. Does nothing while the client has no pipe,
+     * since its scripts are not running anywhere to inspect.
+     */
+    public void openInspector(ClientBoard board, ClientKey client, String scriptName, InspectorTab tab) {
+        board.clients().stream().filter(c -> c.id().equals(client)).findFirst()
+                .ifPresent(c -> openInspector(c, scriptName, tab));
+    }
+
+    private void openInspector(ClientView client, String scriptName, InspectorTab tab) {
+        client.pipe().ifPresent(pipe -> {
+            inspector.open(new ClientScript(pipe, scriptName), tab);
+            selectedId = client.id();
+        });
     }
 
     /** Selects a view segment, as clicking it would. Package-private: the dev preview's seam. */
@@ -97,18 +113,29 @@ public class UserModeRenderer {
     }
 
     /**
-     * Selects the card the inspector was just opened on, wherever it was opened
-     * from (a card here, or a "Settings" button on another page).
+     * Notes the pipe the inspector was just opened on, wherever it was opened
+     * from (a row here, or a "Settings" button on another page), so its card is
+     * selected once the page has its clients.
      */
     private void followInspector() {
         InspectorSubject now = inspector.subject().orElse(null);
         if (now != null && !now.equals(lastInspected)) {
             switch (now) {
-                case ClientScript opened -> selectedId = opened.clientId();
+                case ClientScript opened -> inspectedPipe = opened.clientId();
                 case ManagementScript ignored -> { }
             }
         }
         lastInspected = now;
+    }
+
+    private void selectInspected(List<ClientView> clients) {
+        if (inspectedPipe == null) {
+            return;
+        }
+        String pipe = inspectedPipe;
+        clients.stream().filter(c -> c.pipe().filter(pipe::equals).isPresent()).findFirst()
+                .ifPresent(c -> selectedId = c.id());
+        inspectedPipe = null;
     }
 
     /**
@@ -118,12 +145,12 @@ public class UserModeRenderer {
     private void startPick(ClientBoard board, ScriptPickerPopup.Pick pick) {
         switch (pick.row()) {
             case PickerRow.Local local -> {
-                board.actions().startScript(pick.clientId(), local.entry());
+                board.actions().startScript(pick.client(), local.entry());
                 if (pick.reviewSettings()) {
-                    openInspector(pick.clientId(), local.entry().info().name(), InspectorTab.SETTINGS);
+                    openInspector(board, pick.client(), local.entry().info().name(), InspectorTab.SETTINGS);
                 }
             }
-            case PickerRow.Subscribed sub -> board.actions().startSubscription(pick.clientId(), sub.entry().id());
+            case PickerRow.Subscribed sub -> board.actions().startSubscription(pick.client(), sub.entry().id());
         }
     }
 
@@ -146,18 +173,16 @@ public class UserModeRenderer {
 
     private void renderPage(ClientBoard board) {
         List<ClientView> clients = board.clients();
-        BoardStatus status = board.status();
-        boolean offline = status.hostOffline();
-        float headerH = renderHeader(clients, offline);
+        selectInspected(clients);
+        firstSeen.keySet().retainAll(clients.stream().map(ClientView::id).toList());
+        float headerH = renderHeader(clients);
         ImGuiTheme.Metrics m = ui.m();
         ImGui.setCursorPos(0f, headerH);
         ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, m.u(5), m.u(1));
         ImGui.beginChild("##clients-grid", 0f, 0f, ImGuiChildFlags.AlwaysUseWindowPadding, 0);
         ImGui.popStyleVar();
-        if (offline) {
-            renderOffline(board, status);
-        } else if (clients.isEmpty()) {
-            renderWaiting(status);
+        if (clients.isEmpty()) {
+            renderWaiting(board.status());
         } else {
             renderGrid(board, ClientFilter.apply(clients, view, query.get()));
         }
@@ -165,7 +190,7 @@ public class UserModeRenderer {
     }
 
     /** Title, counts and the filter row. Returns the header's height. */
-    private float renderHeader(List<ClientView> clients, boolean offline) {
+    private float renderHeader(List<ClientView> clients) {
         ImGuiTheme.Metrics m = ui.m();
         float rowH = m.controlHeight();
         float x0 = ImGui.getWindowPosX() + m.u(5);
@@ -174,9 +199,10 @@ public class UserModeRenderer {
         ImDrawList draw = ImGui.getWindowDrawList();
         ImFont title = ui.fonts().titleMedium();
         ui.textCentredY(draw, title, x0, y0, rowH, ImGuiTheme.COL_FG, "Clients");
-        long running = clients.stream().filter(c -> c.status().isRunning()).count();
-        if (!clients.isEmpty() && !offline) {
-            String count = clients.size() + " connected · " + running + " running";
+        long running = clients.stream().filter(ClientView::isRunning).count();
+        if (!clients.isEmpty()) {
+            String count = clients.size() + (clients.size() == 1 ? " client" : " clients") + " · "
+                    + running + " running";
             ui.textCentredY(draw, ui.fonts().monoCaption(), x0 + ui.width(title, "Clients") + m.u(3), y0, rowH,
                     ImGuiTheme.COL_FG2, count);
             renderFilterRow(clients, (int) running, right, y0, rowH);
@@ -186,7 +212,7 @@ public class UserModeRenderer {
 
     private void renderFilterRow(List<ClientView> clients, int running, float right, float y, float rowH) {
         ImGuiTheme.Metrics m = ui.m();
-        long attention = clients.stream().filter(c -> c.status().needsAttention()).count();
+        long attention = clients.stream().filter(ClientView::needsAttention).count();
         List<Segment> segments = List.of(
                 new Segment("All", String.valueOf(clients.size()), false),
                 new Segment("Running", String.valueOf(running), false),
@@ -204,41 +230,51 @@ public class UserModeRenderer {
             // query would otherwise come back the next time the box appears.
             query.set("");
         } else {
-            float searchW = m.cardMinWidth() * SEARCH_WIDTH_OF_CARD;
+            float searchW = cardMinWidth() * SEARCH_WIDTH_OF_CARD;
             ImGui.setCursorScreenPos(segX - m.u(3) - searchW, y);
             ui.searchBox("##client-filter", query, "Filter by account or script", searchW, rowH, false);
         }
     }
 
+    private float cardMinWidth() {
+        return ui.fonts().body().getFontSize() * CARD_MIN_EM;
+    }
+
     // ── Grid ───────────────────────────────────────────────────────────────
 
+    /**
+     * Lays the cards out left to right in rows. Cards are as tall as their
+     * content; each row is as tall as its tallest card, and cards sit at its top.
+     */
     private void renderGrid(ClientBoard board, List<ClientView> visible) {
         if (visible.isEmpty()) {
             renderNoMatch();
             return;
         }
-        ImGuiTheme.Metrics m = ui.m();
         float availW = ImGui.getContentRegionAvailX();
-        float gap = m.u(3);
-        int columns = Math.max(1, (int) ((availW + gap) / (m.cardMinWidth() + gap)));
+        float gap = ui.m().u(3);
+        int columns = Math.max(1, (int) ((availW + gap) / (cardMinWidth() + gap)));
         float cardW = (availW - gap * (columns - 1)) / columns;
-        float cardH = card.height();
         float originX = ImGui.getCursorScreenPosX();
         float originY = ImGui.getCursorScreenPosY();
-        for (int i = 0; i < visible.size(); i++) {
-            ClientView v = visible.get(i);
-            float x = originX + (i % columns) * (cardW + gap);
-            float y = originY + (float) (i / columns) * (cardH + gap);
-            ClientCard.Intent intent = card.render(v, x, y, cardW, v.id().equals(selectedId), appear(v.id()),
-                    board.actions());
-            handleIntent(board, v, intent);
+        float rowY = originY;
+        for (int start = 0; start < visible.size(); start += columns) {
+            List<ClientView> row = visible.subList(start, Math.min(visible.size(), start + columns));
+            float rowH = 0f;
+            for (int i = 0; i < row.size(); i++) {
+                ClientView v = row.get(i);
+                rowH = Math.max(rowH, card.height(v, cardW));
+                float x = originX + i * (cardW + gap);
+                handleIntent(board, v, card.render(v, x, rowY, cardW, v.id().equals(selectedId), appear(v.id()),
+                        board.actions()));
+            }
+            rowY += rowH + gap;
         }
-        int rows = (visible.size() + columns - 1) / columns;
         ImGui.setCursorScreenPos(originX, originY);
-        ImGui.dummy(availW, rows * cardH + (rows - 1) * gap + m.u(5));
+        ImGui.dummy(availW, rowY - gap - originY + ui.m().u(5));
     }
 
-    private float appear(String id) {
+    private float appear(ClientKey id) {
         double now = ImGui.getTime();
         double since = now - firstSeen.computeIfAbsent(id, k -> now);
         return (float) Math.min(1.0, since / ImGuiTheme.DURATION_S);
@@ -246,68 +282,35 @@ public class UserModeRenderer {
 
     private void handleIntent(ClientBoard board, ClientView v, ClientCard.Intent intent) {
         switch (intent) {
-            case NONE -> { }
-            case SELECT -> selectedId = v.id();
-            case START_SCRIPT -> {
+            case ClientCard.Intent.None ignored -> { }
+            case ClientCard.Intent.Select ignored -> selectedId = v.id();
+            case ClientCard.Intent.StartScript ignored -> {
                 selectedId = v.id();
                 picker.open(v, board.catalog());
             }
-            case CONFIGURE -> configure(v);
+            case ClientCard.Intent.Configure configure -> configure(v, configure.scriptName());
         }
     }
 
-    /** Opens the inspector on the card's running script, on the tab its settings suggest. */
-    private void configure(ClientView v) {
-        ScriptInfo script = runningScript(v.status());
-        if (script != null) {
-            openInspector(v.id(), script.name(),
-                    InspectorTab.initialFor(script.settingsCount() > 0, script.hasCustomUi()));
-        }
+    /** Opens the inspector on the row's script, on the tab its settings suggest. */
+    private void configure(ClientView v, String scriptName) {
+        Optional<ScriptInfo> script = v.script(scriptName).map(ScriptRow::script);
+        script.ifPresent(s -> openInspector(v, s.name(),
+                InspectorTab.initialFor(s.settingsCount() > 0, s.hasCustomUi())));
     }
 
-    private static ScriptInfo runningScript(ClientStatus status) {
-        return switch (status) {
-            case ClientStatus.Running r -> r.script();
-            case ClientStatus.Idle ignored -> null;
-            case ClientStatus.Loading ignored -> null;
-            case ClientStatus.Lost ignored -> null;
-            case ClientStatus.Reconnecting ignored -> null;
-            case ClientStatus.Crashed ignored -> null;
-        };
-    }
-
-    // ── Empty, offline, no-match ───────────────────────────────────────────
+    // ── Empty, no-match ────────────────────────────────────────────────────
 
     private void renderWaiting(BoardStatus status) {
         float y = centredBlockTop(radarSize() + ui.m().u(5) + paragraphHeight(2) + ui.m().chipHeight());
         float cx = ImGui.getWindowPosX() + ImGui.getWindowWidth() * 0.5f;
         ImDrawList draw = ImGui.getWindowDrawList();
-        float after = radar(draw, cx, y, Icons.GAMEPAD, false);
+        float after = radar(draw, cx, y, Icons.GAMEPAD);
         after = headline(draw, cx, after, "Waiting for a game client…");
-        after = paragraph(draw, cx, after, "Start RuneScape from the BotWithUs launcher. "
-                + "Clients show up here on their own, usually within a few seconds.");
+        after = paragraph(draw, cx, after, "Launch RuneScape from the BotWithUs launcher. "
+                + "Each client shows up here on its own within a few seconds.");
         steps(draw, cx, after + ui.m().u(2), status);
         reserveTo(after + ui.m().u(2) + ui.m().chipHeight());
-    }
-
-    private void renderOffline(ClientBoard board, BoardStatus status) {
-        ImGuiTheme.Metrics m = ui.m();
-        float y = centredBlockTop(radarSize() + m.u(5) + paragraphHeight(2) + m.controlHeight());
-        float cx = ImGui.getWindowPosX() + ImGui.getWindowWidth() * 0.5f;
-        ImDrawList draw = ImGui.getWindowDrawList();
-        float after = radar(draw, cx, y, Icons.LINK_SLASH, true);
-        after = headline(draw, cx, after, "Lost the connection to the agent");
-        String attempts = status.gaveUpAttempts() > 0
-                ? "We gave up after " + status.gaveUpAttempts() + " attempts. "
-                : "We gave up reconnecting. ";
-        after = paragraph(draw, cx, after, attempts + "Your scripts in the game clients may still be running.");
-        String label = "Try again";
-        float bw = ui.buttonWidth(Icons.REDO, label, Tone.PRIMARY);
-        ImGui.setCursorScreenPos(cx - bw * 0.5f, after + m.u(3));
-        if (ui.button("##retry-host", Icons.REDO, label, Tone.PRIMARY, true)) {
-            board.actions().retryHost();
-        }
-        reserveTo(after + m.u(3) + m.controlHeight());
     }
 
     private void renderNoMatch() {
@@ -348,19 +351,18 @@ public class UserModeRenderer {
         return ui.fonts().body().getFontSize() * RADAR_EM;
     }
 
-    /** The waiting / offline mark: two rings, an arc, and an icon. Returns the y below it. */
-    private float radar(ImDrawList draw, float cx, float top, String icon, boolean off) {
+    /** The waiting mark: two rings, a sweeping arc, and an icon. Returns the y below it. */
+    private float radar(ImDrawList draw, float cx, float top, String icon) {
         float size = radarSize();
         float r = size * 0.5f;
         float cy = top + r;
         draw.addCircle(cx, cy, r, ImGuiTheme.COL_BORDER, 0, ui.m().hairline());
         draw.addCircle(cx, cy, r - ui.fonts().body().getFontSize() * RADAR_INNER_EM, ImGuiTheme.COL_BORDER,
                 0, ui.m().hairline());
-        float a0 = off ? RADAR_OFF_ANGLE - RADAR_SWEEP * 0.5f
-                : (float) ((ImGui.getTime() % RADAR_PERIOD_S) / RADAR_PERIOD_S * Math.PI * 2) - RADAR_SWEEP;
+        float a0 = (float) ((ImGui.getTime() % RADAR_PERIOD_S) / RADAR_PERIOD_S * Math.PI * 2) - RADAR_SWEEP;
         draw.pathClear();
         draw.pathArcTo(cx, cy, r, a0, a0 + RADAR_SWEEP);
-        draw.pathStroke(off ? ImGuiTheme.COL_DANGER : ImGuiTheme.COL_INFO, 0, RADAR_STROKE_PX);
+        draw.pathStroke(ImGuiTheme.COL_INFO, 0, RADAR_STROKE_PX);
         ImFont font = ui.fonts().titleMedium();
         ui.text(draw, font, cx - ui.width(font, icon) * 0.5f, cy - font.getFontSize() * 0.5f,
                 ImGuiTheme.COL_FG2, icon);

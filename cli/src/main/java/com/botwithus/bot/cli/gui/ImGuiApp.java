@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
+import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.impl.ActionsCommand;
 import com.botwithus.bot.cli.command.impl.AutoStartCommand;
@@ -26,6 +27,7 @@ import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
 import com.botwithus.bot.cli.diag.MetricsCollection;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.inspector.InspectorDock;
 import com.botwithus.bot.cli.gui.inspector.InspectorState;
 import com.botwithus.bot.cli.gui.inspector.LiveInspectorSource;
@@ -450,6 +452,11 @@ public class ImGuiApp extends Application {
         }
     }
 
+    /** "View log" on a card: the Logs tab scoped to the pipe {@code client} is on, or to every client. */
+    private void openLogs(ClientKey client) {
+        openLogs(ctx.getClientRegistry().get(client).flatMap(ClientRecord::pipe));
+    }
+
     /** "View log" for one client: Advanced, Dashboard, the Logs tab scoped to {@code clientId}. */
     private void openLogs(String clientId) {
         openLogs(Optional.ofNullable(clientId).filter(id -> !id.isBlank()));
@@ -464,7 +471,7 @@ public class ImGuiApp extends Application {
 
     private void onToastAction(Notification n) {
         switch (n.kind()) {
-            case GAVE_UP -> board.actions().reconnect(n.subject());
+            case GAVE_UP -> board.actions().reconnect(ctx.clientKeyOf(n.subject()));
             case SCRIPT_CRASHED -> openLogs(n.subject());
             case LOAD_FAILED -> openLogs(Optional.empty());
             case CONNECTION_LOST, RECONNECTING, RECONNECTED -> { }
