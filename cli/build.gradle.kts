@@ -440,8 +440,25 @@ val verifySdnRuntime by tasks.registering {
     }
 }
 
+// The bundled fonts' licences (Inter, JetBrains Mono, Font Awesome Free). They
+// ship inside the jar beside the fonts, but a copy in the image's lib/modules
+// cannot be read without tools, and the SIL OFL wants each copy of a font to carry
+// its licence where a user can see it. So the image also carries them as plain
+// files, under legal/fonts/ next to the JDK's own notices; the jpackage app image
+// and the MSI take the runtime from here, so they carry them too.
+val fontNotices by tasks.registering(Copy::class) {
+    description = "Copies the bundled fonts' licences into the runtime image's legal/fonts folder"
+    dependsOn(tasks.named("jlink"))
+    from(layout.projectDirectory.dir("src/main/resources/fonts")) {
+        include("*.txt")
+    }
+    into(layout.buildDirectory.dir("image/legal/fonts"))
+}
+tasks.named("jlink") { finalizedBy(fontNotices) }
+tasks.named("jpackageImage") { dependsOn(fontNotices) }
+
 val packageJre by tasks.registering(Zip::class) {
-    dependsOn(tasks.named("jlink"), verifySdnRuntime)
+    dependsOn(tasks.named("jlink"), verifySdnRuntime, fontNotices)
     archiveFileName.set("jre.zip")
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
     from(layout.buildDirectory.dir("image"))
