@@ -67,6 +67,8 @@ class SamePidPipeResolverTest {
         PipeResolution.Gone gone = assertInstanceOf(PipeResolution.Gone.class, result);
         assertTrue(gone.detail().contains(String.valueOf(OUR_PID)),
                 "the reason must name the pid so the log is actionable");
+        assertEquals(PipeResolution.Gone.Reason.PROCESS_EXITED, gone.reason(),
+                "a dead process can never re-open its pipe, so no retry should be offered");
     }
 
     /**
@@ -119,8 +121,10 @@ class SamePidPipeResolverTest {
 
         assertInstanceOf(PipeResolution.NotYet.class,
                 r.resolve(SamePidPipeResolver.MAX_WAIT_ATTEMPTS - 1));
-        assertInstanceOf(PipeResolution.Gone.class,
+        PipeResolution.Gone gone = assertInstanceOf(PipeResolution.Gone.class,
                 r.resolve(SamePidPipeResolver.MAX_WAIT_ATTEMPTS));
+        assertEquals(PipeResolution.Gone.Reason.PIPE_NOT_REOPENED, gone.reason(),
+                "the process is still alive, so a later retry may still find its pipe");
     }
 
     @Test

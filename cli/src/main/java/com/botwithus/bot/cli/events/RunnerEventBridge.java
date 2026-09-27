@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
+import java.time.Instant;
 
 /**
  * Turns the script runtime's lifecycle callbacks into {@link HostEvent}s. One
@@ -21,34 +22,40 @@ public final class RunnerEventBridge implements RunnerListener {
     private static final Logger log = LoggerFactory.getLogger(RunnerEventBridge.class);
 
     private final HostEventBus bus;
+    private final ClientKeys keys;
     private final Clock clock;
 
-    public RunnerEventBridge(HostEventBus bus, Clock clock) {
+    /**
+     * @param bus  where host-wide events go
+     * @param keys keys each client event by the client it is about, and publishes it
+     */
+    public RunnerEventBridge(HostEventBus bus, ClientKeys keys, Clock clock) {
         this.bus = bus;
+        this.keys = keys;
         this.clock = clock;
     }
 
     @Override
     public void scriptStarted(String connectionName, String scriptName) {
         if (isBound(connectionName, scriptName)) {
-            ClientRef client = new ClientRef(connectionName);
-            bus.publish(new ScriptStarted(client, scriptName, clock.instant()));
+            Instant at = clock.instant();
+            keys.publish(connectionName, client -> new ScriptStarted(client, scriptName, at));
         }
     }
 
     @Override
     public void scriptStopped(String connectionName, String scriptName) {
         if (isBound(connectionName, scriptName)) {
-            ClientRef client = new ClientRef(connectionName);
-            bus.publish(new ScriptStopped(client, scriptName, clock.instant()));
+            Instant at = clock.instant();
+            keys.publish(connectionName, client -> new ScriptStopped(client, scriptName, at));
         }
     }
 
     @Override
     public void scriptStalled(String connectionName, String scriptName) {
         if (isBound(connectionName, scriptName)) {
-            ClientRef client = new ClientRef(connectionName);
-            bus.publish(new ScriptStalled(client, scriptName, clock.instant()));
+            Instant at = clock.instant();
+            keys.publish(connectionName, client -> new ScriptStalled(client, scriptName, at));
         }
     }
 

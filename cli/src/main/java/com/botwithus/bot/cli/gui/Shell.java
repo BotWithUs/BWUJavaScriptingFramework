@@ -19,7 +19,8 @@ import java.util.function.Consumer;
 
 /**
  * One shell, two depths: the top bar, the mode's body and the status bar, laid
- * out edge to edge in a full-window ImGui window, with toasts floating above.
+ * out edge to edge in a full-window ImGui window, with toasts floating above and,
+ * for the frameless window, the {@link WindowChrome}'s resize border above those.
  * Normal mode's body is the Clients page; Advanced adds the sidebar and shows
  * whichever page it has selected, Clients included. In both, the one config
  * inspector docks on the right of the page body when that page owns the open
@@ -36,15 +37,24 @@ public final class Shell {
     private final PageRegistry pages;
     private final InspectorDock inspector;
     private final NotificationOverlay toasts;
+    private final WindowChrome chrome;
 
+    /** A shell for a window with Windows' own frame, or the preview: no window chrome of its own. */
     public Shell(Controls ui, PageRegistry pages, InspectorDock inspector, NotificationOverlay toasts) {
+        this(ui, pages, inspector, toasts, new NativeChrome());
+    }
+
+    /** A shell that draws {@code chrome}: the window buttons, drag region and resize border. */
+    public Shell(Controls ui, PageRegistry pages, InspectorDock inspector, NotificationOverlay toasts,
+                 WindowChrome chrome) {
         this.ui = ui;
-        this.topBar = new TopBar(ui);
+        this.topBar = new TopBar(ui, chrome);
         this.statusBar = new StatusBar(ui);
         this.sidebar = new Sidebar(ui);
         this.pages = pages;
         this.inspector = inspector;
         this.toasts = toasts;
+        this.chrome = chrome;
     }
 
     /**
@@ -82,6 +92,7 @@ public final class Shell {
         ImGui.end();
 
         toasts.render(ui, vp.getPosY() + top + ui.m().u(3), onToast);
+        chrome.renderEdges();
         return next;
     }
 

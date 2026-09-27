@@ -1,6 +1,10 @@
 package com.botwithus.bot.cli.gui.inspector;
 
 import com.botwithus.bot.cli.gui.nav.PageId;
+import com.botwithus.bot.cli.management.Target;
+
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Which script the inspector is open on. The variant is the inspector's kind: a
@@ -29,8 +33,29 @@ public sealed interface InspectorSubject {
         }
     }
 
-    /** A management script: one runner for the whole host. */
-    record ManagementScript(String scriptName) implements InspectorSubject {
+    /**
+     * A management script: one runner for the whole host.
+     *
+     * @param settingsFor the target whose own settings the form edits; empty for
+     *                    the defaults every target uses. Each target is its own
+     *                    subject, so picking another one starts a fresh form
+     */
+    record ManagementScript(String scriptName, Optional<Target> settingsFor) implements InspectorSubject {
+
+        public ManagementScript {
+            Objects.requireNonNull(scriptName, "scriptName");
+            Objects.requireNonNull(settingsFor, "settingsFor");
+        }
+
+        /** The management script's defaults. */
+        public ManagementScript(String scriptName) {
+            this(scriptName, Optional.empty());
+        }
+
+        /** The same script, with the form on {@code target}'s settings, or on the defaults when empty. */
+        public ManagementScript withSettingsFor(Optional<Target> target) {
+            return new ManagementScript(scriptName, target);
+        }
 
         @Override
         public PageId ownerPage() {

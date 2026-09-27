@@ -10,6 +10,7 @@ import com.botwithus.bot.cli.gui.nav.PageId;
 import com.botwithus.bot.cli.gui.nav.PageRegistry;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
 import com.botwithus.bot.cli.log.LogBuffer;
+import com.botwithus.bot.cli.management.Target;
 
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +26,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -178,5 +180,41 @@ class InspectorStateTest {
         state.resolve(subject -> Optional.empty());
 
         assertTrue(state.isOpen());
+    }
+
+    @Test
+    void pickingATarget_reopensTheManagementScriptOnIt_asItsOwnSubject_onSettings() {
+        Target oakheart = new Target.ClientScript("3f9a1c2e58b04d7a9e216c0f4b7d2a18", "Woodcutting");
+        state.open(BREAKS, InspectorTab.SCRIPT_UI);
+
+        state.pickSettingsFor(Optional.of(oakheart));
+
+        assertAll(
+                () -> assertEquals(Optional.of(BREAKS.withSettingsFor(Optional.of(oakheart))), state.subject()),
+                () -> assertNotEquals(Optional.of(BREAKS), state.subject(), "a fresh form, not the defaults'"),
+                () -> assertEquals(InspectorTab.SETTINGS, state.tab()),
+                () -> assertTrue(state.docksBeside(PageId.MANAGEMENT)));
+    }
+
+    @Test
+    void pickingTheDefaults_goesBackToTheDefaultsSubject() {
+        state.open(BREAKS.withSettingsFor(Optional.of(Target.host())), InspectorTab.SETTINGS);
+
+        state.pickSettingsFor(Optional.empty());
+
+        assertEquals(Optional.of(BREAKS), state.subject());
+    }
+
+    @Test
+    void pickingATarget_leavesAClientScriptAndAClosedInspectorAlone() {
+        state.pickSettingsFor(Optional.of(Target.host()));
+        assertFalse(state.isOpen());
+
+        state.open(WOODCUTTING, InspectorTab.SCRIPT_UI);
+        state.pickSettingsFor(Optional.of(Target.host()));
+
+        assertAll(
+                () -> assertEquals(Optional.of(WOODCUTTING), state.subject()),
+                () -> assertEquals(InspectorTab.SCRIPT_UI, state.tab()));
     }
 }

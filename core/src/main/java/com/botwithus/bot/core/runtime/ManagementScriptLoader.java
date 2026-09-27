@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.lang.module.Configuration;
 import java.lang.module.ModuleFinder;
 import java.lang.module.ModuleReference;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
@@ -15,8 +16,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.ServiceLoader;
-import java.util.Set;
 
 /**
  * Discovers {@link ManagementScript} implementations from JAR files
@@ -51,10 +52,19 @@ public final class ManagementScriptLoader {
 
     /**
      * Loads all ManagementScript providers from the default
-     * {@code scripts/management/} directory.
+     * {@code scripts/management/} directory. Failures are dropped — use
+     * {@link #loadReport()} to see them.
      */
     public static List<ManagementScript> loadScripts() {
-        return loadScripts(managementDirIn(LocalScriptLoader.resolveScriptsDir()));
+        return loadReport().scripts();
+    }
+
+    /**
+     * Loads all ManagementScript providers from JARs in the given directory.
+     * Failures are dropped — use {@link #loadReport(Path)} to see them.
+     */
+    public static List<ManagementScript> loadScripts(Path managementDir) {
+        return loadReport(managementDir).scripts();
     }
 
     /**
@@ -67,12 +77,27 @@ public final class ManagementScriptLoader {
     }
 
     /**
-     * Loads all ManagementScript providers from JARs in the given directory.
+     * Loads the default {@code scripts/management/} directory and reports
+     * every JAR: the scripts that loaded and the JARs that did not, with why.
      */
-    public static List<ManagementScript> loadScripts(Path managementDir) {
+    public static ManagementLoadReport loadReport() {
+        return loadReport(managementDirIn(LocalScriptLoader.resolveScriptsDir()));
+    }
+
+    /** {@link #loadReport()} over an explicit directory. */
+    public static ManagementLoadReport loadReport(Path managementDir) {
+        return loadReport(managementDir, staging);
+    }
+
+    /**
+     * {@link #loadReport(Path)} through an explicit staging area. Package-private
+     * so tests stage under a temporary root rather than the real
+     * {@code ~/.botwithus/staged-scripts} a running host shares.
+     */
+    static ManagementLoadReport loadReport(Path managementDir, ScriptJarStaging staging) {
         if (!Files.isDirectory(managementDir)) {
             createDirectoryIfMissing(managementDir);
-            return List.of();
+            return ManagementLoadReport.EMPTY;
         }
 
         previousLoaders.closeAll();
@@ -80,23 +105,22 @@ public final class ManagementScriptLoader {
         List<Path> jars = listJars(managementDir);
         if (jars.isEmpty()) {
             log.info("No JARs in {}", managementDir.toAbsolutePath());
-            return List.of();
+            return ManagementLoadReport.EMPTY;
         }
         log.info("Found {} JAR(s) in {}", jars.size(), managementDir.toAbsolutePath());
 
-        ModuleFinder finder = ModuleFinder.of(staging.stage(jars, managementDir).dir());
-        Set<ModuleReference> moduleReferences = finder.findAll();
-        if (moduleReferences.isEmpty()) {
-            log.info("No modules found in JARs.");
-            return List.of();
-        }
-
-        List<ManagementScript> allScripts = new ArrayList<>();
+        ScriptJarStaging.Staged staged = staging.stage(jars, managementDir);
+        StagedModules.Probe probe = StagedModules.probe(staged, jars);
+        List<ManagementLoadResult> results = new ArrayList<>();
+        probe.rejected().forEach((jar, error) -> {
+            log.warn("Not loading {}: {}", jar.getFileName(), error.getMessage());
+            results.add(ManagementLoadResult.failure(jar, error));
+        });
         ModuleLayer bootLayer = ModuleLayer.boot();
-        for (ModuleReference ref : moduleReferences) {
-            loadModuleScripts(ref, finder, bootLayer, allScripts);
+        for (ModuleReference ref : probe.modules()) {
+            results.addAll(loadModuleScripts(ref, probe.finder(), bootLayer, staged));
         }
-        return allScripts;
+        return new ManagementLoadReport(results);
     }
 
     private static void createDirectoryIfMissing(Path managementDir) {
@@ -117,13 +141,16 @@ public final class ManagementScriptLoader {
         }
     }
 
-    private static void loadModuleScripts(
-            ModuleReference ref, ModuleFinder finder, ModuleLayer bootLayer, List<ManagementScript> sink) {
+    private static List<ManagementLoadResult> loadModuleScripts(ModuleReference ref, ModuleFinder finder,
+                                                                ModuleLayer bootLayer,
+                                                                ScriptJarStaging.Staged staged) {
         String name = ref.descriptor().name();
-        var location = ref.location();
+        Optional<URI> location = ref.location();
         if (location.isEmpty()) {
-            return;
+            return List.of(ManagementLoadResult.failure(Path.of(name),
+                    new IllegalStateException("Module " + name + " has no resolvable location")));
         }
+        Path jar = staged.sourceOf(Path.of(location.get()));
         try {
             URL jarURL = location.get().toURL();
             Configuration cfg = bootLayer.configuration().resolve(
@@ -132,13 +159,19 @@ public final class ManagementScriptLoader {
             previousLoaders.add(classLoader);
             ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
 
-            ServiceLoader<ManagementScript> loader = ServiceLoader.load(layer, ManagementScript.class);
-            for (ManagementScript script : loader) {
-                sink.add(script);
+            List<ManagementLoadResult> results = new ArrayList<>();
+            for (ManagementScript script : ServiceLoader.load(layer, ManagementScript.class)) {
                 log.info("Loaded: {}", script.getClass().getName());
+                results.add(ManagementLoadResult.success(jar, script));
             }
+            if (results.isEmpty()) {
+                return List.of(ManagementLoadResult.failure(jar, new IllegalStateException(
+                        "Module '" + name + "' contains no ManagementScript providers")));
+            }
+            return results;
         } catch (Exception e) {
             log.error("Failed to load module {}: {}", name, e.getMessage());
+            return List.of(ManagementLoadResult.failure(jar, e));
         }
     }
 }

@@ -79,9 +79,17 @@ public final class FakeAgent {
     }
 
     public Connection connection(String name, Instant connectedAt) {
+        return connection(name, connectedAt, new ScriptRuntime(mock(ScriptContext.class)));
+    }
+
+    /** As {@link #connection(String)}, with a runtime the test built, e.g. one that can run scripts. */
+    public Connection connection(String name, ScriptRuntime runtime) {
+        return connection(name, Instant.now(), runtime);
+    }
+
+    private Connection connection(String name, Instant connectedAt, ScriptRuntime runtime) {
         PipeClient pipe = mock(PipeClient.class);
         when(pipe.isOpen()).thenReturn(true);
-        ScriptRuntime runtime = new ScriptRuntime(mock(ScriptContext.class));
         Connection conn = new Connection(name, pipe, rpc, runtime, new ScriptManagerImpl(runtime), connectedAt);
         conn.setEventBus(new EventBusImpl());
         return conn;

@@ -2,9 +2,12 @@ package com.botwithus.bot.cli.gui.inspector;
 
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.nav.PageId;
+import com.botwithus.bot.cli.management.Target;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,6 +54,19 @@ class InspectorRequestTest {
                 () -> assertEquals(new InspectorSubject.ManagementScript("Break Scheduler"), request.subject()),
                 () -> assertEquals(InspectorTab.SETTINGS, request.tab()),
                 () -> assertEquals(PageId.MANAGEMENT, request.subject().ownerPage()));
+    }
+
+    @Test
+    void aManagementTarget_opensOnThatTargetsSettings() {
+        Target woodcutting = new Target.ClientScript("3f9a1c2e58b04d7a9e216c0f4b7d2a18", "Woodcutting");
+
+        InspectorRequest request = InspectorRequest.forManagementTarget(
+                TestScripts.managementRunner(new TestScripts.FleetMonitor()), woodcutting);
+
+        assertAll(
+                () -> assertEquals(new InspectorSubject.ManagementScript("Fleet Monitor", Optional.of(woodcutting)),
+                        request.subject()),
+                () -> assertEquals(InspectorTab.SETTINGS, request.tab(), "settings, even for a UI-only script"));
     }
 
     @Test
