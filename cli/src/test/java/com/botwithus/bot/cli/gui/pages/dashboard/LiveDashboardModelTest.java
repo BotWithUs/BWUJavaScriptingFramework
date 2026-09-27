@@ -7,7 +7,11 @@ import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.clients.ClientRegistry;
+import com.botwithus.bot.cli.clients.ClientStore;
+import com.botwithus.bot.cli.clients.RememberedClient;
 import com.botwithus.bot.cli.command.CommandRegistry;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.ConnectionHistory;
 import com.botwithus.bot.cli.events.HostEvent;
@@ -28,11 +32,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.InstantSource;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -52,12 +60,26 @@ class LiveDashboardModelTest {
     private static final Instant T0 = Instant.parse("2026-09-26T14:00:00Z");
     private static final String OAKHEART = "BotWithUs_14208";
     private static final String FERNMOSS = "BotWithUs_9932";
+    /** The pipe Oakheart's account was on before its game was restarted. */
+    private static final String OAKHEART_BEFORE = "BotWithUs_12001";
+    private static final String OAKHEART_UUID = "0f6b3c521d7e4a8e9b1f5c2d7e8a9b10";
+    private static final ClientKey OAKHEART_ACCOUNT = ClientKey.account(OAKHEART_UUID);
     private static final String QUERY = "query_entities";
     private static final int SAMPLES_PER_CLIENT = 50;
 
     private final CliContext ctx = mock(CliContext.class);
     private final ClientActions clientActions = mock(ClientActions.class);
     private final ConnectionHistory history = new ConnectionHistory();
+    private final List<RememberedClient> remembered = new ArrayList<>();
+    private final ClientRegistry registry = new ClientRegistry(new ClientStore() {
+        @Override
+        public List<RememberedClient> load() {
+            return List.copyOf(remembered);
+        }
+
+        @Override
+        public void save(List<RememberedClient> clients) { }
+    }, pipe -> Optional.empty(), history, event -> { }, Clock.fixed(T0, ZoneOffset.UTC), Runnable::run);
     private final LogBuffer logBuffer = new LogBuffer();
     private final List<Connection> connections = new ArrayList<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -68,6 +90,7 @@ class LiveDashboardModelTest {
     void setUp() {
         when(ctx.getConnections()).thenReturn(connections);
         when(ctx.getConnectionHistory()).thenReturn(history);
+        when(ctx.getClientRegistry()).thenReturn(registry);
         when(ctx.getLogBuffer()).thenReturn(logBuffer);
         when(ctx.getLastLoadReport()).thenReturn(LoadReport.EMPTY);
         InstantSource clock = () -> now;
@@ -232,6 +255,62 @@ class LiveDashboardModelTest {
 
         assertEquals(List.of("ClientOpened", "ScriptStalled"), scoped);
         assertEquals(List.of("ClientOpened", "ClientOpened", "ScriptLoadFailed", "ScriptStalled"), all);
+    }
+
+    /**
+     * A client's history follows its account across pipes, so a client scoped
+     * by its current pipe also shows what it did before its game was restarted.
+     */
+    @Test
+    void events_scopedToAClient_includeWhatItsAccountDidOnAnEarlierPipe() {
+        history.accept(new HostEvent.ClientOpened(new ClientRef(OAKHEART_BEFORE), at(1)));
+        history.accept(new HostEvent.ClientIdentified(new ClientRef(OAKHEART_ACCOUNT, OAKHEART_BEFORE),
+                Optional.empty(), at(2)));
+        history.accept(new HostEvent.ScriptStopped(new ClientRef(OAKHEART_ACCOUNT, OAKHEART_BEFORE),
+                "Divination", at(3)));
+        history.accept(new HostEvent.ClientOpened(new ClientRef(FERNMOSS), at(4)));
+        history.accept(new HostEvent.ClientOpened(new ClientRef(OAKHEART), at(5)));
+        history.accept(new HostEvent.ClientIdentified(new ClientRef(OAKHEART_ACCOUNT, OAKHEART),
+                Optional.empty(), at(6)));
+
+        List<String> scoped = model.events(Scope.of(OAKHEART)).stream().map(EventRow::type).toList();
+
+        assertEquals(List.of("ClientOpened", "ClientIdentified", "ScriptStopped", "ClientOpened",
+                "ClientIdentified"), scoped);
+    }
+
+    @Test
+    void events_ofAClientWithNoConnection_areLabelledWithTheNameTheRegistryHasForIt() {
+        remembered.add(new RememberedClient(OAKHEART_UUID, Optional.of("Tamsin Vale"), OptionalInt.empty(), T0));
+        registry.load();
+        history.accept(new HostEvent.ScriptStopped(new ClientRef(OAKHEART_ACCOUNT, OAKHEART_BEFORE),
+                "Divination", at(1)));
+
+        assertEquals("Tamsin Vale", model.events(Scope.ALL).getFirst().clientLabel());
+    }
+
+    @Test
+    void events_describeAClientComingBackOnANewPipe() {
+        history.accept(new HostEvent.ClientResumed(new ClientRef(OAKHEART_ACCOUNT, OAKHEART),
+                Optional.of(OAKHEART_BEFORE), at(1)));
+        history.accept(new HostEvent.ClientResumed(new ClientRef(OAKHEART_ACCOUNT, OAKHEART),
+                Optional.empty(), at(2)));
+
+        List<EventRow> rows = model.events(Scope.ALL);
+
+        assertAll(
+                () -> assertEquals("ClientResumed", rows.getFirst().type()),
+                () -> assertEquals("Back from " + OAKHEART_BEFORE, rows.getFirst().detail()),
+                () -> assertEquals("Back from an earlier session", rows.get(1).detail()));
+    }
+
+    @Test
+    void events_ofALiveClient_areLabelledAsTheRestOfTheDashboardLabelsIt() {
+        Connection live = connect(OAKHEART, new RpcMetrics(), List.of());
+        when(live.getDisplayName()).thenReturn(Optional.of("Oakheart"));
+        history.accept(new HostEvent.ClientOpened(new ClientRef(OAKHEART), at(1)));
+
+        assertEquals("Oakheart", model.events(Scope.ALL).getFirst().clientLabel());
     }
 
     // ── Reset ───────────────────────────────────────────────────────────

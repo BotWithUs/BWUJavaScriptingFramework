@@ -6,6 +6,10 @@ import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.clients.ClientRecord;
+import com.botwithus.bot.cli.clients.ClientRegistry;
+import com.botwithus.bot.cli.events.ClientRef;
+import com.botwithus.bot.cli.events.ConnectionHistory;
 import com.botwithus.bot.cli.events.HostEvent;
 import com.botwithus.bot.cli.gui.usermode.board.ClientActions;
 import com.botwithus.bot.cli.log.LogEntry;
@@ -133,16 +137,18 @@ public final class LiveDashboardModel implements DashboardModel {
         return new LogsView(lines, errors);
     }
 
+    /**
+     * A client's events are its whole history, which follows its account across
+     * pipes: the scope names its current pipe, and the history finds the client
+     * that pipe belongs to now.
+     */
     @Override
     public List<EventRow> events(Scope scope) {
-        Function<String, String> labels = labels(ctx.getConnections());
-        List<EventRow> rows = new ArrayList<>();
-        for (HostEvent event : ctx.getConnectionHistory().merged()) {
-            if (scope.includes(clientOf(event))) {
-                rows.add(EventRows.of(event, labels));
-            }
-        }
-        return rows;
+        ConnectionHistory history = ctx.getConnectionHistory();
+        List<HostEvent> events = scope.client().map(pipe -> history.forClient(pipe))
+                .orElseGet(history::merged);
+        Function<ClientRef, String> labels = eventLabels(ctx.getConnections());
+        return events.stream().map(event -> EventRows.of(event, labels)).toList();
     }
 
     @Override
@@ -334,9 +340,16 @@ public final class LiveDashboardModel implements DashboardModel {
         return conn.getDisplayName().orElse(account != null && !account.isBlank() ? account : conn.getName());
     }
 
-    private static Function<String, String> labels(List<Connection> conns) {
-        return pipe -> conns.stream().filter(c -> c.getName().equals(pipe)).findFirst()
-                .map(LiveDashboardModel::labelOf).orElse(pipe);
+    /**
+     * An event's client as the rest of the Dashboard labels it while it has a
+     * connection, else by the name the client registry has for it, else by its pipe.
+     */
+    private Function<ClientRef, String> eventLabels(List<Connection> conns) {
+        ClientRegistry registry = ctx.getClientRegistry();
+        return ref -> conns.stream().filter(c -> c.getName().equals(ref.pipe())).findFirst()
+                .map(LiveDashboardModel::labelOf)
+                .or(() -> registry.get(ref.key()).flatMap(ClientRecord::name))
+                .orElse(ref.hasPipe() ? ref.pipe() : ref.key().value());
     }
 
     private static List<RpcMetrics> metricsOf(List<Connection> conns) {
@@ -359,15 +372,6 @@ public final class LiveDashboardModel implements DashboardModel {
             case ReconnectState.Reconnecting r -> OptionalInt.of(r.attempt());
             case ReconnectState.Connected _, ReconnectState.Disconnected _, ReconnectState.GivingUp _ ->
                     OptionalInt.empty();
-        };
-    }
-
-    /** The client an event is about, or {@code null} for a host-wide one. */
-    private static String clientOf(HostEvent event) {
-        return switch (event) {
-            case HostEvent.ClientEvent e -> e.client().pipe();
-            case HostEvent.ScriptLoadFailed _, HostEvent.ManagementAction _,
-                 HostEvent.ManagementScriptCrashed _ -> null;
         };
     }
 

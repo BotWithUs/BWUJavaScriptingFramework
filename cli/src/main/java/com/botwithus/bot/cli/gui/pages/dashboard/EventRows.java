@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.gui.pages.dashboard;
 
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.ReconnectState;
+import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.HostEvent;
 import com.botwithus.bot.cli.events.HostEvent.ClientClosed;
 import com.botwithus.bot.cli.events.HostEvent.ClientForgotten;
@@ -30,11 +31,11 @@ final class EventRows {
     private EventRows() {}
 
     /**
-     * @param labels the client label for a pipe name
+     * @param labels the label of the client a client event is about
      */
-    static EventRow of(HostEvent event, Function<String, String> labels) {
+    static EventRow of(HostEvent event, Function<ClientRef, String> labels) {
         return switch (event) {
-            case HostEvent.ClientEvent e -> new EventRow(e.at(), type(e), labels.apply(e.client().pipe()), detail(e));
+            case HostEvent.ClientEvent e -> new EventRow(e.at(), type(e), labels.apply(e.client()), detail(e));
             case ScriptLoadFailed e -> new EventRow(e.at(), "ScriptLoadFailed", NO_CLIENT,
                     fileName(e.jar()) + " · " + oneLine(e.cause()));
             case ManagementAction e -> new EventRow(e.at(), "ManagementAction", NO_CLIENT,
