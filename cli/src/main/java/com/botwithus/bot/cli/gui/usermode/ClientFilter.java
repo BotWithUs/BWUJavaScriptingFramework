@@ -16,7 +16,7 @@ final class ClientFilter {
     enum View { ALL, RUNNING, NEEDS_ATTENTION }
 
     /** More clients than this and the filter row shows the search box. */
-    static final int SEARCH_THRESHOLD = 6;
+    static final int SEARCH_THRESHOLD = 7;
 
     private ClientFilter() {}
 
@@ -35,8 +35,8 @@ final class ClientFilter {
         return clients.stream()
                 .filter(c -> switch (view) {
                     case ALL -> true;
-                    case RUNNING -> c.status().isRunning();
-                    case NEEDS_ATTENTION -> c.status().needsAttention();
+                    case RUNNING -> c.isRunning();
+                    case NEEDS_ATTENTION -> c.needsAttention();
                 })
                 .filter(c -> c.matches(effective))
                 .toList();

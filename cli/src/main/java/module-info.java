@@ -1,6 +1,6 @@
 module com.botwithus.bot.cli {
-    // transitive: cli's exported gui classes (UserModeRenderer, ManagementScriptsPanel,
-    // ImGuiApp, etc.) expose api / core / desktop / imgui-app types in their public
+    // transitive: cli's exported gui classes (UserModeRenderer, ImGuiApp, the pages,
+    // etc.) expose api / core / desktop / imgui-app types in their public
     // signatures. Re-exporting avoids -Xlint [exports] warnings on every panel ctor.
     requires transitive com.botwithus.bot.api;
     requires transitive com.botwithus.bot.core;
@@ -21,17 +21,33 @@ module com.botwithus.bot.cli {
     uses com.botwithus.bot.api.BotScript;
     uses com.botwithus.bot.api.script.ManagementScript;
 
-    opens com.botwithus.bot.cli to com.google.gson;
     opens com.botwithus.bot.cli.log to ch.qos.logback.core;
 
     exports com.botwithus.bot.cli;
+    // CliContext hands out the alert integrations the Settings page binds to.
+    exports com.botwithus.bot.cli.alerts;
     // Exported because CliContext leaks LogBuffer / LogCapture / StreamManager /
     // CommandRegistry through its public methods. Consumers (panels, commands)
     // legitimately depend on these types so they must be addressable.
     exports com.botwithus.bot.cli.command;
     exports com.botwithus.bot.cli.log;
+    exports com.botwithus.bot.cli.settings;
     exports com.botwithus.bot.cli.stream;
+    // CliContext hands out the host event bus and the connection history.
+    exports com.botwithus.bot.cli.events;
+    // CliContext hands out reload modes and summaries.
+    exports com.botwithus.bot.cli.scripts;
+    // CliContext hands out the client registry and its snapshots.
+    exports com.botwithus.bot.cli.clients;
+    // CliContext hands out the group store and the start-when-back queue.
+    exports com.botwithus.bot.cli.groups;
+    // CliContext hands out management targets, control and the orchestrator audit log.
+    exports com.botwithus.bot.cli.management;
     exports com.botwithus.bot.cli.gui;
+    exports com.botwithus.bot.cli.gui.inspector;
+    exports com.botwithus.bot.cli.gui.nav;
+    exports com.botwithus.bot.cli.gui.window;
+    exports com.botwithus.bot.cli.gui.pages;
     exports com.botwithus.bot.cli.gui.usermode;
     exports com.botwithus.bot.cli.gui.usermode.board;
     exports com.botwithus.bot.cli.gui.notify;

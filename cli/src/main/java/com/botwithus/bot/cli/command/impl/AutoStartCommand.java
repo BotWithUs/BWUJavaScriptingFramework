@@ -7,6 +7,9 @@ import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.output.TableFormatter;
+import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.SettingKey;
+import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
@@ -18,10 +21,13 @@ public class AutoStartCommand implements Command {
 
     private final ScriptProfileStore profileStore;
     private final AutoStartManager autoStartManager;
+    private final HostSettings settings;
 
-    public AutoStartCommand(ScriptProfileStore profileStore, AutoStartManager autoStartManager) {
+    public AutoStartCommand(ScriptProfileStore profileStore, AutoStartManager autoStartManager,
+                            HostSettings settings) {
         this.profileStore = profileStore;
         this.autoStartManager = autoStartManager;
+        this.settings = settings;
     }
 
     @Override public String name() { return "autostart"; }
@@ -46,18 +52,8 @@ public class AutoStartCommand implements Command {
                 case "clear" -> clearProfile(parsed.arg(1), ctx);
                 case "group" -> handleGroup(parsed, ctx);
                 case "settings" -> showSettings(ctx);
-                case "on" -> {
-                    profileStore.setAutoConnect(true);
-                    profileStore.saveSettings();
-                    autoStartManager.start();
-                    ctx.out().println("Auto-connect enabled. Background scanning started.");
-                }
-                case "off" -> {
-                    profileStore.setAutoConnect(false);
-                    profileStore.saveSettings();
-                    autoStartManager.stop();
-                    ctx.out().println("Auto-connect disabled. Background scanning stopped.");
-                }
+                case "on" -> setAutoConnect(true, ctx);
+                case "off" -> setAutoConnect(false, ctx);
                 default -> ctx.out().println("Unknown subcommand: " + sub + ". " + usage());
             }
         }
@@ -292,12 +288,31 @@ public class AutoStartCommand implements Command {
         }
     }
 
+    /**
+     * Flips the {@code autoConnect} setting; {@link AutoStartManager} follows the
+     * setting and starts or stops its scanner, the same as for the GUI switch.
+     * {@code on} also makes sure the manager is following the setting at all
+     * ({@link AutoStartManager#start()} is idempotent); {@code off} must not call
+     * {@link AutoStartManager#stop()}, which would stop it following for good.
+     */
+    private void setAutoConnect(boolean enabled, CliContext ctx) {
+        settings.set(SettingKeys.AUTO_CONNECT, enabled);
+        settings.flush();
+        if (enabled) {
+            autoStartManager.start();
+            ctx.out().println("Auto-connect enabled. Background scanning started.");
+        } else {
+            ctx.out().println("Auto-connect disabled. Background scanning stopped.");
+        }
+    }
+
     private void showSettings(CliContext ctx) {
-        ctx.out().println("Auto-Start Settings:");
-        ctx.out().println("  autoConnect: " + profileStore.isAutoConnect());
-        ctx.out().println("  pipePrefix:  " + profileStore.getPipePrefix());
-        ctx.out().println("  probeLobby:  " + profileStore.isProbeLobby());
-        ctx.out().println("  scanInterval: " + profileStore.getScanIntervalMs() + "ms");
+        ctx.out().println("Auto-Start Settings (" + settings.file() + "):");
+        for (SettingKey<?> key : List.of(SettingKeys.AUTO_CONNECT, SettingKeys.PIPE_PREFIX,
+                SettingKeys.SCAN_INTERVAL_MS)) {
+            ctx.out().println("  " + key.name() + " = " + settings.text(key) + "   " + key.description());
+        }
+        ctx.out().println("Change with: config set <key> <value>, or autostart on|off.");
     }
 
     private String getActiveAccountUuid(CliContext ctx) {
