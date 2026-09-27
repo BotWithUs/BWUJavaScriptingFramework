@@ -12,6 +12,8 @@ import com.botwithus.bot.cli.gui.pages.ClientsPage;
 import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
+import com.botwithus.bot.cli.gui.pages.settings.FixtureSettingsModel;
+import com.botwithus.bot.cli.gui.pages.settings.SettingsPage;
 import com.botwithus.bot.cli.gui.pages.store.StorePage;
 import com.botwithus.bot.cli.gui.pages.connections.ConnectionsPage;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
@@ -30,15 +32,15 @@ import java.util.concurrent.atomic.AtomicReference;
  * real Connections page over a {@link FixtureConnectionsModel}, the interim
  * Groups page over a host with nothing connected, the real Installed scripts
  * page over a {@link FixtureInstalledModel}, the real Script Store over a
- * {@link FixtureStoreModel}, and fixture pages for the rest so every kind of
- * sidebar entry shows.
+ * {@link FixtureStoreModel}, the real Settings page over in-memory settings,
+ * and fixture pages for the rest so every kind of sidebar entry shows.
  */
 final class FixturePages {
 
     /** What a scenario can reach after building the pages. */
     record Built(PageRegistry registry, DashboardPage dashboard, SwitchableDashboardModel dashboardModel,
                  CliContext host, StorePage store, ConnectionsPage connections, InstalledPage installed,
-                 FixtureInstalledModel installedModel) {}
+                 FixtureInstalledModel installedModel, SettingsPage settings, FixtureSettingsModel settingsModel) {}
 
     private static final Path CWD = Path.of("").toAbsolutePath();
     private static final Path HOME = Path.of(System.getProperty("user.home"));
@@ -59,6 +61,8 @@ final class FixturePages {
         FixtureInstalledModel installedModel = new FixtureInstalledModel();
         InstalledPage installed = new InstalledPage(ui, installedModel,
                 SecondLine.FolderPath.of(CWD.resolve("scripts"), CWD, HOME), id -> { });
+        FixtureSettingsModel settingsModel = new FixtureSettingsModel();
+        SettingsPage settings = new SettingsPage(ui, settingsModel);
         List<Page> pages = List.of(
                 new ClientsPage(clients, board),
                 dashboard,
@@ -67,10 +71,10 @@ final class FixturePages {
                 installed,
                 fixture(PageId.MANAGEMENT, ui, folder("scripts/management"), Optional.empty()),
                 store,
-                fixture(PageId.SETTINGS, ui, Optional.empty(), Optional.empty()));
+                settings);
         registry.set(new PageRegistry(pages));
         return new Built(registry.get(), dashboard, dashboardModel, ctx, store, connections, installed,
-                installedModel);
+                installedModel, settings, settingsModel);
     }
 
     private static FixturePage fixture(PageId id, Controls ui, Optional<SecondLine> line, Optional<NavBadge> badge) {

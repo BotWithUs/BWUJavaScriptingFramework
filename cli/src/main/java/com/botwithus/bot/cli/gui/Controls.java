@@ -54,7 +54,8 @@ public final class Controls {
     private static final int ALPHA_SHIFT = 24;
     private static final int RGB_MASK = 0x00FFFFFF;
 
-    private final UiFonts fonts;
+    // Replaced when the text size changes; render thread only.
+    private UiFonts fonts;
 
     public Controls(UiFonts fonts) {
         this.fonts = fonts;
@@ -62,6 +63,14 @@ public final class Controls {
 
     public UiFonts fonts() {
         return fonts;
+    }
+
+    /**
+     * Draws with {@code rebuilt} from now on. Called between frames, after the
+     * font atlas was rebuilt for a new text size; the old fonts are gone by then.
+     */
+    public void useFonts(UiFonts rebuilt) {
+        this.fonts = rebuilt;
     }
 
     public ImGuiTheme.Metrics m() {
@@ -470,6 +479,11 @@ public final class Controls {
         float cw = width(fonts.caption(), Icons.ANGLE_DOWN);
         textCentredY(draw, fonts.caption(), x + width - m.u(3) - cw, y, h, ImGuiTheme.COL_FG2, Icons.ANGLE_DOWN);
         return changed;
+    }
+
+    /** The width of the switch {@link #toggleRow} draws, for a row that is only the switch. */
+    public float toggleWidth() {
+        return fonts.body().getFontSize() * TOGGLE_W_EM;
     }
 
     /** A label on the left and a switch on the right, spanning {@code width}. */

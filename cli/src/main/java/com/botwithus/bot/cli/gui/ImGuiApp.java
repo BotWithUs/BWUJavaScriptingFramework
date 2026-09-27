@@ -47,6 +47,8 @@ import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.LiveDashboardModel;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
 import com.botwithus.bot.cli.gui.pages.installed.LiveInstalledModel;
+import com.botwithus.bot.cli.gui.pages.settings.LiveSettingsModel;
+import com.botwithus.bot.cli.gui.pages.settings.SettingsPage;
 import com.botwithus.bot.cli.gui.pages.store.LiveStoreModel;
 import com.botwithus.bot.cli.gui.pages.store.StoreCatalogue;
 import com.botwithus.bot.cli.gui.pages.store.StorePage;
@@ -146,6 +148,9 @@ public class ImGuiApp extends Application {
     private ScheduledExecutorService catalogueTicker;
     private FavouritesStore favourites;
     private float dpiScale = 1f;
+
+    // Applies a text size change between frames; set once the settings are open.
+    private FontRebuild fontRebuild;
 
     // The one config inspector, shared by both modes and every "Settings" button
     private InspectorDock inspector;
@@ -364,8 +369,7 @@ public class ImGuiApp extends Application {
         Optional<SecondLine> managementLine = Optional.of(folderLine(ManagementScriptLoader.managementDirIn(scriptsDir)));
         return List.of(
                 LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
-                new LegacyPanelPage(PageId.MANAGEMENT, ui, ctx, List.of(mgmtPanel), () -> managementLine),
-                LegacyPanelPage.of(PageId.SETTINGS, ui, ctx, new SettingsPanel()));
+                new LegacyPanelPage(PageId.MANAGEMENT, ui, ctx, List.of(mgmtPanel), () -> managementLine));
     }
 
     private List<Page> buildPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
@@ -375,6 +379,7 @@ public class ImGuiApp extends Application {
         all.add(storePage(sdnCatalogue, sdnInstaller));
         all.add(connectionsPage());
         all.add(installedPage(sdnCatalogue, sdnInstaller));
+        all.add(settingsPage());
         return all;
     }
 
@@ -422,6 +427,28 @@ public class ImGuiApp extends Application {
                 sdnCatalogue::shown, inspector.state()::request, executor, LiveInstalledModel.desktopOpener(executor),
                 Clock.systemDefaultZone(), scriptsDir, folder.text(), INSTALLED_VIEW_MAX_AGE));
         return new InstalledPage(ui, model, folder, id -> pages.select(id));
+    }
+
+    /** Settings over the live host; a text size change there rebuilds the fonts between frames. */
+    private SettingsPage settingsPage() {
+        HostSettings settings = ctx.getSettings();
+        fontRebuild = new FontRebuild(settings, ui, dpiScale, UI_FONT_BASE_PX);
+        Path home = Path.of(System.getProperty("user.home"));
+        LiveSettingsModel.Places places = new LiveSettingsModel.Places(HostSettings.defaultBaseDir(),
+                LocalScriptLoader.scriptsDir(), LiveSettingsModel.exportFolderIn(home), home, Path.of(""));
+        LiveSettingsModel.Host host = new LiveSettingsModel.Host(settings,
+                Optional.ofNullable(ctx.getProfileStore()), ctx::getConnections);
+        return new SettingsPage(ui, new LiveSettingsModel(host, places, LiveSettingsModel::openOnDesktop,
+                task -> Thread.ofVirtual().name("settings-io").start(task), Clock.systemDefaultZone(),
+                fontRebuild::monitorPercent));
+    }
+
+    @Override
+    protected void startFrame() {
+        if (fontRebuild != null) {
+            fontRebuild.applyIfDue(imGuiGl3);
+        }
+        super.startFrame();
     }
 
     /** A folder as the sidebar's second line shows it, relative to where the host runs from. */

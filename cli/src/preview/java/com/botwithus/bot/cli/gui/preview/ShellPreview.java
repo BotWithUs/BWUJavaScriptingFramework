@@ -14,6 +14,7 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.FontLoader;
 import com.botwithus.bot.cli.gui.FramelessChrome;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
+import com.botwithus.bot.cli.gui.PreviewFonts;
 import com.botwithus.bot.cli.gui.Shell;
 import com.botwithus.bot.cli.gui.inspector.InspectorDock;
 import com.botwithus.bot.cli.gui.inspector.InspectorPreviewSeams;
@@ -32,6 +33,9 @@ import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
+import com.botwithus.bot.cli.gui.pages.settings.SettingsAction;
+import com.botwithus.bot.cli.gui.pages.settings.SettingsPreviewSeams;
+import com.botwithus.bot.cli.gui.pages.settings.SettingsSection;
 import com.botwithus.bot.cli.gui.pages.store.PriceFilter;
 import com.botwithus.bot.cli.gui.pages.store.StorePage;
 import com.botwithus.bot.cli.gui.pages.store.StorePreviewSeams;
@@ -42,6 +46,9 @@ import com.botwithus.bot.cli.gui.usermode.PreviewSeams;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.cli.gui.window.WindowRect;
+import com.botwithus.bot.cli.settings.SaveStatus;
+import com.botwithus.bot.cli.settings.SettingKeys;
+import com.botwithus.bot.cli.settings.TextSize;
 import com.botwithus.bot.core.impl.EventBusImpl;
 
 import imgui.ImGui;
@@ -147,7 +154,7 @@ public final class ShellPreview extends Application {
 
     /** What a scenario's frame hook can reach. */
     private record Stage(FixtureBoard board, UserModeRenderer page, EventBusImpl bus, FixturePages.Built pages,
-                         InspectorDock inspector, FixtureWindow window) {}
+                         InspectorDock inspector, FixtureWindow window, Consumer<TextSize> textSize) {}
 
     private final Path outDir;
     private final List<Scenario> scenarios = scenarios();
@@ -159,6 +166,9 @@ public final class ShellPreview extends Application {
     /** The mode the shell drew last; an inspector request can switch it, as in the app. */
     private AppMode mode;
     private int fbo;
+    /** The text size the next scenario frame should use, and the one the atlas holds now. */
+    private TextSize textSize = TextSize.PERCENT_100;
+    private TextSize shownTextSize = TextSize.PERCENT_100;
 
     private ShellPreview(Path outDir) {
         this.outDir = outDir;
@@ -200,11 +210,22 @@ public final class ShellPreview extends Application {
         toasts.subscribeTo(bus);
         FixturePages.Built pages = FixturePages.build(ui, page, board, s.store().get(), s.connections().get());
         FixtureWindow window = new FixtureWindow(new WindowRect(0, 0, WIDTH, HEIGHT));
-        stage = new Stage(board, page, bus, pages, inspector, window);
+        stage = new Stage(board, page, bus, pages, inspector, window, size -> textSize = size);
         shell = new Shell(ui, pages.registry(), inspector, toasts,
                 new FramelessChrome(ui, window, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT));
         mode = s.mode();
         frame = 0;
+        textSize = TextSize.PERCENT_100;
+    }
+
+    /** Applies a scenario's text size between frames, as the app does when the setting changes. */
+    @Override
+    protected void startFrame() {
+        if (textSize != shownTextSize) {
+            PreviewFonts.rebuild(ui, imGuiGl3, textSize, ADVANCED_FONT_PX);
+            shownTextSize = textSize;
+        }
+        super.startFrame();
     }
 
     @Override
@@ -371,7 +392,7 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::everyState,
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
-                installedScenarios()).flatMap(List::stream).toList();
+                installedScenarios(), settingsScenarios()).flatMap(List::stream).toList();
     }
 
     /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
@@ -550,6 +571,93 @@ public final class ShellPreview extends Application {
         if (f == 2) {
             InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_4468");
             InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_8936");
+        }
+    }
+
+    /** Settings: each section, the find box, refused values, the save line, and a larger text size. */
+    private static List<Scenario> settingsScenarios() {
+        return List.of(
+                Scenario.advanced("42-settings-reconnect-preview", FixtureBoard::everyState,
+                        settingsAt(SettingsSection.RECONNECTING)),
+                Scenario.advanced("43-settings-accounts", FixtureBoard::everyState,
+                        settingsAt(SettingsSection.ACCOUNTS)),
+                Scenario.advanced("44-settings-scripts-notifications", FixtureBoard::everyState,
+                        settingsAt(SettingsSection.SCRIPTS)),
+                Scenario.advanced("45-settings-interface-diagnostics", FixtureBoard::everyState,
+                        settingsAt(SettingsSection.INTERFACE)),
+                Scenario.advanced("46-settings-all-config-keys", FixtureBoard::everyState,
+                        settingsAt(SettingsSection.ALL_KEYS)),
+                Scenario.advanced("47-settings-find-timeout", FixtureBoard::everyState, settingsFind("timeout")),
+                Scenario.advanced("48-settings-find-nothing", FixtureBoard::everyState, settingsFind("zzz")),
+                Scenario.advanced("49-settings-invalid-number", FixtureBoard::everyState,
+                        ShellPreview::settingsInvalidNumber),
+                Scenario.advanced("52-settings-invalid-stall-threshold", FixtureBoard::everyState,
+                        ShellPreview::settingsInvalidStall),
+                Scenario.advanced("50-settings-saving-after-export", FixtureBoard::everyState,
+                        ShellPreview::settingsSaving),
+                Scenario.advanced("51-settings-save-failed", FixtureBoard::everyState,
+                        ShellPreview::settingsSaveFailed),
+                Scenario.advanced("53-settings-text-size-125", FixtureBoard::everyState, (s, f) -> {
+                    s.pages().registry().select(PageId.SETTINGS);
+                    if (f == 0) {
+                        s.textSize().accept(TextSize.PERCENT_125);
+                    } else if (f == 2) {
+                        SettingsPreviewSeams.showSection(s.pages().settings(), SettingsSection.INTERFACE);
+                    }
+                }));
+    }
+
+    /** Opens Settings and scrolls to {@code section} once the page has laid out, as the section list does. */
+    private static BiConsumer<Stage, Integer> settingsAt(SettingsSection section) {
+        return (s, f) -> {
+            s.pages().registry().select(PageId.SETTINGS);
+            if (f == 2) {
+                SettingsPreviewSeams.showSection(s.pages().settings(), section);
+            }
+        };
+    }
+
+    private static BiConsumer<Stage, Integer> settingsFind(String query) {
+        return (s, f) -> {
+            s.pages().registry().select(PageId.SETTINGS);
+            if (f == 0) {
+                SettingsPreviewSeams.find(s.pages().settings(), query);
+            }
+        };
+    }
+
+    /** Words typed into a number box: refused, with the rule under the row. */
+    private static void settingsInvalidNumber(Stage s, int f) {
+        s.pages().registry().select(PageId.SETTINGS);
+        if (f == 1) {
+            SettingsPreviewSeams.type(s.pages().settings(), SettingKeys.RPC_TIMEOUT_MS.name(), "ten seconds");
+        }
+    }
+
+    /** A stall threshold under its minimum: refused in seconds, the unit the row shows. */
+    private static void settingsInvalidStall(Stage s, int f) {
+        s.pages().registry().select(PageId.SETTINGS);
+        if (f == 2) {
+            SettingsPreviewSeams.showSection(s.pages().settings(), SettingsSection.SCRIPTS);
+            SettingsPreviewSeams.type(s.pages().settings(), SettingKeys.STALL_AFTER_MS.name(), "5");
+        }
+    }
+
+    private static void settingsSaving(Stage s, int f) {
+        s.pages().registry().select(PageId.SETTINGS);
+        if (f == 0) {
+            s.pages().settingsModel().showStatus(new SaveStatus.Saving());
+            s.pages().settingsModel().run(SettingsAction.EXPORT_SETTINGS);
+        } else if (f == 2) {
+            SettingsPreviewSeams.showSection(s.pages().settings(), SettingsSection.ABOUT);
+        }
+    }
+
+    private static void settingsSaveFailed(Stage s, int f) {
+        s.pages().registry().select(PageId.SETTINGS);
+        if (f == 0) {
+            s.pages().settingsModel().showStatus(new SaveStatus.Failed(
+                    "Could not save settings: config.properties is in use by another program", Instant.now()));
         }
     }
 
