@@ -34,6 +34,8 @@ module com.botwithus.bot.cli {
     exports com.botwithus.bot.cli.stream;
     // CliContext hands out the host event bus and the connection history.
     exports com.botwithus.bot.cli.events;
+    // CliContext hands out reload modes and summaries.
+    exports com.botwithus.bot.cli.scripts;
     exports com.botwithus.bot.cli.gui;
     exports com.botwithus.bot.cli.gui.inspector;
     exports com.botwithus.bot.cli.gui.nav;

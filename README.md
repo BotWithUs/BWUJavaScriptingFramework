@@ -89,7 +89,7 @@ Commands:
 | `events` | | Monitor event bus subscriptions and publish counts |
 | `player` | `self`, `pos` | Print local player position and state from the snapshot (`player skills` for the skills table) |
 | `autostart` | | Manage per-account script auto-start profiles |
-| `reload` | | Reload scripts (supports `--watch` for auto-reload on JAR change) |
+| `reload` | | Reload scripts; `--start` starts them all, `--watch` toggles the folder watch (the `autoReload` setting) |
 | `mount` / `unmount` | | Mount/unmount script directories |
 | `ping` | | Ping the game server |
 | `help` | | Show available commands |
@@ -460,5 +460,9 @@ Javadoc is generated for the API module and published to GitHub Pages. Build loc
 **Protocol-version mismatch.** Connect succeeds but reads fail immediately with "shared region protocol version X, expected Y" — the consumer (`Layout.PROTOCOL_VERSION`) and the producer (`kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h`) drifted. Rebuild both sides from matching commits; `SharedRegion.open()` refuses to map a region whose version byte doesn't match.
 
 **Missing `provides` clause.** A JAR is placed in `scripts/` but doesn't show up in the Scripts panel. The most common cause is forgetting `provides com.botwithus.bot.api.BotScript with my.script.MyScript;` in the script's `module-info.java`. `LocalScriptLoader` emits a WARN-level log line when a module-bearing JAR contains no `BotScript` provider — check the log to confirm.
+
+**Reloading while you develop.** With the `autoReload` setting on (`reload --watch`, `config set autoReload true`, or the switch in Settings) the host watches `scripts/` and `scripts/management/` and reloads whichever changed when a JAR is added, rebuilt or deleted. A plain reload leaves the reloaded scripts stopped; turn on `scripts.restartAfterReload` to start again exactly the scripts each client was running before, or pass `reload --start` to start every script. A script that was running but is gone after the reload is reported, not restarted.
+
+**Two builds of one script.** If two JARs declare the same module, the one modified most recently is loaded and the other is listed as a failed load that names the newer JAR. If two different modules declare the same `@ScriptManifest` name, both load, the newer one takes the name, and the older is listed as a duplicate. Either way, delete the older JAR.
 
 **Scripts folder discovery order.** `LocalScriptLoader.resolveScriptsDir()` checks the `botwithus.scripts.dir` system property first; if unset, it looks for a `scripts/` subdirectory of the current working directory; if that is missing, it falls back to `~/.botwithus/scripts`. Parent directories are **not** searched — every JAR found is loaded as fully-trusted code with no signature check, so searching upward would let a `scripts/` planted in any ancestor of the working directory take over. If your script JAR isn't being picked up, the most common cause is running the CLI from a different working directory — set `-Dbotwithus.scripts.dir=/absolute/path/to/scripts` or check the log for the resolved path.

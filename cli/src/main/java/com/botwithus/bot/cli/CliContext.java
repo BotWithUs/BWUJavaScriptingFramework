@@ -17,8 +17,14 @@ import com.botwithus.bot.cli.events.HostEventBus;
 import com.botwithus.bot.cli.events.RunnerEventBridge;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.scripts.AfterReload;
+import com.botwithus.bot.cli.scripts.ManagementReload;
+import com.botwithus.bot.cli.scripts.ReloadSummary;
+import com.botwithus.bot.cli.scripts.ReloadTarget;
+import com.botwithus.bot.cli.scripts.ScriptReloader;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.ReconnectPolicySettings;
+import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
@@ -37,9 +43,11 @@ import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
 import com.botwithus.bot.core.runtime.ConnectionContext;
+import com.botwithus.bot.core.runtime.LoadIssues;
 import com.botwithus.bot.core.runtime.LoadReport;
 import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
+import com.botwithus.bot.core.runtime.ScriptFolder;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
@@ -47,10 +55,11 @@ import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
 
 import com.botwithus.bot.core.runtime.ScriptRunner;
-import com.botwithus.bot.cli.watch.ScriptWatcher;
+import com.botwithus.bot.cli.watch.ScriptWatchControl;
 import com.botwithus.bot.core.impl.ManagementContextImpl;
 import com.botwithus.bot.core.impl.SharedStateImpl;
 import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
+import com.botwithus.bot.core.runtime.ManagementLoadReport;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.cache.NXTCache;
@@ -72,6 +81,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 public class CliContext {
@@ -112,7 +122,19 @@ public class CliContext {
     private Consumer<ScriptRunner> configPanelOpener;
     private Consumer<Connection> onConnect;
     private volatile LoadReport lastLoadReport = LoadReport.EMPTY;
-    private ScriptWatcher scriptWatcher;
+    /**
+     * The failed-load list across load passes and both script folders. Kept
+     * apart from the host bus on purpose: the bus reports each failure once as
+     * it happens, this answers "what is broken now" at any later time.
+     */
+    private final LoadIssues loadIssues = new LoadIssues();
+    /** One reload at a time: the watcher, a button and a command can all start one. */
+    private final Object reloadLock = new Object();
+    // Watches the directory the loader actually reads, not "scripts" under the
+    // working directory: those differ as soon as -Dbotwithus.scripts.dir or the
+    // ~/.botwithus fallback is in play, and a watch on the wrong one never fires.
+    private final ScriptWatchControl watchControl = new ScriptWatchControl(
+            LocalScriptLoader::scriptsDir, this::onScriptFoldersChanged, line -> out().println(line));
     private ScriptProfileStore profileStore;
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
@@ -227,7 +249,12 @@ public class CliContext {
      * The process's one {@link HostSettings}, set by the composition root before
      * any command or panel runs. {@code null} only in tests that never set it.
      */
-    public void setSettings(HostSettings settings) { this.settings = settings; }
+    public void setSettings(HostSettings settings) {
+        this.settings = settings;
+        if (settings != null) {
+            watchControl.bind(settings);
+        }
+    }
     public HostSettings getSettings() { return settings; }
 
     public ClientManager getClientManager() { return clientManager; }
@@ -269,7 +296,9 @@ public class CliContext {
         if (managementRuntime == null) {
             initManagementRuntime();
         }
-        return ManagementScriptLoader.loadScripts();
+        ManagementLoadReport report = ManagementScriptLoader.loadReport();
+        loadIssues.record(ScriptFolder.MANAGEMENT, report.results());
+        return report.scripts();
     }
 
     public void connect(String pipeName) {
@@ -565,6 +594,7 @@ public class CliContext {
      */
     LoadReport recordLoadReport(LoadReport report) {
         this.lastLoadReport = report;
+        loadIssues.record(ScriptFolder.SCRIPTS, report.results());
         for (ScriptLoadResult failure : report.failures()) {
             Throwable cause = failure.error().orElse(new IllegalStateException("unknown"));
             broadcastEvent(new ScriptLoadFailedEvent(failure.jar(), cause));
@@ -578,6 +608,15 @@ public class CliContext {
     /** Snapshot of the most recent {@link #loadScriptReport()} call. Never null. */
     public LoadReport getLastLoadReport() {
         return lastLoadReport;
+    }
+
+    /**
+     * The failed-load list: every JAR in either script folder whose last load
+     * failed, until it loads cleanly or is deleted, plus duplicate-name
+     * warnings from the latest pass. Fed by every load pass.
+     */
+    public LoadIssues getLoadIssues() {
+        return loadIssues;
     }
 
     private void broadcastEvent(GameEvent event) {
@@ -830,47 +869,95 @@ public class CliContext {
     public boolean isMounted() { return mountedConnectionName != null; }
     public String getMountedConnectionName() { return mountedConnectionName; }
 
+    /**
+     * What a plain reload starts afterwards: the scripts that were running,
+     * when {@link SettingKeys#RESTART_AFTER_RELOAD} is on, else nothing.
+     */
+    public AfterReload afterReloadSetting() {
+        HostSettings current = settings;
+        return AfterReload.fromSetting(current != null && current.get(SettingKeys.RESTART_AFTER_RELOAD));
+    }
+
+    /**
+     * Reloads {@code scripts/} on {@code connections}: notes what each is
+     * running, stops them all, registers a fresh set of scripts on each, then
+     * starts what {@code after} says. See {@link ScriptReloader}.
+     */
+    public ReloadSummary reloadScripts(List<Connection> connections, AfterReload after) {
+        List<ReloadTarget> targets = connections.stream()
+                .map(conn -> new ReloadTarget(conn.getName(), conn.getRuntime()))
+                .toList();
+        synchronized (reloadLock) {
+            return newReloader().reload(targets, after);
+        }
+    }
+
+    /** {@link #reloadScripts} on every live connection; with none, still refreshes the load report. */
+    public ReloadSummary reloadAllScripts(AfterReload after) {
+        return reloadScripts(getConnections().stream().filter(Connection::isAlive).toList(), after);
+    }
+
+    /** Reloads {@code scripts/management/} into the management runtime. */
+    public ManagementReload reloadManagementScripts(AfterReload after) {
+        if (managementRuntime == null) {
+            initManagementRuntime();
+        }
+        synchronized (reloadLock) {
+            return newReloader().reloadManagement(managementRuntime, after);
+        }
+    }
+
+    /** Built per call so each load pass goes through this object's own load methods. */
+    private ScriptReloader newReloader() {
+        return new ScriptReloader(this::loadScripts, this::loadManagementScripts);
+    }
+
+    /**
+     * Starts watching the scripts folders and turns {@link SettingKeys#AUTO_RELOAD}
+     * on, so the choice persists and the Settings page agrees.
+     */
     public void startScriptWatcher() {
-        if (scriptWatcher != null && scriptWatcher.isRunning()) {
-            return;
+        HostSettings current = settings;
+        if (current != null) {
+            current.set(SettingKeys.AUTO_RELOAD, Boolean.TRUE);
         }
-        // The directory the loader actually reads — not "scripts" relative to
-        // the working directory, which is a different place as soon as the
-        // -Dbotwithus.scripts.dir override or the ~/.botwithus fallback is in
-        // play. A watcher on the wrong directory never fires.
-        Path scriptsDir = LocalScriptLoader.scriptsDir();
-        if (!Files.isDirectory(scriptsDir)) {
-            out().println("Script watcher not started: " + scriptsDir.toAbsolutePath()
-                    + " does not exist.");
-            return;
-        }
-        scriptWatcher = new ScriptWatcher(scriptsDir, () -> {
-            out().println("[ScriptWatcher] Script files changed — reloading...");
-            for (Connection conn : connections.values()) {
-                if (conn.isAlive()) {
-                    conn.getRuntime().stopAll();
-                    List<BotScript> scripts = loadScripts();
-                    for (BotScript script : scripts) {
-                        conn.getRuntime().registerScript(script);
-                    }
-                    out().println("[ScriptWatcher] Reloaded " + scripts.size() + " script(s) on " + conn.getName());
-                }
-            }
-        });
-        scriptWatcher.start();
-        out().println("Script file watcher started.");
+        // Also directly: the setting may already be on while the watch is not
+        // running (it failed to start), and then setting it changes nothing.
+        watchControl.start();
     }
 
+    /** Stops watching and turns {@link SettingKeys#AUTO_RELOAD} off. */
     public void stopScriptWatcher() {
-        if (scriptWatcher != null) {
-            scriptWatcher.stop();
-            scriptWatcher = null;
-            out().println("Script file watcher stopped.");
+        HostSettings current = settings;
+        if (current != null) {
+            current.set(SettingKeys.AUTO_RELOAD, Boolean.FALSE);
         }
+        watchControl.stop();
     }
 
+    /** Whether the watch is actually running, which the setting alone does not prove. */
     public boolean isWatcherRunning() {
-        return scriptWatcher != null && scriptWatcher.isRunning();
+        return watchControl.isRunning();
+    }
+
+    private void onScriptFoldersChanged(Set<ScriptFolder> folders) {
+        AfterReload after = afterReloadSetting();
+        if (folders.contains(ScriptFolder.SCRIPTS)) {
+            out().println("[ScriptWatcher] Script files changed — reloading...");
+            ReloadSummary summary = reloadAllScripts(after);
+            summary.clients().forEach(c -> out().println(
+                    "[ScriptWatcher] Reloaded " + c.loaded() + " script(s) on " + c.connection()));
+            summary.restarted().forEach(p -> out().println(
+                    "[ScriptWatcher] Restarted " + p.script() + " on " + p.connection()));
+            summary.missingLines().forEach(line -> out().println("[ScriptWatcher] " + line));
+        }
+        if (folders.contains(ScriptFolder.MANAGEMENT)) {
+            out().println("[ScriptWatcher] Management scripts changed — reloading...");
+            ManagementReload summary = reloadManagementScripts(after);
+            out().println("[ScriptWatcher] Reloaded " + summary.loaded() + " management script(s)");
+            summary.missing().forEach(name -> out().println(
+                    "[ScriptWatcher] Not restarted: " + name + " is no longer in the management folder."));
+        }
     }
 
 }

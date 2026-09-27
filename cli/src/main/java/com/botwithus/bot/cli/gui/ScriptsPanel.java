@@ -1,6 +1,5 @@
 package com.botwithus.bot.cli.gui;
 
-import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.runtime.LastCrash;
@@ -8,10 +7,11 @@ import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.scripts.AfterReload;
+import com.botwithus.bot.cli.scripts.ReloadSummary;
 import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptProfiler;
 import com.botwithus.bot.core.runtime.ScriptRunner;
-import com.botwithus.bot.core.runtime.ScriptRuntime;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -706,29 +706,15 @@ public class ScriptsPanel implements GuiPanel {
     }
 
     private void reloadScripts(CliContext ctx, boolean autoStart) {
-        List<BotScript> scripts = ctx.loadScriptReport().scripts();
-        List<BotScript> blueprints = ctx.loadBlueprints();
-
-        for (Connection conn : ctx.getConnections()) {
-            if (!conn.isAlive()) {
-                continue;
-            }
-            ScriptRuntime runtime = conn.getRuntime();
-            runtime.stopAll();
-            for (BotScript script : scripts) {
-                runtime.registerScript(script);
-            }
-            for (BotScript bp : blueprints) {
-                runtime.registerScript(bp);
-            }
-            ctx.out().println("Reloaded " + (scripts.size() + blueprints.size()) + " script(s) on " + conn.getName());
-
-            if (autoStart) {
-                for (ScriptRunner runner : runtime.getRunners()) {
-                    runner.start();
-                }
-                ctx.out().println("Auto-started all scripts on " + conn.getName());
-            }
+        AfterReload after = autoStart ? AfterReload.START_ALL : ctx.afterReloadSetting();
+        ReloadSummary summary = ctx.reloadAllScripts(after);
+        for (ReloadSummary.ClientReload client : summary.clients()) {
+            ctx.out().println("Reloaded " + client.loaded() + " script(s) on " + client.connection());
         }
+        if (after == AfterReload.START_ALL && !summary.clients().isEmpty()) {
+            ctx.out().println("Auto-started all scripts");
+        }
+        summary.restarted().forEach(p -> ctx.out().println("Restarted " + p.script() + " on " + p.connection()));
+        summary.missingLines().forEach(ctx.out()::println);
     }
 }

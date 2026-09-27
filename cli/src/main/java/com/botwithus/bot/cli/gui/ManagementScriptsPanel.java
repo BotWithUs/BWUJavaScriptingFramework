@@ -4,6 +4,7 @@ import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.ClientManager;
+import com.botwithus.bot.cli.scripts.ManagementReload;
 import com.botwithus.bot.core.runtime.ManagementScriptRunner;
 import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
 
@@ -198,16 +199,14 @@ public class ManagementScriptsPanel implements GuiPanel {
     }
 
     private void reloadManagementScripts(CliContext ctx) {
-        ManagementScriptRuntime runtime = ctx.getManagementRuntime();
-        runtime.stopAll();
-        List<ManagementScript> scripts = ctx.loadManagementScripts();
-        if (scripts.isEmpty()) {
+        ManagementReload summary = ctx.reloadManagementScripts(ctx.afterReloadSetting());
+        if (summary.loaded() == 0) {
             ctx.out().println("No management scripts found in scripts/management/.");
             return;
         }
-        for (ManagementScript script : scripts) {
-            runtime.registerScript(script);
-        }
-        ctx.out().println("Reloaded " + scripts.size() + " management script(s).");
+        ctx.out().println("Reloaded " + summary.loaded() + " management script(s).");
+        summary.restarted().forEach(name -> ctx.out().println("Restarted " + name + "."));
+        summary.missing().forEach(name -> ctx.out().println(
+                "Not restarted: " + name + " is no longer in scripts/management/."));
     }
 }

@@ -104,7 +104,7 @@ public final class SettingKeys {
 
     public static final SettingKey<Boolean> AUTO_RELOAD = new SettingKey<>(
             "autoReload", "Watch folder",
-            "Reload when a JAR in scripts/ changes.",
+            "Reload when a JAR in scripts/ or scripts/management/ is added, rebuilt or deleted.",
             FLAG, Boolean.FALSE);
 
     public static final SettingKey<Boolean> RESTART_AFTER_RELOAD = new SettingKey<>(
