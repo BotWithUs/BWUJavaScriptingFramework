@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.events;
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.cli.events.HostEvent.ClientClosed;
+import com.botwithus.bot.cli.events.HostEvent.ClientForgotten;
 import com.botwithus.bot.cli.events.HostEvent.ClientOpened;
 import com.botwithus.bot.cli.events.HostEvent.CloseCause;
 import com.botwithus.bot.cli.events.HostEvent.ManagementScriptCrashed;
@@ -126,6 +127,23 @@ class ConnectionHistoryTest {
         assertEquals(1, before.size());
         assertEquals(1, mergedBefore.size());
         assertThrows(UnsupportedOperationException.class, () -> before.add(opened("x")));
+    }
+
+    @Test
+    void forgettingAClientDropsItsHistoryAndRecordsTheForgetHostWide() {
+        ConnectionHistory history = new ConnectionHistory();
+        HostEvent keptOpen = opened("kept");
+        List.of(opened("gone"), keptOpen, closed("gone")).forEach(history);
+        HostEvent forgotten = new ClientForgotten(new ClientRef("gone"), next());
+
+        history.accept(forgotten);
+
+        assertEquals(List.of(), history.forClient("gone"));
+        assertEquals(List.of("kept"), history.clients(), "a forgotten client leaves no history behind");
+        assertEquals(List.of(keptOpen), history.forClient("kept"));
+        assertEquals(List.of(forgotten), history.hostWide(),
+                "the forget itself stays visible in the host-wide timeline");
+        assertEquals(List.of(keptOpen, forgotten), history.merged());
     }
 
     @Test

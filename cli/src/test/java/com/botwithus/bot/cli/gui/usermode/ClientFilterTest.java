@@ -9,6 +9,7 @@ import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.OptionalInt;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -22,8 +23,8 @@ class ClientFilterTest {
     private static final List<ClientView> CLIENTS = List.of(
             new ClientView("BotWithUs_1", "Alpha", 1, new ClientStatus.Running(WOODCUTTING, 100, new long[0])),
             new ClientView("BotWithUs_2", "Bravo", 2, new ClientStatus.Idle()),
-            new ClientView("BotWithUs_3", "Charlie", 3, new ClientStatus.Lost(1000, null)),
-            new ClientView("BotWithUs_4", "Delta", 4, new ClientStatus.Reconnecting(2, 5, 4000)),
+            new ClientView("BotWithUs_3", "Charlie", 3, new ClientStatus.Lost(1000, null, true)),
+            new ClientView("BotWithUs_4", "Delta", 4, new ClientStatus.Reconnecting(2, OptionalInt.of(5), 4000)),
             new ClientView("BotWithUs_5", "Echo", 5, new ClientStatus.Crashed(WOODCUTTING, "NPE in onLoop()")),
             new ClientView("BotWithUs_6", "Foxtrot", 6, new ClientStatus.Loading()),
             new ClientView("BotWithUs_7", "Golf", 7, new ClientStatus.Idle()));

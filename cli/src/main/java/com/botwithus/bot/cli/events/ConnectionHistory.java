@@ -16,7 +16,7 @@ import java.util.function.Consumer;
  * history, so a noisy client can only ever evict its own past; host-wide events
  * (load failures, management scripts) keep a separate one of the same bound.
  * History outlives the connection it describes, so a closed client's timeline
- * stays readable.</p>
+ * stays readable until the client is forgotten.</p>
  *
  * <p>Thread-safe. Every read returns an immutable snapshot that later events
  * never change, so the render thread can iterate one freely.</p>
@@ -53,11 +53,19 @@ public final class ConnectionHistory implements Consumer<HostEvent> {
         this.capacity = capacity;
     }
 
-    /** Records {@code event}, evicting the oldest event of the same history if it is full. */
+    /**
+     * Records {@code event}, evicting the oldest event of the same history if it
+     * is full. A {@link HostEvent.ClientForgotten} drops that client's history
+     * and is itself recorded host-wide, so the forget stays visible.
+     */
     @Override
     public void accept(HostEvent event) {
         synchronized (lock) {
             Deque<Entry> history = switch (event) {
+                case HostEvent.ClientForgotten forgotten -> {
+                    byClient.remove(forgotten.client().pipe());
+                    yield hostWide;
+                }
                 case HostEvent.ClientEvent c -> byClient.computeIfAbsent(
                         c.client().pipe(), pipe -> new ArrayDeque<>());
                 case HostEvent.ScriptLoadFailed _, HostEvent.ManagementAction _,

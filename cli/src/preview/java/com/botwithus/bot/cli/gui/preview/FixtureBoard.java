@@ -184,7 +184,8 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
         Random rng = new Random(SEED + 1);
         all.add(running("Wrenfield", 16640, 58, FLETCHER, 118, rng, -1));
         all.add(running("Ashgrove", 17012, 84, GHOST, 211, rng, 19));
-        all.add(new ClientView("BotWithUs_17388", "Mirelock", 102, new ClientStatus.Reconnecting(2, 5, 4000)));
+        all.add(new ClientView("BotWithUs_17388", "Mirelock", 102,
+                new ClientStatus.Reconnecting(2, OptionalInt.empty(), 4000)));
         all.add(new ClientView("BotWithUs_17720", "Sableton", 44, new ClientStatus.Idle()));
         all.add(running("Kestrel Moor", 18104, 2, FLAG, 74, rng, -1));
         all.add(running("Duskwater", 18466, 117, WOODCUTTING, 156, rng, -1));
@@ -210,7 +211,7 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
                 running("Fernmoss", 9932, 2, DIVINATION, 96, rng, -1),
                 new ClientView("BotWithUs_11820", "Quillon", 117, new ClientStatus.Idle()),
                 new ClientView("BotWithUs_7716", "BotWithUs_7716", 44, new ClientStatus.Loading()),
-                new ClientView("BotWithUs_10344", "Hollowmere", 84, new ClientStatus.Lost(42_000, WOODCUTTING)),
+                new ClientView("BotWithUs_10344", "Hollowmere", 84, new ClientStatus.Lost(42_000, WOODCUTTING, true)),
                 new ClientView("BotWithUs_15002", "Tamsin Vale", 31,
                         new ClientStatus.Crashed(COOKS, "NullPointerException in onLoop()")));
     }
@@ -331,7 +332,9 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
         @Override public void stopScript(String clientId) { }
         @Override public void restartScript(String clientId) { }
         @Override public void reconnect(String clientId) { }
-        @Override public void cancelReconnect(String clientId) { }
+        @Override public void retryNow(String clientId) { }
+        @Override public void stopRetrying(String clientId) { }
+        @Override public void forget(String clientId) { }
         @Override public void viewLog(String clientId) { }
         @Override public void retryHost() { }
     }

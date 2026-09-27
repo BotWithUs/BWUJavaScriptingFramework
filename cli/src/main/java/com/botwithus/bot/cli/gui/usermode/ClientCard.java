@@ -145,8 +145,9 @@ final class ClientCard {
                     new Chip("Running", ImGuiTheme.COL_ACCENT, ImGuiTheme.COL_ACCENT_SOFT, beat());
             case ClientStatus.Idle ignored -> new Chip("Idle", ImGuiTheme.COL_FG2, ImGuiTheme.COL_ELEVATED, 1f);
             case ClientStatus.Loading ignored -> new Chip("Loading", ImGuiTheme.COL_INFO, ImGuiTheme.COL_INFO_SOFT, 1f);
-            case ClientStatus.Lost ignored ->
-                    new Chip("Lost contact", ImGuiTheme.COL_DANGER, ImGuiTheme.COL_DANGER_SOFT, 1f);
+            case ClientStatus.Lost lost ->
+                    new Chip(lost.canRetry() ? "Lost contact" : "Closed",
+                            ImGuiTheme.COL_DANGER, ImGuiTheme.COL_DANGER_SOFT, 1f);
             case ClientStatus.Reconnecting ignored ->
                     new Chip("Reconnecting", ImGuiTheme.COL_WARN, ImGuiTheme.COL_WARN_SOFT, 1f);
             case ClientStatus.Crashed ignored ->
@@ -217,14 +218,16 @@ final class ClientCard {
 
         static Row lost(Controls ui, ClientStatus.Lost l) {
             String meta = l.wasRunning() != null ? "Was running " + l.wasRunning().name() : "No script was running";
+            String name = l.canRetry() ? "No reply for " + clock(l.silentForMillis()) : "Client closed";
             return new Row(Icons.LINK_SLASH, ImGuiTheme.COL_DANGER, ImGuiTheme.COL_DANGER_SOFT,
-                    "No reply for " + clock(l.silentForMillis()), ui.fonts().bodyMedium(), ImGuiTheme.COL_FG,
+                    name, ui.fonts().bodyMedium(), ImGuiTheme.COL_FG,
                     meta, ui.fonts().small(), ImGuiTheme.COL_FG2);
         }
 
         static Row reconnecting(Controls ui, ClientStatus.Reconnecting r) {
             long seconds = Math.max(1L, Math.round(r.nextDelayMs() / (double) MILLIS_PER_SECOND));
-            String meta = "Attempt " + r.attempt() + " of " + r.maxAttempts() + " · next in " + seconds + " s";
+            String cap = r.maxAttempts().isPresent() ? " of " + r.maxAttempts().getAsInt() : "";
+            String meta = "Attempt " + r.attempt() + cap + " · next in " + seconds + " s";
             return new Row(null, ImGuiTheme.COL_WARN, ImGuiTheme.COL_WARN_SOFT,
                     "Reconnecting…", ui.fonts().bodyMedium(), ImGuiTheme.COL_FG,
                     meta, ui.fonts().small(), ImGuiTheme.COL_FG2);
@@ -376,12 +379,17 @@ final class ClientCard {
                             Intent.START_SCRIPT));
             case ClientStatus.Loading ignored ->
                     list.add(new Action("start", null, "Start script", Tone.GHOST, false, none, Intent.NONE));
-            case ClientStatus.Lost ignored ->
-                    list.add(new Action("reconnect", Icons.REDO, "Reconnect", Tone.GHOST, true,
-                            () -> actions.reconnect(id), Intent.NONE));
-            case ClientStatus.Reconnecting ignored ->
-                    list.add(new Action("cancel", null, "Cancel", Tone.GHOST, true,
-                            () -> actions.cancelReconnect(id), Intent.NONE));
+            case ClientStatus.Lost lost -> list.add(lost.canRetry()
+                    ? new Action("retry", Icons.REDO, "Retry now", Tone.GHOST, true,
+                            () -> actions.retryNow(id), Intent.NONE)
+                    : new Action("forget", Icons.XMARK, "Forget", Tone.GHOST, true,
+                            () -> actions.forget(id), Intent.NONE));
+            case ClientStatus.Reconnecting ignored -> {
+                list.add(new Action("stop-retrying", null, "Stop retrying", Tone.GHOST, true,
+                        () -> actions.stopRetrying(id), Intent.NONE));
+                list.add(new Action("retry", Icons.REDO, "Retry now", Tone.SOFT, true,
+                        () -> actions.retryNow(id), Intent.NONE));
+            }
             case ClientStatus.Crashed ignored -> {
                 list.add(new Action("log", null, "View log", Tone.GHOST, true,
                         () -> actions.viewLog(id), Intent.NONE));

@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui.usermode.board;
 
+import java.util.OptionalInt;
+
 /**
  * The state a client card shows. Each variant carries only what its card needs,
  * and the card renders by an exhaustive switch, so adding a state is a compile
@@ -20,11 +22,17 @@ public sealed interface ClientStatus {
      * The pipe is gone and nothing is retrying.
      *
      * @param wasRunning the script that was running when contact was lost, or {@code null}
+     * @param canRetry   {@code false} once the client's game process has exited: its pipe
+     *                   can never come back, so the card offers Forget instead of a retry
      */
-    record Lost(long silentForMillis, ScriptInfo wasRunning) implements ClientStatus {}
+    record Lost(long silentForMillis, ScriptInfo wasRunning, boolean canRetry) implements ClientStatus {}
 
-    /** A reconnect attempt is scheduled or in flight; {@code attempt} is 1-indexed. */
-    record Reconnecting(int attempt, int maxAttempts, long nextDelayMs) implements ClientStatus {}
+    /**
+     * A reconnect attempt is scheduled or in flight; {@code attempt} is 1-indexed.
+     *
+     * @param maxAttempts the attempt budget, or empty when there is none
+     */
+    record Reconnecting(int attempt, OptionalInt maxAttempts, long nextDelayMs) implements ClientStatus {}
 
     /**
      * The last run of {@code script} ended by throwing.

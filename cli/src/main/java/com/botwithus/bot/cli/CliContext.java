@@ -9,6 +9,7 @@ import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.ConnectionHistory;
 import com.botwithus.bot.cli.events.GameEventBridge;
 import com.botwithus.bot.cli.events.HostEvent.ClientClosed;
+import com.botwithus.bot.cli.events.HostEvent.ClientForgotten;
 import com.botwithus.bot.cli.events.HostEvent.ClientOpened;
 import com.botwithus.bot.cli.events.HostEvent.CloseCause;
 import com.botwithus.bot.cli.events.HostEvent.ScriptLoadFailed;
@@ -17,6 +18,7 @@ import com.botwithus.bot.cli.events.RunnerEventBridge;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.ReconnectPolicySettings;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
@@ -344,14 +346,24 @@ public class CliContext {
         gameAPI.setScriptGate(scriptGate);
     }
 
-    /** Recovers transient pipe drops, recording each recovery on the connection. */
-    private static void armReconnect(Connection conn) {
+    /**
+     * Recovers transient pipe drops, recording each recovery on the connection.
+     * The policy is read from the settings at the start of every recovery, so a
+     * change applies to the next one.
+     */
+    private void armReconnect(Connection conn) {
         ReconnectController reconnect = new ReconnectController(conn.getRpc(), conn.getPipe(),
-                conn.getName(), conn.getName(), ReconnectPolicy.DEFAULT,
+                conn.getName(), conn.getName(), this::reconnectPolicy,
                 conn::onReconnectState,
                 conn.getEventBus()::publish);
         conn.setReconnectController(reconnect);
         reconnect.arm();
+    }
+
+    /** The reconnect policy the settings describe now; the default when none are set. */
+    private ReconnectPolicy reconnectPolicy() {
+        HostSettings current = settings;
+        return current != null ? ReconnectPolicySettings.read(current) : ReconnectPolicy.DEFAULT;
     }
 
     /**
@@ -610,6 +622,29 @@ public class CliContext {
         if (wasActive && active != null) {
             out().println("Active connection switched to '" + active + "'.");
         }
+    }
+
+    /**
+     * Forgets a client that has gone: removes its connection if one is still
+     * registered, drops its history, and publishes {@link ClientForgotten}.
+     * Refuses a client whose pipe is still open. Blocks while a registered
+     * connection stops its scripts, so call it off the render thread.
+     *
+     * @param pipe the client's pipe name, which is how clients are keyed today
+     */
+    public ForgetResult forget(String pipe) {
+        Connection conn = connections.get(pipe);
+        if (conn != null && conn.isAlive()) {
+            return ForgetResult.STILL_CONNECTED;
+        }
+        if (conn != null) {
+            handleConnectionError(pipe);
+        } else if (!connectionHistory.clients().contains(pipe)) {
+            return ForgetResult.NOT_FOUND;
+        }
+        // The bus delivers in order, so the history drops this client after its close.
+        hostEvents.publish(new ClientForgotten(new ClientRef(pipe), clock.instant()));
+        return ForgetResult.FORGOTTEN;
     }
 
     public boolean hasConnections() { return !connections.isEmpty(); }

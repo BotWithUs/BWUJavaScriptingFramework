@@ -12,6 +12,7 @@ import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
+import com.botwithus.bot.core.rpc.ReconnectController.RetryOutcome;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnInstaller;
@@ -24,11 +25,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
+import java.util.OptionalInt;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -36,15 +36,15 @@ import java.util.function.Consumer;
 /**
  * {@link ClientBoard} over the host's real connections.
  *
- * <p>Two pieces of card state have no home in the runtime and are kept here, on
- * the UI thread: when a client was first seen dead (for "No reply for 0:42"), and
- * which reconnects the user cancelled. Cancelling closes the controller, but its
- * last published state stays {@code Reconnecting}; without the second set the card
- * would claim to be retrying forever.</p>
+ * <p>One piece of card state has no home in the runtime and is kept here, on
+ * the UI thread: when a client was first seen dead (for "No reply for 0:42").
+ * Whether a client is still retrying is the reconnect controller's to say; a
+ * stop publishes {@code GivingUp}, so every view agrees without help from here.</p>
  *
- * <p>Nothing here blocks the render thread. Reconnecting and loading the script
- * catalogue both do pipe or disk work, so they run on the host's command executor;
- * {@link #catalog()} answers from the last completed load.</p>
+ * <p>Nothing here blocks the render thread. Rebuilding a connection, forgetting a
+ * client and loading the script catalogue all do pipe or disk work, so they run on
+ * the host's command executor; {@link #catalog()} answers from the last completed
+ * load. Retrying and stopping only signal the reconnect controller.</p>
  */
 public final class LiveClientBoard implements ClientBoard {
 
@@ -56,7 +56,6 @@ public final class LiveClientBoard implements ClientBoard {
     private final Actions actions = new Actions();
 
     private final Map<String, Long> deadSinceMillis = new HashMap<>();
-    private final Set<String> cancelledReconnects = new HashSet<>();
     private final LiveSubscriptions subscriptions;
     private final Executor commandExecutor;
     private final AtomicBoolean catalogLoadQueued = new AtomicBoolean();
@@ -191,18 +190,22 @@ public final class LiveClientBoard implements ClientBoard {
     // ── Status mapping ─────────────────────────────────────────────────────
 
     private ClientStatus statusOf(Connection conn) {
-        boolean cancelled = cancelledReconnects.contains(conn.getName());
-        Optional<ClientStatus> retrying = cancelled ? Optional.empty() : retryingStatus(conn);
+        Optional<ClientStatus> retrying = retryingStatus(conn);
         if (retrying.isPresent()) {
             return retrying.get();
         }
         if (!conn.isAlive()) {
             long since = deadSinceMillis.computeIfAbsent(conn.getName(), k -> clock.millis());
-            return new ClientStatus.Lost(clock.millis() - since, lastScriptInfo(conn));
+            return new ClientStatus.Lost(clock.millis() - since, lastScriptInfo(conn), canRetry(conn));
         }
         deadSinceMillis.remove(conn.getName());
-        cancelledReconnects.remove(conn.getName());
         return aliveStatus(conn);
+    }
+
+    /** Whether a retry could still bring the client back: not once its game process has exited. */
+    private static boolean canRetry(Connection conn) {
+        ReconnectController controller = conn.getReconnectController();
+        return controller == null || !controller.isClientGone();
     }
 
     private static Optional<ClientStatus> retryingStatus(Connection conn) {
@@ -213,7 +216,7 @@ public final class LiveClientBoard implements ClientBoard {
         return switch (state) {
             case ReconnectState.Reconnecting r -> {
                 ReconnectController controller = conn.getReconnectController();
-                int max = controller != null ? controller.maxAttempts() : r.attempt();
+                OptionalInt max = controller != null ? controller.maxAttempts() : OptionalInt.empty();
                 yield Optional.of(new ClientStatus.Reconnecting(r.attempt(), max, r.nextDelayMs()));
             }
             case ReconnectState.Connected ignored -> Optional.empty();
@@ -408,7 +411,6 @@ public final class LiveClientBoard implements ClientBoard {
         /** Returns at once: tearing down and reopening the pipe runs on the command executor. */
         @Override
         public void reconnect(String clientId) {
-            cancelledReconnects.remove(clientId);
             deadSinceMillis.remove(clientId);
             commandExecutor.execute(() -> {
                 ctx.disconnect(clientId, true);
@@ -416,13 +418,46 @@ public final class LiveClientBoard implements ClientBoard {
             });
         }
 
+        /**
+         * Returns at once. Signals the reconnect controller, which retries on its own
+         * thread; only a connection with nothing to retry is rebuilt, on the command
+         * executor.
+         */
         @Override
-        public void cancelReconnect(String clientId) {
+        public void retryNow(String clientId) {
+            Connection conn = find(clientId);
+            if (conn == null) {
+                return;
+            }
+            ReconnectController controller = conn.getReconnectController();
+            RetryOutcome outcome = controller != null ? controller.retryNow() : RetryOutcome.CLOSED;
+            switch (outcome) {
+                case WOKEN, RESTARTED -> deadSinceMillis.remove(clientId);
+                case CLIENT_GONE -> log.info("'{}' cannot be retried: its game client has exited", clientId);
+                case NOT_NEEDED, CLOSED -> rebuildIfDead(conn);
+            }
+        }
+
+        /** A dead pipe whose controller has nothing to retry is rebuilt from scratch instead. */
+        private void rebuildIfDead(Connection conn) {
+            if (!conn.isAlive()) {
+                reconnect(conn.getName());
+            }
+        }
+
+        @Override
+        public void stopRetrying(String clientId) {
             Connection conn = find(clientId);
             if (conn != null && conn.getReconnectController() != null) {
-                conn.getReconnectController().close();
+                conn.getReconnectController().stopRetrying();
             }
-            cancelledReconnects.add(clientId);
+        }
+
+        /** Returns at once: the connection stops its scripts on the command executor. */
+        @Override
+        public void forget(String clientId) {
+            deadSinceMillis.remove(clientId);
+            commandExecutor.execute(() -> ctx.forget(clientId));
         }
 
         @Override
@@ -434,7 +469,7 @@ public final class LiveClientBoard implements ClientBoard {
         public void retryHost() {
             for (Connection conn : ctx.getConnections()) {
                 if (hasGivenUp(conn)) {
-                    reconnect(conn.getName());
+                    retryNow(conn.getName());
                 }
             }
         }

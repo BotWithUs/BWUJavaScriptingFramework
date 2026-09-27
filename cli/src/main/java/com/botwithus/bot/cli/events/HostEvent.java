@@ -58,6 +58,18 @@ public sealed interface HostEvent {
     }
 
     /**
+     * The user forgot a client that had gone: the host dropped it and everything
+     * it remembered about it, including its history. Recorded host-wide, since
+     * the client's own history is what was dropped.
+     */
+    record ClientForgotten(ClientRef client, Instant at) implements ClientEvent {
+        public ClientForgotten {
+            Objects.requireNonNull(client, "client");
+            Objects.requireNonNull(at, "at");
+        }
+    }
+
+    /**
      * A client's pipe dropped mid-session; reconnect attempts follow.
      *
      * @param cause what surfaced the drop, or {@code null} if it was inferred
