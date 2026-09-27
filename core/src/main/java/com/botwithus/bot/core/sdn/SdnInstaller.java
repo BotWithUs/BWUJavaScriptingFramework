@@ -76,6 +76,15 @@ public final class SdnInstaller {
         this.ledger = ledger;
     }
 
+    /**
+     * Whether the launcher started this host with delivery on. When it did not,
+     * {@link #install} answers {@link SdnInstallResult.DeliveryDisabled} without
+     * asking anyone, so a page can say so before the user picks anything.
+     */
+    public boolean isDeliveryEnabled() {
+        return deliveryEnabled.getAsBoolean();
+    }
+
     /** The ledger this installer records into, for readers that show what the Store installed. */
     public InstalledScriptsLedger ledger() {
         return ledger;

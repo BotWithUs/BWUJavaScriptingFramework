@@ -56,19 +56,34 @@ public final class LatencyWindow {
      * empty.
      */
     public synchronized long[] percentiles(int[] percentiles) {
+        return percentilesOf(Arrays.copyOf(samples, size), percentiles);
+    }
+
+    /**
+     * The retained samples in nanoseconds, a copy of length {@link #size()}, in
+     * no particular order. What several windows are pooled from.
+     */
+    public synchronized long[] samples() {
+        return Arrays.copyOf(samples, size);
+    }
+
+    /**
+     * The requested percentiles of {@code values}, by the same rule the window
+     * itself uses, in the order requested. Sorts {@code values} in place.
+     * Returns zeros if {@code values} is empty.
+     */
+    public static long[] percentilesOf(long[] values, int[] percentiles) {
         long[] out = new long[percentiles.length];
-        if (size == 0) {
+        if (values.length == 0) {
             return out;
         }
-        long[] sorted = new long[size];
-        System.arraycopy(samples, 0, sorted, 0, size);
-        Arrays.sort(sorted);
+        Arrays.sort(values);
         for (int i = 0; i < percentiles.length; i++) {
             int p = percentiles[i];
             if (p < 0 || p > 100) {
                 throw new IllegalArgumentException("percentile out of range: " + p);
             }
-            out[i] = percentileFromSorted(sorted, p);
+            out[i] = percentileFromSorted(values, p);
         }
         return out;
     }

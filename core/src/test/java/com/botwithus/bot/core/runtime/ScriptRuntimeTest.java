@@ -146,4 +146,22 @@ class ScriptRuntimeTest {
             Thread.currentThread().interrupt();
         }
     }
+
+    @ScriptManifest(name = "OtherScript", version = "1.0", author = "test")
+    static class OtherScript extends TestScript { }
+
+    @Test
+    void setLoopTimingGate_reachesRunnersAlreadyRegisteredAndRunnersRegisteredLater() {
+        ScriptRuntime runtime = new ScriptRuntime(mock(ScriptContext.class));
+        ScriptRunner before = runtime.registerScript(new TestScript());
+
+        runtime.setLoopTimingGate(() -> false);
+        ScriptRunner after = runtime.registerScript(new OtherScript());
+        before.getProfiler().recordLoop(1_000_000);
+        after.getProfiler().recordLoop(1_000_000);
+
+        assertEquals(0, before.getProfiler().getLoopCount());
+        assertEquals(0, after.getProfiler().getLoopCount());
+        assertEquals(1, after.getProfiler().recentLoopNanos().length);
+    }
 }
