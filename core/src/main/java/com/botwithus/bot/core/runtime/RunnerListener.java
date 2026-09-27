@@ -21,6 +21,10 @@ import com.botwithus.bot.api.runtime.LastCrash;
  * runner as a {@code ScriptCrashedEvent} on its connection's event bus, which
  * is where the host picks it up. A management script has no connection and no
  * event bus, so its crash comes through here.</p>
+ *
+ * <p>A script whose {@code onStart} throws never started, so it produces
+ * neither {@link #scriptStarted} nor {@link #scriptStopped}: its crash is the
+ * only thing reported.</p>
  */
 public interface RunnerListener {
 

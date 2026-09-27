@@ -36,10 +36,8 @@ public final class SubscriptionMatch {
      * @param manifestName the name the runtime registers it under
      */
     public static boolean isDeliveryOf(String className, String manifestName, SdnCatalogueEntry entry) {
-        if (hasScriptClass(entry)) {
-            return entry.scriptClass().equals(className);
-        }
-        return !entry.name().isBlank() && entry.name().equalsIgnoreCase(manifestName);
+        // One rule for the picker and for the installer's ledger, which lives in core.
+        return entry.isDeliveredAs(className, manifestName);
     }
 
     private static boolean hasScriptClass(SdnCatalogueEntry entry) {

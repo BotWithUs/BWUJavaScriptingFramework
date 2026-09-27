@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.ConnectionStatusTracker;
 import com.botwithus.bot.cli.FakeAgent;
+import com.botwithus.bot.core.sdn.InstalledScriptsLedger;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstaller;
@@ -16,6 +17,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.InstantSource;
 import java.util.List;
+import java.util.OptionalInt;
 
 import static com.botwithus.bot.cli.FakeAgent.GET_ACCOUNT_INFO;
 import static com.botwithus.bot.cli.FakeAgent.accountInfo;
@@ -47,15 +49,18 @@ class LiveClientBoardWorldTest {
         Connection conn = agent.connection("BotWithUs_1");
         ConnectionStatusTracker tracker = new ConnectionStatusTracker(Runnable::run, Duration.ofDays(1));
         tracker.refresh(conn);
+        BoardRegistry registry = new BoardRegistry(Clock.systemUTC());
+        registry.connect(conn, UUID, "Zezima");
         CliContext ctx = mock(CliContext.class);
         when(ctx.getConnections()).thenReturn(List.of(conn));
+        when(ctx.getClientRegistry()).thenReturn(registry.registry);
         LiveClientBoard board = board(ctx);
 
-        assertEquals(WORLD, board.clients().getFirst().world());
+        assertEquals(OptionalInt.of(WORLD), board.clients().getFirst().world());
 
         agent.reply(GET_ACCOUNT_INFO, accountInfo("Zezima", "", UUID, LOBBY, false));
         tracker.refresh(conn);
-        assertEquals(0, board.clients().getFirst().world());
+        assertEquals(OptionalInt.empty(), board.clients().getFirst().world());
     }
 
     private LiveClientBoard board(CliContext ctx) {
@@ -63,6 +68,7 @@ class LiveClientBoardWorldTest {
                 () -> new SdnCatalogueResult.Delivered(List.of(), false), Runnable::run,
                 InstantSource.system(), () -> MID_JITTER);
         return new LiveClientBoard(ctx, id -> { }, Clock.systemUTC(), catalogue,
-                new SdnInstaller(tempDir), task -> { });
+                new SdnInstaller(tempDir, new InstalledScriptsLedger(tempDir, InstantSource.system())),
+                task -> { });
     }
 }

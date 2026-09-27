@@ -9,13 +9,14 @@ import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
-import com.botwithus.bot.core.config.ScriptConfigStore;
+import com.botwithus.bot.core.config.ManagementSettingsStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -31,17 +32,10 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
 
     private static final Logger log = LoggerFactory.getLogger(ManagementScriptRunner.class);
 
-    /**
-     * Synthetic bucket name passed to {@link ScriptConfigStore} for management
-     * scripts. Management scripts are cross-client by design, so they don't
-     * belong to any real account uuid; the leading underscore is preserved by
-     * the store's sanitizer and segregates the directory from real accounts.
-     */
-    static final String MANAGEMENT_BUCKET = "__management";
-
-
     private final ManagementScript script;
     private final ManagementContext context;
+    /** Where the script's defaults, the config {@code onConfigUpdate} receives, are kept. */
+    private final ManagementSettingsStore settings;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean disposed = new AtomicBoolean(false);
     private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
@@ -49,6 +43,8 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             new AtomicReference<>(ScriptHealth.HEALTHY);
     private final RunnerLiveness livenessState = new RunnerLiveness();
     private final AtomicLong loopCount = new AtomicLong();
+    private final ScriptProfiler profiler = new ScriptProfiler();
+    private volatile Instant lastStartedAt;
     private volatile Runnable watchdogArmer;
 
     /**
@@ -83,9 +79,21 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         this.runnerListener = runnerListener != null ? runnerListener : RunnerListener.NONE;
     }
 
+    /** A runner keeping the script's defaults under the user's home folder. */
     public ManagementScriptRunner(ManagementScript script, ManagementContext context) {
+        this(script, context, ManagementSettingsStore.inUserHome());
+    }
+
+    /**
+     * @param settings where the script's defaults are read and saved; the host
+     *                 passes the store its per-target settings use, so both see
+     *                 the same values
+     */
+    public ManagementScriptRunner(ManagementScript script, ManagementContext context,
+                                  ManagementSettingsStore settings) {
         this.script = script;
         this.context = context;
+        this.settings = Objects.requireNonNull(settings, "settings");
     }
 
     public void start() {
@@ -99,6 +107,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             // Reset the previous run's stop bookkeeping, or the watchdog would
             // see a stop from minutes ago and quarantine the fresh thread.
             livenessState.resetForRestart();
+            lastStartedAt = Instant.now();
             stopLatch = new CountDownLatch(1);
             String name = getScriptName();
             // rule-exception: {rule:prefer-virtual-threads} — same reasoning as
@@ -207,6 +216,16 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         return running.get();
     }
 
+    /** How long each {@code onLoop()} took, over every run of this runner. */
+    public ScriptProfiler getProfiler() {
+        return profiler;
+    }
+
+    /** When the current or last run was started; {@code null} if it never was. */
+    public Instant lastStartedAt() {
+        return lastStartedAt;
+    }
+
     public ManagementScript getScript() {
         return script;
     }
@@ -228,10 +247,13 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         return currentConfig.get();
     }
 
+    /**
+     * Saves {@code config} as the script's defaults and hands it to
+     * {@code onConfigUpdate}. The store writes the file off this thread.
+     */
     public void applyConfig(ScriptConfig config) {
         currentConfig.set(config);
-        String name = getScriptName();
-        Thread.startVirtualThread(() -> ScriptConfigStore.save(name, MANAGEMENT_BUCKET, config));
+        settings.saveDefaults(getScriptName(), config.asMap());
         try {
             script.onConfigUpdate(config);
         } catch (Exception e) {
@@ -243,22 +265,24 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     public void run() {
         String name = getScriptName();
         MDC.put("script.name", name);
-        if (!runOnStart(name)) {
-            return;
-        }
-        loadPersistedConfig(name);
+        boolean started = false;
         try {
-            runLoop();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            log.error("onLoop error in {}: {}", name, e.getMessage());
-            notifyError(name, Phase.ON_LOOP, e);
+            started = runOnStart(name);
+            if (started) {
+                loadPersistedConfig(name);
+                runLoopReportingCrash(name);
+            }
         } finally {
-            cleanup(name);
+            // Also after a failed onStart: awaitStop() waits on the latch this
+            // releases. Mirrors ScriptRunner.run.
+            cleanup(name, started);
         }
     }
 
+    /**
+     * Runs {@code onStart}. A throw is recorded as this run's one crash; the
+     * caller still owes the run its cleanup.
+     */
     private boolean runOnStart(String name) {
         try {
             script.onStart(context);
@@ -266,8 +290,18 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         } catch (Exception e) {
             log.error("onStart error in {}: {}", name, e.getMessage());
             notifyError(name, Phase.ON_START, e);
-            running.set(false);
             return false;
+        }
+    }
+
+    private void runLoopReportingCrash(String name) {
+        try {
+            runLoop();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            log.error("onLoop error in {}: {}", name, e.getMessage());
+            notifyError(name, Phase.ON_LOOP, e);
         }
     }
 
@@ -275,7 +309,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         try {
             List<ConfigField> fields = script.getConfigFields();
             if (fields != null && !fields.isEmpty()) {
-                ScriptConfig config = ScriptConfigStore.load(name, MANAGEMENT_BUCKET, fields);
+                ScriptConfig config = settings.defaults(name, fields);
                 currentConfig.set(config);
                 script.onConfigUpdate(config);
             }
@@ -286,6 +320,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
 
     private void runLoop() throws InterruptedException {
         while (running.get() && !Thread.currentThread().isInterrupted()) {
+            long loopStart = System.nanoTime();
             livenessState.enterLoop();
             int delay;
             try {
@@ -294,6 +329,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
                 // Also clears an advisory stall; terminal states stick.
                 livenessState.exitLoop();
             }
+            profiler.recordLoop(System.nanoTime() - loopStart);
             loopCount.incrementAndGet();
             if (delay < 0) {
                 break;
@@ -306,17 +342,21 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         }
     }
 
-    private void cleanup(String name) {
+    /**
+     * Ends a run, whether or not it got past {@code onStart}. Only a run that
+     * {@code started} is handed {@code onStop}; one whose {@code onStart} threw
+     * has already been reported as a crash. The latch is released either way.
+     */
+    private void cleanup(String name, boolean started) {
         running.set(false);
         // Clear the interrupt for teardown, then restore it — stop() interrupts
         // the thread, so any blocking call in onStop would otherwise throw
         // InterruptedException immediately. Mirrors ScriptRunner.cleanup.
         boolean wasInterrupted = Thread.interrupted();
         try {
-            script.onStop();
-        } catch (Exception e) {
-            log.error("onStop error in {}: {}", name, e.getMessage());
-            notifyError(name, Phase.ON_STOP, e);
+            if (started) {
+                runOnStop(name);
+            }
         } finally {
             MDC.clear();
             if (wasInterrupted) {
@@ -326,6 +366,15 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             if (latch != null) {
                 latch.countDown();
             }
+        }
+    }
+
+    private void runOnStop(String name) {
+        try {
+            script.onStop();
+        } catch (Exception e) {
+            log.error("onStop error in {}: {}", name, e.getMessage());
+            notifyError(name, Phase.ON_STOP, e);
         }
     }
 
