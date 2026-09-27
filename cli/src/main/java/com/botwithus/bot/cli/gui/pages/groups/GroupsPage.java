@@ -46,6 +46,7 @@ public final class GroupsPage implements Page {
     private final MembersTable table;
     private final StartScriptDialog startDialog;
     private final PickClientsDialog pickDialog;
+    private final AssignManagerDialog assignDialog;
 
     public GroupsPage(Controls ui, GroupsModel model) {
         this.w = new GroupWidgets(ui);
@@ -54,7 +55,8 @@ public final class GroupsPage implements Page {
         this.startDialog = new StartScriptDialog(w, model);
         this.pickDialog = new PickClientsDialog(w, model);
         this.header = new GroupHeader(w, model, () -> state.selected().ifPresent(startDialog::open));
-        this.overview = new GroupOverview(w);
+        this.assignDialog = new AssignManagerDialog(w, model);
+        this.overview = new GroupOverview(w, new ManagerSlotView(w, model, assignDialog::open));
         Runnable openAdd = () -> state.selected().ifPresent(pickDialog::openAdd);
         this.membersHeader = new MembersHeader(w, model, openAdd);
         this.table = new MembersTable(w, model, openAdd);
@@ -97,14 +99,30 @@ public final class GroupsPage implements Page {
         }
         startDialog.render(snapshot, model.catalog());
         pickDialog.render(snapshot);
+        assignDialog.render(snapshot);
     }
 
     private void detail(GroupDetail detail, Function<String, String> icons, float x, float y, float width,
                         float height) {
         float cy = y + header.render(detail, state, x, y, width);
         cy += overview.render(detail, x, cy, width);
-        cy += membersHeader.render(detail, state, x, cy, width);
-        table.render(detail, state, icons, x, cy, width, y + height - cy);
+        Map<String, MemberManagement> links = memberLinks(detail);
+        cy += membersHeader.render(detail, state, links, x, cy, width);
+        table.render(detail, state, icons, links, x, cy, width, y + height - cy);
+    }
+
+    /** The robot link under each member whose script a management script targets on its own, by row key. */
+    private Map<String, MemberManagement> memberLinks(GroupDetail detail) {
+        Map<String, MemberManagement> links = new HashMap<>();
+        for (MemberRow row : detail.rows()) {
+            switch (row) {
+                case MemberRow.Account account -> account.primary().flatMap(script ->
+                        model.memberManagement(detail.group().id(), account.key(), script.name()))
+                        .ifPresent(link -> links.put(account.key(), link));
+                case MemberRow.Unresolved _ -> { }
+            }
+        }
+        return links;
     }
 
     /** No groups at all: say what a group is for, and offer to make one. */
@@ -156,6 +174,10 @@ public final class GroupsPage implements Page {
 
     PickClientsDialog pickDialog() {
         return pickDialog;
+    }
+
+    AssignManagerDialog assignDialog() {
+        return assignDialog;
     }
 
     GroupsPageState state() {

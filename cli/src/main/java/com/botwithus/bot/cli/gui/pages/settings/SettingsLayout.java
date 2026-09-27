@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.cli.settings.NotificationKind;
 import com.botwithus.bot.cli.settings.SettingKeys;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -57,12 +58,14 @@ public final class SettingsLayout {
     /**
      * The Integrations section's plain rows. The service cards, the event grid and
      * the quiet-hours row are built by {@link IntegrationsSheet}, which places these
-     * two around them.
+     * three around them and words the mode row for the mode it is in.
      */
     private static void addIntegrations(List<Placement> rows) {
         rows.add(new Placement(SettingsSection.INTEGRATIONS, AlertSettingKeys.BURST_SECONDS, DisplayUnit.SECONDS,
                 "If several clients drop at once, send one message listing them instead of one each. "
                         + "0 sends each at once."));
+        rows.add(new Placement(SettingsSection.INTEGRATIONS, AlertSettingKeys.QUIET_MODE, DisplayUnit.NONE,
+                "What quiet hours do with the alerts they hold back: send them when they end, or drop them."));
         rows.add(new Placement(SettingsSection.INTEGRATIONS, AlertSettingKeys.SUMMARY_AT, DisplayUnit.NONE,
                 "When to send the daily summary (24-hour, local time), to the services ticked for it above."));
     }
@@ -85,10 +88,16 @@ public final class SettingsLayout {
                 DisplayUnit.MILLISECONDS, "Never wait longer than this between tries."));
     }
 
+    /** The stall row is in seconds, which would show the default as 600; say it in minutes. */
+    private static long stallDefaultMinutes() {
+        return Duration.ofMillis(SettingKeys.STALL_AFTER_MS.defaultValue()).toMinutes();
+    }
+
     private static void addScripts(List<Placement> rows) {
         rows.add(Placement.of(SettingsSection.SCRIPTS, SettingKeys.AUTO_RELOAD));
         rows.add(Placement.of(SettingsSection.SCRIPTS, SettingKeys.RESTART_AFTER_RELOAD));
         rows.add(new Placement(SettingsSection.SCRIPTS, SettingKeys.STALL_AFTER_MS, DisplayUnit.SECONDS_FROM_MS,
-                "Flag a script when one loop runs longer than this."));
+                "Flag a script when one loop runs longer than this. The default, " + stallDefaultMinutes()
+                        + " minutes, leaves room for scripts that wait a long time on purpose."));
     }
 }

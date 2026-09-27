@@ -9,8 +9,8 @@ import imgui.ImFont;
  * the status bar. There is no JetBrains Mono Medium in the bundle, so mono is
  * always Regular.
  *
- * <p>Advanced-mode panels keep drawing with the atlas default font, which is loaded
- * separately so their size does not change.</p>
+ * <p>The atlas default font is loaded separately, for what draws without pushing
+ * one: a script's own UI and imgui's tooltips (see {@link FontLoader}).</p>
  */
 public record UiFonts(
         ImFont caption,

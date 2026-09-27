@@ -2,7 +2,9 @@ package com.botwithus.bot.cli.gui.pages.groups;
 
 import com.botwithus.bot.cli.events.ClientKey;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 
@@ -13,6 +15,8 @@ public final class GroupText {
     static final int SHORT_UUID_CHARS = 8;
     private static final String NONE = "—";
     private static final String LIST_SEPARATOR = ", ";
+    private static final long SECONDS_PER_MINUTE = 60L;
+    private static final long SECONDS_PER_HOUR = 3600L;
 
     private GroupText() {
     }
@@ -78,5 +82,17 @@ public final class GroupText {
             case QUEUED -> "Queued";
         };
         return fact.detail().isBlank() ? word : word + " · " + fact.detail();
+    }
+
+    /** A span as a clock: {@code 0:48}, {@code 42:10} or {@code 2:14:03}. Negative spans read as zero. */
+    public static String clock(Duration span) {
+        long total = Math.max(0L, span.getSeconds());
+        long hours = total / SECONDS_PER_HOUR;
+        long minutes = total % SECONDS_PER_HOUR / SECONDS_PER_MINUTE;
+        long seconds = total % SECONDS_PER_MINUTE;
+        if (hours > 0) {
+            return String.format(Locale.ROOT, "%d:%02d:%02d", hours, minutes, seconds);
+        }
+        return String.format(Locale.ROOT, "%d:%02d", minutes, seconds);
     }
 }

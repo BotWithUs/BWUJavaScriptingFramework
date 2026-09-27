@@ -1,11 +1,18 @@
 package com.botwithus.bot.cli.management;
 
+import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.TestContexts;
+import com.botwithus.bot.cli.groups.ClientGroup;
+import com.botwithus.bot.cli.groups.GroupId;
+import com.botwithus.bot.cli.groups.ManagerSlot;
 import com.botwithus.bot.core.runtime.ManagementScriptRunner;
+import com.botwithus.bot.core.runtime.ScriptRunner;
+import com.botwithus.bot.core.runtime.ScriptRuntime;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,12 +23,14 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** Starting, stopping and restarting management scripts through the real {@link CliContext}. */
@@ -37,6 +46,17 @@ class ManagementControlTest {
     public static final class BreakScheduler implements ManagementScript {
         final Semaphore starts = new Semaphore(0);
         @Override public void onStart(ManagementContext ctx) { starts.release(); }
+        @Override public int onLoop() { return LOOP_MS; }
+        @Override public void onStop() { }
+    }
+
+    private static final String WOODCUTTING = "Woodcutting";
+    private static final String PIPE = "BotWithUs_1001";
+    private static final String UUID = "0123456789abcdef0123456789abcdef";
+
+    @ScriptManifest(name = WOODCUTTING, version = "1.0", author = "test")
+    public static final class Woodcutter implements BotScript {
+        @Override public void onStart(ScriptContext ctx) { }
         @Override public int onLoop() { return LOOP_MS; }
         @Override public void onStop() { }
     }
@@ -108,5 +128,29 @@ class ManagementControlTest {
 
         awaitStarts(1);
         assertEquals(List.of(BREAKS), started);
+    }
+
+    @Test
+    void stopAllOnGroup_pausesTheManager_andStopsTheGroupsScripts_butKeepsThemLoaded() {
+        ScriptRuntime client = TestContexts.runtime(PIPE);
+        client.registerScript(new Woodcutter());
+        TestContexts.connectIdentified(ctx, PIPE, UUID, "Oakheart", client);
+        GroupId woodcutters = TestContexts.createGroup(ctx, "Woodcutters");
+        TestContexts.addMember(ctx, "Woodcutters", UUID);
+        ctx.getGroupStore().setManager(woodcutters, Optional.of(new ManagerSlot(BREAKS, true)));
+        ScriptRunner woodcutting = client.findRunner(WOODCUTTING);
+        woodcutting.start();
+
+        ctx.getManagementControl().stopAllOnGroup(woodcutters);
+
+        try {
+            assertAll(
+                    () -> assertTrue(woodcutting.awaitStop(AWAIT_MS)),
+                    () -> assertNotNull(client.findRunner(WOODCUTTING), "still loaded, so it can run again"),
+                    () -> assertEquals(Optional.of(new ManagerSlot(BREAKS, false)),
+                            ctx.getGroupStore().get(woodcutters).flatMap(ClientGroup::manager)));
+        } finally {
+            client.stopAll();
+        }
     }
 }

@@ -10,14 +10,19 @@ import com.botwithus.bot.cli.groups.GroupId;
 import com.botwithus.bot.cli.groups.GroupStore;
 import com.botwithus.bot.cli.groups.ManagerSlot;
 import com.botwithus.bot.cli.groups.MemberChange;
+import com.botwithus.bot.cli.gui.inspector.InspectorRequest;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptEntry;
+import com.botwithus.bot.cli.management.Target;
+import com.botwithus.bot.core.runtime.ManagementScriptRunner;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -34,8 +39,11 @@ public final class LiveGroupsModel implements GroupsModel {
 
     private final CliContext ctx;
     private final LiveGroupsReader reader;
+    private final LiveGroupManagers managers;
     private final Supplier<List<ScriptEntry>> catalog;
     private final Executor commands;
+    private final Consumer<InspectorRequest> inspector;
+    private final Consumer<String> openManagement;
     private final AtomicReference<Notice> notice = new AtomicReference<>();
     private final AtomicReference<GroupId> created = new AtomicReference<>();
 
@@ -44,10 +52,25 @@ public final class LiveGroupsModel implements GroupsModel {
      * @param commands runs every change, off the render thread
      */
     public LiveGroupsModel(CliContext ctx, Supplier<List<ScriptEntry>> catalog, Executor commands) {
+        this(ctx, catalog, commands, request -> { }, script -> { }, Clock.systemDefaultZone());
+    }
+
+    /**
+     * @param catalog        the installed scripts, from the last completed load; never loads on the calling thread
+     * @param commands       runs every change, off the render thread
+     * @param inspector      opens the shared config inspector, for the manager's Settings
+     * @param openManagement opens the Management page on a management script, for a robot link
+     * @param clock          measures how long the manager has run
+     */
+    public LiveGroupsModel(CliContext ctx, Supplier<List<ScriptEntry>> catalog, Executor commands,
+                           Consumer<InspectorRequest> inspector, Consumer<String> openManagement, Clock clock) {
         this.ctx = ctx;
         this.reader = new LiveGroupsReader(ctx);
+        this.managers = new LiveGroupManagers(ctx, clock);
         this.catalog = catalog;
         this.commands = commands;
+        this.inspector = inspector;
+        this.openManagement = openManagement;
     }
 
     @Override
@@ -154,13 +177,14 @@ public final class LiveGroupsModel implements GroupsModel {
         }));
     }
 
+    /** Through the management control, which pauses the group's manager before it stops anything. */
     @Override
     public void stopAll(GroupId id) {
         commands.execute(() -> store().get(id).ifPresent(group -> {
-            boolean isPaused = pauseManager(group);
-            group.members().forEach(this::stopMember);
+            boolean isPausing = group.manager().filter(ManagerSlot::shouldRun).isPresent();
+            ctx.getManagementControl().stopAllOnGroup(id);
             tell(Notice.info("Stopped every script in " + group.name() + "."
-                    + (isPaused ? " Its manager is paused, so it does not start them again." : "")));
+                    + (isPausing ? " Its manager is paused, so it does not start them again." : "")));
         }));
     }
 
@@ -180,6 +204,59 @@ public final class LiveGroupsModel implements GroupsModel {
     public void restart(String uuid, String script) {
         commands.execute(() -> reader.pipeOf(uuid).ifPresent(pipe ->
                 report(ctx.getClientManager().restartScript(pipe, script), uuid, "restart")));
+    }
+
+    // ── The group's manager ────────────────────────────────────────────────
+
+    @Override
+    public Optional<ManagerInfo> manager(GroupId id) {
+        return managers.manager(id);
+    }
+
+    @Override
+    public List<ManagerChoice> managers() {
+        return managers.managers();
+    }
+
+    @Override
+    public void assignManager(GroupId id, String script, boolean isStartNow) {
+        commands.execute(() -> store().get(id).ifPresent(group -> {
+            if (!ctx.getManagementTargets().add(script, new Target.Group(id))) {
+                return;
+            }
+            if (isStartNow && !managers.runner(script).map(ManagementScriptRunner::isRunning).orElse(false)) {
+                ctx.getManagementControl().start(script);
+            }
+            tell(Notice.info(script + " now manages " + group.name() + ". It sees only this group's clients."));
+        }));
+    }
+
+    @Override
+    public void startManager(GroupId id) {
+        commands.execute(() -> store().get(id).flatMap(ClientGroup::manager).ifPresent(slot -> {
+            ctx.getManagementControl().resumeManager(id);
+            if (!managers.runner(slot.script()).map(ManagementScriptRunner::isRunning).orElse(false)) {
+                ctx.getManagementControl().start(slot.script());
+            }
+        }));
+    }
+
+    @Override
+    public void openManagerSettings(GroupId id) {
+        store().get(id).flatMap(ClientGroup::manager)
+                .flatMap(slot -> managers.runner(slot.script()))
+                .ifPresent(runner -> inspector.accept(InspectorRequest.forManagementTarget(runner,
+                        new Target.Group(id))));
+    }
+
+    @Override
+    public Optional<MemberManagement> memberManagement(GroupId id, String uuid, String script) {
+        return managers.memberManagement(id, uuid, script);
+    }
+
+    @Override
+    public void openManagement(String script) {
+        openManagement.accept(script);
     }
 
     // ── On the command executor ────────────────────────────────────────────
@@ -206,13 +283,6 @@ public final class LiveGroupsModel implements GroupsModel {
             return store().removeUnresolved(id, rowKey.substring(ClientKey.PIPE_PREFIX.length()));
         }
         return store().removeMember(id, rowKey);
-    }
-
-    /** Clears a running manager's {@code shouldRun}; returns whether there was one to pause. */
-    private boolean pauseManager(ClientGroup group) {
-        Optional<ManagerSlot> running = group.manager().filter(ManagerSlot::shouldRun);
-        running.ifPresent(slot -> store().setManager(group.id(), Optional.of(new ManagerSlot(slot.script(), false))));
-        return running.isPresent();
     }
 
     private void stopOthers(StartPlan.Member member, String script) {

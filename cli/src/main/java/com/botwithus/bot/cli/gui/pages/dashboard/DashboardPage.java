@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.dashboard;
 
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
@@ -76,7 +77,7 @@ public final class DashboardPage implements Page {
      * Brings the Logs tab forward scoped to {@code client}, or to every client
      * when empty: what "View log" on a toast or a card lands on.
      */
-    public void openLogs(Optional<String> client) {
+    public void openLogs(Optional<ClientKey> client) {
         state.openLogs(client);
     }
 

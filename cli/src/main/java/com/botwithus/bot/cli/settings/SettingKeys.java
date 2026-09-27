@@ -48,7 +48,8 @@ public final class SettingKeys {
     private static final long MIN_STALL_AFTER_MS = 10 * MS_PER_SECOND;
     private static final long MAX_STALL_AFTER_MS = 60 * MS_PER_MINUTE;
 
-    private static final long DEFAULT_TOAST_SECONDS = 5L;
+    /** How long the design keeps a pop-up up. */
+    private static final long DEFAULT_TOAST_SECONDS = 6L;
     private static final long MIN_TOAST_SECONDS = 1L;
     private static final long MAX_TOAST_SECONDS = 120L;
 

@@ -74,6 +74,10 @@ public final class ConnectionsPage implements Page {
         filters.show(filter);
     }
 
+    void search(String text) {
+        filters.search(text);
+    }
+
     @Override
     public void render() {
         pushPageColors();

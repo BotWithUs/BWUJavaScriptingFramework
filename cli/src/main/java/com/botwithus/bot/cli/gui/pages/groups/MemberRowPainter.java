@@ -10,6 +10,7 @@ import imgui.ImFont;
 import imgui.ImGui;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Function;
 
 /** Draws one row of the members table and runs its buttons. */
@@ -29,8 +30,13 @@ final class MemberRowPainter {
         this.model = model;
     }
 
+    /**
+     * @param managed the robot link under the account, when a management script targets the
+     *                member's script on its own
+     */
     void paint(MemberRow row, GroupId group, TickedKeys<GroupId> ticks, MemberColumns cols,
-               Function<String, String> icons, float x, float y, float width, float h) {
+               Function<String, String> icons, Optional<MemberManagement> managed, float x, float y, float width,
+               float h) {
         boolean isTicked = ticks.isTicked(group, row.key());
         ImDrawList draw = ImGui.getWindowDrawList();
         if (isTicked) {
@@ -42,16 +48,17 @@ final class MemberRowPainter {
             ticks.toggle(group, row.key());
         }
         switch (row) {
-            case MemberRow.Account account -> account(account, group, cols, icons, y, h);
+            case MemberRow.Account account -> account(account, group, cols, icons, managed, y, h);
             case MemberRow.Unresolved unresolved -> unresolved(unresolved, group, cols, y, h);
         }
     }
 
     private void account(MemberRow.Account row, GroupId group, MemberColumns cols, Function<String, String> icons,
-                         float y, float h) {
+                         Optional<MemberManagement> managed, float y, float h) {
         ImDrawList draw = ImGui.getWindowDrawList();
         String tag = row.otherGroups().isEmpty() ? "" : "+" + GroupText.count(row.otherGroups().size(), "group");
         twoLines(draw, cols.account(), y, h, cols.accountWidth(), row.account(), row.shortUuid(), tag);
+        managed.ifPresent(link -> managedLink(draw, row, link, cols, y, h));
         if (!tag.isEmpty() && GroupWidgets.isHovering(cols.account(), y, cols.accountWidth(), h)) {
             w.tooltip("Also in " + GroupText.join(row.otherGroups()));
         }
@@ -64,6 +71,40 @@ final class MemberRowPainter {
         w.link(draw, cols.link(), y, h, row.facts().link());
         script(draw, row, cols, icons, y, h);
         actions(row, group, cols, y, h);
+    }
+
+    /**
+     * The robot link after the account UUID: "🤖 Own settings", "🤖 Also
+     * direct" or the other management script's name. It opens Management.
+     */
+    private void managedLink(ImDrawList draw, MemberRow.Account row, MemberManagement link, MemberColumns cols,
+                             float y, float h) {
+        Controls ui = w.ui();
+        ImFont top = ui.fonts().small();
+        ImFont mono = ui.fonts().monoCaption();
+        ImFont cap = ui.fonts().caption();
+        float topH = top.getFontSize() * LINE;
+        float lineH = mono.getFontSize() * LINE;
+        float lineY = y + (h - topH - lineH) * 0.5f + topH;
+        float x = cols.account() + ui.width(mono, row.shortUuid());
+        ui.textCentredY(draw, mono, x, lineY, lineH, ImGuiTheme.COL_FG2, " · ");
+        float lx = x + ui.width(mono, " · ");
+        float room = cols.account() + cols.accountWidth() - lx;
+        float glyphW = ui.width(cap, Icons.ROBOT) + w.m().u(1);
+        String label = ui.ellipsize(cap, link.label(), Math.max(0f, room - glyphW));
+        float linkW = glyphW + ui.width(cap, label);
+        ImGui.setCursorScreenPos(lx, lineY);
+        boolean isClicked = ImGui.invisibleButton("##managed-" + row.key(), Math.max(1f, linkW), lineH);
+        boolean isHovered = ImGui.isItemHovered();
+        int col = isHovered ? ImGuiTheme.COL_FG : ImGuiTheme.COL_INFO;
+        ui.textCentredY(draw, cap, lx, lineY, lineH, col, Icons.ROBOT);
+        ui.textCentredY(draw, cap, lx + glyphW, lineY, lineH, col, label);
+        if (isHovered) {
+            w.tooltip(link.tooltip() + " Open Management.");
+        }
+        if (isClicked) {
+            model.openManagement(link.managementScript());
+        }
     }
 
     /** Name over a mono second line, with an optional bordered tag after the name. */

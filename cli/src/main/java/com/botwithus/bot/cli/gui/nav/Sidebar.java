@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui.nav;
 
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -186,7 +185,7 @@ public final class Sidebar {
         float h = itemHeight(second.isPresent());
         boolean clicked = ImGui.invisibleButton("##nav-" + page.id().name(), width, h);
         boolean hovered = ImGui.isItemHovered();
-        float t = isSelected ? 1f : Motion.step("nav:" + page.id().name(), hovered ? 1f : 0f, HOVER_SPEED);
+        float t = isSelected ? 1f : ui.motion().step("nav:" + page.id().name(), hovered ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         ImGuiTheme.Metrics m = ui.m();
         draw.addRectFilled(x, y, x + width, y + h, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, t), m.radius());

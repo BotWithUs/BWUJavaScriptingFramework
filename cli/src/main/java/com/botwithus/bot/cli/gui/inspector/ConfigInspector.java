@@ -13,7 +13,6 @@ import com.botwithus.bot.cli.gui.Controls.Segment;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
 import com.botwithus.bot.cli.gui.inspector.SettingsFor.InheritedValue;
@@ -174,7 +173,7 @@ final class ConfigInspector {
         if (ImGui.invisibleButton("##tab-" + which + id, w, h)) {
             state.showTab(which);
         }
-        float t = Motion.step("tab:" + which + id, ImGui.isItemHovered() ? 1f : 0f,
+        float t = ui.motion().step("tab:" + which + id, ImGui.isItemHovered() ? 1f : 0f,
                 1f / ImGuiTheme.DURATION_FAST_S);
         boolean on = shown == which;
         int col = on ? ImGuiTheme.COL_FG : Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
