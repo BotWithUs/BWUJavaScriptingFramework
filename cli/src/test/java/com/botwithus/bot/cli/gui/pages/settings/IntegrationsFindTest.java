@@ -81,8 +81,13 @@ class IntegrationsFindTest {
 
     @Test
     void quietHours_andTheirKeys_findTheirRow() {
-        assertEquals(List.of("quiet"), shape("quiet"));
+        assertEquals(List.of("quiet", AlertSettingKeys.QUIET_MODE.name()), shape("quiet"));
         assertEquals(List.of("quiet"), shape(AlertSettingKeys.QUIET_FROM.name()));
+    }
+
+    @Test
+    void theQuietHoursMode_isFoundByWhatItDoes() {
+        assertEquals(List.of(AlertSettingKeys.QUIET_MODE.name()), shape("send them when quiet hours end"));
     }
 
     @Test

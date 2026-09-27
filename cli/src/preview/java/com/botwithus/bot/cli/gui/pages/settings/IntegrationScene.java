@@ -1,14 +1,16 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
 import com.botwithus.bot.cli.settings.AlertSettingKeys;
+import com.botwithus.bot.cli.settings.QuietMode;
 import com.botwithus.bot.cli.settings.SettingKey;
 import com.botwithus.bot.core.alerts.AlertKind;
 import com.botwithus.bot.core.alerts.AlertService;
 
 /**
  * DEV ONLY. The Integrations section's preview captures: each service status,
- * the event grid, session-only secrets, a secret shown and one refused, and the
- * rows under the grid. Each scene sets the fixture up on the first frame, does
+ * the event grid, session-only secrets, a secret shown and one refused, the
+ * rows under the grid (quiet hours in their default mode, hold), quiet hours set
+ * to mute, and "Find a setting" narrowed to quiet hours. Each scene sets the fixture up on the first frame, does
  * what a user would on the next, and scrolls to the section once it has laid out.
  */
 public enum IntegrationScene {
@@ -22,7 +24,9 @@ public enum IntegrationScene {
     SESSION_ONLY("136-settings-integrations-session-only-secrets"),
     SHOWN("137-settings-integrations-secret-shown"),
     REFUSED("138-settings-integrations-secret-refused"),
-    LOWER_ROWS("139-settings-integrations-bursts-quiet-summary");
+    LOWER_ROWS("139-settings-integrations-bursts-quiet-summary"),
+    QUIET_MUTE("200-settings-integrations-quiet-hours-mute"),
+    QUIET_FIND("201-settings-integrations-find-quiet-hours");
 
     private static final int SET_UP_FRAME = 0;
     private static final int ACT_FRAME = 1;
@@ -31,6 +35,7 @@ public enum IntegrationScene {
     /** Far enough to bring the rows under the grid into view with every service off. */
     private static final float LOWER_ROWS_PX = 360f;
     private static final String GRID_QUERY = "which alerts";
+    private static final String QUIET_QUERY = "quiet";
     /** Not https, so the back end refuses it. Placeholder only. */
     private static final String NOT_HTTPS = "http://hooks.slack.com/services/…";
 
@@ -52,7 +57,7 @@ public enum IntegrationScene {
             case ACT_FRAME -> act(page, model);
             case SCROLL_FRAME -> SettingsPreviewSeams.showSection(page, SettingsSection.INTEGRATIONS);
             case NUDGE_FRAME -> {
-                if (this == LOWER_ROWS) {
+                if (this == LOWER_ROWS || this == QUIET_MUTE) {
                     SettingsPreviewSeams.scrollDown(page, LOWER_ROWS_PX);
                 }
             }
@@ -89,11 +94,10 @@ public enum IntegrationScene {
                 alerts.saveFakeSecret(AlertService.DISCORD);
                 set(model, AlertSettingKeys.DISCORD_MENTION_HERE, "true");
             }
-            case LOWER_ROWS -> {
-                set(model, AlertSettingKeys.BURST_SECONDS, "60");
-                set(model, AlertSettingKeys.QUIET_ENABLED, "true");
-                set(model, AlertSettingKeys.QUIET_FROM, "23:00");
-                set(model, AlertSettingKeys.QUIET_TO, "07:00");
+            case LOWER_ROWS, QUIET_FIND -> quietOvernight(model);
+            case QUIET_MUTE -> {
+                quietOvernight(model);
+                set(model, AlertSettingKeys.QUIET_MODE, QuietMode.MUTE.name());
             }
         }
     }
@@ -102,10 +106,19 @@ public enum IntegrationScene {
         switch (this) {
             case SENDING -> model.sendTest(AlertService.SLACK);
             case GRID -> SettingsPreviewSeams.find(page, GRID_QUERY);
+            case QUIET_FIND -> SettingsPreviewSeams.find(page, QUIET_QUERY);
             case SHOWN -> SettingsPreviewSeams.revealSecret(page, AlertService.DISCORD);
             case REFUSED -> SettingsPreviewSeams.typeSecret(page, AlertService.SLACK, NOT_HTTPS);
-            case OFF, NOT_TESTED, WORKING, FAILED, SESSION_ONLY, LOWER_ROWS -> { }
+            case OFF, NOT_TESTED, WORKING, FAILED, SESSION_ONLY, LOWER_ROWS, QUIET_MUTE -> { }
         }
+    }
+
+    /** Bursts of a minute, and quiet hours on from 23:00 to 07:00 in their default mode. */
+    private static void quietOvernight(FixtureSettingsModel model) {
+        set(model, AlertSettingKeys.BURST_SECONDS, "60");
+        set(model, AlertSettingKeys.QUIET_ENABLED, "true");
+        set(model, AlertSettingKeys.QUIET_FROM, "23:00");
+        set(model, AlertSettingKeys.QUIET_TO, "07:00");
     }
 
     /** ntfy and Discord on, Slack off, and Discord sent a little more than the defaults. */

@@ -57,12 +57,14 @@ public final class SettingsLayout {
     /**
      * The Integrations section's plain rows. The service cards, the event grid and
      * the quiet-hours row are built by {@link IntegrationsSheet}, which places these
-     * two around them.
+     * three around them and words the mode row for the mode it is in.
      */
     private static void addIntegrations(List<Placement> rows) {
         rows.add(new Placement(SettingsSection.INTEGRATIONS, AlertSettingKeys.BURST_SECONDS, DisplayUnit.SECONDS,
                 "If several clients drop at once, send one message listing them instead of one each. "
                         + "0 sends each at once."));
+        rows.add(new Placement(SettingsSection.INTEGRATIONS, AlertSettingKeys.QUIET_MODE, DisplayUnit.NONE,
+                "What quiet hours do with the alerts they hold back: send them when they end, or drop them."));
         rows.add(new Placement(SettingsSection.INTEGRATIONS, AlertSettingKeys.SUMMARY_AT, DisplayUnit.NONE,
                 "When to send the daily summary (24-hour, local time), to the services ticked for it above."));
     }

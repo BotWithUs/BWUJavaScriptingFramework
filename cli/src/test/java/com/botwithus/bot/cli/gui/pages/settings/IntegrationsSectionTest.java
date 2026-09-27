@@ -245,7 +245,7 @@ class IntegrationsSectionTest {
         }).toList();
 
         assertEquals(List.of("ntfy", "slack", "discord", "grid", AlertSettingKeys.BURST_SECONDS.name(), "quiet",
-                AlertSettingKeys.SUMMARY_AT.name()), shape);
+                AlertSettingKeys.QUIET_MODE.name(), AlertSettingKeys.SUMMARY_AT.name()), shape);
     }
 
     @Test
@@ -297,8 +297,40 @@ class IntegrationsSectionTest {
                 () -> assertTrue(quiet.isOn()),
                 () -> assertEquals("23:00", quiet.from()),
                 () -> assertEquals("08:00", quiet.to()),
-                () -> assertTrue(quiet.description().startsWith("Mute everything except crashes"),
-                        "quiet hours drop alerts, so the row must not promise to hold them"));
+                () -> assertEquals(IntegrationsSheet.QUIET_DESCRIPTION, quiet.description()),
+                () -> assertFalse(quiet.description().contains("Mute"), "whether they mute is the next row's"));
+    }
+
+    @Test
+    void quietMode_isHoldByDefault_andSaysHeldAlertsAreSentWhenQuietHoursEnd() {
+        SettingsItem.KeyRow mode = keyRow(AlertSettingKeys.QUIET_MODE.name());
+
+        assertAll(
+                () -> assertEquals(new RowControl.Segments(List.of(new RowControl.Option("HOLD", "Hold"),
+                        new RowControl.Option("MUTE", "Mute")), 0), mode.control()),
+                () -> assertEquals("Hold alerts and send them when quiet hours end, one message per service.",
+                        mode.description()));
+    }
+
+    @Test
+    void quietMode_mute_saysMutedAlertsAreNotSentLater() {
+        model.edit(AlertSettingKeys.QUIET_MODE.name(), "MUTE");
+
+        SettingsItem.KeyRow mode = keyRow(AlertSettingKeys.QUIET_MODE.name());
+
+        assertAll(
+                () -> assertEquals(1, switch (mode.control()) {
+                    case RowControl.Segments segments -> segments.selected();
+                    default -> -1;
+                }),
+                () -> assertEquals("Mute alerts. Muted alerts are not sent later.", mode.description()));
+    }
+
+    private SettingsItem.KeyRow keyRow(String name) {
+        return items(model).stream().flatMap(i -> switch (i) {
+            case SettingsItem.KeyRow row -> Stream.of(row);
+            default -> Stream.<SettingsItem.KeyRow>empty();
+        }).filter(row -> row.name().equals(name)).findFirst().orElseThrow();
     }
 
     @Test

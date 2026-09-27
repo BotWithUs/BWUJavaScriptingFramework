@@ -66,7 +66,7 @@ public final class SettingsSheet {
 
     private static List<SettingsItem> items(SettingsSection section, HostSettings settings, Inputs in) {
         if (section == SettingsSection.INTEGRATIONS) {
-            // Its two plain rows sit among its cards, grid and quiet hours, so it places them itself.
+            // Its plain rows sit among its cards, grid and quiet hours, so it places them itself.
             return IntegrationsSheet.items(settings, in.integrations(),
                     placement -> keyRow(placement, settings, in.windowsPercent()));
         }
