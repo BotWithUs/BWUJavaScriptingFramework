@@ -943,6 +943,14 @@ public class CliContext {
      * available connection (or clears the active view).
      */
     public void handleConnectionError(String connName) {
+        removeConnection(connName, CloseCause.CONNECTION_LOST);
+    }
+
+    /**
+     * Takes {@code connName} out of the host: stops its stream, unmounts it,
+     * unregisters and closes its connection, publishing a close for {@code cause}.
+     */
+    private void removeConnection(String connName, CloseCause cause) {
         if (streamManager != null) {
             streamManager.handleConnectionLost(connName);
         }
@@ -951,7 +959,7 @@ public class CliContext {
             out().println("Auto-unmounted — mounted connection was lost.");
         }
         boolean wasActive = connName.equals(activeConnectionName);
-        Connection conn = unregisterConnection(connName, CloseCause.CONNECTION_LOST);
+        Connection conn = unregisterConnection(connName, cause);
         clientProvider.removeClient(connName);
         if (conn != null) {
             conn.close();
@@ -989,7 +997,9 @@ public class CliContext {
                 && !connectionHistory.clients().contains(key)) {
             return ForgetResult.NOT_FOUND;
         }
-        registered.forEach(conn -> handleConnectionError(conn.getName()));
+        // Closed as disconnected, not lost: forgetting is the user's own doing, so
+        // nothing downstream reports the client closing.
+        registered.forEach(conn -> removeConnection(conn.getName(), CloseCause.DISCONNECTED));
         // Published after the close, so every subscriber drops the client after it.
         clientKeys.forget(key, clock.instant());
         return ForgetResult.FORGOTTEN;
