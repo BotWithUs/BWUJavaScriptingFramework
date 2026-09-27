@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui.usermode;
 
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.flag.ImDrawFlags;
@@ -53,7 +52,7 @@ public final class PulseLaneView {
     }
 
     public void loading(ImDrawList draw, float x, float y, float w, float h) {
-        float breathe = Motion.pulse(1.0 / ImGuiTheme.PULSE_PERIOD_S);
+        float breathe = ui.motion().pulse(1.0 / ImGuiTheme.PULSE_PERIOD_S);
         int col = Controls.scaleAlpha(ImGuiTheme.COL_INFO,
                 BREATHE_LOW + (BREATHE_HIGH - BREATHE_LOW) * breathe);
         float barW = barWidth(w);

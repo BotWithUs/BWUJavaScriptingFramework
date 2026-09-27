@@ -1,19 +1,12 @@
 package com.botwithus.bot.cli.gui.notify;
 
-import com.botwithus.bot.api.event.ConnectionLostEvent;
-import com.botwithus.bot.api.event.EventBus;
-import com.botwithus.bot.api.event.ReconnectStateChangedEvent;
-import com.botwithus.bot.api.event.ScriptCrashedEvent;
-import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
-import com.botwithus.bot.api.runtime.Phase;
-import com.botwithus.bot.api.runtime.ReconnectState;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
+import com.botwithus.bot.cli.gui.notify.Notification.Action;
 import com.botwithus.bot.cli.gui.notify.Notification.Kind;
-import com.botwithus.bot.cli.gui.notify.Notification.Severity;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -26,30 +19,30 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
+import java.util.Queue;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 /**
- * Toasts for the six failure and recovery events: connection lost, reconnecting,
- * reconnected, gave up, script crashed and script JAR failed to load. Pure
- * {@link EventBus}-driven — no Logback appender, no polling.
+ * The toasts in the top-right corner. {@link ToastFeed} decides what to say and
+ * posts it here from the host event thread; this overlay takes the posts in on
+ * the render thread, once per frame, and draws them.
  *
- * <p>Toasts stack under the top bar on the right, newest first, at most three.
- * Each slides in, shows a life bar draining over {@link #DEFAULT_TTL}, and slides
- * out. The queue is an <em>instance</em> field, not static — one overlay per app.</p>
+ * <p>Toasts stack under the top bar on the right, newest first, at most three:
+ * a fourth pushes the oldest out. Each slides in, shows a life bar draining over
+ * its lifetime, and slides out; one with no lifetime (an error) stays until its
+ * close button is pressed.</p>
  *
- * <p>{@link #subscribeTo} wires the four event types this overlay cares about.
- * Bus subscriptions retain the lambdas, so re-subscribing on a fresh bus is the
- * supported way to attach a new connection.</p>
+ * <p>A client has at most one toast about its connection. A newer one takes its
+ * place, so a drop, its retries and its recovery read as one toast changing
+ * rather than a stack of them; a retry updates a "not responding" toast in place,
+ * without sliding in again.</p>
  */
-public final class NotificationOverlay {
+public final class NotificationOverlay implements ToastSink {
 
-    static final Duration DEFAULT_TTL = Duration.ofSeconds((long) ImGuiTheme.TOAST_LIFE_S);
     private static final int MAX_VISIBLE = 3;
     private static final float WIDTH_EM = 20f;
     private static final float ICON_COL_EM = 1.333f;
@@ -65,59 +58,63 @@ public final class NotificationOverlay {
     private static final float SECONDS_PER_MILLI = 0.001f;
     private static final float SPINNER_TRACK_ALPHA = 0.2f;
 
-    private final Deque<Notification> active = new ConcurrentLinkedDeque<>();
-    private final Clock clock;
-    private final Function<String, String> accountOf;
-
-    public NotificationOverlay() {
-        this(Clock.systemDefaultZone());
+    /** A post or a withdrawal, waiting for the render thread. */
+    private sealed interface Inbox {
+        record Post(Toast toast) implements Inbox { }
+        record Withdraw(ClientKey client) implements Inbox { }
     }
+
+    private final Queue<Inbox> inbox = new ConcurrentLinkedQueue<>();
+    /** On screen, oldest first. Touched on the render thread only, via {@link #update}. */
+    private final List<Notification> active = new ArrayList<>();
+    private final Clock clock;
 
     public NotificationOverlay(Clock clock) {
-        this(clock, name -> name);
-    }
-
-    /**
-     * @param accountOf maps a connection name to the account playing on it, so a
-     *                  toast can say who; returns the name itself when unknown
-     */
-    public NotificationOverlay(Clock clock, Function<String, String> accountOf) {
         this.clock = clock;
-        this.accountOf = accountOf;
     }
 
-    /** Visible-notifications snapshot — exposed for tests. */
-    public Collection<Notification> active() {
-        return active;
+    @Override
+    public void post(Toast toast) {
+        inbox.add(new Inbox.Post(toast));
+    }
+
+    @Override
+    public void withdraw(ClientKey client) {
+        inbox.add(new Inbox.Withdraw(client));
+    }
+
+    /** The toasts on screen, oldest first, as of the last {@link #update}. */
+    public List<Notification> active() {
+        return List.copyOf(active);
     }
 
     /**
-     * Wires this overlay's event handlers onto the supplied bus. Safe to call
-     * multiple times (each call adds new listeners) — typically invoked once
-     * per connection's event bus.
+     * Takes in what was posted since the last call, then drops the toasts that
+     * have gone. Called by {@link #render}; exposed so tests need no GL context.
      */
-    public void subscribeTo(EventBus bus) {
-        bus.subscribe(ConnectionLostEvent.class, this::onConnectionLost);
-        bus.subscribe(ReconnectStateChangedEvent.class, this::onReconnectStateChanged);
-        bus.subscribe(ScriptCrashedEvent.class, this::onScriptCrashed);
-        bus.subscribe(ScriptLoadFailedEvent.class, this::onScriptLoadFailed);
-    }
-
-    /** Culls expired toasts. Called by {@link #render}; exposed so tests need no GL context. */
-    public void cull() {
+    public void update() {
+        Inbox next = inbox.poll();
+        while (next != null) {
+            switch (next) {
+                case Inbox.Post post -> show(post.toast());
+                case Inbox.Withdraw withdraw -> connectionToast(Optional.of(withdraw.client()))
+                        .ifPresent(i -> dismiss(active.get(i)));
+            }
+            next = inbox.poll();
+        }
         Instant now = clock.instant();
         active.removeIf(n -> n.isExpired(now));
     }
 
     /**
-     * Culls, then draws the toasts. Call once per frame after the main window so
-     * they float above it.
+     * Updates, then draws the toasts. Call once per frame after the main window
+     * so they float above it.
      *
      * @param top      screen y the stack starts at (just under the top bar)
      * @param onAction runs a toast's action button; the toast is then dismissed
      */
     public void render(Controls ui, float top, Consumer<Notification> onAction) {
-        cull();
+        update();
         if (active.isEmpty()) {
             return;
         }
@@ -140,12 +137,60 @@ public final class NotificationOverlay {
     }
 
     private List<Notification> newestFirst() {
-        List<Notification> all = new ArrayList<>(active);
-        List<Notification> out = new ArrayList<>();
-        for (int i = all.size() - 1; i >= 0 && out.size() < MAX_VISIBLE; i--) {
-            out.add(all.get(i));
+        List<Notification> out = new ArrayList<>(active.reversed());
+        return out.subList(0, Math.min(out.size(), MAX_VISIBLE));
+    }
+
+    // ── Taking posts in ────────────────────────────────────────────────────
+
+    /**
+     * Shows {@code toast}: in place of the client's connection toast if it is
+     * one and there is one, else as a new toast if it may open one.
+     */
+    private void show(Toast toast) {
+        Optional<Integer> same = toast.kind().isConnectionState()
+                ? connectionToast(toast.client())
+                : Optional.empty();
+        if (same.isEmpty()) {
+            if (toast.canOpen()) {
+                add(fresh(toast));
+            }
+            return;
         }
-        return out;
+        int at = same.get();
+        Notification old = active.get(at);
+        if (old.kind().isOutage() && toast.kind().isOutage()) {
+            active.set(at, new Notification(old.id(), toast.kind(), toast.title(), toast.message(),
+                    toast.client(), old.createdAt(), old.expiresAt()));
+        } else {
+            active.remove(at);
+            add(fresh(toast));
+        }
+    }
+
+    private Notification fresh(Toast toast) {
+        Instant now = clock.instant();
+        return new Notification(UUID.randomUUID(), toast.kind(), toast.title(), toast.message(), toast.client(),
+                now, toast.lifetime().map(now::plus));
+    }
+
+    /** Adds {@code n} as the newest toast, pushing the oldest out past {@link #MAX_VISIBLE}. */
+    private void add(Notification n) {
+        active.add(n);
+        while (active.size() > MAX_VISIBLE) {
+            active.removeFirst();
+        }
+    }
+
+    /** Where the toast about {@code client}'s connection is, if one is on screen. */
+    private Optional<Integer> connectionToast(Optional<ClientKey> client) {
+        for (int i = 0; i < active.size(); i++) {
+            Notification n = active.get(i);
+            if (n.kind().isConnectionState() && n.client().equals(client)) {
+                return Optional.of(i);
+            }
+        }
+        return Optional.empty();
     }
 
     private static void beginStackWindow(float x, float y, float w, float h) {
@@ -173,7 +218,7 @@ public final class NotificationOverlay {
         ImFont body = bodyFont(ui, n);
         int lines = ui.wrap(body, n.message(), bodyWidth(ui, width)).size();
         float h = m.u(3) * 2f + ui.fonts().small().getFontSize() * LINE + lines * body.getFontSize() * LINE;
-        if (n.kind().actionLabel() != null) {
+        if (n.kind().action() != Action.NONE) {
             h += m.u(1.5f) + m.controlSmallHeight();
         }
         return h;
@@ -183,9 +228,10 @@ public final class NotificationOverlay {
                             Consumer<Notification> onAction) {
         ImGuiTheme.Metrics m = ui.m();
         float h = height(ui, n, width);
-        float in = Motion.easeOutCubic(progress(n.createdAt(), ImGuiTheme.DURATION_S));
-        float out = Motion.easeOutCubic(progress(n.expiresAt().minusMillis(
-                (long) (ImGuiTheme.DURATION_S * MILLIS_PER_SECOND)), ImGuiTheme.DURATION_S));
+        float in = ui.motion().ease(progress(n.createdAt(), ImGuiTheme.DURATION_S));
+        float out = n.expiresAt()
+                .map(end -> ui.motion().ease(progress(end.minus(slide()), ImGuiTheme.DURATION_S)))
+                .orElse(0f);
         float alpha = in * (1f - out);
         float x = x0 + (1f - alpha) * ui.fonts().body().getFontSize() * SLIDE_EM;
         ImDrawList draw = ImGui.getWindowDrawList();
@@ -237,8 +283,8 @@ public final class NotificationOverlay {
         if (ui.button("##toast-x-" + n.id(), Icons.XMARK, "", Tone.ICON, true, closeW)) {
             dismiss(n);
         }
-        String action = n.kind().actionLabel();
-        if (action != null) {
+        String action = n.kind().action().label();
+        if (n.kind().action() != Action.NONE) {
             float tx = x + pad + ui.fonts().body().getFontSize() * ICON_COL_EM + m.u(2);
             ImGui.setCursorScreenPos(tx, y + h - pad - m.controlSmallHeight());
             if (ui.button("##toast-a-" + n.id(), null, action, Tone.GHOST, true, m.controlSmallHeight())) {
@@ -248,8 +294,12 @@ public final class NotificationOverlay {
         }
     }
 
+    /** The time left, drained along the bottom edge. A toast that stays until closed has none. */
     private void drawLifeBar(ImDrawList draw, Notification n, float x, float bottom, float width, float r, int col) {
-        float left = 1f - progress(n.createdAt(), secondsBetween(n.createdAt(), n.expiresAt()));
+        if (n.expiresAt().isEmpty()) {
+            return;
+        }
+        float left = 1f - progress(n.createdAt(), secondsBetween(n.createdAt(), n.expiresAt().get()));
         if (left <= 0f) {
             return;
         }
@@ -275,90 +325,41 @@ public final class NotificationOverlay {
         return Duration.between(a, b).toMillis() * SECONDS_PER_MILLI;
     }
 
+    /** How long a toast takes to slide in or out. */
+    private static Duration slide() {
+        return Duration.ofMillis((long) (ImGuiTheme.DURATION_S * MILLIS_PER_SECOND));
+    }
+
     /** Starts the slide-out now by pulling the expiry in to one slide's length. */
     private void dismiss(Notification n) {
-        Instant soon = clock.instant().plusMillis((long) (ImGuiTheme.DURATION_S * MILLIS_PER_SECOND));
-        if (soon.isBefore(n.expiresAt()) && active.remove(n)) {
-            active.addLast(new Notification(n.id(), n.kind(), n.severity(), n.title(), n.message(),
-                    n.subject(), n.createdAt(), soon));
+        Instant soon = clock.instant().plus(slide());
+        int at = active.indexOf(n);
+        boolean isLeavingLater = n.expiresAt().map(soon::isBefore).orElse(true);
+        if (at >= 0 && isLeavingLater) {
+            active.set(at, new Notification(n.id(), n.kind(), n.title(), n.message(), n.client(),
+                    n.createdAt(), Optional.of(soon)));
         }
     }
 
     private static String iconOf(Kind kind) {
         return switch (kind) {
-            case CONNECTION_LOST -> Icons.LINK_SLASH;
+            case CONNECTION_LOST -> Icons.WARNING;
             case RECONNECTING -> Icons.SPINNER;
-            case RECONNECTED -> Icons.CIRCLE_CHECK;
             case GAVE_UP -> Icons.PLUG_XMARK;
-            case SCRIPT_CRASHED -> Icons.WARNING;
+            case CLIENT_CLOSED -> Icons.POWER;
+            case RECONNECTED, CLIENT_RESUMED -> Icons.LINK;
+            case SCRIPT_STALLED -> Icons.HOURGLASS;
+            case SCRIPT_CRASHED -> Icons.CIRCLE_XMARK;
             case LOAD_FAILED -> Icons.FILE_XMARK;
         };
     }
 
     private static int colorOf(Kind kind) {
         return switch (kind) {
-            case RECONNECTING -> ImGuiTheme.COL_WARN;
-            case RECONNECTED -> ImGuiTheme.COL_ACCENT;
-            case CONNECTION_LOST, GAVE_UP, SCRIPT_CRASHED, LOAD_FAILED -> ImGuiTheme.COL_DANGER;
+            case CONNECTION_LOST, RECONNECTING, SCRIPT_STALLED -> ImGuiTheme.COL_WARN;
+            case RECONNECTED, CLIENT_RESUMED -> ImGuiTheme.COL_ACCENT;
+            case CLIENT_CLOSED -> ImGuiTheme.COL_FG2;
+            case GAVE_UP, SCRIPT_CRASHED, LOAD_FAILED -> ImGuiTheme.COL_DANGER;
         };
-    }
-
-    // ── Event handlers ──────────────────────────────────────────────────────
-
-    private void onConnectionLost(ConnectionLostEvent ev) {
-        String who = accountOf.apply(ev.connectionName());
-        String body = who.equals(ev.connectionName())
-                ? ev.connectionName() + " stopped responding."
-                : who + " stopped responding on " + ev.connectionName() + ".";
-        push(Kind.CONNECTION_LOST, Severity.ERROR, "Connection lost", body, ev.connectionName());
-    }
-
-    private void onReconnectStateChanged(ReconnectStateChangedEvent ev) {
-        String who = accountOf.apply(ev.connectionName());
-        switch (ev.state()) {
-            case ReconnectState.Connected c ->
-                    push(Kind.RECONNECTED, Severity.INFO, "Reconnected", who + " is back.", ev.connectionName());
-            case ReconnectState.Reconnecting r -> push(Kind.RECONNECTING, Severity.WARN, "Reconnecting",
-                    who + ": attempt " + r.attempt() + ", next try in "
-                            + Math.max(1L, Math.round(r.nextDelayMs() / (double) MILLIS_PER_SECOND)) + " s.",
-                    ev.connectionName());
-            case ReconnectState.GivingUp g -> push(Kind.GAVE_UP, Severity.ERROR, "Gave up reconnecting",
-                    who + ": " + g.attempts() + (g.attempts() == 1 ? " attempt" : " attempts") + " failed.",
-                    ev.connectionName());
-            case ReconnectState.Disconnected d -> {
-                // Disconnected itself is covered by ConnectionLostEvent — skip
-                // to avoid double-notifying.
-            }
-        }
-    }
-
-    private void onScriptCrashed(ScriptCrashedEvent ev) {
-        String where = ev.connectionName() != null ? accountOf.apply(ev.connectionName()) + " · " : "";
-        String cause = ev.crash().cause() != null ? ev.crash().cause().getClass().getSimpleName() : "Error";
-        push(Kind.SCRIPT_CRASHED, Severity.ERROR, ev.scriptName() + " crashed",
-                where + cause + " in " + phaseMethod(ev.crash().phase()), ev.connectionName());
-    }
-
-    private static String phaseMethod(Phase phase) {
-        return switch (phase) {
-            case ON_START -> "onStart()";
-            case ON_LOOP -> "onLoop()";
-            case ON_STOP -> "onStop()";
-            case ON_CONFIG_UPDATE -> "onConfigUpdate()";
-        };
-    }
-
-    private void onScriptLoadFailed(ScriptLoadFailedEvent ev) {
-        String reason = ev.cause().getMessage() != null
-                ? ev.cause().getMessage()
-                : ev.cause().getClass().getSimpleName();
-        push(Kind.LOAD_FAILED, Severity.WARN, "JAR failed to load",
-                ev.jar().getFileName() + " · " + reason, ev.jar().toString());
-    }
-
-    private void push(Kind kind, Severity severity, String title, String message, String subject) {
-        Instant now = clock.instant();
-        active.addLast(new Notification(UUID.randomUUID(), kind, severity, title,
-                message != null ? message : "", subject, now, now.plus(DEFAULT_TTL)));
     }
 }

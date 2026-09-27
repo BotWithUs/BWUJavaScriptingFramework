@@ -6,8 +6,10 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -41,6 +43,8 @@ public final class ConnectionHistory implements Consumer<HostEvent> {
     private final Map<ClientKey, Deque<Entry>> byClient = new LinkedHashMap<>();
     /** The key each pipe's events were last recorded under. Guarded by {@link #lock}. */
     private final Map<String, ClientKey> keyByPipe = new HashMap<>();
+    /** Every pipe each client's history was recorded on, in first-seen order. Guarded by {@link #lock}. */
+    private final Map<ClientKey, Set<String>> pipesByClient = new HashMap<>();
     /** Guarded by {@link #lock}. */
     private final Deque<Entry> hostWide = new ArrayDeque<>();
     /** Guarded by {@link #lock}. */
@@ -107,6 +111,18 @@ public final class ConnectionHistory implements Consumer<HostEvent> {
         }
     }
 
+    /**
+     * Every pipe the client under {@code key} has been on while the host recorded
+     * its events, oldest first: its earlier pipes too, such as the one it was on
+     * before its game was restarted. Empty for a client never seen.
+     */
+    public List<String> pipesOf(ClientKey key) {
+        synchronized (lock) {
+            Set<String> pipes = pipesByClient.get(key);
+            return pipes == null ? List.of() : List.copyOf(pipes);
+        }
+    }
+
     /** Events about the host as a whole rather than one client, oldest first. */
     public List<HostEvent> hostWide() {
         synchronized (lock) {
@@ -139,6 +155,7 @@ public final class ConnectionHistory implements Consumer<HostEvent> {
     private Deque<Entry> historyOf(ClientRef client) {
         if (client.hasPipe()) {
             keyByPipe.put(client.pipe(), client.key());
+            pipesByClient.computeIfAbsent(client.key(), key -> new LinkedHashSet<>()).add(client.pipe());
         }
         return byClient.computeIfAbsent(client.key(), key -> new ArrayDeque<>());
     }
@@ -148,6 +165,10 @@ public final class ConnectionHistory implements Consumer<HostEvent> {
         ClientKey previous = keyByPipe.get(client.pipe());
         if (previous == null || previous.equals(client.key())) {
             return;
+        }
+        Set<String> movedPipes = pipesByClient.remove(previous);
+        if (movedPipes != null) {
+            pipesByClient.computeIfAbsent(client.key(), key -> new LinkedHashSet<>()).addAll(movedPipes);
         }
         Deque<Entry> moved = byClient.remove(previous);
         if (moved == null) {
@@ -166,6 +187,7 @@ public final class ConnectionHistory implements Consumer<HostEvent> {
 
     private void forget(ClientKey key) {
         byClient.remove(key);
+        pipesByClient.remove(key);
         keyByPipe.values().removeIf(key::equals);
     }
 

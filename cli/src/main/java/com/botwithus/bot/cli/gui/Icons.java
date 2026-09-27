@@ -83,6 +83,13 @@ public final class Icons {
     public static final String LAYER_GROUP = "\uF5FD";  // fa-layer-group
     public static final String DIAGRAM     = "\uE4A6";  // fa-diagram-project
 
+    // Settings page
+    public static final String USER        = "\uF007";  // fa-user
+    public static final String BELL        = "\uF0F3";  // fa-bell
+    public static final String DISPLAY     = "\uE163";  // fa-display
+    public static final String FILE_EXPORT = "\uF56E";  // fa-file-export
+    public static final String ERASER      = "\uF12D";  // fa-eraser
+
     // Misc
     public static final String SEARCH      = "\uF002";  // fa-magnifying-glass
     public static final String FILTER      = "\uF0B0";  // fa-filter

@@ -113,8 +113,8 @@ final class StoreRowPainter {
 
     private Click controls(StoreRow row, Columns c, float y, float h, boolean isPicked, boolean canInstall) {
         Click click = Click.NONE;
-        ImGui.setCursorScreenPos(c.pick(), y + (h - w.boxSize()) * 0.5f);
-        if (w.tickBox("##pick", isPicked, canInstall && row.isInstallable())) {
+        ImGui.setCursorScreenPos(c.pick(), y + (h - ui.tickBoxSize()) * 0.5f);
+        if (ui.tickBox("##pick", isPicked, canInstall && row.isInstallable())) {
             click = Click.PICK;
         }
         ImGui.setCursorScreenPos(c.star(), y + (h - w.starSize()) * 0.5f);

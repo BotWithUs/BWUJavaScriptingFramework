@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.gui.pages.dashboard;
 
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Liveness;
+import com.botwithus.bot.cli.events.ClientKey;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -32,7 +33,7 @@ public sealed interface AttentionItem {
     Optional<Instant> since();
 
     /** The client this is about, for scoping; empty for host-wide entries. */
-    Optional<String> client();
+    Optional<ClientKey> client();
 
     /** A script sits inside one {@code onLoop()} past the watchdog's threshold. */
     record Stalled(RunnerRef ref, String clientLabel, Optional<Instant> since, long iteration)
@@ -44,7 +45,7 @@ public sealed interface AttentionItem {
 
         @Override
         public String key() {
-            return "stall:" + ref.client() + ":" + ref.script();
+            return "stall:" + ref.client().value() + ":" + ref.script();
         }
 
         @Override
@@ -53,7 +54,7 @@ public sealed interface AttentionItem {
         }
 
         @Override
-        public Optional<String> client() {
+        public Optional<ClientKey> client() {
             return Optional.of(ref.client());
         }
     }
@@ -74,7 +75,7 @@ public sealed interface AttentionItem {
 
         @Override
         public String key() {
-            return "crash:" + ref.client() + ":" + ref.script();
+            return "crash:" + ref.client().value() + ":" + ref.script();
         }
 
         @Override
@@ -88,7 +89,7 @@ public sealed interface AttentionItem {
         }
 
         @Override
-        public Optional<String> client() {
+        public Optional<ClientKey> client() {
             return Optional.of(ref.client());
         }
     }
@@ -102,7 +103,7 @@ public sealed interface AttentionItem {
 
         @Override
         public String key() {
-            return "cutoff:" + ref.client() + ":" + ref.script();
+            return "cutoff:" + ref.client().value() + ":" + ref.script();
         }
 
         @Override
@@ -116,7 +117,7 @@ public sealed interface AttentionItem {
         }
 
         @Override
-        public Optional<String> client() {
+        public Optional<ClientKey> client() {
             return Optional.of(ref.client());
         }
     }
@@ -124,12 +125,15 @@ public sealed interface AttentionItem {
     /**
      * A client's pipe dropped and the host is retrying.
      *
+     * @param clientKey   the client's key, which its reconnect controls act on
+     * @param pipe        the pipe that dropped
      * @param attempt     the retry in flight or next, 1-based; 0 before the first
      * @param nextDelayMs how long until that retry, as the reconnect loop reported it
      */
-    record NotResponding(String pipe, String clientLabel, int attempt, long nextDelayMs,
+    record NotResponding(ClientKey clientKey, String pipe, String clientLabel, int attempt, long nextDelayMs,
                          Optional<Instant> since) implements AttentionItem {
         public NotResponding {
+            Objects.requireNonNull(clientKey, "clientKey");
             Objects.requireNonNull(pipe, "pipe");
             Objects.requireNonNull(since, "since");
         }
@@ -145,15 +149,21 @@ public sealed interface AttentionItem {
         }
 
         @Override
-        public Optional<String> client() {
-            return Optional.of(pipe);
+        public Optional<ClientKey> client() {
+            return Optional.of(clientKey);
         }
     }
 
-    /** A client's reconnect loop ran out of attempts. */
-    record GaveUp(String pipe, String clientLabel, int attempts, Optional<Instant> since)
+    /**
+     * A client's reconnect loop ran out of attempts.
+     *
+     * @param clientKey the client's key, which its reconnect controls act on
+     * @param pipe      the pipe that dropped
+     */
+    record GaveUp(ClientKey clientKey, String pipe, String clientLabel, int attempts, Optional<Instant> since)
             implements AttentionItem {
         public GaveUp {
+            Objects.requireNonNull(clientKey, "clientKey");
             Objects.requireNonNull(pipe, "pipe");
             Objects.requireNonNull(since, "since");
         }
@@ -169,8 +179,8 @@ public sealed interface AttentionItem {
         }
 
         @Override
-        public Optional<String> client() {
-            return Optional.of(pipe);
+        public Optional<ClientKey> client() {
+            return Optional.of(clientKey);
         }
     }
 
@@ -200,7 +210,7 @@ public sealed interface AttentionItem {
         }
 
         @Override
-        public Optional<String> client() {
+        public Optional<ClientKey> client() {
             return Optional.empty();
         }
     }
