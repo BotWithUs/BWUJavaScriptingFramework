@@ -20,6 +20,8 @@ import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionEntry;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionState;
+import com.botwithus.bot.cli.management.Target;
+import com.botwithus.bot.cli.management.TargetLabels;
 
 import imgui.ImGui;
 
@@ -80,6 +82,12 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
     /** A management script with two fields, so the whole form and its footer fit on screen. */
     static final ScriptInfo LOGIN_WATCHER = new ScriptInfo("Login Watcher", "BotWithUs", "1.0",
             ScriptCategory.UTILITY, "Logs a client back in when it drops to the lobby.", 2, false);
+
+    /** Break Scheduler manages Woodcutters and two client scripts; see {@link FixtureManagementSettings}. */
+    private static final String BREAK_SCHEDULER_CONTEXT = LiveInspectorSource.managementContext(
+            List.of("Woodcutters", "Fernmoss · Divination", "Kestrel Moor · Walk to Flag"));
+    private static final String WHOLE_HOST_CONTEXT = LiveInspectorSource.managementContext(
+            List.of(TargetLabels.WHOLE_HOST));
 
     private static final List<ConfigField> LOGIN_FIELDS = List.of(
             ConfigField.boolField("relog", "Log back in", true),
@@ -187,26 +195,8 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
         return new FixtureBoard(FixtureFleet.restart(step), status(FixtureFleet.OAKHEART_PIPE));
     }
 
-    /** Round-1 name of {@link #everyState()}, kept so scenarios written against it still build. */
-    static FixtureBoard sixClients() {
-        return everyState();
-    }
-
-    /** Round-1 name of {@link #thirteenClients()}, kept so scenarios written against it still build. */
-    static FixtureBoard twelveClients() {
-        return thirteenClients();
-    }
-
     static FixtureBoard waiting() {
         return new FixtureBoard(List.of(), status(null));
-    }
-
-    /**
-     * Round-1 "host offline" board. The page no longer has an offline screen:
-     * a client that stopped answering keeps its card, so this is the empty board.
-     */
-    static FixtureBoard offline() {
-        return waiting();
     }
 
     private static BoardStatus status(String active) {
@@ -262,16 +252,19 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
 
     private Optional<InspectorTarget> managementTarget(ManagementScript subject) {
         if (subject.scriptName().equals(BREAK_SCHEDULER.name())) {
-            return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, BREAK_SCHEDULER,
-                    BREAK_FIELDS, () -> applied, cfg -> { }, null, id -> Optional.ofNullable(ITEMS.get(id)),
-                    () -> false));
+            FixtureManagementSettings targets = new FixtureManagementSettings(BREAK_FIELDS);
+            Optional<Target> picked = targets.picked(subject.settingsFor());
+            ScriptConfig current = targets.current(picked);
+            return Optional.of(new InspectorTarget(subject.withSettingsFor(picked),
+                    BREAK_SCHEDULER_CONTEXT, BREAK_SCHEDULER, BREAK_FIELDS, () -> current, cfg -> { },
+                    null, id -> Optional.ofNullable(ITEMS.get(id)), () -> false, targets.picker(picked)));
         }
         if (subject.scriptName().equals(LOGIN_WATCHER.name())) {
-            return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, LOGIN_WATCHER,
+            return Optional.of(new InspectorTarget(subject, WHOLE_HOST_CONTEXT, LOGIN_WATCHER,
                     LOGIN_FIELDS, () -> applied, cfg -> { }, null, id -> Optional.empty(), () -> false));
         }
         if (subject.scriptName().equals(FLEET_MONITOR.name())) {
-            return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, FLEET_MONITOR,
+            return Optional.of(new InspectorTarget(subject, WHOLE_HOST_CONTEXT, FLEET_MONITOR,
                     List.of(), () -> applied, cfg -> { }, FixtureBoard::sampleFleetUi, id -> Optional.empty(),
                     () -> false));
         }

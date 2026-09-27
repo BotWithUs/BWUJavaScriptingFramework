@@ -5,6 +5,7 @@ import com.botwithus.bot.api.ScriptCategory;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -19,12 +20,12 @@ final class Rows {
 
     static InstalledScript local(String name, ScriptCategory category, String jar, ClientRun... runs) {
         return row(name, category, new Provenance(ScriptSource.LOCAL, true, Optional.of(Path.of("scripts", jar)),
-                Optional.empty(), Optional.empty()), runs);
+                Optional.empty(), Optional.empty(), Optional.empty()), runs);
     }
 
     static InstalledScript store(String name, ScriptCategory category, ClientRun... runs) {
         return row(name, category, new Provenance(ScriptSource.STORE, true, Optional.empty(), Optional.empty(),
-                Optional.empty()), runs);
+                Optional.empty(), Optional.of(name.toLowerCase(Locale.ROOT))), runs);
     }
 
     static InstalledScript row(String name, ScriptCategory category, Provenance provenance, ClientRun... runs) {

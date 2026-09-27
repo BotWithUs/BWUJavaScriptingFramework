@@ -68,6 +68,7 @@ public final class JBotCli {
         ctx.loadGroups();
         ctx.loadClients();
         ctx.setSettings(HostSettings.openForHost(HostSettings.defaultBaseDir()));
+        ctx.startAlerts();
         new MetricsCollection(ctx.getSettings()).bind(ctx);
         CommandRegistry registry = new CommandRegistry();
 

@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli.gui.preview;
 
 import com.botwithus.bot.api.ScriptCategory;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.pages.installed.ClientChoice;
 import com.botwithus.bot.cli.gui.pages.installed.ClientRun;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledHeader;
@@ -35,6 +36,7 @@ final class FixtureInstalledModel implements InstalledModel {
     private static final String OFFLINE_ACCOUNT = "Hollowmere";
     private static final String CLOSED_ACCOUNT = "Brackenridge";
     private static final String LATE_ACCOUNT = "Sableton";
+    private static final String DEV_PIPE = "BotWithUs_9001";
     private static final List<String> ACCOUNTS = List.of("Oakheart", OFFLINE_ACCOUNT, "Wrenfield", "Duskwater",
             "Fernmoss", CLOSED_ACCOUNT, "Tamsin Vale", "Ashgrove", "Quillon", "Kestrel Moor", LATE_ACCOUNT);
     private static final String NPE_IN_LOOP = "Crashed · NullPointerException in onLoop()";
@@ -75,11 +77,18 @@ final class FixtureInstalledModel implements InstalledModel {
         return new InstalledHeader(FOLDER, Optional.of("14:03:52"), false, true, false);
     }
 
+    /**
+     * The sample accounts, each on its own made-up account key, then a closed
+     * development client the host only ever knew by its pipe.
+     */
     private static List<ClientChoice> clients() {
-        return ACCOUNTS.stream()
+        List<ClientChoice> clients = new ArrayList<>(ACCOUNTS.stream()
                 .map(a -> new ClientChoice(idOf(a), a, !a.equals(OFFLINE_ACCOUNT) && !a.equals(CLOSED_ACCOUNT),
-                        a.equals(OFFLINE_ACCOUNT) ? "reconnecting" : "client closed"))
-                .toList();
+                        a.equals(OFFLINE_ACCOUNT) ? "reconnecting" : "client closed",
+                        ClientKey.account("fixture-account-" + ACCOUNTS.indexOf(a))))
+                .toList());
+        clients.add(new ClientChoice(DEV_PIPE, DEV_PIPE, false, "client closed", ClientKey.pipe(DEV_PIPE)));
+        return clients;
     }
 
     private static String idOf(String account) {
@@ -153,7 +162,7 @@ final class FixtureInstalledModel implements InstalledModel {
         ScriptIdentity id = new ScriptIdentity("Herblore", "3.0", "Cleans herbs and mixes potions at a bank.",
                 "BotWithUs", ScriptCategory.HERBLORE, 0, false);
         Provenance p = new Provenance(ScriptSource.STORE, false, Optional.empty(), Optional.empty(),
-                Optional.empty());
+                Optional.empty(), Optional.of("herblore"));
         return new InstalledScript("store:com.example.herblore.Herblore", id, p, List.of(), Set.of(), List.of());
     }
 
@@ -171,12 +180,13 @@ final class FixtureInstalledModel implements InstalledModel {
     }
 
     private static Provenance store(Optional<UpdateBadge> update) {
-        return new Provenance(ScriptSource.STORE, true, Optional.empty(), Optional.empty(), update);
+        return new Provenance(ScriptSource.STORE, true, Optional.empty(), Optional.empty(), update,
+                Optional.of("store-script"));
     }
 
     private static Provenance local(String jar, String changed) {
         return new Provenance(ScriptSource.LOCAL, true, Optional.of(Path.of(FOLDER, jar)), Optional.of(changed),
-                Optional.empty());
+                Optional.empty(), Optional.empty());
     }
 
     private static ClientRun run(String account, RunnerState state, String detail, boolean hasSettings) {

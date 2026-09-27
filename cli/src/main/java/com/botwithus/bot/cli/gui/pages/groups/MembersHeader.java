@@ -11,6 +11,7 @@ import imgui.ImFont;
 import imgui.ImGui;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -34,13 +35,14 @@ final class MembersHeader {
     }
 
     /** Draws the line and the notice at (x, y), {@code width} wide; returns their height. */
-    float render(GroupDetail detail, GroupsPageState state, float x, float y, float width) {
+    float render(GroupDetail detail, GroupsPageState state, Map<String, MemberManagement> links, float x, float y,
+                 float width) {
         ImGuiTheme.Metrics m = w.m();
         float left = x + m.u(5);
         float right = x + width - m.u(5);
         float top = y + m.u(4);
         float rowH = m.controlSmallHeight();
-        float countsEnd = title(detail, left, top, rowH);
+        float countsEnd = title(detail, links.size(), left, top, rowH);
         GroupId id = detail.group().id();
         List<String> ticked = state.ticks().ticked(id, detail.keys());
         if (ticked.isEmpty()) {
@@ -52,8 +54,11 @@ final class MembersHeader {
         return h + notice(left, y + h, right - left);
     }
 
-    /** "Members" and "6 clients · 4 connected"; returns where the counts end. */
-    private float title(GroupDetail detail, float x, float y, float h) {
+    /**
+     * "Members", "6 clients · 4 connected" and, when some are, "🤖 2 also
+     * managed on its own"; returns where the counts end.
+     */
+    private float title(GroupDetail detail, int alsoManaged, float x, float y, float h) {
         Controls ui = w.ui();
         ImDrawList draw = ImGui.getWindowDrawList();
         ImFont font = ui.fonts().smallMedium();
@@ -62,7 +67,25 @@ final class MembersHeader {
                 + detail.summary().connected() + " connected";
         float cx = x + ui.width(font, "Members") + w.m().u(2);
         ui.textCentredY(draw, ui.fonts().monoCaption(), cx, y, h, ImGuiTheme.COL_FG2, counts);
-        return cx + ui.width(ui.fonts().monoCaption(), counts) + w.m().u(3);
+        float end = cx + ui.width(ui.fonts().monoCaption(), counts);
+        if (alsoManaged > 0) {
+            end = alsoManaged(draw, alsoManaged, end, y, h);
+        }
+        return end + w.m().u(3);
+    }
+
+    /** " · 🤖 2 also managed on its own", in the link colour; returns where it ends. */
+    private float alsoManaged(ImDrawList draw, int count, float x, float y, float h) {
+        Controls ui = w.ui();
+        ImFont mono = ui.fonts().monoCaption();
+        ImFont cap = ui.fonts().caption();
+        ui.textCentredY(draw, mono, x, y, h, ImGuiTheme.COL_FG2, " · ");
+        float rx = x + ui.width(mono, " · ");
+        ui.textCentredY(draw, cap, rx, y, h, ImGuiTheme.COL_INFO, Icons.ROBOT);
+        String text = count + " also managed on its own";
+        float tx = rx + ui.width(cap, Icons.ROBOT) + w.m().u(1);
+        ui.textCentredY(draw, cap, tx, y, h, ImGuiTheme.COL_INFO, text);
+        return tx + ui.width(cap, text);
     }
 
     private void addButton(float right, float y, float h) {

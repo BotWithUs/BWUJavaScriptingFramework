@@ -19,18 +19,18 @@ final class FontRebuild {
     private final HostSettings settings;
     private final Controls ui;
     private final float monitorScale;
-    private final float advancedFontPx;
+    private final float defaultFontPx;
     private final AtomicBoolean isDue = new AtomicBoolean();
 
     /**
      * @param monitorScale   the monitor's content scale the atlas was first built at
-     * @param advancedFontPx size of the Advanced-mode default font at 100%
+     * @param defaultFontPx size of the default font at 100%
      */
-    FontRebuild(HostSettings settings, Controls ui, float monitorScale, float advancedFontPx) {
+    FontRebuild(HostSettings settings, Controls ui, float monitorScale, float defaultFontPx) {
         this.settings = settings;
         this.ui = ui;
         this.monitorScale = monitorScale;
-        this.advancedFontPx = advancedFontPx;
+        this.defaultFontPx = defaultFontPx;
         settings.onChange(SettingKeys.TEXT_SIZE, size -> isDue.set(true));
         // The atlas was first built at the monitor's scale; a pinned size needs one rebuild before frame one.
         isDue.set(settings.get(SettingKeys.TEXT_SIZE) != TextSize.MATCH_WINDOWS);
@@ -52,7 +52,7 @@ final class FontRebuild {
             return;
         }
         float scale = scale();
-        ui.useFonts(FontLoader.loadAll(scale, advancedFontPx));
+        ui.useFonts(FontLoader.loadAll(scale, defaultFontPx));
         // The backend uploads the rebuilt atlas as a new texture when the next frame starts.
         gl3.destroyFontsTexture();
         ImGuiTheme.apply(scale);

@@ -246,6 +246,19 @@ public final class ReconnectController implements AutoCloseable {
     }
 
     /**
+     * Whether {@code gaveUp} ended a recovery because {@link #stopRetrying} was
+     * called, rather than because the attempts ran out or the client went. A
+     * stop is the user's own doing, so it is not a failure to report.
+     */
+    public static boolean wasStoppedOnRequest(ReconnectState.GivingUp gaveUp) {
+        // rule-exception: {rule:no-instanceof} — the stop is told apart by the
+        // CancellationException halt() gives GivingUp as its cause; the published
+        // state has no other field to carry it, and ReconnectState is public API.
+        // Kept beside halt() so the marker and its test cannot drift apart.
+        return gaveUp.lastCause() instanceof CancellationException;
+    }
+
+    /**
      * Retries at once: cuts the back-off of a recovery in progress short, or
      * starts a fresh recovery, counting attempts from one again, after
      * {@code GivingUp}. Never blocks and never runs a listener; a fresh
