@@ -7,6 +7,7 @@ import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.nav.NavBadge;
 import com.botwithus.bot.cli.gui.nav.Page;
 import com.botwithus.bot.cli.gui.nav.PageId;
+import com.botwithus.bot.core.alerts.AlertService;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -45,17 +46,21 @@ public final class SettingsPage implements Page {
     private final Controls ui;
     private final SettingsModel model;
     private final SettingsRows rows;
+    private final SecretFields secrets = new SecretFields();
     private final ImString query = new ImString(QUERY_BYTES);
     private final Map<SettingsSection, Float> sectionTops = new EnumMap<>(SettingsSection.class);
     private SettingsSection current = SettingsSection.CONNECTING;
     private Optional<SettingsSection> scrollTo = Optional.empty();
+    /** Set by the dev preview only: how far to scroll the column down on the next frame. */
+    private float scrollDownBy;
 
     public SettingsPage(Controls ui, SettingsModel model) {
         this.ui = ui;
         this.model = model;
         RowEdits edits = new RowEdits();
         SettingsWidgets widgets = new SettingsWidgets(ui);
-        this.rows = new SettingsRows(ui, widgets, edits, new SettingsTables(ui, widgets, edits));
+        this.rows = new SettingsRows(ui, widgets, edits, new SettingsTables(ui, widgets, edits),
+                new IntegrationRows(ui, widgets, edits, secrets));
     }
 
     @Override
@@ -84,6 +89,22 @@ public final class SettingsPage implements Page {
     /** Types {@code text} into the named setting's box and presses Enter. For the dev preview. */
     void type(String name, String text) {
         rows.commit(name, text, model);
+    }
+
+    /** Types {@code text} into the service's secret box and presses Enter. For the dev preview. */
+    void typeSecret(AlertService service, String text) {
+        secrets.buffer(service).set(text);
+        secrets.commit(service, model);
+    }
+
+    /** Scrolls the column down by {@code px}, as the mouse wheel would. For the dev preview. */
+    void scrollDown(float px) {
+        scrollDownBy += px;
+    }
+
+    /** Presses the service's Show button. For the dev preview. */
+    void revealSecret(AlertService service) {
+        secrets.toggleReveal(service, model);
     }
 
     @Override
@@ -292,6 +313,10 @@ public final class SettingsPage implements Page {
             }
         });
         scrollTo = Optional.empty();
+        if (scrollDownBy != 0f) {
+            ImGui.setScrollY(ImGui.getScrollY() + scrollDownBy);
+            scrollDownBy = 0f;
+        }
     }
 
     /** Highlights, in the section list, the last section whose heading has scrolled past the top. */

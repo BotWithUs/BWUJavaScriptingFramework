@@ -12,6 +12,8 @@ import imgui.flag.ImGuiStyleVar;
 import imgui.flag.ImGuiWindowFlags;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 
 /**
@@ -39,8 +41,8 @@ final class MembersTable {
      *
      * @param icons the icon to draw for a script, by name
      */
-    void render(GroupDetail detail, GroupsPageState state, Function<String, String> icons, float x, float y,
-                float width, float height) {
+    void render(GroupDetail detail, GroupsPageState state, Function<String, String> icons,
+                Map<String, MemberManagement> links, float x, float y, float width, float height) {
         ImGui.setCursorScreenPos(x, y);
         ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, 0f, 0f);
         ImGui.beginChild("##group-members", width, Math.max(1f, height), false, ImGuiWindowFlags.None);
@@ -52,13 +54,13 @@ final class MembersTable {
         if (detail.rows().isEmpty()) {
             empty(left, top, tableW);
         } else {
-            table(detail, state, icons, left, top, tableW);
+            table(detail, state, icons, links, left, top, tableW);
         }
         ImGui.endChild();
     }
 
-    private void table(GroupDetail detail, GroupsPageState state, Function<String, String> icons, float x,
-                       float y, float width) {
+    private void table(GroupDetail detail, GroupsPageState state, Function<String, String> icons,
+                       Map<String, MemberManagement> links, float x, float y, float width) {
         ImGuiTheme.Metrics m = w.m();
         float headH = w.fs() * HEAD_EM;
         float rowH = w.fs() * ROW_EM;
@@ -72,7 +74,8 @@ final class MembersTable {
         for (int i = 0; i < detail.rows().size(); i++) {
             MemberRow row = detail.rows().get(i);
             draw.addLine(x + 1f, ry + 0.5f, x + width - 1f, ry + 0.5f, ImGuiTheme.COL_BORDER);
-            painter.paint(row, id, state.ticks(), cols, icons, x, ry, width, rowH);
+            painter.paint(row, id, state.ticks(), cols, icons, Optional.ofNullable(links.get(row.key())), x, ry,
+                    width, rowH);
             ry += rowH;
         }
         draw.addRect(x + 0.5f, y + 0.5f, x + width - 0.5f, y + h - 0.5f, ImGuiTheme.COL_BORDER, m.radiusLarge());

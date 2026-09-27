@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.dashboard;
 
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
@@ -81,12 +82,12 @@ final class DashboardDock {
         float y = ImGui.getWindowPosY();
         ImGui.getWindowDrawList().addLine(x, y, x + w, y, ImGuiTheme.COL_BORDER, chrome.m().hairline());
         LogsView logView = model.logs(state.scope(), state.level());
-        Function<String, String> labels = labels(view);
+        Function<String, String> labels = logView::clientOf;
         if (!state.isDockCollapsed()) {
             grip(x, y, w);
         }
         tabs(state, logView.errors(), x, y);
-        tools(model, state, logView, labels, x + w, y);
+        tools(model, state, logView, scopeLabel(view, state.scope()), x + w, y);
         if (!state.isDockCollapsed()) {
             body(model, state, logView, labels, x, y + tabsHeight(), w, h - tabsHeight());
         }
@@ -153,8 +154,8 @@ final class DashboardDock {
 
     // ── Tools, right to left ────────────────────────────────────────────
 
-    private void tools(DashboardModel model, DashboardState state, LogsView logView,
-                       Function<String, String> labels, float right, float y) {
+    private void tools(DashboardModel model, DashboardState state, LogsView logView, String scopeLabel,
+                       float right, float y) {
         ImGuiTheme.Metrics m = chrome.m();
         float s = chrome.iconButtonSize();
         float by = y + (tabsHeight() - s) * 0.5f;
@@ -175,7 +176,7 @@ final class DashboardDock {
         switch (state.tab()) {
             case CONSOLE -> targetPicker(model, model.console(), toolsRight, y);
             case LOGS -> logTools(model, state, toolsRight, y);
-            case EVENTS -> eventsCaption(state, labels, toolsRight, y);
+            case EVENTS -> eventsCaption(state, scopeLabel, toolsRight, y);
         }
     }
 
@@ -191,10 +192,10 @@ final class DashboardDock {
         if (view.targets().isEmpty()) {
             return;
         }
-        List<String> labels = view.targets().stream().map(ScopeOption::label).toList();
+        List<String> labels = view.targets().stream().map(ConsoleTarget::label).toList();
         int current = 0;
         for (int i = 0; i < view.targets().size(); i++) {
-            if (view.target().map(Scope::of).equals(Optional.of(view.targets().get(i).scope()))) {
+            if (view.target().equals(Optional.of(view.targets().get(i).pipe()))) {
                 current = i;
             }
         }
@@ -202,7 +203,7 @@ final class DashboardDock {
         float w = ui.fonts().body().getFontSize() * TARGET_SELECT_EM;
         ImGui.setCursorScreenPos(right - w, y + (tabsHeight() - chrome.m().controlHeight()) * 0.5f);
         if (ui.select("##console-target", target, labels, w)) {
-            view.targets().get(target.get()).scope().client().ifPresent(model.actions()::setConsoleTarget);
+            model.actions().setConsoleTarget(view.targets().get(target.get()).pipe());
         }
     }
 
@@ -234,8 +235,8 @@ final class DashboardDock {
         }
     }
 
-    private void eventsCaption(DashboardState state, Function<String, String> labels, float right, float y) {
-        String text = "Event bus, " + state.scope().client().map(labels).orElse("all clients");
+    private void eventsCaption(DashboardState state, String scopeLabel, float right, float y) {
+        String text = "Event bus, " + (state.scope().isAll() ? "all clients" : scopeLabel);
         ImFont font = ui.fonts().caption();
         ui.textCentredY(ImGui.getWindowDrawList(), font, right - ui.width(font, text), y, tabsHeight(),
                 ImGuiTheme.COL_FG2, text);
@@ -259,10 +260,11 @@ final class DashboardDock {
         }
     }
 
-    /** A client's name as the page's scope picker knows it, else its pipe. */
-    private static Function<String, String> labels(DashboardView view) {
-        return pipe -> view.scopes().stream()
-                .filter(o -> o.scope().equals(Scope.of(pipe))).findFirst().map(ScopeOption::label).orElse(pipe);
+    /** The scoped client's name as the page's scope picker knows it, else its key. */
+    private static String scopeLabel(DashboardView view, Scope scope) {
+        return view.scopes().stream().filter(o -> o.scope().equals(scope)).findFirst()
+                .map(ScopeOption::label)
+                .orElseGet(() -> scope.client().map(ClientKey::value).orElse(""));
     }
 
     /** The dock's top edge: drag to resize. Submitted before the tabs, so it wins the overlap. */

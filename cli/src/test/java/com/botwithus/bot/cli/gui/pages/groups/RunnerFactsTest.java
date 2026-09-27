@@ -59,6 +59,13 @@ class RunnerFactsTest {
     }
 
     @Test
+    void aRunnerStillStuckInOnLoopAfterAStopWasAsked_isStalled_notStopped() {
+        ScriptRunner stopPending = runner("StopPending", false, Liveness.STALLED, T0, null);
+
+        assertEquals(ScriptState.STALLED, RunnerFacts.of(List.of(stopPending)).getFirst().state());
+    }
+
+    @Test
     void aCrashFromAnEarlierRun_isNotACrashNow() {
         ScriptRunner restarted = runner("Restarted", false, Liveness.LIVE, T0.plusSeconds(2), T0.plusSeconds(1));
 

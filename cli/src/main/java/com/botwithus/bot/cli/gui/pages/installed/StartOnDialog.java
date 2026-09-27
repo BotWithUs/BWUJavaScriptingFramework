@@ -18,7 +18,8 @@ import java.util.List;
 /**
  * The Start on… dialog: every connected client with a tick box (the ones
  * already running the script, or that cannot take it, disabled with the
- * reason), then the clients that are not connected, and "Start on N".
+ * reason), then the clients that are not connected (a remembered account's
+ * can be ticked, and starts when it is back), and "Start on N".
  */
 final class StartOnDialog {
 
@@ -28,15 +29,6 @@ final class StartOnDialog {
     private static final float HEAD_EM = 3.733f;
     private static final float GROUP_EM = 1.867f;
     private static final float PICK_EM = 2.4f;
-    private static final float BOX_EM = 1.067f;
-    private static final float BOX_RADIUS_PX = 3f;
-    private static final float TICK_STROKE_PX = 1.8f;
-    private static final float TICK_START_X = 0.24f;
-    private static final float TICK_START_Y = 0.5f;
-    private static final float TICK_MID_X = 0.42f;
-    private static final float TICK_MID_Y = 0.68f;
-    private static final float TICK_END_X = 0.76f;
-    private static final float TICK_END_Y = 0.32f;
     private static final float DISABLED_ALPHA = 0.5f;
     private static final int STYLE_VARS = 3;
     private static final int STYLE_COLORS = 3;
@@ -200,8 +192,10 @@ final class StartOnDialog {
         }
         float alpha = t.isSelectable() ? 1f : DISABLED_ALPHA;
         boolean isTicked = t.isSelectable() && state.isTicked(t.clientId());
-        tickBox(draw, x + m.u(4), y + (h - w.fs() * BOX_EM) * 0.5f, isTicked, alpha);
-        float nameX = x + m.u(4) + w.fs() * BOX_EM + m.u(3);
+        float box = ui.tickBoxSize();
+        Controls.paintTickBox(draw, x + m.u(4), y + (h - box) * 0.5f, box, isTicked,
+                isHovered && t.isSelectable(), alpha, Controls.TickColors.ACCENT);
+        float nameX = x + m.u(4) + box + m.u(3);
         ui.textCentredY(draw, ui.fonts().small(), nameX, y, h, Controls.scaleAlpha(ImGuiTheme.COL_FG, alpha),
                 t.name());
         float noteW = ui.width(ui.fonts().caption(), t.note());
@@ -215,20 +209,15 @@ final class StartOnDialog {
         }
     }
 
-    private void tickBox(ImDrawList draw, float x, float y, boolean isTicked, float alpha) {
-        float size = w.fs() * BOX_EM;
-        if (isTicked) {
-            draw.addRectFilled(x, y, x + size, y + size, ImGuiTheme.COL_ACCENT, BOX_RADIUS_PX);
-            draw.pathClear();
-            draw.pathLineTo(x + size * TICK_START_X, y + size * TICK_START_Y);
-            draw.pathLineTo(x + size * TICK_MID_X, y + size * TICK_MID_Y);
-            draw.pathLineTo(x + size * TICK_END_X, y + size * TICK_END_Y);
-            draw.pathStroke(ImGuiTheme.COL_ON_ACCENT, 0, TICK_STROKE_PX);
-            return;
+    /** Says when ticked clients that are not connected will start; otherwise what a start leaves alone. */
+    private static String note(List<StartTarget> targets, List<String> ticked) {
+        long waiting = targets.stream().filter(t -> t.startsWhenBack() && ticked.contains(t.clientId())).count();
+        if (waiting == 0) {
+            return NOTE;
         }
-        draw.addRectFilled(x, y, x + size, y + size, Controls.scaleAlpha(ImGuiTheme.COL_BG, alpha), BOX_RADIUS_PX);
-        draw.addRect(x + 0.5f, y + 0.5f, x + size - 0.5f, y + size - 0.5f,
-                Controls.scaleAlpha(ImGuiTheme.COL_BORDER_HOVER, alpha), BOX_RADIUS_PX);
+        return waiting == 1
+                ? "1 not connected: it starts when it is back."
+                : waiting + " not connected: they start when they are back.";
     }
 
     private void footer(InstalledScript script, List<StartTarget> targets, InstalledState state, float x,
@@ -245,7 +234,7 @@ final class StartOnDialog {
         float by = y + (h - m.controlHeight()) * 0.5f;
         float noteW = width - m.u(4) * 2f - goW - cancelW - m.u(2) * 2f;
         ui.textCentredY(draw, ui.fonts().caption(), x + m.u(4), y, h, ImGuiTheme.COL_FG2,
-                ui.ellipsize(ui.fonts().caption(), NOTE, noteW));
+                ui.ellipsize(ui.fonts().caption(), note(targets, ticked), noteW));
         ImGui.setCursorScreenPos(x + width - m.u(4) - goW - m.u(2) - cancelW, by);
         if (ui.button("##start-on-cancel", null, "Cancel", Tone.GHOST, true)) {
             close(state);

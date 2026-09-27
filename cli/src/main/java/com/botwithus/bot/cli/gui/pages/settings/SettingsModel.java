@@ -1,5 +1,11 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.alerts.SecretChange;
+import com.botwithus.bot.core.alerts.AlertService;
+import com.botwithus.bot.core.secrets.Secret;
+
+import java.util.Optional;
+
 /**
  * What the Settings page reads and asks for. The live model works on the host's
  * {@link com.botwithus.bot.cli.settings.HostSettings}, profiles and connections;
@@ -32,4 +38,23 @@ public interface SettingsModel {
 
     /** Runs a one-shot button. */
     void run(SettingsAction action);
+
+    /**
+     * The saved webhook URL or token for {@code service}, for its Show button.
+     * Reads the credential store, so it is called on the click, never every frame.
+     */
+    Optional<Secret> readSecret(AlertService service);
+
+    /**
+     * Saves {@code text} as the service's webhook URL or token, or removes the
+     * saved one when it is blank. Called when the box is committed, never per
+     * keystroke. The secret goes to the credential store, never to the settings file.
+     */
+    SecretChange saveSecret(AlertService service, String text);
+
+    /**
+     * Sends a test message to {@code service}. Returns at once: the card shows
+     * "Sending test…" until the result is in, then the result line.
+     */
+    void sendTest(AlertService service);
 }

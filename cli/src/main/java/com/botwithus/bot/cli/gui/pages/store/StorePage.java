@@ -75,6 +75,15 @@ public final class StorePage implements Page {
         return Optional.of(model.signInLine());
     }
 
+    /**
+     * Picks the script with catalogue id {@code catalogueId} and opens its detail
+     * pane, as Installed scripts' Install again and Update do. The filters stay
+     * as they are: the detail pane shows the script whether or not they list it.
+     */
+    public void show(String catalogueId) {
+        actions.showDetail(catalogueId);
+    }
+
     /** Package-private: the dev preview's seams, standing in for clicks it cannot make. */
     void showQuery(StoreQuery next) {
         query = next;

@@ -10,9 +10,10 @@ import java.util.Optional;
  * @param state     what the row shows
  * @param laneNanos the last loop times, oldest first; empty when the script is not running
  * @param avgLoopMs the average loop time, or {@code 0} before the first loop
- * @param managedBy the management script that controls this script on this
- *                  client, if any. Carried for the Management page's link; the
- *                  card does not draw it yet
+ * @param managedBy the management script that names this script on this
+ *                  client, directly or by a group, if any: the row's robot link
+ *                  to Management. One that manages the whole host is left out,
+ *                  since it would sit on every row
  */
 public record ScriptRow(ScriptInfo script, ScriptState state, long[] laneNanos, double avgLoopMs,
                         Optional<String> managedBy) {
@@ -34,6 +35,11 @@ public record ScriptRow(ScriptInfo script, ScriptState state, long[] laneNanos, 
     /** The name the runtime registers the script under. */
     public String name() {
         return script.name();
+    }
+
+    /** This row, managed by {@code manager}. */
+    public ScriptRow withManagedBy(Optional<String> manager) {
+        return new ScriptRow(script, state, laneNanos, avgLoopMs, manager);
     }
 
     /** This row with {@code next} as its state and no loop history. */
