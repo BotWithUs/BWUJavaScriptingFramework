@@ -6,6 +6,7 @@ import com.botwithus.bot.api.runtime.ReconnectState;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Something that happened in the host, as opposed to in the game.
@@ -34,7 +35,7 @@ public sealed interface HostEvent {
 
     /** Why a client left the host's connection table. */
     enum CloseCause {
-        /** The user, or a command, disconnected it. */
+        /** The user, or a command, disconnected or forgot it. */
         DISCONNECTED,
         /** The host found the connection dead and removed it. */
         CONNECTION_LOST
@@ -44,6 +45,42 @@ public sealed interface HostEvent {
     record ClientOpened(ClientRef client, Instant at) implements ClientEvent {
         public ClientOpened {
             Objects.requireNonNull(client, "client");
+            Objects.requireNonNull(at, "at");
+        }
+    }
+
+    /**
+     * The host read which account a client is on, and settled the key it is known
+     * by. {@link ClientEvent#client()} carries that key: the account's when the
+     * client reported a real account UUID, else still its pipe's. Every later
+     * event about the client carries the same key, so a subscriber that keeps
+     * state per client moves the pipe's state to this key here.
+     *
+     * @param name the name the client showed when it was identified, if any
+     */
+    record ClientIdentified(ClientRef client, Optional<String> name, Instant at)
+            implements ClientEvent {
+        public ClientIdentified {
+            Objects.requireNonNull(client, "client");
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(at, "at");
+        }
+    }
+
+    /**
+     * A client the host already knew came back: the same account identified on
+     * a new pipe, usually because its game was restarted. Follows the
+     * {@link ClientIdentified} for the new pipe.
+     *
+     * @param client       the client, on its new pipe
+     * @param previousPipe the pipe it was last seen on; empty when it was
+     *                     remembered from an earlier run of the host
+     */
+    record ClientResumed(ClientRef client, Optional<String> previousPipe, Instant at)
+            implements ClientEvent {
+        public ClientResumed {
+            Objects.requireNonNull(client, "client");
+            Objects.requireNonNull(previousPipe, "previousPipe");
             Objects.requireNonNull(at, "at");
         }
     }

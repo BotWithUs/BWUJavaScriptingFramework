@@ -1,5 +1,8 @@
 package com.botwithus.bot.cli.settings;
 
+import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.runtime.ScriptRuntime;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -28,7 +31,7 @@ public final class SettingKeys {
     private static final long DEFAULT_SCAN_INTERVAL_MS = 5 * MS_PER_SECOND;
     private static final long MIN_SCAN_INTERVAL_MS = 500L;
     private static final long MAX_SCAN_INTERVAL_MS = 10 * MS_PER_MINUTE;
-    private static final long DEFAULT_RPC_TIMEOUT_MS = 10 * MS_PER_SECOND;
+    private static final long DEFAULT_RPC_TIMEOUT_MS = RpcClient.DEFAULT_TIMEOUT_MS;
     private static final long MIN_RPC_TIMEOUT_MS = 100L;
     private static final long MAX_RPC_TIMEOUT_MS = 10 * MS_PER_MINUTE;
 
@@ -41,13 +44,20 @@ public final class SettingKeys {
     private static final long DEFAULT_RECONNECT_MAX_DELAY_MS = 15 * MS_PER_SECOND;
     private static final long MAX_RECONNECT_MAX_DELAY_MS = 10 * MS_PER_MINUTE;
 
-    private static final long DEFAULT_STALL_AFTER_MS = 10 * MS_PER_MINUTE;
+    private static final long DEFAULT_STALL_AFTER_MS = ScriptRuntime.DEFAULT_STALL_AFTER_MS;
     private static final long MIN_STALL_AFTER_MS = 10 * MS_PER_SECOND;
     private static final long MAX_STALL_AFTER_MS = 60 * MS_PER_MINUTE;
 
-    private static final long DEFAULT_TOAST_SECONDS = 5L;
+    /** How long the design keeps a pop-up up. */
+    private static final long DEFAULT_TOAST_SECONDS = 6L;
     private static final long MIN_TOAST_SECONDS = 1L;
     private static final long MAX_TOAST_SECONDS = 120L;
+
+    /** Windows keeps window coordinates in 16 bits; nothing real lies beyond this. */
+    private static final long MAX_SCREEN_COORDINATE = 32_767L;
+    private static final long MIN_WINDOW_SIDE_PX = 200L;
+    private static final long DEFAULT_WINDOW_WIDTH_PX = 1_100L;
+    private static final long DEFAULT_WINDOW_HEIGHT_PX = 700L;
 
     private static final SettingType<Boolean> FLAG = new SettingType.Flag();
 
@@ -143,6 +153,44 @@ public final class SettingKeys {
             "Turn off the pulse lanes and slide animations.",
             FLAG, Boolean.FALSE);
 
+    public static final SettingKey<Boolean> NATIVE_FRAME = new SettingKey<>(
+            "ui.nativeFrame", "Windows title bar",
+            "Use the standard Windows title bar and borders instead of the app's own. "
+                    + "Takes effect after a restart.",
+            FLAG, Boolean.FALSE);
+
+    // ── Window placement (written by the host as the window moves) ──────
+
+    private static final SettingType<Long> SCREEN_COORDINATE =
+            new SettingType.WholeNumber(-MAX_SCREEN_COORDINATE, MAX_SCREEN_COORDINATE);
+    private static final SettingType<Long> WINDOW_SIDE =
+            new SettingType.WholeNumber(MIN_WINDOW_SIDE_PX, MAX_SCREEN_COORDINATE);
+
+    public static final SettingKey<Long> WINDOW_X = new SettingKey<>(
+            "ui.window.x", "Window left",
+            "Screen position of the window's left edge when it is not maximised. Saved as you move it.",
+            SCREEN_COORDINATE, 0L);
+
+    public static final SettingKey<Long> WINDOW_Y = new SettingKey<>(
+            "ui.window.y", "Window top",
+            "Screen position of the window's top edge when it is not maximised. Saved as you move it.",
+            SCREEN_COORDINATE, 0L);
+
+    public static final SettingKey<Long> WINDOW_WIDTH = new SettingKey<>(
+            "ui.window.width", "Window width",
+            "Width in pixels when the window is not maximised. Saved as you resize it.",
+            WINDOW_SIDE, DEFAULT_WINDOW_WIDTH_PX);
+
+    public static final SettingKey<Long> WINDOW_HEIGHT = new SettingKey<>(
+            "ui.window.height", "Window height",
+            "Height in pixels when the window is not maximised. Saved as you resize it.",
+            WINDOW_SIDE, DEFAULT_WINDOW_HEIGHT_PX);
+
+    public static final SettingKey<Boolean> WINDOW_MAXIMISED = new SettingKey<>(
+            "ui.window.maximised", "Window maximised",
+            "Whether the window was maximised when it was last moved or resized.",
+            FLAG, Boolean.FALSE);
+
     // ── Diagnostics ─────────────────────────────────────────────────────
 
     public static final SettingKey<Boolean> COLLECT_RPC_TIMING = new SettingKey<>(
@@ -183,7 +231,10 @@ public final class SettingKeys {
         for (NotificationKind kind : NotificationKind.values()) {
             keys.add(notifyEnabled(kind));
         }
-        keys.addAll(List.of(NOTIFY_DURATION_S, START_MODE, TEXT_SIZE, REDUCE_MOTION,
+        keys.add(NOTIFY_DURATION_S);
+        keys.addAll(AlertSettingKeys.ALL);
+        keys.addAll(List.of(START_MODE, TEXT_SIZE, REDUCE_MOTION, NATIVE_FRAME,
+                WINDOW_X, WINDOW_Y, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_MAXIMISED,
                 COLLECT_RPC_TIMING, COLLECT_LOOP_TIMING));
         return List.copyOf(keys);
     }

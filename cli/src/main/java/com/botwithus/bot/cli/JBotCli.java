@@ -21,6 +21,7 @@ import com.botwithus.bot.cli.command.impl.ReloadCommand;
 import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.diag.MetricsCollection;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
@@ -65,7 +66,10 @@ public final class JBotCli {
         PrintStream out = logCapture.getOriginalOut();
         CliContext ctx = new CliContext(logBuffer, logCapture);
         ctx.loadGroups();
+        ctx.loadClients();
         ctx.setSettings(HostSettings.openForHost(HostSettings.defaultBaseDir()));
+        ctx.startAlerts();
+        new MetricsCollection(ctx.getSettings()).bind(ctx);
         CommandRegistry registry = new CommandRegistry();
 
         // Register commands

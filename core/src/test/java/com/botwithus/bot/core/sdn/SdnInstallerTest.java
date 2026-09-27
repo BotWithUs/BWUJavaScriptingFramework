@@ -91,6 +91,14 @@ class SdnInstallerTest {
         assertInstanceOf(SdnInstallResult.DeliveryDisabled.class, result);
     }
 
+    /** The Store asks before anything is picked, so it can say up front that installs cannot work. */
+    @Test
+    void isDeliveryEnabled_reportsWhatTheInstallWouldFind() {
+        assertAll(
+                () -> assertTrue(new SdnInstaller(dir, () -> true, List::of, ledger()).isDeliveryEnabled()),
+                () -> assertFalse(new SdnInstaller(dir, () -> false, List::of, ledger()).isDeliveryEnabled()));
+    }
+
     /**
      * The Store panel and the picker each hold an installer, and both can install
      * at once. The courier holds the first delivery until the second caller has
