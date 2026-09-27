@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -74,6 +75,14 @@ class AlertClassifierTest {
     void givingUp_whileTheGameRuns_isNotAnAlert() {
         assertEquals(Optional.empty(), classify(new HostEvent.ReconnectStateChanged(CLIENT,
                 new ReconnectState.GivingUp(0, 3, new IOException()), T0)));
+    }
+
+    @Test
+    void stopRetrying_isNotAnAlert_evenAfterTheGameExited() {
+        directory.exited(PIPE);
+        var stopped = new ReconnectState.GivingUp(0, 2, new CancellationException("Stopped retrying on request"));
+
+        assertEquals(Optional.empty(), classify(new HostEvent.ReconnectStateChanged(CLIENT, stopped, T0)));
     }
 
     @Test

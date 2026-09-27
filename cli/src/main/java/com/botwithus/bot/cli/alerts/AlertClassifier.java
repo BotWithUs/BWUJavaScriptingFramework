@@ -8,6 +8,7 @@ import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.HostEvent;
 import com.botwithus.bot.core.alerts.Alert;
 import com.botwithus.bot.core.alerts.AlertKind;
+import com.botwithus.bot.core.rpc.ReconnectController;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -25,7 +26,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li>Client comes back: its reconnect succeeded, or the same account came back
  *       on a new pipe ({@code ClientResumed}).</li>
  *   <li>Client closed: its reconnect gave up because the game exited, or the host
- *       removed a dead connection — reported once per connection.</li>
+ *       removed a dead connection — reported once per connection. A reconnect the
+ *       user stopped is their own doing and is not reported, even if the game has
+ *       exited by then.</li>
  *   <li>Script crashes (management scripts too), script stalls, a JAR fails to
  *       load, a management script acts: one alert each.</li>
  * </ul>
@@ -122,8 +125,9 @@ public final class AlertClassifier {
                 closeReported.remove(key);
                 yield alert(AlertKind.CLIENT_BACK, name + " is back", changed.at());
             }
-            case ReconnectState.GivingUp _ -> directory.hasExited(changed.client())
-                    ? closedOnce(key, name, changed.at()) : Optional.empty();
+            case ReconnectState.GivingUp gaveUp ->
+                    !ReconnectController.wasStoppedOnRequest(gaveUp) && directory.hasExited(changed.client())
+                            ? closedOnce(key, name, changed.at()) : Optional.empty();
             case ReconnectState.Disconnected _, ReconnectState.Reconnecting _ -> Optional.empty();
         };
     }
