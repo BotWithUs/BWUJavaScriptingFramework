@@ -7,16 +7,21 @@ import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
+import com.botwithus.bot.core.config.ManagementSettingsStore;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -369,15 +374,25 @@ class ManagementScriptRunnerTest {
     @Nested
     class Config {
 
+        private static final long AWAIT_MS = 2000;
+
+        @TempDir
+        Path configDir;
+
+        /** A store over a temporary folder, saving in line, so nothing reaches the real home folder. */
+        private ManagementSettingsStore store() {
+            return new ManagementSettingsStore(configDir, Runnable::run);
+        }
+
         @Test
         void applyConfigSetsCurrentConfig() {
             ManagementScript script = simpleScript(100);
             ManagementContext ctx = mock(ManagementContext.class);
-            ManagementScriptRunner runner = new ManagementScriptRunner(script, ctx);
+            ManagementScriptRunner runner = new ManagementScriptRunner(script, ctx, store());
 
             assertNull(runner.getCurrentConfig());
 
-            ScriptConfig config = mock(ScriptConfig.class);
+            ScriptConfig config = new ScriptConfig(Map.of("delay", "5"));
             runner.applyConfig(config);
             assertSame(config, runner.getCurrentConfig());
         }
@@ -392,11 +407,85 @@ class ManagementScriptRunnerTest {
                 @Override public void onConfigUpdate(ScriptConfig config) { captured.set(config); }
             };
             ManagementContext ctx = mock(ManagementContext.class);
-            ManagementScriptRunner runner = new ManagementScriptRunner(script, ctx);
+            ManagementScriptRunner runner = new ManagementScriptRunner(script, ctx, store());
 
-            ScriptConfig config = mock(ScriptConfig.class);
+            ScriptConfig config = new ScriptConfig(Map.of("delay", "5"));
             runner.applyConfig(config);
             assertSame(config, captured.get());
+        }
+
+        @Test
+        void appliedConfig_isSavedAsTheScriptsDefaults() {
+            ManagementSettingsStore store = store();
+            ManagementScriptRunner runner = new ManagementScriptRunner(new AnnotatedScript(),
+                    mock(ManagementContext.class), store);
+
+            runner.applyConfig(new ScriptConfig(Map.of("delay", "5")));
+
+            assertEquals(Map.of("delay", "5"), store().savedDefaults("TestMgmt"));
+        }
+
+        @Test
+        void onStart_theScriptIsHandedTheSavedDefaults() throws InterruptedException {
+            store().saveDefaults("TestMgmt", Map.of("delay", "5"));
+            CountDownLatch updated = new CountDownLatch(1);
+            AtomicReference<ScriptConfig> captured = new AtomicReference<>();
+            ManagementScript script = new ConfiguredScript(config -> {
+                captured.set(config);
+                updated.countDown();
+            });
+            ManagementScriptRunner runner = new ManagementScriptRunner(script, mock(ManagementContext.class), store());
+
+            runner.start();
+
+            assertTrue(updated.await(AWAIT_MS, TimeUnit.MILLISECONDS), "onConfigUpdate was called");
+            assertEquals(Map.of("delay", "5", "relog", "true"), captured.get().asMap());
+        }
+    }
+
+    /** A named script with two fields, telling {@code onUpdate} about each config it is given. */
+    @ScriptManifest(name = "TestMgmt", version = "1.0", author = "test")
+    static final class ConfiguredScript implements ManagementScript {
+
+        private final Consumer<ScriptConfig> onUpdate;
+
+        ConfiguredScript(Consumer<ScriptConfig> onUpdate) {
+            this.onUpdate = onUpdate;
+        }
+
+        @Override public void onStart(ManagementContext ctx) {}
+        @Override public int onLoop() { return -1; }
+        @Override public void onStop() {}
+        @Override public List<ConfigField> getConfigFields() {
+            return List.of(ConfigField.intField("delay", "Delay", 30), ConfigField.boolField("relog", "Relog", true));
+        }
+        @Override public void onConfigUpdate(ScriptConfig config) { onUpdate.accept(config); }
+    }
+
+    @Nested
+    class Profiling {
+
+        private static final int LOOPS = 3;
+        private static final long AWAIT_MS = 2000;
+
+        @Test
+        void everyLoop_isRecordedInTheProfiler_andTheStartIsTimed() {
+            AtomicInteger loops = new AtomicInteger();
+            ManagementScript script = new ManagementScript() {
+                @Override public void onStart(ManagementContext ctx) {}
+                @Override public int onLoop() { return loops.incrementAndGet() < LOOPS ? 1 : -1; }
+                @Override public void onStop() {}
+            };
+            ManagementScriptRunner runner = new ManagementScriptRunner(script, mock(ManagementContext.class));
+            assertNull(runner.lastStartedAt(), "never started");
+
+            runner.start();
+            assertTrue(runner.awaitStop(AWAIT_MS));
+
+            assertAll(
+                    () -> assertEquals(LOOPS, runner.getProfiler().getLoopCount()),
+                    () -> assertTrue(runner.getProfiler().avgLoopMs() >= 0),
+                    () -> assertNotNull(runner.lastStartedAt()));
         }
     }
 }

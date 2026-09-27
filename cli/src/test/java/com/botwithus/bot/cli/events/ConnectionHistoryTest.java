@@ -205,6 +205,26 @@ class ConnectionHistoryTest {
     }
 
     @Test
+    void aClientsPipes_includeEveryPipeItWasOn_evenOnceTheirEventsAreEvicted() {
+        ConnectionHistory history = new ConnectionHistory(SMALL);
+        List.of(opened("old"), identified("old", ACCOUNT), opened("new"), started("new", "Woodcutter"),
+                identified("new", ACCOUNT), started("new", "Fisher")).forEach(history);
+
+        assertEquals(List.of("old", "new"), history.pipesOf(ACCOUNT));
+        assertEquals(List.of(), history.pipesOf(ClientKey.pipe("old")), "moved onto the account");
+    }
+
+    @Test
+    void forgettingAClient_forgetsItsPipes() {
+        ConnectionHistory history = new ConnectionHistory();
+        List.of(opened("a"), identified("a", ACCOUNT)).forEach(history);
+
+        history.accept(new ClientForgotten(new ClientRef(ACCOUNT, ClientRef.NO_PIPE), next()));
+
+        assertEquals(List.of(), history.pipesOf(ACCOUNT));
+    }
+
+    @Test
     void capacityMustBePositive() {
         assertThrows(IllegalArgumentException.class, () -> new ConnectionHistory(0));
     }

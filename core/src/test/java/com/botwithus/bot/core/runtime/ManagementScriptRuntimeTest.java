@@ -11,8 +11,10 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -265,6 +267,73 @@ class ManagementScriptRuntimeTest {
                 script.release.countDown();
                 runtime.stopAll();
             }
+        }
+    }
+
+    @Nested
+    class ContextPerScript {
+
+        private static final long AWAIT_MS = 2000;
+
+        @Test
+        void eachRunner_isStartedWithTheContextBuiltForItsName() throws Exception {
+            ManagementContext alphaContext = mock(ManagementContext.class);
+            ManagementContext betaContext = mock(ManagementContext.class);
+            List<String> askedFor = new CopyOnWriteArrayList<>();
+            runtime.setContextFactory(name -> {
+                askedFor.add(name);
+                return name.equals("AlphaScript") ? alphaContext : betaContext;
+            });
+            AtomicReference<ManagementContext> alphaSaw = new AtomicReference<>();
+            CountDownLatch started = new CountDownLatch(1);
+            ManagementScript alpha = new Capturing(alphaSaw, started);
+
+            runtime.registerScript(new BetaScript());
+            ManagementScriptRunner runner = runtime.registerScript(alpha);
+            runner.start();
+
+            assertTrue(started.await(AWAIT_MS, TimeUnit.MILLISECONDS));
+            assertAll(
+                    () -> assertEquals(List.of("BetaScript", "AlphaScript"), askedFor),
+                    () -> assertSame(alphaContext, alphaSaw.get()));
+            runtime.stopAll();
+        }
+
+        @Test
+        void withNoFactory_everyRunnerGetsTheRuntimesContext() throws Exception {
+            AtomicReference<ManagementContext> saw = new AtomicReference<>();
+            CountDownLatch started = new CountDownLatch(1);
+            runtime.registerScript(new Capturing(saw, started)).start();
+
+            assertTrue(started.await(AWAIT_MS, TimeUnit.MILLISECONDS));
+            assertSame(ctx, saw.get());
+            runtime.stopAll();
+        }
+    }
+
+    @ScriptManifest(name = "AlphaScript", version = "1.0", author = "test")
+    static final class Capturing implements ManagementScript {
+        private final AtomicReference<ManagementContext> saw;
+        private final CountDownLatch started;
+
+        Capturing(AtomicReference<ManagementContext> saw, CountDownLatch started) {
+            this.saw = saw;
+            this.started = started;
+        }
+
+        @Override
+        public void onStart(ManagementContext context) {
+            saw.set(context);
+            started.countDown();
+        }
+
+        @Override
+        public int onLoop() {
+            return -1;
+        }
+
+        @Override
+        public void onStop() {
         }
     }
 }

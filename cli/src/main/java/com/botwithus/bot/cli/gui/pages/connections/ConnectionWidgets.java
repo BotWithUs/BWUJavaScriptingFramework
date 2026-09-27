@@ -3,7 +3,6 @@ package com.botwithus.bot.cli.gui.pages.connections;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -80,7 +79,7 @@ final class ConnectionWidgets {
         ImGui.beginDisabled(!enabled);
         boolean clicked = ImGui.invisibleButton(id, w, h);
         ImGui.endDisabled();
-        float t = Motion.step("sw:" + id, isOn ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("sw:" + id, isOn ? 1f : 0f, HOVER_SPEED);
         float alpha = enabled ? 1f : ImGuiTheme.DISABLED_ALPHA;
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + w, y + h,
@@ -180,7 +179,7 @@ final class ConnectionWidgets {
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, size, size);
         boolean hovered = ImGui.isItemHovered();
-        float t = Motion.step("ib:" + id, hovered ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("ib:" + id, hovered ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         int bg = isOn ? ImGuiTheme.COL_INFO_SOFT
                 : Controls.scaleAlpha(isDanger ? ImGuiTheme.COL_DANGER_SOFT : ImGuiTheme.COL_ELEVATED, t);
@@ -205,7 +204,7 @@ final class ConnectionWidgets {
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, w, h);
-        float t = Motion.step("tb:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("tb:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + w, y + h, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, t), ui.m().radius());
         ui.textCentredY(draw, ui.fonts().captionMedium(), x + ui.m().u(2), y, h,
@@ -272,7 +271,7 @@ final class ConnectionWidgets {
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, w, h);
         boolean hovered = ImGui.isItemHovered();
-        float t = Motion.step("chip:" + id, hovered ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("chip:" + id, hovered ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + w, y + h, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, t), m.radiusSmall());
         draw.addRect(x + 0.5f, y + 0.5f, x + w - 0.5f, y + h - 0.5f,

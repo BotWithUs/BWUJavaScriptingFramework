@@ -12,16 +12,18 @@ import java.util.Optional;
  *                 has not loaded since: Store deliveries live in memory only
  * @param jar      the JAR in the scripts folder; empty for a Store delivery
  * @param changed  when that JAR last changed, as the page shows it ({@code "today 13:58"})
- * @param update   the Store's newer build, when it has one
+ * @param update      the Store's newer build, when it has one
+ * @param catalogueId the Store's id for the script, when the host installed it from there
  */
 public record Provenance(ScriptSource source, boolean isLoaded, Optional<Path> jar, Optional<String> changed,
-                         Optional<UpdateBadge> update) {
+                         Optional<UpdateBadge> update, Optional<String> catalogueId) {
 
     public Provenance {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(jar, "jar");
         Objects.requireNonNull(changed, "changed");
         Objects.requireNonNull(update, "update");
+        Objects.requireNonNull(catalogueId, "catalogueId");
     }
 
     /** The JAR's file name, or empty for a Store delivery. */

@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui.pages.installed;
 
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -74,7 +73,7 @@ final class InstalledWidgets {
         float tw = fs() * SWITCH_W_EM;
         float th = fs() * SWITCH_H_EM;
         float ty = y + (height - th) * 0.5f;
-        float t = Motion.step("isw:" + id, isOn ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("isw:" + id, isOn ? 1f : 0f, HOVER_SPEED);
         draw.addRectFilled(x, ty, x + tw, ty + th, Controls.lerp(ImGuiTheme.COL_ELEVATED, ImGuiTheme.COL_ACCENT, t),
                 th * 0.5f);
         draw.addRect(x + 0.5f, ty + 0.5f, x + tw - 0.5f, ty + th - 0.5f,
@@ -99,7 +98,7 @@ final class InstalledWidgets {
         float y = ImGui.getCursorScreenPosY();
         float w = linkWidth(icon, label);
         boolean clicked = ImGui.invisibleButton(id, w, height);
-        float t = Motion.step("ilk:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("ilk:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + w, y + height, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, t), m().radius());
         int fg = Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
@@ -122,7 +121,7 @@ final class InstalledWidgets {
         if (hovered) {
             ImGui.setTooltip(tooltip);
         }
-        float t = Motion.step("iib:" + id, hovered ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("iib:" + id, hovered ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + size, y + size, Controls.scaleAlpha(hoverBg, t), m().radius());
         ImFont font = ui.fonts().caption();
@@ -168,7 +167,7 @@ final class InstalledWidgets {
         float y = ImGui.getCursorScreenPosY();
         float h = tabHeight();
         boolean clicked = ImGui.invisibleButton(id, w, h);
-        float t = Motion.step("itb:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("itb:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         int fg = isOn ? ImGuiTheme.COL_FG : Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
         ui.textCentredY(draw, ui.fonts().smallMedium(), x, y, h, fg, label);

@@ -9,9 +9,20 @@ import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.clients.ClientRegistry;
+import com.botwithus.bot.cli.clients.ClientStore;
+import com.botwithus.bot.cli.clients.RememberedClient;
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.events.ConnectionHistory;
+import com.botwithus.bot.cli.groups.GroupId;
+import com.botwithus.bot.cli.groups.GroupStore;
+import com.botwithus.bot.cli.groups.GroupsFile;
 import com.botwithus.bot.cli.gui.inspector.InspectorRequest;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
 import com.botwithus.bot.cli.gui.inspector.InspectorTab;
+import com.botwithus.bot.cli.management.ManagementFile;
+import com.botwithus.bot.cli.management.ManagementTargets;
+import com.botwithus.bot.cli.management.Target;
 import com.botwithus.bot.cli.scripts.AfterReload;
 import com.botwithus.bot.core.runtime.LoadIssues;
 import com.botwithus.bot.core.runtime.LoadReport;
@@ -39,11 +50,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -64,6 +77,8 @@ class LiveInstalledModelTest {
     private static final String WOODCUTTING = "Woodcutting";
     private static final int OLD_BUILD = 5;
     private static final int NEW_BUILD = 7;
+    private static final String HOLLOWMERE_UUID = "9c2d4e6f80a14b3c8d5e7f90a1b2c3d4";
+    private static final String DUSKWATER_UUID = "1a2b3c4d5e6f40718293a4b5c6d7e8f9";
 
     abstract static class Idle implements BotScript {
         @Override public void onStart(ScriptContext context) { }
@@ -90,7 +105,19 @@ class LiveInstalledModelTest {
     private final List<InspectorRequest> inspected = new ArrayList<>();
     private final List<Connection> connections = new ArrayList<>();
     private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+    private final List<RememberedClient> remembered = new ArrayList<>();
+    private final ClientRegistry registry = new ClientRegistry(new ClientStore() {
+        @Override
+        public List<RememberedClient> load() {
+            return List.copyOf(remembered);
+        }
+
+        @Override
+        public void save(List<RememberedClient> clients) { }
+    }, pipe -> Optional.empty(), new ConnectionHistory(), event -> { }, clock, Runnable::run);
     private InstalledScriptsLedger ledger;
+    private GroupStore groups;
+    private ManagementTargets targets;
     private Optional<SdnCatalogueResult> catalogue = Optional.empty();
     private LiveInstalledModel model;
 
@@ -101,6 +128,11 @@ class LiveInstalledModelTest {
         when(ctx.getLastLoadReport()).thenReturn(LoadReport.EMPTY);
         when(ctx.getLoadIssues()).thenReturn(new LoadIssues(clock));
         when(ctx.afterReloadSetting()).thenReturn(AfterReload.REGISTER_ONLY);
+        when(ctx.clientKeyOf(anyString())).thenAnswer(call -> new ClientKey.Pipe(call.getArgument(0)));
+        when(ctx.getClientRegistry()).thenReturn(registry);
+        groups = new GroupStore(new GroupsFile(tmp.resolve(GroupsFile.FILE_NAME)));
+        targets = new ManagementTargets(new ManagementFile(tmp.resolve(ManagementFile.FILE_NAME)), groups);
+        when(ctx.getManagementTargets()).thenReturn(targets);
         model = new LiveInstalledModel(new LiveInstalledModel.Deps(ctx, ledger, () -> catalogue, inspected::add,
                 queued::add, dir -> { }, clock, tmp, "scripts/", Duration.ZERO));
     }
@@ -179,6 +211,26 @@ class LiveInstalledModelTest {
     }
 
     @Test
+    void aScriptManagementScriptsName_onSomeClient_listsThem_butNotOneThatManagesTheWholeHost() {
+        String oakheart = "3f9a1c2e58b04d7a9e216c0f4b7d2a18";
+        String wrenfield = "6b1e8c04d2f64a32c6e8a0b2d4f6b8c0";
+        jarsInFolder(jar(WC_JAR, new Woodcutting(), JAR_CHANGED));
+        client("BotWithUs_1", "Oakheart", true, runner(new Woodcutting(), true, Liveness.LIVE, STARTED));
+        client("BotWithUs_2", "Wrenfield", true, runner(new Woodcutting(), true, Liveness.LIVE, STARTED));
+        when(ctx.clientKeyOf("BotWithUs_1")).thenReturn(ClientKey.account(oakheart));
+        when(ctx.clientKeyOf("BotWithUs_2")).thenReturn(ClientKey.account(wrenfield));
+        GroupId woodcutters = groups.create("Woodcutters", Optional.empty()).orElseThrow().id();
+        groups.addMember(woodcutters, ClientKey.account(wrenfield));
+        targets.add("Break Scheduler", new Target.ClientScript(oakheart, WOODCUTTING));
+        targets.add("World Balancer", new Target.Group(woodcutters));
+        targets.add("Restart on Crash", Target.host());
+
+        InstalledScript row = model.view().find(WOODCUTTING).orElseThrow();
+
+        assertEquals(List.of("Break Scheduler", "World Balancer"), row.managedBy());
+    }
+
+    @Test
     void aStoreDeliveryAClientRuns_isAStoreRow_withTheStoresNewerBuild() throws IOException {
         ledger.record(Map.of(Divination.class.getName(),
                 entry("div-1", "Divination", "1.1", "divination", Divination.class.getName(), OLD_BUILD)));
@@ -191,6 +243,7 @@ class LiveInstalledModelTest {
         assertEquals(ScriptSource.STORE, row.provenance().source());
         assertTrue(row.provenance().jar().isEmpty());
         assertEquals("v1.1 in Store", row.provenance().update().orElseThrow().badge());
+        assertEquals(Optional.of("div-1"), row.provenance().catalogueId(), "what Update opens the Store on");
         assertEquals(RunnerState.STALLED, row.runs().getFirst().state());
         assertEquals("0 of 1 running · 1 stalled", row.summary().text());
     }
@@ -209,6 +262,7 @@ class LiveInstalledModelTest {
         assertTrue(row.provenance().isStoreNotLoaded());
         assertFalse(row.isStartable());
         assertTrue(row.runs().isEmpty());
+        assertEquals(Optional.of("hb-1"), row.provenance().catalogueId(), "what Install again opens the Store on");
     }
 
     @Test
@@ -315,6 +369,54 @@ class LiveInstalledModelTest {
         verify(idle).start();
         verify(empty.getRuntime()).startScript(fresh);
         verify(offlineRunner, never()).start();
+    }
+
+    // ── Start on clients that are not connected ───────────────────────────
+
+    private String choiceId(String name) {
+        return model.view().clients().stream().filter(c -> c.name().equals(name)).findFirst().orElseThrow()
+                .clientId();
+    }
+
+    @Test
+    void theStartOnList_includesARememberedClientWithNoConnection_asNotConnected() {
+        remembered.add(new RememberedClient(HOLLOWMERE_UUID, Optional.of("Hollowmere"), OptionalInt.empty(), NOW));
+        registry.load();
+        client("BotWithUs_1", "Oakheart", true);
+
+        List<ClientChoice> clients = model.view().clients();
+
+        assertEquals(List.of("Oakheart", "Hollowmere"), clients.stream().map(ClientChoice::name).toList());
+        assertFalse(clients.get(1).isConnected());
+    }
+
+    @Test
+    void startOn_aRememberedClientThatIsNotConnected_queuesTheScriptForWhenItIsBack() {
+        jarsInFolder(jar(WC_JAR, new Woodcutting(), JAR_CHANGED));
+        remembered.add(new RememberedClient(HOLLOWMERE_UUID, Optional.of("Hollowmere"), OptionalInt.empty(), NOW));
+        registry.load();
+        client("BotWithUs_4", "Duskwater", false);
+        when(ctx.clientKeyOf("BotWithUs_4")).thenReturn(ClientKey.account(DUSKWATER_UUID));
+
+        model.startOn(WOODCUTTING, List.of(choiceId("Hollowmere"), choiceId("Duskwater")));
+        verify(ctx, never()).startWhenBack(anyString(), anyString());
+        drain();
+
+        verify(ctx).startWhenBack(HOLLOWMERE_UUID, WOODCUTTING);
+        verify(ctx).startWhenBack(DUSKWATER_UUID, WOODCUTTING);
+    }
+
+    @Test
+    void startOn_neverQueuesAClientKnownOnlyByItsPipe_orASecondClientOnAnAccount() {
+        jarsInFolder(jar(WC_JAR, new Woodcutting(), JAR_CHANGED));
+        client("BotWithUs_3", null, false);
+        client("BotWithUs_5", "Ashgrove", false);
+        when(ctx.clientKeyOf("BotWithUs_5")).thenReturn(new ClientKey.Account(DUSKWATER_UUID, 2));
+
+        model.startOn(WOODCUTTING, List.of("BotWithUs_3", "BotWithUs_5"));
+        drain();
+
+        verify(ctx, never()).startWhenBack(anyString(), anyString());
     }
 
     @Test

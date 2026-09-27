@@ -2,16 +2,14 @@ package com.botwithus.bot.cli.gui.preview;
 
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.gui.Controls;
-import com.botwithus.bot.cli.gui.GroupsPanel;
-import com.botwithus.bot.cli.gui.nav.NavBadge;
 import com.botwithus.bot.cli.gui.nav.Page;
-import com.botwithus.bot.cli.gui.nav.PageId;
 import com.botwithus.bot.cli.gui.nav.PageRegistry;
 import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.gui.pages.ClientsPage;
-import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
+import com.botwithus.bot.cli.gui.pages.groups.GroupsPage;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
+import com.botwithus.bot.cli.gui.pages.management.ManagementPage;
 import com.botwithus.bot.cli.gui.pages.settings.FixtureSettingsModel;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsPage;
 import com.botwithus.bot.cli.gui.pages.store.StorePage;
@@ -23,24 +21,25 @@ import com.botwithus.bot.cli.log.LogBuffer;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * DEV ONLY. The Advanced page set the preview draws: the real Clients page over
  * the fixture board, the real Dashboard over {@link FixtureDashboardModel}, the
- * real Connections page over a {@link FixtureConnectionsModel}, the interim
- * Groups page over a host with nothing connected, the real Installed scripts
- * page over a {@link FixtureInstalledModel}, the real Script Store over a
- * {@link FixtureStoreModel}, the real Settings page over in-memory settings,
- * and fixture pages for the rest so every kind of sidebar entry shows.
+ * real Connections page over a {@link FixtureConnectionsModel}, the real Groups
+ * page over a {@link FixtureGroupsModel}, the real Installed scripts
+ * page over a {@link FixtureInstalledModel}, the real Management page over a
+ * {@link FixtureManagementModel}, the real Script Store over a
+ * {@link FixtureStoreModel} and the real Settings page over in-memory settings.
  */
 final class FixturePages {
 
     /** What a scenario can reach after building the pages. */
     record Built(PageRegistry registry, DashboardPage dashboard, SwitchableDashboardModel dashboardModel,
                  CliContext host, StorePage store, ConnectionsPage connections, InstalledPage installed,
-                 FixtureInstalledModel installedModel, SettingsPage settings, FixtureSettingsModel settingsModel) {}
+                 FixtureInstalledModel installedModel, SettingsPage settings, FixtureSettingsModel settingsModel,
+                 GroupsPage groups, FixtureGroupsModel groupsModel, ManagementPage management,
+                 FixtureManagementModel managementModel) {}
 
     private static final Path CWD = Path.of("").toAbsolutePath();
     private static final Path HOME = Path.of(System.getProperty("user.home"));
@@ -60,29 +59,25 @@ final class FixturePages {
         ConnectionsPage connections = new ConnectionsPage(ui, connectionsModel, id -> { });
         FixtureInstalledModel installedModel = new FixtureInstalledModel();
         InstalledPage installed = new InstalledPage(ui, installedModel,
-                SecondLine.FolderPath.of(CWD.resolve("scripts"), CWD, HOME), id -> { });
+                SecondLine.FolderPath.of(CWD.resolve("scripts"), CWD, HOME), id -> { }, catalogueId -> { });
         FixtureSettingsModel settingsModel = new FixtureSettingsModel();
         SettingsPage settings = new SettingsPage(ui, settingsModel);
+        FixtureGroupsModel groupsModel = new FixtureGroupsModel(board.catalog());
+        GroupsPage groups = new GroupsPage(ui, groupsModel);
+        FixtureManagementModel managementModel = new FixtureManagementModel();
+        ManagementPage management = new ManagementPage(ui, managementModel,
+                SecondLine.FolderPath.of(CWD.resolve("scripts").resolve("management"), CWD, HOME), id -> { });
         List<Page> pages = List.of(
                 new ClientsPage(clients, board),
                 dashboard,
                 connections,
-                LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
+                groups,
                 installed,
-                fixture(PageId.MANAGEMENT, ui, folder("scripts/management"), Optional.empty()),
+                management,
                 store,
                 settings);
         registry.set(new PageRegistry(pages));
         return new Built(registry.get(), dashboard, dashboardModel, ctx, store, connections, installed,
-                installedModel, settings, settingsModel);
-    }
-
-    private static FixturePage fixture(PageId id, Controls ui, Optional<SecondLine> line, Optional<NavBadge> badge) {
-        return new FixturePage(id, ui, line, badge);
-    }
-
-    /** The same short form the host shows for its real scripts folder under the working directory. */
-    private static Optional<SecondLine> folder(String relative) {
-        return Optional.of(SecondLine.FolderPath.of(CWD.resolve(relative), CWD, HOME));
+                installedModel, settings, settingsModel, groups, groupsModel, management, managementModel);
     }
 }

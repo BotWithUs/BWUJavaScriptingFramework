@@ -11,6 +11,7 @@ import com.botwithus.bot.cli.clients.ClientLifecycle;
 import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.clients.ClientRegistry;
 import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.management.ManagedLinks;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
@@ -126,7 +127,8 @@ public final class LiveClientBoard implements ClientBoard {
 
     private ClientView viewOf(ClientRecord record, Frame frame) {
         Optional<Connection> conn = record.pipe().map(frame.byPipe()::get);
-        List<ScriptRow> runnerRows = conn.map(c -> runnerRows(c, frame)).orElse(List.of());
+        Optional<String> account = record.key().accountUuid();
+        List<ScriptRow> runnerRows = conn.map(c -> runnerRows(c, account, frame)).orElse(List.of());
         ResumeProfiles.Profile profile = record.key().accountUuid()
                 .map(profiles::of)
                 .orElse(ResumeProfiles.Profile.NONE);
@@ -139,12 +141,18 @@ public final class LiveClientBoard implements ClientBoard {
         return ClientViews.of(record, facts, frame.now());
     }
 
-    private List<ScriptRow> runnerRows(Connection conn, Frame frame) {
+    /**
+     * One row per runner, each with the management script that names it on
+     * this client, if any; see {@link ManagedLinks}.
+     */
+    private List<ScriptRow> runnerRows(Connection conn, Optional<String> account, Frame frame) {
         List<ScriptRow> rows = new ArrayList<>();
         for (ScriptRunner runner : conn.getRuntime().getRunners()) {
             frame.seen().add(runner);
             ScriptInfo info = runnerInfo.computeIfAbsent(runner, LiveClientBoard::infoOf);
-            rows.add(ClientRows.rowOf(runner, info, frame.now(), frame.nowNanos(), clock.getZone()));
+            ScriptRow row = ClientRows.rowOf(runner, info, frame.now(), frame.nowNanos(), clock.getZone());
+            rows.add(row.withManagedBy(account.flatMap(uuid ->
+                    ManagedLinks.first(ctx.getManagementTargets(), uuid, runner.getScriptName()))));
         }
         return rows;
     }

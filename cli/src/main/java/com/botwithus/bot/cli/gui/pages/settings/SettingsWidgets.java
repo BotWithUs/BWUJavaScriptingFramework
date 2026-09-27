@@ -14,16 +14,18 @@ import imgui.type.ImString;
 /**
  * The Settings page's text box: the token input frame with an optional unit
  * inside it on the right, which reports when a value is committed (Enter, or
- * leaving the box after typing) rather than on every keystroke. The rest of the
- * page's controls come from {@link Controls}.
+ * leaving the box after typing) rather than on every keystroke; its masked form
+ * for secrets; and the Integrations grid's tick box. The rest of the page's
+ * controls come from {@link Controls}.
  */
 final class SettingsWidgets {
 
     /** What a box did this frame. */
     record Field(boolean isCommitted, boolean isActive) {}
 
-    private static final int BARE_COLOURS = 4;
+    private static final int BARE_COLOURS = 5;
     private static final int BARE_VARS = 2;
+    private static final String NO_HINT = "";
 
     private final Controls ui;
 
@@ -38,6 +40,22 @@ final class SettingsWidgets {
      * @param hasError draws the frame in the danger colour
      */
     Field field(String id, ImString buffer, String unit, float width, float height, boolean hasError) {
+        return box(id, buffer, unit, NO_HINT, ImGuiInputTextFlags.EnterReturnsTrue, width, height, hasError);
+    }
+
+    /**
+     * A text box at the cursor with grey {@code hint} text while it is empty.
+     *
+     * @param isMasked draws the text as dots, for a secret
+     */
+    Field hintedField(String id, ImString buffer, String hint, boolean isMasked, float width, float height,
+                      boolean hasError) {
+        int flags = ImGuiInputTextFlags.EnterReturnsTrue | (isMasked ? ImGuiInputTextFlags.Password : 0);
+        return box(id, buffer, "", hint, flags, width, height, hasError);
+    }
+
+    private Field box(String id, ImString buffer, String unit, String hint, int flags, float width, float height,
+                      boolean hasError) {
         ImGuiTheme.Metrics m = ui.m();
         ImFont font = ui.fonts().monoSmall();
         float x = ImGui.getCursorScreenPosX();
@@ -49,7 +67,7 @@ final class SettingsWidgets {
         ImGui.setCursorScreenPos(x + padX, y);
         pushBare(font, height);
         ImGui.setNextItemWidth(width - padX * 2f - unitW);
-        boolean isEnter = ImGui.inputText("##" + id, buffer, ImGuiInputTextFlags.EnterReturnsTrue);
+        boolean isEnter = ImGui.inputTextWithHint("##" + id, hint, buffer, flags);
         boolean isCommitted = isEnter || ImGui.isItemDeactivatedAfterEdit();
         boolean isActive = ImGui.isItemActive();
         popBare();
@@ -78,6 +96,7 @@ final class SettingsWidgets {
         Controls.pushColor(ImGuiCol.FrameBg, 0);
         Controls.pushColor(ImGuiCol.FrameBgHovered, 0);
         Controls.pushColor(ImGuiCol.FrameBgActive, 0);
+        Controls.pushColor(ImGuiCol.TextDisabled, ImGuiTheme.COL_FG3);
         Controls.pushColor(ImGuiCol.Text, ImGuiTheme.COL_FG);
     }
 

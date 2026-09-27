@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui.inspector;
 
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.nav.PageId;
 
 import imgui.ImDrawList;
@@ -61,9 +60,8 @@ public final class InspectorDock {
         handleEscape(shown);
         Optional<InspectorTarget> target = state.docksBeside(shown) ? state.resolve(source) : Optional.empty();
         target.ifPresent(t -> lastTarget = t);
-        float step = ImGui.getIO().getDeltaTime() / ImGuiTheme.DURATION_S;
-        progress = Math.max(0f, Math.min(1f, progress + (target.isPresent() ? step : -step)));
-        float width = Motion.easeOutCubic(progress) * ui.m().drawerWidth(availWidth);
+        progress = ui.motion().advance(progress, target.isPresent(), ImGuiTheme.DURATION_S);
+        float width = ui.motion().ease(progress) * ui.m().drawerWidth(availWidth);
         return lastTarget != null && width > 1f ? width : 0f;
     }
 
