@@ -55,6 +55,15 @@ public final class Icons {
     public static final String CIRCLE_CHECK = "\uF058"; // fa-circle-check
     public static final String PLUG_XMARK  = "\uE560";  // fa-plug-circle-xmark
     public static final String FILE_XMARK  = "\uE5A1";  // fa-file-circle-xmark
+    public static final String CIRCLE_XMARK = "\uF057";  // fa-circle-xmark
+    public static final String PLUG_EXCLAMATION = "\uE55D";  // fa-plug-circle-exclamation
+    public static final String HOURGLASS   = "\uF252";  // fa-hourglass-half
+    public static final String BAN         = "\uF05E";  // fa-ban
+    public static final String ROTATE_LEFT = "\uF2EA";  // fa-rotate-left
+    public static final String CHEVRON_UP  = "\uF077";  // fa-chevron-up
+    public static final String CHEVRON_DOWN = "\uF078";  // fa-chevron-down
+    public static final String CARET_UP    = "\uF0D8";  // fa-caret-up
+    public static final String CARET_DOWN  = "\uF0D7";  // fa-caret-down
 
     // Objects
     public static final String SERVER      = "\uF233";  // fa-server

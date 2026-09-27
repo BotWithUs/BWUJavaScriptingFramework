@@ -25,6 +25,7 @@ import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.diag.MetricsCollection;
 import com.botwithus.bot.cli.gui.inspector.InspectorDock;
 import com.botwithus.bot.cli.gui.inspector.InspectorState;
 import com.botwithus.bot.cli.gui.inspector.LiveInspectorSource;
@@ -37,6 +38,9 @@ import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.pages.ClientsPage;
 import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
 import com.botwithus.bot.cli.gui.pages.StoreSignInLine;
+import com.botwithus.bot.cli.gui.pages.dashboard.CommandConsole;
+import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
+import com.botwithus.bot.cli.gui.pages.dashboard.LiveDashboardModel;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
 import com.botwithus.bot.cli.gui.usermode.board.LiveClientBoard;
@@ -122,9 +126,8 @@ public class ImGuiApp extends Application {
 
     // Pages. The Dashboard is kept so "View log" can bring its Logs tab forward.
     private PageRegistry pages;
-    private LegacyPanelPage dashboard;
+    private DashboardPage dashboard;
     private SdnScriptsPanel sdnScriptsPanel;
-    private GuiPanel logsPanel;
     private float dpiScale = 1f;
 
     // The one config inspector, shared by both modes and every "Settings" button
@@ -319,7 +322,7 @@ public class ImGuiApp extends Application {
         // "Your subscriptions" group read the same refresher, so there is one fetch loop.
         SdnCatalogueRefresher sdnCatalogue = SdnScriptsPanel.catalogueRefresher(new SdnCatalogueSource());
         SdnInstaller sdnInstaller = new SdnInstaller();
-        board = new LiveClientBoard(ctx, clientId -> openLogs(), clock, sdnCatalogue, sdnInstaller, executor);
+        board = new LiveClientBoard(ctx, this::openLogs, clock, sdnCatalogue, sdnInstaller, executor);
         pages = new PageRegistry(buildPages(sdnCatalogue, sdnInstaller));
         shell = new Shell(ui, pages, inspector, notificationOverlay, hostWindow.chrome(ui));
         ctx.setOnConnect(conn -> {
@@ -330,16 +333,12 @@ public class ImGuiApp extends Application {
     }
 
     /**
-     * The Advanced pages. Until each redesigned page lands, the pre-redesign
-     * panels are hosted as interim pages so nothing goes missing: Console, Logs
-     * and Diagnostics are the Dashboard's tabs. A script's own UI is the
-     * inspector's Script UI tab, so it has no page of its own.
+     * The Advanced pages not yet redesigned. Until each redesigned page lands,
+     * the pre-redesign panel is hosted as an interim page so nothing goes
+     * missing. A script's own UI is the inspector's Script UI tab, so it has no
+     * page of its own.
      */
     private List<LegacyPanelPage> legacyPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
-        logsPanel = new LogsPanel();
-        dashboard = new LegacyPanelPage(PageId.DASHBOARD, ui, ctx,
-                List.of(new ConsolePanel(outputBuffer, registry, executor, this::shutdown), logsPanel,
-                        new DiagnosticsPanel()), Optional::empty);
         ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
         mgmtPanel.setConfigOpener(inspector.state().managementScriptOpener());
         sdnScriptsPanel = new SdnScriptsPanel(executor, sdnCatalogue, sdnInstaller);
@@ -347,7 +346,6 @@ public class ImGuiApp extends Application {
         Optional<SecondLine> scriptsLine = Optional.of(folderLine(scriptsDir));
         Optional<SecondLine> managementLine = Optional.of(folderLine(ManagementScriptLoader.managementDirIn(scriptsDir)));
         return List.of(
-                dashboard,
                 LegacyPanelPage.of(PageId.CONNECTIONS, ui, ctx, new ConnectionsPanel(executor, registry)),
                 LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
                 new LegacyPanelPage(PageId.INSTALLED, ui, ctx, List.of(new ScriptsPanel(executor)),
@@ -361,7 +359,23 @@ public class ImGuiApp extends Application {
     private List<Page> buildPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
         List<Page> all = new ArrayList<>(legacyPages(sdnCatalogue, sdnInstaller));
         all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state()), board));
+        all.add(dashboardPage());
         return all;
+    }
+
+    /**
+     * The Dashboard over the live host. Also puts every client under the
+     * Diagnostics collection switches, which the Dashboard's tables report on.
+     */
+    private DashboardPage dashboardPage() {
+        new MetricsCollection(ctx.getSettings()).bind(ctx);
+        Clock clock = Clock.systemDefaultZone();
+        CommandConsole console = new CommandConsole(outputBuffer, registry, executor, ctx, this::shutdown);
+        String scriptsFolder = folderLine(LocalScriptLoader.scriptsDir()).text();
+        LiveDashboardModel model = new LiveDashboardModel(ctx, console, scriptsFolder,
+                inspector.state().clientScriptOpener(), board.actions()::reconnect, clock);
+        dashboard = new DashboardPage(ui, model, clock);
+        return dashboard;
     }
 
     /** A folder as the sidebar's second line shows it, relative to where the host runs from. */
@@ -420,17 +434,23 @@ public class ImGuiApp extends Application {
         }
     }
 
-    /** Switches to Advanced, Dashboard, Logs tab, where script and connection logs are shown. */
-    private void openLogs() {
+    /** "View log" for one client: Advanced, Dashboard, the Logs tab scoped to {@code clientId}. */
+    private void openLogs(String clientId) {
+        openLogs(Optional.ofNullable(clientId).filter(id -> !id.isBlank()));
+    }
+
+    /** Switches to Advanced, Dashboard, Logs tab, scoped to {@code clientId} or to every client. */
+    private void openLogs(Optional<String> clientId) {
         modeRequest.request(AppMode.ADVANCED);
         pages.select(PageId.DASHBOARD);
-        dashboard.show(logsPanel);
+        dashboard.openLogs(clientId);
     }
 
     private void onToastAction(Notification n) {
         switch (n.kind()) {
             case GAVE_UP -> board.actions().reconnect(n.subject());
-            case SCRIPT_CRASHED, LOAD_FAILED -> openLogs();
+            case SCRIPT_CRASHED -> openLogs(n.subject());
+            case LOAD_FAILED -> openLogs(Optional.empty());
             case CONNECTION_LOST, RECONNECTING, RECONNECTED -> { }
         }
     }

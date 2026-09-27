@@ -20,6 +20,11 @@ import com.botwithus.bot.cli.gui.inspector.InspectorState;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
 import com.botwithus.bot.cli.gui.inspector.InspectorTab;
 import com.botwithus.bot.cli.gui.nav.PageId;
+import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPreviewSeams;
+import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState;
+import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.DockTab;
+import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerFilter;
+import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
 import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.pages.StoreSignInLine;
@@ -51,11 +56,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import javax.imageio.ImageIO;
@@ -125,8 +130,6 @@ public final class ShellPreview extends Application {
     /** The mode the shell drew last; an inspector request can switch it, as in the app. */
     private AppMode mode;
     private int fbo;
-    /** The interim Console page wants one; nothing is ever submitted to it. */
-    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     private ShellPreview(Path outDir) {
         this.outDir = outDir;
@@ -166,7 +169,7 @@ public final class ShellPreview extends Application {
                 name -> board.clients().stream().filter(c -> c.id().equals(name)).map(ClientView::account)
                         .findFirst().orElse(name));
         toasts.subscribeTo(bus);
-        FixturePages.Built pages = FixturePages.build(ui, page, board, s.store(), executor);
+        FixturePages.Built pages = FixturePages.build(ui, page, board, s.store());
         FixtureWindow window = new FixtureWindow(new WindowRect(0, 0, WIDTH, HEIGHT));
         stage = new Stage(board, page, bus, pages, inspector, window);
         shell = new Shell(ui, pages.registry(), inspector, toasts,
@@ -260,7 +263,7 @@ public final class ShellPreview extends Application {
 
     private static List<Scenario> scenarios() {
         BiConsumer<Stage, Integer> nothing = (s, f) -> { };
-        return List.of(
+        List<Scenario> scenarios = List.of(
                 new Scenario("01-clients-6-every-state", FixtureBoard::sixClients, nothing),
                 new Scenario("02-clients-12", FixtureBoard::twelveClients, nothing),
                 new Scenario("03-clients-12-needs-attention", FixtureBoard::twelveClients,
@@ -299,12 +302,6 @@ public final class ShellPreview extends Application {
                         s.page().openInspector(WOODCUTTER, WOODCUTTING, InspectorTab.SETTINGS);
                     }
                 }),
-                Scenario.advanced("22-advanced-dashboard-interim", FixtureBoard::sixClients,
-                        select(PageId.DASHBOARD)),
-                Scenario.advanced("23-advanced-view-log-opens-logs-tab", FixtureBoard::sixClients, (s, f) -> {
-                    s.pages().registry().select(PageId.DASHBOARD);
-                    s.pages().dashboard().show(s.pages().logs());
-                }),
                 Scenario.advanced("24-advanced-installed-selected", FixtureBoard::twelveClients,
                         select(PageId.INSTALLED)),
                 Scenario.advanced("25-advanced-groups-interim", FixtureBoard::waiting, select(PageId.GROUPS)),
@@ -330,6 +327,60 @@ public final class ShellPreview extends Application {
                 new Scenario("40-window-frameless-normal", FixtureBoard::sixClients, nothing),
                 Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::sixClients,
                         (s, f) -> s.window().maximise()));
+        List<Scenario> all = new ArrayList<>(scenarios);
+        all.addAll(dashboardScenarios());
+        return List.copyOf(all);
+    }
+
+    /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
+    private static List<Scenario> dashboardScenarios() {
+        return List.of(
+                Scenario.advanced("22-advanced-dashboard-busy", FixtureBoard::sixClients,
+                        select(PageId.DASHBOARD)),
+                Scenario.advanced("23-advanced-view-log-opens-client-logs", FixtureBoard::sixClients, (s, f) -> {
+                    s.pages().registry().select(PageId.DASHBOARD);
+                    if (f == 0) {
+                        s.pages().dashboard().openLogs(Optional.of(TAMSIN_VALE));
+                    }
+                }),
+                Scenario.advanced("33-advanced-dashboard-busy-attention", FixtureBoard::sixClients,
+                        dashboard(Fleet.BUSY, state -> {
+                            state.setDockCollapsed(true);
+                            state.toggleExpanded(CRASH_KEY);
+                        }, SCROLL_BOTTOM)),
+                Scenario.advanced("34-advanced-dashboard-logs-tab", FixtureBoard::sixClients,
+                        dashboard(Fleet.BUSY, state -> state.showTab(DockTab.LOGS), SCROLL_TOP)),
+                Scenario.advanced("35-advanced-dashboard-events-tab", FixtureBoard::sixClients,
+                        dashboard(Fleet.BUSY, state -> state.showTab(DockTab.EVENTS), SCROLL_TOP)),
+                Scenario.advanced("36-advanced-dashboard-problems-filter", FixtureBoard::sixClients,
+                        dashboard(Fleet.BUSY, state -> state.setFilter(RunnerFilter.PROBLEMS), SCROLL_TOP)),
+                Scenario.advanced("37-advanced-dashboard-quiet", FixtureBoard::sixClients,
+                        dashboard(Fleet.QUIET, state -> state.setDockCollapsed(true), SCROLL_BOTTOM)),
+                Scenario.advanced("38-advanced-dashboard-empty", FixtureBoard::waiting,
+                        dashboard(Fleet.EMPTY, state -> { }, SCROLL_TOP)),
+                Scenario.advanced("39-advanced-dashboard-live-model-empty-host", FixtureBoard::waiting, (s, f) -> {
+                    s.pages().registry().select(PageId.DASHBOARD);
+                    if (f == 0) {
+                        s.pages().dashboardModel().useLive(s.pages().host());
+                    }
+                }));
+    }
+
+    private static final String TAMSIN_VALE = "BotWithUs_15002";
+    private static final String CRASH_KEY = "crash:" + TAMSIN_VALE + ":Cook's Assistant";
+    private static final float SCROLL_TOP = 0f;
+    private static final float SCROLL_BOTTOM = 1f;
+
+    /** The Dashboard pretending to be {@code fleet}, with {@code setup} applied and the body held scrolled. */
+    private static BiConsumer<Stage, Integer> dashboard(Fleet fleet, Consumer<DashboardState> setup, float scroll) {
+        return (s, f) -> {
+            s.pages().registry().select(PageId.DASHBOARD);
+            if (f == 0) {
+                s.pages().dashboardModel().fixture().show(fleet);
+                setup.accept(s.pages().dashboard().state());
+            }
+            DashboardPreviewSeams.holdScroll(s.pages().dashboard(), scroll);
+        };
     }
 
     /** A short management form with one field off its default, so "Restore defaults" is live. */

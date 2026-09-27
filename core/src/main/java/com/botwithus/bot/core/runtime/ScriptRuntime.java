@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -60,6 +61,8 @@ public class ScriptRuntime {
      * {@link #setAccountUuid} against it deterministically.
      */
     private volatile Runnable beforeRunnerPublished = () -> { };
+    /** Written under {@link #registrationLock}. */
+    private BooleanSupplier loopTimingGate = () -> true;
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
@@ -143,6 +146,22 @@ public class ScriptRuntime {
         this.scriptGate = scriptGate;
         for (ScriptRunner runner : runners) {
             runner.setScriptGate(scriptGate);
+        }
+    }
+
+    /**
+     * Decides whether each runner's profiler keeps its loop aggregates (see
+     * {@link ScriptProfiler#setAggregating}). Propagated to every runner,
+     * including those already registered and those registered later.
+     * {@code null} restores always-on.
+     */
+    public void setLoopTimingGate(BooleanSupplier gate) {
+        BooleanSupplier resolved = gate != null ? gate : () -> true;
+        synchronized (registrationLock) {
+            this.loopTimingGate = resolved;
+            for (ScriptRunner runner : runners) {
+                runner.getProfiler().setAggregating(resolved);
+            }
         }
     }
 
@@ -249,6 +268,7 @@ public class ScriptRuntime {
                 runner.setScriptGate(scriptGate);
             }
             runner.setRunnerListener(runnerListener);
+            runner.getProfiler().setAggregating(loopTimingGate);
             beforeRunnerPublished.run();
             runners.add(runner);
             return runner;

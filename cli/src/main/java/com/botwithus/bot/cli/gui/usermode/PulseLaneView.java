@@ -10,9 +10,10 @@ import imgui.flag.ImDrawFlags;
 /**
  * Draws the 24-bar pulse lane at the bottom of a client card: live bars when
  * running, a flat baseline when idle, a breathing row when loading, and a dashed
- * red flatline when the client is lost or its script crashed.
+ * red flatline when the client is lost or its script crashed. The Dashboard's
+ * runners table draws the same lane in each row, so the two modes share it.
  */
-final class PulseLaneView {
+public final class PulseLaneView {
 
     /** Opacity of the older half of a running lane. */
     private static final float OLDER_ALPHA = 0.45f;
@@ -27,11 +28,11 @@ final class PulseLaneView {
 
     private final Controls ui;
 
-    PulseLaneView(Controls ui) {
+    public PulseLaneView(Controls ui) {
         this.ui = ui;
     }
 
-    void running(ImDrawList draw, float x, float y, float w, float h, long[] recentNanos, double avgMs) {
+    public void running(ImDrawList draw, float x, float y, float w, float h, long[] recentNanos, double avgMs) {
         float barW = barWidth(w);
         float gap = ui.m().barGap();
         for (PulseLane.Bar bar : PulseLane.bars(recentNanos, avgMs)) {
@@ -46,12 +47,12 @@ final class PulseLaneView {
         baseline(draw, x, y + h, w, ImGuiTheme.COL_BORDER);
     }
 
-    void idle(ImDrawList draw, float x, float y, float w, float h) {
+    public void idle(ImDrawList draw, float x, float y, float w, float h) {
         baseline(draw, x, y + h, w, ImGuiTheme.COL_BORDER);
         caption(draw, x + w, y + h, "no loops");
     }
 
-    void loading(ImDrawList draw, float x, float y, float w, float h) {
+    public void loading(ImDrawList draw, float x, float y, float w, float h) {
         float breathe = Motion.pulse(1.0 / ImGuiTheme.PULSE_PERIOD_S);
         int col = Controls.scaleAlpha(ImGuiTheme.COL_INFO,
                 BREATHE_LOW + (BREATHE_HIGH - BREATHE_LOW) * breathe);
@@ -65,14 +66,22 @@ final class PulseLaneView {
         baseline(draw, x, y + h, w, ImGuiTheme.COL_BORDER);
     }
 
-    void dead(ImDrawList draw, float x, float y, float w, float h) {
+    public void dead(ImDrawList draw, float x, float y, float w, float h) {
+        dashes(draw, x, y + h, w, Controls.scaleAlpha(ImGuiTheme.COL_DANGER, DEAD_ALPHA));
+        caption(draw, x + w, y + h, "no signal");
+    }
+
+    /** A dashed grey baseline and no caption: a lane with nothing looping, where a caption would be noise. */
+    public void flat(ImDrawList draw, float x, float y, float w, float h) {
+        dashes(draw, x, y + h, w, ImGuiTheme.COL_BORDER);
+    }
+
+    private void dashes(ImDrawList draw, float x, float bottom, float w, int col) {
         float dash = Math.max(ui.m().hairline() * 2f, ui.fonts().body().getFontSize() * DASH_EM);
-        int col = Controls.scaleAlpha(ImGuiTheme.COL_DANGER, DEAD_ALPHA);
-        float lineY = y + h - ui.m().hairline() * 0.5f;
+        float lineY = bottom - ui.m().hairline() * 0.5f;
         for (float dx = 0f; dx < w; dx += dash * 2f) {
             draw.addLine(x + dx, lineY, x + Math.min(w, dx + dash), lineY, col, ui.m().hairline());
         }
-        caption(draw, x + w, y + h, "no signal");
     }
 
     private float barWidth(float w) {

@@ -19,7 +19,7 @@ import java.util.function.Supplier;
 /**
  * A stand-in page that hosts one or more of the pre-redesign panels until the
  * redesigned page replaces it. With several panels it shows a tab strip over
- * them (the interim Dashboard holds Console, Logs and Diagnostics this way).
+ * them.
  *
  * <p>The panels were laid out inside the old main window's padding and draw with
  * the atlas default font, so this gives them a padded, scrolling region and
@@ -65,14 +65,6 @@ public final class LegacyPanelPage implements Page {
     @Override
     public Optional<SecondLine> secondLine() {
         return secondLine.get();
-    }
-
-    /** Brings {@code panel}'s tab to the front; does nothing if this page does not host it. */
-    public void show(GuiPanel panel) {
-        int index = panels.indexOf(panel);
-        if (index >= 0) {
-            shown = index;
-        }
     }
 
     /**
