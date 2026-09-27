@@ -28,6 +28,8 @@ import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.DockTab;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerFilter;
+import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
+import com.botwithus.bot.cli.gui.pages.installed.InstalledPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.pages.store.PriceFilter;
@@ -368,7 +370,8 @@ public final class ShellPreview extends Application {
                 new Scenario("40-window-frameless-normal", FixtureBoard::everyState, nothing),
                 Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::everyState,
                         (s, f) -> s.window().maximise()));
-        return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios()).flatMap(List::stream).toList();
+        return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
+                installedScenarios()).flatMap(List::stream).toList();
     }
 
     /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
@@ -501,6 +504,53 @@ public final class ShellPreview extends Application {
                 ConnectionsPreviewSeams.select(s.pages().connections(), id);
             }
         };
+    }
+
+    /** Installed scripts: busy, empty, failures, both detail tabs, Start on… and an armed stop. */
+    private static List<Scenario> installedScenarios() {
+        String woodcutting = FixtureInstalledModel.WOODCUTTING;
+        return List.of(
+                installed("90-installed-busy", (s, page) -> InstalledPreviewSeams.selectClientsTab(page, woodcutting)),
+                installed("91-installed-empty-folder", (s, page) -> s.pages().installedModel().showEmpty()),
+                installed("92-installed-failures", (s, page) -> {
+                    s.pages().installedModel().showFailures();
+                    InstalledPreviewSeams.showProblemsOnly(page);
+                    InstalledPreviewSeams.openTrace(page, FixtureInstalledModel.FAILED_JAR);
+                }),
+                installed("93-installed-detail-clients", (s, page) ->
+                        InstalledPreviewSeams.selectClientsTab(page, FixtureInstalledModel.DIVINATION)),
+                installed("94-installed-detail-about-update", (s, page) ->
+                        InstalledPreviewSeams.selectAboutTab(page, woodcutting)),
+                installed("95-installed-detail-about-local-build", (s, page) ->
+                        InstalledPreviewSeams.selectAboutTab(page, FixtureInstalledModel.EXAMPLE)),
+                Scenario.advanced("96-installed-start-on-dialog", FixtureBoard::everyState,
+                        ShellPreview::installedStartOn),
+                installed("97-installed-stop-everywhere-confirm", (s, page) ->
+                        InstalledPreviewSeams.armStop(page, woodcutting)));
+    }
+
+    private static Scenario installed(String name, BiConsumer<Stage, InstalledPage> setUp) {
+        return Scenario.advanced(name, FixtureBoard::everyState, installed(setUp));
+    }
+
+    /** Opens Installed scripts and, on the first frame, puts it in a state through its seams. */
+    private static BiConsumer<Stage, Integer> installed(BiConsumer<Stage, InstalledPage> setUp) {
+        return (s, f) -> {
+            if (f == 0) {
+                s.pages().registry().select(PageId.INSTALLED);
+                setUp.accept(s, s.pages().installed());
+            }
+        };
+    }
+
+    /** Start on… for Woodcutting with two clients ticked. */
+    private static void installedStartOn(Stage s, int f) {
+        installed((stage, page) -> InstalledPreviewSeams.openStartOn(page, FixtureInstalledModel.WOODCUTTING))
+                .accept(s, f);
+        if (f == 2) {
+            InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_4468");
+            InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_8936");
+        }
     }
 
     /** A short management form with one field off its default, so "Restore defaults" is live. */

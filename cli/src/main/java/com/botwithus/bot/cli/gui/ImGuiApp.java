@@ -45,6 +45,8 @@ import com.botwithus.bot.cli.gui.pages.connections.LiveConnectionsModel;
 import com.botwithus.bot.cli.gui.pages.dashboard.CommandConsole;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.LiveDashboardModel;
+import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
+import com.botwithus.bot.cli.gui.pages.installed.LiveInstalledModel;
 import com.botwithus.bot.cli.gui.pages.store.LiveStoreModel;
 import com.botwithus.bot.cli.gui.pages.store.StoreCatalogue;
 import com.botwithus.bot.cli.gui.pages.store.StorePage;
@@ -85,6 +87,7 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.List;
@@ -107,6 +110,8 @@ public class ImGuiApp extends Application {
     private static final float UI_FONT_BASE_PX = 17f;
     /** The taskbar's name for the window. It names no connection: no one client owns the app. */
     private static final String WINDOW_TITLE = "BotWithUs";
+    /** How long the Installed scripts page reuses one read of the host: its badge and body share it. */
+    private static final Duration INSTALLED_VIEW_MAX_AGE = Duration.ofMillis(250);
 
     // The ASCII-art \\ sequences javac reads as line-continuation markers; suppression
     // is narrower than rewriting the banner as concatenated string literals.
@@ -356,12 +361,9 @@ public class ImGuiApp extends Application {
         ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
         mgmtPanel.setConfigOpener(inspector.state().managementScriptOpener());
         Path scriptsDir = LocalScriptLoader.scriptsDir();
-        Optional<SecondLine> scriptsLine = Optional.of(folderLine(scriptsDir));
         Optional<SecondLine> managementLine = Optional.of(folderLine(ManagementScriptLoader.managementDirIn(scriptsDir)));
         return List.of(
                 LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
-                new LegacyPanelPage(PageId.INSTALLED, ui, ctx, List.of(new ScriptsPanel(executor)),
-                        () -> scriptsLine),
                 new LegacyPanelPage(PageId.MANAGEMENT, ui, ctx, List.of(mgmtPanel), () -> managementLine),
                 LegacyPanelPage.of(PageId.SETTINGS, ui, ctx, new SettingsPanel()));
     }
@@ -372,6 +374,7 @@ public class ImGuiApp extends Application {
         all.add(dashboardPage());
         all.add(storePage(sdnCatalogue, sdnInstaller));
         all.add(connectionsPage());
+        all.add(installedPage(sdnCatalogue, sdnInstaller));
         return all;
     }
 
@@ -408,6 +411,17 @@ public class ImGuiApp extends Application {
                 task -> Thread.ofVirtual().name("pipe-scan").start(task), ClipboardHelper::copyToClipboard,
                 Clock.systemUTC());
         return new ConnectionsPage(ui, model, id -> pages.select(id));
+    }
+
+    /** Installed scripts, over the host's load report, runners, failed-load list and Store ledger. */
+    private InstalledPage installedPage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
+        Path scriptsDir = LocalScriptLoader.scriptsDir();
+        SecondLine.FolderPath folder = SecondLine.FolderPath.of(scriptsDir, Path.of(""),
+                Path.of(System.getProperty("user.home")));
+        LiveInstalledModel model = new LiveInstalledModel(new LiveInstalledModel.Deps(ctx, sdnInstaller.ledger(),
+                sdnCatalogue::shown, inspector.state()::request, executor, LiveInstalledModel.desktopOpener(executor),
+                Clock.systemDefaultZone(), scriptsDir, folder.text(), INSTALLED_VIEW_MAX_AGE));
+        return new InstalledPage(ui, model, folder, id -> pages.select(id));
     }
 
     /** A folder as the sidebar's second line shows it, relative to where the host runs from. */
