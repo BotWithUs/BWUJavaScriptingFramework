@@ -2,8 +2,10 @@ package com.botwithus.bot.cli;
 
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -37,6 +39,7 @@ class AutoStartManagerProbeTest {
     @TempDir
     Path tempDir;
 
+    private HostSettings settings;
     private AutoStartManager manager;
 
     @BeforeEach
@@ -45,7 +48,13 @@ class AutoStartManagerProbeTest {
         LogBuffer logBuffer = new LogBuffer();
         CliContext ctx = new CliContext(logBuffer, new LogCapture(logBuffer, discard, discard),
                 tempDir.resolve("groups.json"));
-        manager = new AutoStartManager(ctx, new ScriptProfileStore(tempDir.resolve(".botwithus")));
+        settings = HostSettings.open(tempDir);
+        manager = new AutoStartManager(ctx, new ScriptProfileStore(tempDir.resolve(".botwithus")), settings);
+    }
+
+    @AfterEach
+    void tearDown() {
+        settings.close();
     }
 
     @Test
