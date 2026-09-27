@@ -205,6 +205,18 @@ Declare the SPI in `module-info.java`:
 provides com.botwithus.bot.api.script.ManagementScript with my.script.GroupRotator;
 ```
 
+### Targets: what a management script can reach
+
+Each management script is applied to a set of targets that the user picks on the host: the **whole host**, one or more **groups**, and single **client scripts** (one script on one client's account). The orchestrator and client provider a script gets are limited to those targets:
+
+- Lists (`getClientNames`, `getStatusAll`, `listScheduled`, `getGroupNames`, …) leave out whatever the targets do not cover.
+- A call that would act on something outside them fails with a result whose message is `not in this script's targets`. It never throws. A call over a group or over every client acts on the covered part.
+- Only a script targeting the whole host may create, delete or change groups.
+- A group target makes the script that group's manager. When the user stops everything on the group, its manager is paused there. It can still see the group and stop scripts on it, but it starts nothing there until it is resumed.
+- A script with no targets can still run, but it sees no clients.
+
+`ManagementContext.targets()` returns the targets as they are now. They can change while the script runs, so read them when you need them. Management scripts that were installed before targets existed are given the whole host the first time the host loads them, so they keep working as before.
+
 ### Script Scheduling
 
 ManagementScripts schedule scripts through `ClientOrchestrator`. The orchestrator owns per-client targeting, so each call states *which* client(s) the schedule applies to. Single-client, group, and all-client variants exist for one-shot (`scheduleScript` / `scheduleScriptAt`) and recurring (`scheduleScriptEvery`) operations, each with optional `Map<String, Object>` config for the started script:

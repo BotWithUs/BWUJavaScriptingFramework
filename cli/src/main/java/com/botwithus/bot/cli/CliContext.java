@@ -26,6 +26,13 @@ import com.botwithus.bot.cli.groups.GroupsFile;
 import com.botwithus.bot.cli.groups.StartWhenBackDrain;
 import com.botwithus.bot.cli.groups.StartWhenBackQueue;
 import com.botwithus.bot.cli.log.LogBuffer;
+import com.botwithus.bot.cli.management.ManagementControl;
+import com.botwithus.bot.cli.management.ManagementFile;
+import com.botwithus.bot.cli.management.ManagementTargets;
+import com.botwithus.bot.cli.management.OrchestratorAuditLog;
+import com.botwithus.bot.cli.management.Scope;
+import com.botwithus.bot.cli.management.ScopedClientOrchestrator;
+import com.botwithus.bot.cli.management.ScopedClientProvider;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.scripts.AfterReload;
 import com.botwithus.bot.cli.scripts.ManagementReload;
@@ -71,6 +78,9 @@ import com.botwithus.bot.core.impl.SharedStateImpl;
 import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
 import com.botwithus.bot.core.runtime.ManagementLoadReport;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
+import com.botwithus.bot.api.isc.MessageBus;
+import com.botwithus.bot.api.isc.SharedState;
+import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.api.gameval.GamevalIndex;
@@ -89,6 +99,7 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class CliContext {
 
@@ -167,6 +178,10 @@ public class CliContext {
             task -> Thread.ofVirtual().name("connection-status").start(task),
             ConnectionStatusTracker.POLL_INTERVAL, this::onStatusRefreshed);
     private final ClientRegistry clientRegistry;
+    /** Each management script's targets; read on first use. */
+    private final ManagementTargets managementTargets;
+    private final OrchestratorAuditLog orchestratorAudit = new OrchestratorAuditLog(hostEvents::publish, clock);
+    private final ManagementControl managementControl;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this(logBuffer, logCapture, DEFAULT_GROUPS_FILE);
@@ -200,6 +215,10 @@ public class CliContext {
         this.startWhenBack = new StartWhenBackQueue(groupsFile.resolveSibling(StartWhenBackQueue.FILE_NAME));
         this.startWhenBackDrain = new StartWhenBackDrain(startWhenBack, this::liveRuntime, this::loadScripts,
                 background, line -> out().println(line));
+        this.managementTargets = new ManagementTargets(
+                new ManagementFile(groupsFile.resolveSibling(ManagementFile.FILE_NAME)), groupStore);
+        this.managementControl = new ManagementControl(this::managementRuntimeOrInit, managementTargets,
+                groupStore, clientManager);
         hostEvents.subscribe(connectionHistory);
         hostEvents.subscribe(clientRegistry);
     }
@@ -419,7 +438,49 @@ public class CliContext {
                 clientManager, clientProvider, messageBus, sharedState);
         managementRuntime = new ManagementScriptRuntime(mgmtContext, runnerEvents);
         managementRuntime.setStallThreshold(this::stallAfterMs);
+        managementRuntime.setContextFactory(script -> scopedManagementContext(script, messageBus, sharedState));
     }
+
+    /**
+     * The context a management script runs with: an orchestrator and a client
+     * provider limited to its targets, recording what it does.
+     */
+    private ManagementContext scopedManagementContext(String script, MessageBus messageBus,
+                                                      SharedState sharedState) {
+        Supplier<Scope> scope = () -> managementTargets.scopeOf(script);
+        return new ManagementContextImpl(
+                new ScopedClientOrchestrator(script, clientManager, scope, this::accountOfClient, orchestratorAudit),
+                new ScopedClientProvider(clientProvider, scope, this::accountOfClient),
+                messageBus, sharedState, () -> managementTargets.apiTargetsOf(script));
+    }
+
+    /**
+     * The account of the client an orchestrator call names: a connection's
+     * pipe, or the account UUID of a client that is not connected. Empty for a
+     * client with no account.
+     */
+    private Optional<String> accountOfClient(String name) {
+        if (connections.get(name) != null) {
+            return clientKeyOf(name).accountUuid();
+        }
+        return AccountReply.identified(name);
+    }
+
+    private ManagementScriptRuntime managementRuntimeOrInit() {
+        if (managementRuntime == null) {
+            initManagementRuntime();
+        }
+        return managementRuntime;
+    }
+
+    /** What each management script manages, and whether it should run. */
+    public ManagementTargets getManagementTargets() { return managementTargets; }
+
+    /** The recent orchestrator calls of each management script. */
+    public OrchestratorAuditLog getOrchestratorAudit() { return orchestratorAudit; }
+
+    /** Start, stop and restart management scripts, and stop a group without its manager restarting it. */
+    public ManagementControl getManagementControl() { return managementControl; }
 
     /**
      * Loads management scripts from {@code scripts/management/} and registers
@@ -431,6 +492,7 @@ public class CliContext {
         }
         ManagementLoadReport report = ManagementScriptLoader.loadReport();
         loadIssues.record(ScriptFolder.MANAGEMENT, report.results());
+        managementTargets.recordLoaded(report.results().stream().flatMap(r -> r.scriptName().stream()).toList());
         return report.scripts();
     }
 

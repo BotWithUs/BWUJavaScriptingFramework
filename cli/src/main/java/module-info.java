@@ -39,6 +39,8 @@ module com.botwithus.bot.cli {
     exports com.botwithus.bot.cli.clients;
     // CliContext hands out the group store and the start-when-back queue.
     exports com.botwithus.bot.cli.groups;
+    // CliContext hands out management targets, control and the orchestrator audit log.
+    exports com.botwithus.bot.cli.management;
     exports com.botwithus.bot.cli.gui;
     exports com.botwithus.bot.cli.gui.inspector;
     exports com.botwithus.bot.cli.gui.nav;
