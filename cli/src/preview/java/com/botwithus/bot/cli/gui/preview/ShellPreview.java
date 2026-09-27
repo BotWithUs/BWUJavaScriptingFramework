@@ -88,8 +88,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -108,6 +111,12 @@ import javax.imageio.ImageIO;
  * <p>Frames are drawn into an offscreen framebuffer before being read back, so a
  * window overlapping the preview cannot bleed into the capture. The real mouse is
  * parked off-screen every frame so hover states do not depend on where it is.</p>
+ *
+ * <p>With {@value #CHECK_FLAG} after the output folder it is the smoke check that
+ * {@code ./gradlew :cli:previewSmokeTest} runs: every scenario must render without
+ * an exception, and every frame must show a page ({@link FrameCheck}). It still
+ * writes every PNG, so a failure can be looked at, and fails once all have run.
+ * A scenario that throws stops the run there, named in the exception.</p>
  */
 public final class ShellPreview extends Application {
 
@@ -175,8 +184,16 @@ public final class ShellPreview extends Application {
                          FixtureToasts fleet, FixturePages.Built pages,
                          InspectorDock inspector, FixtureWindow window, Consumer<TextSize> textSize) {}
 
+    /** The argument that turns a render into the smoke check. */
+    static final String CHECK_FLAG = "--check";
+    private static final String LIST_BREAK = System.lineSeparator() + "  ";
+
     private final Path outDir;
-    private final List<Scenario> scenarios = scenarios();
+    private final boolean isCheck;
+    private final List<Scenario> scenarios = requireUniqueNames(scenarios());
+    /** Frames the check refused, one line each; empty when not checking. */
+    private final List<String> emptyFrames = new ArrayList<>();
+    private int captured;
     /** Defaults only, read by the toast feed; kept under the output folder, never the user's home. */
     private HostSettings toastSettings;
     private int scenarioIndex;
@@ -191,14 +208,45 @@ public final class ShellPreview extends Application {
     private TextSize textSize = TextSize.PERCENT_100;
     private TextSize shownTextSize = TextSize.PERCENT_100;
 
-    private ShellPreview(Path outDir) {
+    private ShellPreview(Path outDir, boolean isCheck) {
         this.outDir = outDir;
+        this.isCheck = isCheck;
     }
 
     public static void main(String[] args) throws IOException {
         Path out = Path.of(args.length > 0 ? args[0] : "build/preview");
+        boolean isCheck = List.of(args).contains(CHECK_FLAG);
         Files.createDirectories(out);
-        launch(new ShellPreview(out));
+        ShellPreview preview = new ShellPreview(out, isCheck);
+        launch(preview);
+        if (isCheck) {
+            preview.report();
+        }
+    }
+
+    /** Fails unless every scenario was captured and every frame showed a page. */
+    private void report() {
+        List<String> problems = new ArrayList<>(emptyFrames);
+        if (captured != scenarios.size()) {
+            problems.add("captured " + captured + " of " + scenarios.size()
+                    + " scenarios; the window closed before the last one");
+        }
+        if (!problems.isEmpty()) {
+            throw new IllegalStateException("Preview smoke check failed:" + LIST_BREAK
+                    + String.join(LIST_BREAK, problems));
+        }
+        log.info("preview: smoke check passed, {} scenarios rendered", captured);
+    }
+
+    /** Two scenarios with one name would write one PNG over the other and hide a state. */
+    private static List<Scenario> requireUniqueNames(List<Scenario> scenarios) {
+        Set<String> names = new HashSet<>();
+        for (Scenario s : scenarios) {
+            if (!names.add(s.name())) {
+                throw new IllegalStateException("Two preview scenarios are named " + s.name());
+            }
+        }
+        return scenarios;
     }
 
     @Override
@@ -252,8 +300,12 @@ public final class ShellPreview extends Application {
     public void process() {
         ImGui.getIO().setMousePos(OFF_SCREEN, OFF_SCREEN);
         Scenario s = scenarios.get(scenarioIndex);
-        s.onFrame().accept(stage, frame);
-        mode = shell.render(mode, stage.board(), n -> { });
+        try {
+            s.onFrame().accept(stage, frame);
+            mode = shell.render(mode, stage.board(), n -> { });
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Preview scenario " + s.name() + " threw on frame " + frame, e);
+        }
         frame++;
     }
 
@@ -323,6 +375,10 @@ public final class ShellPreview extends Application {
             throw new UncheckedIOException("Could not write " + file, e);
         }
         log.info("preview: wrote {}", file.toAbsolutePath());
+        captured++;
+        if (isCheck) {
+            FrameCheck.problem(image).ifPresent(problem -> emptyFrames.add(name + ": " + problem));
+        }
     }
 
     // ── Scenarios ──────────────────────────────────────────────────────────

@@ -158,16 +158,29 @@ val preview: SourceSet by sourceSets.creating {
 // this it could stop compiling and nobody would notice until the next UI change.
 tasks.named("check") { dependsOn(preview.classesTaskName) }
 
-val renderPreviews by tasks.registering(JavaExec::class) {
-    description = "Dev only: renders both modes from fixtures and writes one PNG per scenario to build/preview"
+/** Runs the preview renderer, writing its PNGs to build/[outDirName], followed by [extraArgs]. */
+fun JavaExec.renderPreviewsInto(outDirName: String, vararg extraArgs: String) {
     group = "verification"
     dependsOn(extractNatives)
     classpath = preview.runtimeClasspath
     mainClass = "com.botwithus.bot.cli.gui.preview.ShellPreview"
-    val outDir = layout.buildDirectory.dir("preview")
-    args(outDir.get().asFile.absolutePath)
+    args(layout.buildDirectory.dir(outDirName).get().asFile.absolutePath, *extraArgs)
     jvmArgs("-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}")
     outputs.upToDateWhen { false }
+}
+
+val renderPreviews by tasks.registering(JavaExec::class) {
+    description = "Dev only: renders both modes from fixtures and writes one PNG per scenario to build/preview"
+    renderPreviewsInto("preview")
+}
+
+// The same render as a check: fails if a scenario throws, if a frame shows no
+// page, or if the window closes before the last scenario. It opens a window and
+// needs a desktop session with OpenGL (GLFW has no headless mode), which is why it
+// is not part of `check` and CI does not run it. Run it after a UI change.
+tasks.register<JavaExec>("previewSmokeTest") {
+    description = "Dev only: renders every preview scenario and fails on an exception or an empty frame"
+    renderPreviewsInto("preview-smoke", "--check")
 }
 
 // The task's name before it drew Advanced mode too; kept so existing habits still work.
