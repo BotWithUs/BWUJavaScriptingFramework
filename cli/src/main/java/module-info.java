@@ -41,6 +41,7 @@ module com.botwithus.bot.cli {
     exports com.botwithus.bot.cli.gui;
     exports com.botwithus.bot.cli.gui.inspector;
     exports com.botwithus.bot.cli.gui.nav;
+    exports com.botwithus.bot.cli.gui.window;
     exports com.botwithus.bot.cli.gui.pages;
     exports com.botwithus.bot.cli.gui.usermode;
     exports com.botwithus.bot.cli.gui.usermode.board;

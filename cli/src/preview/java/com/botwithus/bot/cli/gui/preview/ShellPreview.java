@@ -10,6 +10,7 @@ import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.cli.gui.AppMode;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.FontLoader;
+import com.botwithus.bot.cli.gui.FramelessChrome;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Shell;
 import com.botwithus.bot.cli.gui.inspector.InspectorDock;
@@ -26,6 +27,7 @@ import com.botwithus.bot.cli.gui.usermode.PreviewSeams;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
+import com.botwithus.bot.cli.gui.window.WindowRect;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 
@@ -85,6 +87,9 @@ public final class ShellPreview extends Application {
     private static final int GREEN_SHIFT = 8;
     private static final float OFF_SCREEN = -Float.MAX_VALUE;
     private static final float BG = 0x0d / 255f;
+    /** The frameless chrome's resize floor; nothing is resized in a capture. */
+    private static final int MIN_WINDOW_WIDTH = 640;
+    private static final int MIN_WINDOW_HEIGHT = 400;
 
     /** The store's sidebar line in every scenario that does not set its own. */
     private static final SecondLine.AccountStatus SIGNED_IN =
@@ -108,7 +113,7 @@ public final class ShellPreview extends Application {
 
     /** What a scenario's frame hook can reach. */
     private record Stage(FixtureBoard board, UserModeRenderer page, EventBusImpl bus, FixturePages.Built pages,
-                         InspectorDock inspector) {}
+                         InspectorDock inspector, FixtureWindow window) {}
 
     private final Path outDir;
     private final List<Scenario> scenarios = scenarios();
@@ -162,8 +167,10 @@ public final class ShellPreview extends Application {
                         .findFirst().orElse(name));
         toasts.subscribeTo(bus);
         FixturePages.Built pages = FixturePages.build(ui, page, board, s.store(), executor);
-        stage = new Stage(board, page, bus, pages, inspector);
-        shell = new Shell(ui, pages.registry(), inspector, toasts);
+        FixtureWindow window = new FixtureWindow(new WindowRect(0, 0, WIDTH, HEIGHT));
+        stage = new Stage(board, page, bus, pages, inspector, window);
+        shell = new Shell(ui, pages.registry(), inspector, toasts,
+                new FramelessChrome(ui, window, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT));
         mode = s.mode();
         frame = 0;
     }
@@ -318,7 +325,11 @@ public final class ShellPreview extends Application {
                                 new InspectorSubject.ManagementScript(FixtureBoard.FLEET_MONITOR.name()),
                                 InspectorTab.initialFor(false, true)))),
                 Scenario.advanced("32-advanced-inspector-restore-defaults", FixtureBoard::sixClients,
-                        ShellPreview::managementOffDefaults));
+                        ShellPreview::managementOffDefaults),
+                // The frameless window's own chrome: every scenario draws it, these two isolate it.
+                new Scenario("40-window-frameless-normal", FixtureBoard::sixClients, nothing),
+                Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::sixClients,
+                        (s, f) -> s.window().maximise()));
     }
 
     /** A short management form with one field off its default, so "Restore defaults" is live. */

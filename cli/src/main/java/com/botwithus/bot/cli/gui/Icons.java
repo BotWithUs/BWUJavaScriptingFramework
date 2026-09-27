@@ -15,6 +15,8 @@ public final class Icons {
     public static final String CODE        = "\uF121";  // fa-code
     public static final String WRENCH      = "\uF0AD";  // fa-wrench
     public static final String WINDOW      = "\uF2D0";  // fa-window-maximize
+    public static final String WINDOW_MINIMIZE = "\uF2D1"; // fa-window-minimize
+    public static final String WINDOW_RESTORE  = "\uF2D2"; // fa-window-restore
     public static final String USERS       = "\uF0C0";  // fa-users
     public static final String LIST        = "\uF03A";  // fa-list
     public static final String GEAR        = "\uF013";  // fa-gear

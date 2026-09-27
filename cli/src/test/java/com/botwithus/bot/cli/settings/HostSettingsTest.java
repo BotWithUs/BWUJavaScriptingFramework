@@ -103,7 +103,8 @@ class HostSettingsTest {
         assertTrue(names.containsAll(List.of("autoConnect", "autoConnectPipes", "scanIntervalMs",
                 "defaultTimeout", "autoReload", "reconnect.maxAttempts", "reconnect.initialDelayMs",
                 "reconnect.backoff", "reconnect.maxDelayMs", "scripts.restartAfterReload",
-                "scripts.stallAfterMs", "notify.durationS", "ui.startMode", "ui.textSize",
+                "scripts.stallAfterMs", "notify.durationS", "ui.startMode", "ui.textSize", "ui.nativeFrame",
+                "ui.window.x", "ui.window.y", "ui.window.width", "ui.window.height", "ui.window.maximised",
                 "ui.reduceMotion", "diag.collectRpc", "diag.collectLoops")));
     }
 

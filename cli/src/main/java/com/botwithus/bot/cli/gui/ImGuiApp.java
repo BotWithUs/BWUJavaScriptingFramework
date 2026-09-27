@@ -45,6 +45,7 @@ import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
@@ -90,10 +91,8 @@ public class ImGuiApp extends Application {
     private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
 
     private static final float UI_FONT_BASE_PX = 17f;
-    /** Initial GLFW window width (px). */
-    private static final int APP_WINDOW_DEFAULT_WIDTH = 1100;
-    /** Initial GLFW window height (px). */
-    private static final int APP_WINDOW_DEFAULT_HEIGHT = 700;
+    /** The taskbar's name for the window. It names no connection: no one client owns the app. */
+    private static final String WINDOW_TITLE = "BotWithUs";
 
     // The ASCII-art \\ sequences javac reads as line-continuation markers; suppression
     // is narrower than rewriting the banner as concatenated string literals.
@@ -134,8 +133,12 @@ public class ImGuiApp extends Application {
     // Toast/banner overlay (event-driven, fixed-position, top-right)
     private NotificationOverlay notificationOverlay;
 
-    // GLFW window handle for title updates
+    // GLFW window handle, for closing the window from the console's `exit`
     private long glfwWindow;
+
+    // Opened before the window, which reads its frame and placement from them
+    private HostSettings settings;
+    private HostWindow hostWindow;
 
     // Mode switching and the shared shell (top bar, Normal-mode clients page, status bar)
     private AppMode currentMode = AppMode.NORMAL;
@@ -146,9 +149,15 @@ public class ImGuiApp extends Application {
 
     @Override
     protected void configure(Configuration config) {
-        config.setTitle("BotWithUs \u2014 disconnected");
-        config.setWidth(APP_WINDOW_DEFAULT_WIDTH);
-        config.setHeight(APP_WINDOW_DEFAULT_HEIGHT);
+        settings = HostSettings.openForHost(HostSettings.defaultBaseDir());
+        config.setTitle(WINDOW_TITLE);
+    }
+
+    @Override
+    protected void initWindow(Configuration config) {
+        HostWindow.Pending pending = HostWindow.prepare(settings, config);
+        super.initWindow(config);
+        hostWindow = pending.attach(handle);
     }
 
     @Override
@@ -167,7 +176,8 @@ public class ImGuiApp extends Application {
 
         ScriptProfileStore profileStore = new ScriptProfileStore();
         ctx.setProfileStore(profileStore);
-        ctx.setSettings(HostSettings.openForHost(HostSettings.defaultBaseDir()));
+        ctx.setSettings(settings);
+        currentMode = AppMode.openingIn(settings.get(SettingKeys.START_MODE));
         AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore, ctx.getSettings());
         ctx.setAutoStartManager(autoStartManager);
 
@@ -213,7 +223,9 @@ public class ImGuiApp extends Application {
     }
 
     private void setupTheme() {
-        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.ViewportsEnable | ImGuiConfigFlags.NavEnableKeyboard);
+        // No ViewportsEnable: nothing floats outside the main window any more, so an
+        // ImGui window a script opens stays inside it rather than becoming an OS window.
+        ImGui.getIO().addConfigFlags(ImGuiConfigFlags.NavEnableKeyboard);
         ImGuiTheme.apply(dpiScale);
     }
 
@@ -309,7 +321,7 @@ public class ImGuiApp extends Application {
         SdnInstaller sdnInstaller = new SdnInstaller();
         board = new LiveClientBoard(ctx, clientId -> openLogs(), clock, sdnCatalogue, sdnInstaller, executor);
         pages = new PageRegistry(buildPages(sdnCatalogue, sdnInstaller));
-        shell = new Shell(ui, pages, inspector, notificationOverlay);
+        shell = new Shell(ui, pages, inspector, notificationOverlay, hostWindow.chrome(ui));
         ctx.setOnConnect(conn -> {
             if (conn.getEventBus() != null) {
                 notificationOverlay.subscribeTo(conn.getEventBus());
@@ -375,8 +387,7 @@ public class ImGuiApp extends Application {
         // own result would overwrite.
         currentMode = modeRequest.resolve(shell.render(currentMode, board, this::onToastAction));
 
-        // Update window title based on connection state
-        updateTitle();
+        hostWindow.endFrame();
     }
 
     private static final String LOG_BUFFER_APPENDER_NAME = "LOG_BUFFER";
@@ -432,24 +443,6 @@ public class ImGuiApp extends Application {
             }
         }
         return name;
-    }
-
-    private void updateTitle() {
-        if (glfwWindow == 0) {
-            return;
-        }
-        boolean connected = ctx.hasActiveConnection();
-        String connName = ctx.getActiveConnectionName();
-        int count = ctx.getConnections().size();
-
-        String title;
-        if (connected && connName != null) {
-            String suffix = count > 1 ? " [" + count + "]" : "";
-            title = "BotWithUs \u2014 " + connName + suffix;
-        } else {
-            title = "BotWithUs \u2014 disconnected";
-        }
-        GLFW.glfwSetWindowTitle(glfwWindow, title);
     }
 
     private void shutdown() {
