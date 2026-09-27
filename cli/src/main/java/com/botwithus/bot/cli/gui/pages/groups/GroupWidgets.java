@@ -3,7 +3,6 @@ package com.botwithus.bot.cli.gui.pages.groups;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -155,7 +154,7 @@ final class GroupWidgets {
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, s, s);
         boolean isHovered = ImGui.isItemHovered();
-        float t = Motion.step("grp-icon:" + id, isHovered ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("grp-icon:" + id, isHovered ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + s, y + s, Controls.scaleAlpha(hoverBg, t), m().radius());
         float iw = ui.width(ui.fonts().caption(), icon);

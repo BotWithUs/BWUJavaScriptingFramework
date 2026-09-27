@@ -3,7 +3,6 @@ package com.botwithus.bot.cli.gui.pages.management;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.management.Target;
 
 import imgui.ImDrawList;
@@ -73,7 +72,7 @@ final class ManagementWidgets {
         float y = ImGui.getCursorScreenPosY();
         float w = linkWidth(icon, label);
         boolean clicked = ImGui.invisibleButton(id, w, height);
-        float t = Motion.step("mlk:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("mlk:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + w, y + height, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, t), m().radius());
         int fg = Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
@@ -98,7 +97,7 @@ final class ManagementWidgets {
         if (hovered) {
             ImGui.setTooltip(tooltip);
         }
-        float t = Motion.step("mib:" + id, hovered && enabled ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("mib:" + id, hovered && enabled ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + size, y + size, Controls.scaleAlpha(hoverBg, t), m().radius());
         ImFont font = ui.fonts().caption();
@@ -138,7 +137,7 @@ final class ManagementWidgets {
         float y = ImGui.getCursorScreenPosY();
         float h = tabHeight();
         boolean clicked = ImGui.invisibleButton(id, w, h);
-        float t = Motion.step("mtb:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("mtb:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         int fg = isOn ? ImGuiTheme.COL_FG : Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
         ui.textCentredY(draw, ui.fonts().smallMedium(), x, y, h, fg, label);

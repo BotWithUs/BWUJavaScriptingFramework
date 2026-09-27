@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui.pages.store;
 
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -73,7 +72,7 @@ final class StoreWidgets {
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, size, size);
-        float t = Motion.step("star:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("star:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + size, y + size, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, t),
                 ui.m().radiusSmall());
@@ -155,7 +154,7 @@ final class StoreWidgets {
         boolean clicked = ImGui.invisibleButton(id, w, height);
         boolean hovered = enabled && ImGui.isItemHovered();
         ImGui.endDisabled();
-        float t = Motion.step("link:" + id, hovered ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("link:" + id, hovered ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + w, y + height, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, t), m.radius());
         int fg = Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
@@ -201,7 +200,7 @@ final class StoreWidgets {
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, w, h);
-        float t = Motion.step("chk:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("chk:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         if (isOn) {
             draw.addRectFilled(x, y, x + w, y + h, ImGuiTheme.COL_ELEVATED, m.radius());

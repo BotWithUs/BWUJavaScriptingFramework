@@ -6,7 +6,6 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptEntry;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
@@ -369,7 +368,7 @@ final class ScriptPickerPopup {
         float h = m.controlSmallHeight();
         ImGui.setCursorScreenPos(x, y);
         boolean clicked = ImGui.invisibleButton("##pill-" + label, w, h);
-        float t = Motion.step("pill:" + label, ImGui.isItemHovered() ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
+        float t = ui.motion().step("pill:" + label, ImGui.isItemHovered() ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
         boolean on = label.equals(category);
         ImDrawList draw = ImGui.getWindowDrawList();
         int bg = on ? ImGuiTheme.COL_FG : Controls.scaleAlpha(ImGuiTheme.COL_SURFACE, t);
@@ -488,7 +487,7 @@ final class ScriptPickerPopup {
             ImGui.setScrollHereY();
             scrollToHighlight = false;
         }
-        float t = Motion.step("prow:" + index, ImGui.isItemHovered() ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
+        float t = ui.motion().step("prow:" + index, ImGui.isItemHovered() ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
         ImDrawList draw = ImGui.getWindowDrawList();
         paintRowBackground(draw, x, y, w, h, on, t);
         switch (pickerRow) {

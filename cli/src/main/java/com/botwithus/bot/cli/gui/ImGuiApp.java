@@ -200,7 +200,8 @@ public class ImGuiApp extends Application {
 
         redirectImGuiIniToConfigDir();
         dpiScale = detectDpiScale();
-        ui = new Controls(FontLoader.loadAll(dpiScale, UI_FONT_BASE_PX));
+        ui = new Controls(FontLoader.loadAll(dpiScale, UI_FONT_BASE_PX),
+                Motion.following(settings, Motion.FrameClock.imGui()));
         setupTheme();
 
         textureManager = new TextureManager();

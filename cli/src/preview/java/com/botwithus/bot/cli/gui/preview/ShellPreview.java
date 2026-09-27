@@ -18,6 +18,7 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.FontLoader;
 import com.botwithus.bot.cli.gui.FramelessChrome;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
+import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.PreviewFonts;
 import com.botwithus.bot.cli.gui.Shell;
 import com.botwithus.bot.cli.gui.inspector.InspectorDock;
@@ -209,7 +210,7 @@ public final class ShellPreview extends Application {
         super.initImGui(config);
         ImGui.getIO().setIniFilename(null);
         ImGui.getIO().addConfigFlags(ImGuiConfigFlags.NavEnableKeyboard);
-        ui = new Controls(FontLoader.loadAll(SCALE, ADVANCED_FONT_PX));
+        ui = new Controls(FontLoader.loadAll(SCALE, ADVANCED_FONT_PX), Motion.full(Motion.FrameClock.imGui()));
         ImGuiTheme.apply(SCALE);
         fbo = createFramebuffer();
         toastSettings = HostSettings.open(outDir.resolve("toast-settings"));

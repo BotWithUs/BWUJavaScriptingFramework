@@ -13,6 +13,7 @@ import imgui.type.ImString;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * The redesign's widget kit: buttons, chips, the segmented control, the search
@@ -56,13 +57,21 @@ public final class Controls {
 
     // Replaced when the text size changes; render thread only.
     private UiFonts fonts;
+    private final Motion motion;
 
-    public Controls(UiFonts fonts) {
+    /** @param motion the UI's animations, shared by every widget drawn with this kit */
+    public Controls(UiFonts fonts, Motion motion) {
         this.fonts = fonts;
+        this.motion = Objects.requireNonNull(motion, "motion");
     }
 
     public UiFonts fonts() {
         return fonts;
+    }
+
+    /** The UI's animations; they snap while the user asks for reduced motion. */
+    public Motion motion() {
+        return motion;
     }
 
     /**
@@ -177,7 +186,7 @@ public final class Controls {
         boolean hovered = enabled && ImGui.isItemHovered();
         boolean held = enabled && ImGui.isItemActive();
         ImGui.endDisabled();
-        float t = Motion.step("btn:" + id, hovered ? 1f : 0f, HOVER_SPEED);
+        float t = motion.step("btn:" + id, hovered ? 1f : 0f, HOVER_SPEED);
         float alpha = enabled ? 1f : ImGuiTheme.DISABLED_ALPHA;
         paintButton(ImGui.getWindowDrawList(), tone, x, y, w, height, t, held, alpha);
         paintButtonLabel(ImGui.getWindowDrawList(), tone, icon, label, x, y, w, height, t, alpha);
@@ -328,7 +337,7 @@ public final class Controls {
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, w, h);
-        float t = Motion.step("seg:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = motion.step("seg:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         int bg = isOn ? ImGuiTheme.COL_ELEVATED : scaleAlpha(ImGuiTheme.COL_SURFACE, t);
         draw.addRectFilled(x, y, x + w, y + h, bg, m().radiusSmall());
@@ -430,7 +439,7 @@ public final class Controls {
     private boolean stepButton(String id, String glyph, float x, float y, float h, boolean left) {
         ImGui.setCursorScreenPos(x, y);
         boolean clicked = ImGui.invisibleButton(id, h, h);
-        float t = Motion.step("step:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = motion.step("step:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         int flags = left ? ImDrawFlags.RoundCornersLeft : ImDrawFlags.RoundCornersRight;
         draw.addRectFilled(x, y, x + h, y + h, lerp(ImGuiTheme.COL_ELEVATED, ImGuiTheme.COL_BORDER, t),
@@ -500,7 +509,7 @@ public final class Controls {
         float th = fs * TOGGLE_H_EM;
         float tx = x + width - tw;
         float ty = y + (h - th) * 0.5f;
-        float t = Motion.step("tg:" + id, value ? 1f : 0f, HOVER_SPEED);
+        float t = motion.step("tg:" + id, value ? 1f : 0f, HOVER_SPEED);
         int track = lerp(ImGuiTheme.COL_ELEVATED, ImGuiTheme.COL_ACCENT, t);
         draw.addRectFilled(tx, ty, tx + tw, ty + th, track, th * 0.5f);
         draw.addRect(tx + 0.5f, ty + 0.5f, tx + tw - 0.5f, ty + th - 0.5f,
