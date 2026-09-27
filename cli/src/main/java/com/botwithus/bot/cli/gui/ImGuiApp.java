@@ -448,7 +448,7 @@ public class ImGuiApp extends Application {
         LiveSettingsModel.Places places = new LiveSettingsModel.Places(HostSettings.defaultBaseDir(),
                 LocalScriptLoader.scriptsDir(), LiveSettingsModel.exportFolderIn(home), home, Path.of(""));
         LiveSettingsModel.Host host = new LiveSettingsModel.Host(settings,
-                Optional.ofNullable(ctx.getProfileStore()), ctx::getConnections);
+                Optional.ofNullable(ctx.getProfileStore()), ctx::getConnections, ctx::getIntegrations);
         return new SettingsPage(ui, new LiveSettingsModel(host, places, LiveSettingsModel::openOnDesktop,
                 task -> Thread.ofVirtual().name("settings-io").start(task), Clock.systemDefaultZone(),
                 fontRebuild::monitorPercent));

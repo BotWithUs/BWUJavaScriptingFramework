@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.cli.settings.NotificationKind;
 import com.botwithus.bot.cli.settings.SettingKeys;
 
@@ -43,6 +44,7 @@ public final class SettingsLayout {
             rows.add(Placement.of(SettingsSection.NOTIFICATIONS, SettingKeys.notifyEnabled(kind)));
         }
         rows.add(Placement.of(SettingsSection.NOTIFICATIONS, SettingKeys.NOTIFY_DURATION_S, DisplayUnit.SECONDS));
+        addIntegrations(rows);
         rows.add(Placement.of(SettingsSection.INTERFACE, SettingKeys.START_MODE));
         rows.add(Placement.of(SettingsSection.INTERFACE, SettingKeys.TEXT_SIZE));
         rows.add(Placement.of(SettingsSection.INTERFACE, SettingKeys.REDUCE_MOTION));
@@ -50,6 +52,19 @@ public final class SettingsLayout {
         rows.add(Placement.of(SettingsSection.DIAGNOSTICS, SettingKeys.COLLECT_RPC_TIMING));
         rows.add(Placement.of(SettingsSection.DIAGNOSTICS, SettingKeys.COLLECT_LOOP_TIMING));
         return List.copyOf(rows);
+    }
+
+    /**
+     * The Integrations section's plain rows. The service cards, the event grid and
+     * the quiet-hours row are built by {@link IntegrationsSheet}, which places these
+     * two around them.
+     */
+    private static void addIntegrations(List<Placement> rows) {
+        rows.add(new Placement(SettingsSection.INTEGRATIONS, AlertSettingKeys.BURST_SECONDS, DisplayUnit.SECONDS,
+                "If several clients drop at once, send one message listing them instead of one each. "
+                        + "0 sends each at once."));
+        rows.add(new Placement(SettingsSection.INTEGRATIONS, AlertSettingKeys.SUMMARY_AT, DisplayUnit.NONE,
+                "When to send the daily summary (24-hour, local time), to the services ticked for it above."));
     }
 
     private static void addConnecting(List<Placement> rows) {

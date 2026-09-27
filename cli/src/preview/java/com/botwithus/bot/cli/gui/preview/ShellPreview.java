@@ -41,6 +41,7 @@ import com.botwithus.bot.cli.gui.pages.installed.InstalledPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.notify.ToastFeed;
+import com.botwithus.bot.cli.gui.pages.settings.IntegrationScene;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsAction;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsSection;
@@ -404,8 +405,8 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("41-window-frameless-advanced-maximised", FixtureBoard::everyState,
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
-                installedScenarios(), settingsScenarios(), groupsScenarios(), toastScenarios(),
-                managementSettingsScenarios())
+                installedScenarios(), settingsScenarios(), integrationsScenarios(), groupsScenarios(),
+                toastScenarios(), managementSettingsScenarios())
                 .flatMap(List::stream).toList();
     }
 
@@ -694,6 +695,15 @@ public final class ShellPreview extends Application {
                         SettingsPreviewSeams.showSection(s.pages().settings(), SettingsSection.INTERFACE);
                     }
                 }));
+    }
+
+    /** Settings › Integrations: each service status, the event grid, and the secret box's states. */
+    private static List<Scenario> integrationsScenarios() {
+        return Stream.of(IntegrationScene.values()).map(scene -> Scenario.advanced(scene.fileName(),
+                FixtureBoard::everyState, (s, f) -> {
+                    s.pages().registry().select(PageId.SETTINGS);
+                    scene.play(s.pages().settings(), s.pages().settingsModel(), f);
+                })).toList();
     }
 
     /** Opens Settings and scrolls to {@code section} once the page has laid out, as the section list does. */

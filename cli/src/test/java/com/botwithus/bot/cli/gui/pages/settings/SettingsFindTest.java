@@ -55,6 +55,10 @@ class SettingsFindTest {
             case SettingsItem.WaitPreview _ -> Stream.of("preview");
             case SettingsItem.PlaceRow place -> Stream.of(place.label());
             case SettingsItem.ActionRow action -> Stream.of(action.label());
+            case SettingsItem.ServiceCard card -> Stream.of(card.service().label());
+            case SettingsItem.EventGrid grid -> grid.rows().stream().map(GridRow::label);
+            case SettingsItem.QuietHours quiet -> Stream.of(quiet.label());
+            case SettingsItem.Notice notice -> Stream.of(notice.text());
         }).toList();
     }
 
