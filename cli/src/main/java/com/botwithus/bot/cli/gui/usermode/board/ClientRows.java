@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.gui.usermode.board;
 
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
+import com.botwithus.bot.cli.gui.runners.RunnerReading;
 import com.botwithus.bot.core.runtime.ScriptProfiler;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
@@ -30,34 +31,24 @@ final class ClientRows {
     }
 
     /**
-     * What {@code runner}'s row shows. Cut off wins over everything, because a
-     * runner that ignored a stop can still look busy; a running runner is
-     * stalled while the watchdog says so; a stopped one crashed only if its
-     * current run did.
+     * What {@code runner}'s row shows: its {@link RunnerReading#status()}, with
+     * the time spent stalled, how long it has run or when it crashed.
      *
      * @param nowNanos the {@link System#nanoTime()} to measure a stall against
      * @param zone     the zone a crash's time is shown in
      */
     static ScriptState stateOf(ScriptRunner runner, Instant now, long nowNanos, ZoneId zone) {
-        switch (runner.liveness()) {
-            case REVOKED, ABANDONED -> {
-                return new ScriptState.CutOff();
-            }
-            case STALLED -> {
-                if (runner.isRunning()) {
-                    long inLoop = Math.max(0L, runner.livenessState().millisInLoop(nowNanos));
-                    return new ScriptState.Stalled(Duration.ofMillis(inLoop));
-                }
-            }
-            case LIVE -> { }
-        }
-        if (runner.isRunning()) {
-            return new ScriptState.Running(runningFor(runner.lastStartedAt(), now));
-        }
-        return currentCrash(runner)
-                .<ScriptState>map(crash -> new ScriptState.Crashed(crashSummary(crash),
-                        LocalTime.ofInstant(crash.when(), zone)))
-                .orElseGet(ScriptState.Stopped::new);
+        RunnerReading reading = RunnerReading.of(runner);
+        return switch (reading.status()) {
+            case CUT_OFF -> new ScriptState.CutOff();
+            case STALLED -> new ScriptState.Stalled(
+                    Duration.ofMillis(Math.max(0L, runner.livenessState().millisInLoop(nowNanos))));
+            case RUNNING -> new ScriptState.Running(runningFor(runner.lastStartedAt(), now));
+            case CRASHED, STOPPED -> reading.currentCrash()
+                    .<ScriptState>map(crash -> new ScriptState.Crashed(crashSummary(crash),
+                            LocalTime.ofInstant(crash.when(), zone)))
+                    .orElseGet(ScriptState.Stopped::new);
+        };
     }
 
     private static Duration runningFor(Instant startedAt, Instant now) {
@@ -65,19 +56,6 @@ final class ClientRows {
             return Duration.ZERO;
         }
         return Duration.between(startedAt, now);
-    }
-
-    /**
-     * The crash that ended {@code runner}'s current run, if one did. A crash
-     * from before its last start belongs to an earlier run and does not count,
-     * and a runner that is running has not crashed.
-     */
-    static Optional<LastCrash> currentCrash(ScriptRunner runner) {
-        Instant started = runner.lastStartedAt();
-        if (runner.isRunning() || started == null) {
-            return Optional.empty();
-        }
-        return runner.health().lastCrash().filter(crash -> !crash.when().isBefore(started));
     }
 
     /** One line for a crash, e.g. "NullPointerException in onLoop()". */

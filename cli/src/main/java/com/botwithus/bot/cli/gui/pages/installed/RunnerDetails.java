@@ -7,6 +7,7 @@ import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.gui.runners.RunnerReading;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import org.slf4j.Logger;
@@ -15,7 +16,6 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Reads one runner, and its client, into what the page shows: the facts its
@@ -29,8 +29,7 @@ final class RunnerDetails {
     private RunnerDetails() {}
 
     static RunnerFacts factsOf(Connection conn, ScriptRunner runner) {
-        return new RunnerFacts(conn.isAlive(), runner.isRunning(), runner.liveness(),
-                Optional.ofNullable(runner.lastStartedAt()), runner.health().lastCrash());
+        return new RunnerFacts(conn.isAlive(), RunnerReading.of(runner));
     }
 
     /** The account playing on {@code conn}, or its connection name while that is unknown. */

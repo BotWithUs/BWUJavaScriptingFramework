@@ -16,6 +16,7 @@ import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.ConnectionHistory;
 import com.botwithus.bot.cli.events.HostEvent;
 import com.botwithus.bot.cli.gui.AnsiOutputBuffer;
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientActions;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogEntry;

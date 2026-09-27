@@ -1,11 +1,11 @@
 package com.botwithus.bot.cli.gui.pages.groups;
 
 import com.botwithus.bot.api.runtime.LastCrash;
-import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.Phase;
+import com.botwithus.bot.cli.gui.runners.RunnerReading;
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -31,27 +31,24 @@ final class RunnerFacts {
     }
 
     private static Optional<ScriptFact> factOf(ScriptRunner runner) {
-        String name = runner.getScriptName();
-        Liveness liveness = runner.liveness();
-        // Cut off wins over everything: a runner that ignored a stop can still look busy.
-        if (liveness.isTerminal()) {
-            return Optional.of(new ScriptFact(name, ScriptState.CUT_OFF, OptionalDouble.empty(),
-                    "would not stop"));
-        }
-        if (runner.isRunning()) {
-            ScriptState state = liveness == Liveness.STALLED ? ScriptState.STALLED : ScriptState.RUNNING;
-            String detail = state == ScriptState.STALLED ? "stuck in onLoop()" : "";
-            return Optional.of(new ScriptFact(name, state, OptionalDouble.of(runner.getProfiler().avgLoopMs()),
-                    detail));
-        }
-        Instant started = runner.lastStartedAt();
-        if (started == null) {
+        RunnerReading reading = RunnerReading.of(runner);
+        RunnerStatus status = reading.status();
+        if (!reading.hasBeenStarted() && !status.isProblem()) {
             return Optional.empty();
         }
-        Optional<LastCrash> crash = runner.health().lastCrash().filter(c -> !c.when().isBefore(started));
-        return Optional.of(crash
-                .map(c -> new ScriptFact(name, ScriptState.CRASHED, OptionalDouble.empty(), crashSummary(c)))
-                .orElseGet(() -> ScriptFact.of(name, ScriptState.STOPPED)));
+        String name = runner.getScriptName();
+        return Optional.of(switch (status) {
+            case CUT_OFF -> new ScriptFact(name, ScriptState.CUT_OFF, OptionalDouble.empty(), "would not stop");
+            case STALLED -> new ScriptFact(name, ScriptState.STALLED, avgLoopMs(runner), "stuck in onLoop()");
+            case RUNNING -> new ScriptFact(name, ScriptState.RUNNING, avgLoopMs(runner), "");
+            case CRASHED -> new ScriptFact(name, ScriptState.CRASHED, OptionalDouble.empty(),
+                    reading.currentCrash().map(RunnerFacts::crashSummary).orElse(""));
+            case STOPPED -> ScriptFact.of(name, ScriptState.STOPPED);
+        });
+    }
+
+    private static OptionalDouble avgLoopMs(ScriptRunner runner) {
+        return OptionalDouble.of(runner.getProfiler().avgLoopMs());
     }
 
     /** "NullPointerException in onLoop()". */

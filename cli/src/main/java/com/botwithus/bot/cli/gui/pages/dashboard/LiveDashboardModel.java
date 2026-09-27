@@ -11,6 +11,8 @@ import com.botwithus.bot.cli.clients.ClientRegistry;
 import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.ConnectionHistory;
 import com.botwithus.bot.cli.events.HostEvent;
+import com.botwithus.bot.cli.gui.runners.RunnerReading;
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientActions;
 import com.botwithus.bot.cli.log.LogEntry;
 import com.botwithus.bot.cli.output.AnsiCodes;
@@ -180,7 +182,7 @@ public final class LiveDashboardModel implements DashboardModel {
 
     private RunnerRow row(String pipe, String label, ScriptRunner runner) {
         ScriptProfiler p = runner.getProfiler();
-        RunnerStatus status = RunnerFacts.status(runner);
+        RunnerStatus status = RunnerReading.of(runner).status();
         ScriptManifest manifest = runner.getManifest();
         String version = manifest != null ? manifest.version() : "";
         ScriptCategory category = manifest != null ? manifest.category() : ScriptCategory.UNCATEGORIZED;
@@ -216,7 +218,7 @@ public final class LiveDashboardModel implements DashboardModel {
     private Optional<AttentionItem> runnerItem(Seen s) {
         RunnerRow row = s.row();
         return switch (row.status()) {
-            case CRASHED -> RunnerFacts.currentCrash(s.runner()).map(crash -> new AttentionItem.Crashed(
+            case CRASHED -> RunnerReading.of(s.runner()).currentCrash().map(crash -> new AttentionItem.Crashed(
                     row.ref(), row.clientLabel(), crash, row.crashes(), trace(crash)));
             case STALLED -> Optional.of(new AttentionItem.Stalled(row.ref(), row.clientLabel(),
                     row.stalledSince(), row.loops()));

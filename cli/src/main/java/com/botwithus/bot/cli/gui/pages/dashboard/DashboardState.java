@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui.pages.dashboard;
 
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
+
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;

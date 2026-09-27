@@ -7,6 +7,7 @@ import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerColumn;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerFilter;
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
 import com.botwithus.bot.cli.gui.usermode.PulseLaneView;
 
 import imgui.ImDrawList;

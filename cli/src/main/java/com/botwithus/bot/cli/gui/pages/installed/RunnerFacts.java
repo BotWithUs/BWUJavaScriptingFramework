@@ -1,7 +1,7 @@
 package com.botwithus.bot.cli.gui.pages.installed;
 
 import com.botwithus.bot.api.runtime.LastCrash;
-import com.botwithus.bot.api.runtime.Liveness;
+import com.botwithus.bot.cli.gui.runners.RunnerReading;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -14,18 +14,12 @@ import java.util.Optional;
  *
  * @param isClientAlive whether the client's pipe is up; a runner on a client that is
  *                      reconnecting or gone is shown as not connected, whatever it says
- * @param isRunning     the runner's own flag
- * @param liveness      the watchdog's verdict
- * @param lastStartedAt when the runner last started, or empty if it never has
- * @param lastCrash     the runner's most recent crash, from this run or an earlier one
+ * @param reading       the runner's own report, and the shared rule for its status
  */
-public record RunnerFacts(boolean isClientAlive, boolean isRunning, Liveness liveness,
-                          Optional<Instant> lastStartedAt, Optional<LastCrash> lastCrash) {
+public record RunnerFacts(boolean isClientAlive, RunnerReading reading) {
 
     public RunnerFacts {
-        Objects.requireNonNull(liveness, "liveness");
-        Objects.requireNonNull(lastStartedAt, "lastStartedAt");
-        Objects.requireNonNull(lastCrash, "lastCrash");
+        Objects.requireNonNull(reading, "reading");
     }
 
     /**
@@ -34,18 +28,16 @@ public record RunnerFacts(boolean isClientAlive, boolean isRunning, Liveness liv
      * a runner that was never started says nothing about where the script runs.
      */
     public boolean hasBeenUsed() {
-        return isRunning || lastStartedAt.isPresent();
+        return reading.hasBeenStarted();
     }
 
-    /**
-     * The crash that ended the current run. A crash from before the last start
-     * belongs to an earlier run that has since been restarted.
-     */
+    /** When the runner last started, or empty if it never has. */
+    public Optional<Instant> lastStartedAt() {
+        return reading.lastStartedAt();
+    }
+
+    /** The crash that ended the current run; see {@link RunnerReading#currentCrash()}. */
     public Optional<LastCrash> currentCrash() {
-        if (isRunning || lastStartedAt.isEmpty()) {
-            return Optional.empty();
-        }
-        Instant started = lastStartedAt.get();
-        return lastCrash.filter(crash -> !crash.when().isBefore(started));
+        return reading.currentCrash();
     }
 }

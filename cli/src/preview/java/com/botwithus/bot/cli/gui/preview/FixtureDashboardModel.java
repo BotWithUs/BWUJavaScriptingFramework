@@ -17,9 +17,9 @@ import com.botwithus.bot.cli.gui.pages.dashboard.LogsView;
 import com.botwithus.bot.cli.gui.pages.dashboard.RpcRow;
 import com.botwithus.bot.cli.gui.pages.dashboard.RunnerRef;
 import com.botwithus.bot.cli.gui.pages.dashboard.RunnerRow;
-import com.botwithus.bot.cli.gui.pages.dashboard.RunnerStatus;
 import com.botwithus.bot.cli.gui.pages.dashboard.Scope;
 import com.botwithus.bot.cli.gui.pages.dashboard.ScopeOption;
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
 import com.botwithus.bot.cli.log.LogEntry;
 
 import java.nio.file.Path;
