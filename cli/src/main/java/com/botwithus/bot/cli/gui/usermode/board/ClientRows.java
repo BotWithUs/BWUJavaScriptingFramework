@@ -1,7 +1,6 @@
 package com.botwithus.bot.cli.gui.usermode.board;
 
-import com.botwithus.bot.api.runtime.LastCrash;
-import com.botwithus.bot.api.runtime.Phase;
+import com.botwithus.bot.cli.gui.runners.CrashText;
 import com.botwithus.bot.cli.gui.runners.RunnerReading;
 import com.botwithus.bot.core.runtime.ScriptProfiler;
 import com.botwithus.bot.core.runtime.ScriptRunner;
@@ -45,7 +44,7 @@ final class ClientRows {
                     Duration.ofMillis(Math.max(0L, runner.livenessState().millisInLoop(nowNanos))));
             case RUNNING -> new ScriptState.Running(runningFor(runner.lastStartedAt(), now));
             case CRASHED, STOPPED -> reading.currentCrash()
-                    .<ScriptState>map(crash -> new ScriptState.Crashed(crashSummary(crash),
+                    .<ScriptState>map(crash -> new ScriptState.Crashed(CrashText.summary(crash),
                             LocalTime.ofInstant(crash.when(), zone)))
                     .orElseGet(ScriptState.Stopped::new);
         };
@@ -58,18 +57,4 @@ final class ClientRows {
         return Duration.between(startedAt, now);
     }
 
-    /** One line for a crash, e.g. "NullPointerException in onLoop()". */
-    static String crashSummary(LastCrash crash) {
-        String type = crash.cause() != null ? crash.cause().getClass().getSimpleName() : "Error";
-        return type + " in " + phaseMethod(crash.phase());
-    }
-
-    private static String phaseMethod(Phase phase) {
-        return switch (phase) {
-            case ON_START -> "onStart()";
-            case ON_LOOP -> "onLoop()";
-            case ON_STOP -> "onStop()";
-            case ON_CONFIG_UPDATE -> "onConfigUpdate()";
-        };
-    }
 }

@@ -1,6 +1,5 @@
 package com.botwithus.bot.cli.gui.notify;
 
-import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.events.ClientRef;
@@ -23,6 +22,7 @@ import com.botwithus.bot.cli.events.HostEvent.ScriptStopped;
 import com.botwithus.bot.cli.events.HostEventBus;
 import com.botwithus.bot.cli.gui.notify.Notification.Kind;
 import com.botwithus.bot.cli.gui.notify.Notification.Severity;
+import com.botwithus.bot.cli.gui.runners.CrashText;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.rpc.ReconnectController;
@@ -154,10 +154,8 @@ public final class ToastFeed implements Consumer<HostEvent> {
     // ── Scripts ─────────────────────────────────────────────────────────────
 
     private void onCrashed(ScriptCrashed e) {
-        Throwable cause = e.crash().cause();
-        String name = cause != null ? cause.getClass().getSimpleName() : "Error";
-        post(Kind.SCRIPT_CRASHED, e.script() + " crashed",
-                who(e.client()) + " · " + name + " in " + phaseMethod(e.crash().phase()), e.client(), true);
+        post(Kind.SCRIPT_CRASHED, e.script() + " crashed", who(e.client()) + " · " + CrashText.summary(e.crash()),
+                e.client(), true);
     }
 
     private void onLoadFailed(ScriptLoadFailed e) {
@@ -166,15 +164,6 @@ public final class ToastFeed implements Consumer<HostEvent> {
                 : e.cause().getClass().getSimpleName();
         post(Kind.LOAD_FAILED, "A script JAR failed to load", e.jar().getFileName() + " · " + reason,
                 Optional.empty(), true);
-    }
-
-    private static String phaseMethod(Phase phase) {
-        return switch (phase) {
-            case ON_START -> "onStart()";
-            case ON_LOOP -> "onLoop()";
-            case ON_STOP -> "onStop()";
-            case ON_CONFIG_UPDATE -> "onConfigUpdate()";
-        };
     }
 
     // ── Posting ─────────────────────────────────────────────────────────────

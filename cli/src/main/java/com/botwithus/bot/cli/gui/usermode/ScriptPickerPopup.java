@@ -63,7 +63,6 @@ final class ScriptPickerPopup {
     private static final float DETAIL_TILE_EM = 2.667f;
     private static final float DESC_CH = 40f;
     private static final float LINE = 1.35f;
-    private static final float CHECKBOX_EM = 1.067f;
     private static final String ALL = "All";
     private static final String SUBSCRIPTIONS = "Subscriptions";
 
@@ -615,18 +614,10 @@ final class ScriptPickerPopup {
         if (ImGui.invisibleButton("##review", w, h)) {
             review = !review;
         }
+        boolean isHovered = ImGui.isItemHovered();
         ImDrawList draw = ImGui.getWindowDrawList();
-        float box = ui.fonts().body().getFontSize() * CHECKBOX_EM;
-        float by = y + (h - box) * 0.5f;
-        draw.addRectFilled(x, by, x + box, by + box, review ? ImGuiTheme.COL_ACCENT : ImGuiTheme.COL_BG,
-                m.radiusSmall());
-        draw.addRect(x + 0.5f, by + 0.5f, x + box - 0.5f, by + box - 0.5f,
-                review ? ImGuiTheme.COL_ACCENT : ImGuiTheme.COL_BORDER, m.radiusSmall());
-        if (review) {
-            ImFont cap = ui.fonts().caption();
-            ui.text(draw, cap, x + (box - ui.width(cap, Icons.CHECK)) * 0.5f, by + (box - cap.getFontSize()) * 0.5f,
-                    ImGuiTheme.COL_ON_ACCENT, Icons.CHECK);
-        }
+        float box = ui.tickBoxSize();
+        Controls.paintTickBox(draw, x, y + (h - box) * 0.5f, box, review, isHovered, 1f, Controls.TickColors.ACCENT);
         ui.textCentredY(draw, ui.fonts().small(), x + box + m.u(2), y, h, ImGuiTheme.COL_FG,
                 "Review settings after starting");
     }

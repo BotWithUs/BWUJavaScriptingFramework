@@ -30,7 +30,6 @@ final class GroupWidgets {
     static final int ROW_HOVER = Controls.scaleAlpha(ImGuiTheme.COL_FG, ROW_HOVER_ALPHA);
     static final int ROW_SELECTED = Controls.scaleAlpha(ImGuiTheme.COL_INFO, ROW_SELECTED_ALPHA);
 
-    private static final float CHECKBOX_EM = 1.067f;
     private static final float TOOLTIP_WIDTH_EM = 22f;
     private static final float SPINNER_ARC = (float) (Math.PI * 1.5);
     private static final float SPINNER_TURNS_PER_S = 1.1f;
@@ -60,33 +59,10 @@ final class GroupWidgets {
         return ui.fonts().body().getFontSize();
     }
 
-    float checkboxSize() {
-        return fs() * CHECKBOX_EM;
-    }
-
-    /** A token checkbox at (x, y), vertically centred in {@code h}; returns true when clicked. */
+    /** The kit's tick box at (x, y), vertically centred in {@code h}; returns true when clicked. */
     boolean checkbox(String id, float x, float y, float h, boolean isChecked, boolean isEnabled) {
-        float s = checkboxSize();
-        float top = y + (h - s) * 0.5f;
-        ImGui.setCursorScreenPos(x, top);
-        ImGui.beginDisabled(!isEnabled);
-        boolean clicked = ImGui.invisibleButton(id, s, s);
-        boolean isHovered = isEnabled && ImGui.isItemHovered();
-        ImGui.endDisabled();
-        ImDrawList draw = ImGui.getWindowDrawList();
-        float alpha = isEnabled ? 1f : ImGuiTheme.DISABLED_ALPHA;
-        float r = m().radiusSmall();
-        if (isChecked) {
-            draw.addRectFilled(x, top, x + s, top + s, Controls.scaleAlpha(ImGuiTheme.COL_ACCENT, alpha), r);
-            float iw = ui.width(ui.fonts().caption(), Icons.CHECK);
-            ui.textCentredY(draw, ui.fonts().caption(), x + (s - iw) * 0.5f, top, s,
-                    Controls.scaleAlpha(ImGuiTheme.COL_ON_ACCENT, alpha), Icons.CHECK);
-        } else {
-            draw.addRectFilled(x, top, x + s, top + s, ImGuiTheme.COL_BG, r);
-            int border = isHovered ? ImGuiTheme.COL_BORDER_HOVER : ImGuiTheme.COL_FG3;
-            draw.addRect(x + 0.5f, top + 0.5f, x + s - 0.5f, top + s - 0.5f, Controls.scaleAlpha(border, alpha), r);
-        }
-        return clicked && isEnabled;
+        ImGui.setCursorScreenPos(x, y + (h - ui.tickBoxSize()) * 0.5f);
+        return ui.tickBox(id, isChecked, isEnabled);
     }
 
     /** A member's dot, centred on (cx, cy): filled in its state's colour, hollow when closed. */
