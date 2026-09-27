@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -27,15 +28,6 @@ final class LivenessWatchdog implements AutoCloseable {
 
     /** Sweep cadence. Fine enough to escalate promptly, coarse enough to be free. */
     private static final long SWEEP_INTERVAL_MS = 250L;
-
-    /**
-     * Time inside a single {@code onLoop} with no stop pending before the runner
-     * is flagged {@link Liveness#STALLED}. Deliberately generous: a blocking
-     * walk legitimately parks inside {@code onLoop} for up to {@code Walker}'s
-     * 300s timeout, so a shorter threshold would flag healthy scripts. Advisory
-     * only — the runner recovers as soon as a loop completes.
-     */
-    private static final long IDLE_STALL_MS = 600_000L;
 
     /** After a stop request, how long the thread may stay in {@code onLoop} before STALLED. */
     static final long STOP_STALL_MS = 2_000L;
@@ -85,12 +77,21 @@ final class LivenessWatchdog implements AutoCloseable {
      */
     private final Supplier<String> threadName;
     private final Supplier<Iterable<? extends Subject>> subjects;
+    /**
+     * Time inside a single {@code onLoop}, with no stop pending, before the
+     * runner is flagged {@link Liveness#STALLED}. Advisory only: the runner
+     * recovers as soon as a loop completes. Read on every sweep, so a change to
+     * the setting behind it applies without re-arming.
+     */
+    private final LongSupplier idleStallMs;
     private final Object lock = new Object();
     private ScheduledExecutorService executor;
 
-    LivenessWatchdog(Supplier<String> threadName, Supplier<Iterable<? extends Subject>> subjects) {
+    LivenessWatchdog(Supplier<String> threadName, Supplier<Iterable<? extends Subject>> subjects,
+                     LongSupplier idleStallMs) {
         this.threadName = threadName;
         this.subjects = subjects;
+        this.idleStallMs = idleStallMs;
     }
 
     /**
@@ -180,7 +181,7 @@ final class LivenessWatchdog implements AutoCloseable {
     /** Advisory only: nobody asked this script to stop, it has just been in one loop a long time. */
     private void flagIdleStall(Subject subject, RunnerLiveness liveness, long nowNanos) {
         long inLoopMs = liveness.millisInLoop(nowNanos);
-        if (inLoopMs >= IDLE_STALL_MS && liveness.markStalled()) {
+        if (inLoopMs >= idleStallMs.getAsLong() && liveness.markStalled()) {
             subject.onLivenessChanged(Liveness.STALLED);
             log.warn("Script {} has been inside a single onLoop() for {} ms",
                     subject.getScriptName(), inLoopMs);

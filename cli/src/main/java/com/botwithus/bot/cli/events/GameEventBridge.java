@@ -18,10 +18,11 @@ import java.time.Instant;
  */
 public final class GameEventBridge {
 
-    private final HostEventBus bus;
+    private final ClientKeys keys;
 
-    public GameEventBridge(HostEventBus bus) {
-        this.bus = bus;
+    /** @param keys keys each event by the client it came from, and publishes it */
+    public GameEventBridge(ClientKeys keys) {
+        this.keys = keys;
     }
 
     /**
@@ -29,14 +30,12 @@ public final class GameEventBridge {
      * events are attributed to {@code pipe}, the connection that owns the bus.
      */
     public void attach(EventBus connectionBus, String pipe) {
-        ClientRef client = new ClientRef(pipe);
-        connectionBus.subscribe(ConnectionLostEvent.class, e ->
-                bus.publish(new ConnectionLost(client, e.cause(), at(e.timestamp()))));
-        connectionBus.subscribe(ReconnectStateChangedEvent.class, e ->
-                bus.publish(new ReconnectStateChanged(client, e.state(), at(e.timestamp()))));
-        connectionBus.subscribe(ScriptCrashedEvent.class, e ->
-                bus.publish(new ScriptCrashed(client, e.scriptName(), e.crash(),
-                        at(e.timestamp()))));
+        connectionBus.subscribe(ConnectionLostEvent.class, e -> keys.publish(pipe,
+                client -> new ConnectionLost(client, e.cause(), at(e.timestamp()))));
+        connectionBus.subscribe(ReconnectStateChangedEvent.class, e -> keys.publish(pipe,
+                client -> new ReconnectStateChanged(client, e.state(), at(e.timestamp()))));
+        connectionBus.subscribe(ScriptCrashedEvent.class, e -> keys.publish(pipe,
+                client -> new ScriptCrashed(client, e.scriptName(), e.crash(), at(e.timestamp()))));
     }
 
     private static Instant at(long epochMillis) {

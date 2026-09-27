@@ -1,11 +1,11 @@
 package com.botwithus.bot.cli.gui.usermode;
 
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.CategoryStyle;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptEntry;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
@@ -52,7 +52,7 @@ import java.util.function.Function;
 final class ScriptPickerPopup {
 
     /** What the user chose. */
-    record Pick(String clientId, PickerRow row, boolean reviewSettings) {}
+    record Pick(ClientKey client, PickerRow row, boolean reviewSettings) {}
 
     private static final String POPUP_ID = "##start-script";
     private static final int QUERY_CAPACITY = 128;
@@ -63,7 +63,6 @@ final class ScriptPickerPopup {
     private static final float DETAIL_TILE_EM = 2.667f;
     private static final float DESC_CH = 40f;
     private static final float LINE = 1.35f;
-    private static final float CHECKBOX_EM = 1.067f;
     private static final String ALL = "All";
     private static final String SUBSCRIPTIONS = "Subscriptions";
 
@@ -73,7 +72,7 @@ final class ScriptPickerPopup {
     private boolean pendingOpen;
     private boolean focusSearch;
     private boolean open;
-    private String clientId;
+    private ClientKey client;
     private String account;
     private List<ScriptEntry> catalog = List.of();
     private SubscriptionGroup group = new SubscriptionGroup.Pending();
@@ -89,9 +88,9 @@ final class ScriptPickerPopup {
         this.subscriptionRows = new SubscriptionRows(ui);
     }
 
-    void open(ClientView client, List<ScriptEntry> scripts) {
-        clientId = client.id();
-        account = client.account();
+    void open(ClientView view, List<ScriptEntry> scripts) {
+        client = view.id();
+        account = CardText.title(view);
         catalog = scripts.stream()
                 .sorted(Comparator.comparing((ScriptEntry e) -> e.info().category().ordinal()))
                 .toList();
@@ -113,11 +112,19 @@ final class ScriptPickerPopup {
     }
 
     /**
+     * Package-private: the dev preview's seam for typing into the search box. It
+     * holds only on the frame the picker opens, before the box takes the keyboard.
+     */
+    void search(String text) {
+        query.set(text);
+    }
+
+    /**
      * Renders the modal if open; returns the pick on the frame the user starts one.
      *
      * @param subscriptions the "Your subscriptions" group for a client id; asked every frame
      */
-    Optional<Pick> render(Function<String, SubscriptionGroup> subscriptions) {
+    Optional<Pick> render(Function<ClientKey, SubscriptionGroup> subscriptions) {
         if (pendingOpen) {
             ImGui.openPopup(POPUP_ID);
             pendingOpen = false;
@@ -132,7 +139,7 @@ final class ScriptPickerPopup {
         if (!open) {
             return Optional.empty();
         }
-        if (clientId == null) {
+        if (client == null) {
             // ImGui still has this modal on its popup stack (e.g. this picker was
             // rebuilt while it was up) but nothing opened it here: close it rather
             // than draw a picker for no client.
@@ -141,14 +148,14 @@ final class ScriptPickerPopup {
             open = false;
             return Optional.empty();
         }
-        group = subscriptions.apply(clientId);
+        group = subscriptions.apply(client);
         followInstall();
         Optional<Pick> pick = renderContent();
         boolean closes = !open || pick.map(this::closesOnPick).orElse(false);
         if (closes) {
             ImGui.closeCurrentPopup();
             open = false;
-            clientId = null;
+            client = null;
         }
         ImGui.endPopup();
         return pick;
@@ -245,7 +252,7 @@ final class ScriptPickerPopup {
         boolean startByButton = renderFooter(current, x, y + h - footerH, w);
         boolean chosen = startByKey || startByRow || startByButton;
         if (chosen && current.isPresent() && current.get().isChoosable()) {
-            return Optional.of(new Pick(clientId, current.get(), review));
+            return Optional.of(new Pick(client, current.get(), review));
         }
         return Optional.empty();
     }
@@ -368,7 +375,7 @@ final class ScriptPickerPopup {
         float h = m.controlSmallHeight();
         ImGui.setCursorScreenPos(x, y);
         boolean clicked = ImGui.invisibleButton("##pill-" + label, w, h);
-        float t = Motion.step("pill:" + label, ImGui.isItemHovered() ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
+        float t = ui.motion().step("pill:" + label, ImGui.isItemHovered() ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
         boolean on = label.equals(category);
         ImDrawList draw = ImGui.getWindowDrawList();
         int bg = on ? ImGuiTheme.COL_FG : Controls.scaleAlpha(ImGuiTheme.COL_SURFACE, t);
@@ -487,7 +494,7 @@ final class ScriptPickerPopup {
             ImGui.setScrollHereY();
             scrollToHighlight = false;
         }
-        float t = Motion.step("prow:" + index, ImGui.isItemHovered() ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
+        float t = ui.motion().step("prow:" + index, ImGui.isItemHovered() ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
         ImDrawList draw = ImGui.getWindowDrawList();
         paintRowBackground(draw, x, y, w, h, on, t);
         switch (pickerRow) {
@@ -607,18 +614,10 @@ final class ScriptPickerPopup {
         if (ImGui.invisibleButton("##review", w, h)) {
             review = !review;
         }
+        boolean isHovered = ImGui.isItemHovered();
         ImDrawList draw = ImGui.getWindowDrawList();
-        float box = ui.fonts().body().getFontSize() * CHECKBOX_EM;
-        float by = y + (h - box) * 0.5f;
-        draw.addRectFilled(x, by, x + box, by + box, review ? ImGuiTheme.COL_ACCENT : ImGuiTheme.COL_BG,
-                m.radiusSmall());
-        draw.addRect(x + 0.5f, by + 0.5f, x + box - 0.5f, by + box - 0.5f,
-                review ? ImGuiTheme.COL_ACCENT : ImGuiTheme.COL_BORDER, m.radiusSmall());
-        if (review) {
-            ImFont cap = ui.fonts().caption();
-            ui.text(draw, cap, x + (box - ui.width(cap, Icons.CHECK)) * 0.5f, by + (box - cap.getFontSize()) * 0.5f,
-                    ImGuiTheme.COL_ON_ACCENT, Icons.CHECK);
-        }
+        float box = ui.tickBoxSize();
+        Controls.paintTickBox(draw, x, y + (h - box) * 0.5f, box, review, isHovered, 1f, Controls.TickColors.ACCENT);
         ui.textCentredY(draw, ui.fonts().small(), x + box + m.u(2), y, h, ImGuiTheme.COL_FG,
                 "Review settings after starting");
     }
