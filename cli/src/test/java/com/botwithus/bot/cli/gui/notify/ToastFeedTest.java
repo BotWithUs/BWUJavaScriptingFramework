@@ -57,6 +57,8 @@ class ToastFeedTest {
     private static final Instant AT = MutableClock.START;
     private static final long CUSTOM_SECONDS = 12L;
     private static final long CHANGED_SECONDS = 3L;
+    /** The design's pop-up lifetime, and the default until the user sets another. */
+    private static final long DEFAULT_SECONDS = 6L;
     private static final long STALL_AFTER_MS = 45_000L;
     private static final long STALL_AFTER_TEN_MINUTES_MS = 600_000L;
     private static final int ATTEMPTS = 5;
@@ -119,6 +121,14 @@ class ToastFeedTest {
             List<NotificationKind> expected = kind == off ? List.of() : List.of(kind);
             assertEquals(expected, shown, "with " + off + " switched off, a " + kind + " event showed " + shown);
         }
+    }
+
+    @Test
+    void untilTheUserSetsOne_aToastLastsSixSeconds() {
+        feed.accept(new ScriptStalled(OAK, "Divination", AT));
+        overlay.update();
+
+        assertEquals(Optional.of(AT.plusSeconds(DEFAULT_SECONDS)), overlay.active().getFirst().expiresAt());
     }
 
     @Test

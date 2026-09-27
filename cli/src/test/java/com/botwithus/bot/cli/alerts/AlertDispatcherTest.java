@@ -4,6 +4,8 @@ import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.HostEvent;
 import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.QuietMode;
+import com.botwithus.bot.cli.settings.Subscription;
 import com.botwithus.bot.core.alerts.Alert;
 import com.botwithus.bot.core.alerts.AlertKind;
 import com.botwithus.bot.core.alerts.AlertMessage;
@@ -41,21 +43,34 @@ class AlertDispatcherTest {
     private final FakeClientDirectory directory = new FakeClientDirectory().name(PIPE, "Hollowmere");
     private HostSettings settings;
     private AlertDispatcher dispatcher;
+    private Subscription resumed;
 
     @BeforeEach
     void open() {
         settings = HostSettings.open(dir);
         dispatcher = dispatcherWith(Runnable::run);
+        resumed = dispatcher.resumeHeld();
     }
 
     @AfterEach
     void close() {
+        resumed.close();
+        dispatcher.close();
         settings.close();
     }
 
     private AlertDispatcher dispatcherWith(Executor intake) {
+        return dispatcherWith(intake, scheduler);
+    }
+
+    /** A dispatcher over the same settings and held-alerts file, as a host started again would build. */
+    private AlertDispatcher dispatcherWith(Executor intake, ManualScheduler timer) {
         return new AlertDispatcher(new AlertSettings(settings), new AlertClassifier(directory), notifiers,
-                status, scheduler, intake, DeliveryLanes.direct(), clock, ZoneOffset.UTC);
+                status, timer, intake, DeliveryLanes.direct(), HeldAlerts.open(heldFile()), clock, ZoneOffset.UTC);
+    }
+
+    private Path heldFile() {
+        return dir.resolve(HeldAlerts.FILE_NAME);
     }
 
     private void enable(AlertService service) {
@@ -187,6 +202,7 @@ class AlertDispatcherTest {
         enable(AlertService.NTFY);
         noBursts();
         quietHours("22:00", "07:00");
+        settings.set(AlertSettingKeys.QUIET_MODE, QuietMode.MUTE);
 
         clock.set(Instant.parse("2026-09-27T03:00:00Z"));
         dispatcher.dispatch(alert(AlertKind.CLIENT_LOST, "held"));

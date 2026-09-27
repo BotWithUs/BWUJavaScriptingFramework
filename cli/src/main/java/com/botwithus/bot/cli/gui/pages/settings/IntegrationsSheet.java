@@ -5,6 +5,7 @@ import com.botwithus.bot.cli.alerts.ServiceStatus;
 import com.botwithus.bot.cli.alerts.ServiceView;
 import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.QuietMode;
 import com.botwithus.bot.cli.settings.SettingKey;
 import com.botwithus.bot.core.alerts.AlertKind;
 import com.botwithus.bot.core.alerts.AlertService;
@@ -18,7 +19,7 @@ import java.util.function.Function;
 
 /**
  * Builds the Integrations section: a card per alert service, the event grid,
- * and the burst, quiet-hours and daily-summary rows. Cards come from the alert
+ * and the burst, quiet-hours, quiet-hours mode and daily-summary rows. Cards come from the alert
  * back end's {@link ServiceView}s, which are cheap to read every frame; everything
  * else is a plain {@code alerts.*} setting. No secret is ever part of what this
  * builds: a card only says whether one is saved.
@@ -32,9 +33,11 @@ public final class IntegrationsSheet {
     static final String NOT_RUNNING = "Alerts did not start in this session, so services cannot be set up "
             + "or tested here. The settings below still save.";
     static final String QUIET_LABEL = "Quiet hours";
-    /** The back end drops a quiet-hours alert rather than holding it, so the copy says "mute". */
-    static final String QUIET_DESCRIPTION = "Mute everything except crashes between these times "
-            + "(24-hour, local time). Muted alerts are not sent later.";
+    /** What quiet hours do to crashes; what they do to everything else is the mode row's to say. */
+    static final String QUIET_DESCRIPTION = "Between these times (24-hour, local time), only crashes are "
+            + "sent at once. The daily summary still goes out at its time.";
+    static final String QUIET_HOLD = "Hold alerts and send them when quiet hours end, one message per service.";
+    static final String QUIET_MUTE = "Mute alerts. Muted alerts are not sent later.";
 
     private static final String AT = ", at ";
     private static final String GRID = "Event grid · ";
@@ -68,6 +71,7 @@ public final class IntegrationsSheet {
         items.add(new SettingsItem.QuietHours(QUIET_LABEL, QUIET_DESCRIPTION,
                 settings.get(AlertSettingKeys.QUIET_ENABLED), settings.get(AlertSettingKeys.QUIET_FROM),
                 settings.get(AlertSettingKeys.QUIET_TO)));
+        items.add(keyRow.apply(quietModePlaced(settings.get(AlertSettingKeys.QUIET_MODE))));
         items.add(keyRow.apply(placed(AlertSettingKeys.SUMMARY_AT)));
         return items;
     }
@@ -157,6 +161,16 @@ public final class IntegrationsSheet {
             table.put(key.name(), QUIET_LABEL);
         }
         return Map.copyOf(table);
+    }
+
+    /** The mode row, worded for the mode it is in: what happens to an alert quiet hours hold back. */
+    private static Placement quietModePlaced(QuietMode mode) {
+        Placement placed = placed(AlertSettingKeys.QUIET_MODE);
+        String copy = switch (mode) {
+            case HOLD -> QUIET_HOLD;
+            case MUTE -> QUIET_MUTE;
+        };
+        return new Placement(placed.section(), placed.key(), placed.unit(), copy);
     }
 
     private static Placement placed(SettingKey<?> key) {
