@@ -56,6 +56,10 @@ public final class GroupsPreviewSeams {
         page.state().ask(Confirm.STOP_ALL);
     }
 
+    public static void askDelete(GroupsPage page) {
+        page.state().ask(Confirm.DELETE);
+    }
+
     public static void startRename(GroupsPage page, String current) {
         page.state().startRename(current);
     }

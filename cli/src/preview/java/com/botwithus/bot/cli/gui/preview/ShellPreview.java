@@ -18,6 +18,7 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.FontLoader;
 import com.botwithus.bot.cli.gui.FramelessChrome;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
+import com.botwithus.bot.cli.gui.Motion;
 import com.botwithus.bot.cli.gui.PreviewFonts;
 import com.botwithus.bot.cli.gui.Shell;
 import com.botwithus.bot.cli.gui.inspector.InspectorDock;
@@ -31,13 +32,16 @@ import com.botwithus.bot.cli.gui.pages.connections.ConnectionsPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.connections.RowFilter;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState;
+import com.botwithus.bot.cli.gui.pages.dashboard.LogLevel;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.DockTab;
+import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerColumn;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerFilter;
 import com.botwithus.bot.cli.gui.pages.groups.BusyChoice;
 import com.botwithus.bot.cli.gui.pages.groups.GroupsPage;
 import com.botwithus.bot.cli.gui.pages.groups.GroupsPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPreviewSeams;
+import com.botwithus.bot.cli.gui.pages.installed.InstalledQuery;
 import com.botwithus.bot.cli.gui.pages.management.ManagementPage;
 import com.botwithus.bot.cli.gui.pages.management.ManagementPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
@@ -84,8 +88,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -104,6 +111,12 @@ import javax.imageio.ImageIO;
  * <p>Frames are drawn into an offscreen framebuffer before being read back, so a
  * window overlapping the preview cannot bleed into the capture. The real mouse is
  * parked off-screen every frame so hover states do not depend on where it is.</p>
+ *
+ * <p>With {@value #CHECK_FLAG} after the output folder it is the smoke check that
+ * {@code ./gradlew :cli:previewSmokeTest} runs: every scenario must render without
+ * an exception, and every frame must show a page ({@link FrameCheck}). It still
+ * writes every PNG, so a failure can be looked at, and fails once all have run.
+ * A scenario that throws stops the run there, named in the exception.</p>
  */
 public final class ShellPreview extends Application {
 
@@ -112,7 +125,7 @@ public final class ShellPreview extends Application {
     private static final int WIDTH = 1100;
     private static final int HEIGHT = 670;
     private static final float SCALE = 1f;
-    private static final float ADVANCED_FONT_PX = 17f;
+    private static final float DEFAULT_FONT_PX = 17f;
     /** Frames to let entrance, drawer and toast animations settle before capturing. */
     private static final int SETTLE_FRAMES = 45;
     private static final int RGBA = 4;
@@ -171,8 +184,16 @@ public final class ShellPreview extends Application {
                          FixtureToasts fleet, FixturePages.Built pages,
                          InspectorDock inspector, FixtureWindow window, Consumer<TextSize> textSize) {}
 
+    /** The argument that turns a render into the smoke check. */
+    static final String CHECK_FLAG = "--check";
+    private static final String LIST_BREAK = System.lineSeparator() + "  ";
+
     private final Path outDir;
-    private final List<Scenario> scenarios = scenarios();
+    private final boolean isCheck;
+    private final List<Scenario> scenarios = requireUniqueNames(scenarios());
+    /** Frames the check refused, one line each; empty when not checking. */
+    private final List<String> emptyFrames = new ArrayList<>();
+    private int captured;
     /** Defaults only, read by the toast feed; kept under the output folder, never the user's home. */
     private HostSettings toastSettings;
     private int scenarioIndex;
@@ -187,14 +208,45 @@ public final class ShellPreview extends Application {
     private TextSize textSize = TextSize.PERCENT_100;
     private TextSize shownTextSize = TextSize.PERCENT_100;
 
-    private ShellPreview(Path outDir) {
+    private ShellPreview(Path outDir, boolean isCheck) {
         this.outDir = outDir;
+        this.isCheck = isCheck;
     }
 
     public static void main(String[] args) throws IOException {
         Path out = Path.of(args.length > 0 ? args[0] : "build/preview");
+        boolean isCheck = List.of(args).contains(CHECK_FLAG);
         Files.createDirectories(out);
-        launch(new ShellPreview(out));
+        ShellPreview preview = new ShellPreview(out, isCheck);
+        launch(preview);
+        if (isCheck) {
+            preview.report();
+        }
+    }
+
+    /** Fails unless every scenario was captured and every frame showed a page. */
+    private void report() {
+        List<String> problems = new ArrayList<>(emptyFrames);
+        if (captured != scenarios.size()) {
+            problems.add("captured " + captured + " of " + scenarios.size()
+                    + " scenarios; the window closed before the last one");
+        }
+        if (!problems.isEmpty()) {
+            throw new IllegalStateException("Preview smoke check failed:" + LIST_BREAK
+                    + String.join(LIST_BREAK, problems));
+        }
+        log.info("preview: smoke check passed, {} scenarios rendered", captured);
+    }
+
+    /** Two scenarios with one name would write one PNG over the other and hide a state. */
+    private static List<Scenario> requireUniqueNames(List<Scenario> scenarios) {
+        Set<String> names = new HashSet<>();
+        for (Scenario s : scenarios) {
+            if (!names.add(s.name())) {
+                throw new IllegalStateException("Two preview scenarios are named " + s.name());
+            }
+        }
+        return scenarios;
     }
 
     @Override
@@ -209,7 +261,7 @@ public final class ShellPreview extends Application {
         super.initImGui(config);
         ImGui.getIO().setIniFilename(null);
         ImGui.getIO().addConfigFlags(ImGuiConfigFlags.NavEnableKeyboard);
-        ui = new Controls(FontLoader.loadAll(SCALE, ADVANCED_FONT_PX));
+        ui = new Controls(FontLoader.loadAll(SCALE, DEFAULT_FONT_PX), Motion.full(Motion.FrameClock.imGui()));
         ImGuiTheme.apply(SCALE);
         fbo = createFramebuffer();
         toastSettings = HostSettings.open(outDir.resolve("toast-settings"));
@@ -238,7 +290,7 @@ public final class ShellPreview extends Application {
     @Override
     protected void startFrame() {
         if (textSize != shownTextSize) {
-            PreviewFonts.rebuild(ui, imGuiGl3, textSize, ADVANCED_FONT_PX);
+            PreviewFonts.rebuild(ui, imGuiGl3, textSize, DEFAULT_FONT_PX);
             shownTextSize = textSize;
         }
         super.startFrame();
@@ -248,8 +300,12 @@ public final class ShellPreview extends Application {
     public void process() {
         ImGui.getIO().setMousePos(OFF_SCREEN, OFF_SCREEN);
         Scenario s = scenarios.get(scenarioIndex);
-        s.onFrame().accept(stage, frame);
-        mode = shell.render(mode, stage.board(), n -> { });
+        try {
+            s.onFrame().accept(stage, frame);
+            mode = shell.render(mode, stage.board(), n -> { });
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Preview scenario " + s.name() + " threw on frame " + frame, e);
+        }
         frame++;
     }
 
@@ -319,6 +375,10 @@ public final class ShellPreview extends Application {
             throw new UncheckedIOException("Could not write " + file, e);
         }
         log.info("preview: wrote {}", file.toAbsolutePath());
+        captured++;
+        if (isCheck) {
+            FrameCheck.problem(image).ifPresent(problem -> emptyFrames.add(name + ": " + problem));
+        }
     }
 
     // ── Scenarios ──────────────────────────────────────────────────────────
@@ -408,9 +468,65 @@ public final class ShellPreview extends Application {
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
                 installedScenarios(), settingsScenarios(), integrationsScenarios(), groupsScenarios(),
-                toastScenarios(), managementSettingsScenarios(), managementScenarios())
+                toastScenarios(), managementSettingsScenarios(), managementScenarios(), coverageScenarios())
                 .flatMap(List::stream).toList();
     }
+
+    /**
+     * States the design names that the per-page lists above did not reach: the
+     * empty results of each filter and search, the inline confirms, the group
+     * manager's paused and stopped slots, a found pipe's detail, and the runners
+     * table sorted and the logs narrowed.
+     */
+    private static List<Scenario> coverageScenarios() {
+        GroupId woodcutters = FixtureGroupsModel.WOODCUTTERS;
+        return List.of(
+                new Scenario("150-clients-view-matches-nothing", () -> FixtureBoard.restart(RestartStep.RUNNING_AGAIN),
+                        (s, f) -> PreviewSeams.showNeedsAttention(s.page())),
+                new Scenario("151-picker-search-matches-nothing", FixtureBoard::everyState, (s, f) -> {
+                    if (f == 0) {
+                        s.page().openPicker(s.board(), IDLE);
+                        PreviewSeams.searchPicker(s.page(), NO_MATCH);
+                    }
+                }),
+                management("152-management-stop-all-confirm", (s, page) -> {
+                    ManagementPreviewSeams.selectOverview(page, FixtureManagementModel.BREAK_SCHEDULER);
+                    ManagementPreviewSeams.armStopAll(page);
+                }),
+                groups("153-groups-delete-confirm", (s, page) -> {
+                    GroupsPreviewSeams.select(page, woodcutters);
+                    GroupsPreviewSeams.askDelete(page);
+                }),
+                groups("154-groups-manager-paused", (s, page) -> {
+                    s.pages().groupsModel().showManagerPaused();
+                    GroupsPreviewSeams.select(page, woodcutters);
+                }),
+                groups("155-groups-manager-stopped", (s, page) -> {
+                    s.pages().groupsModel().showManagerStopped();
+                    GroupsPreviewSeams.select(page, woodcutters);
+                }),
+                Scenario.connections("156-connections-search-matches-nothing", FixtureConnectionsModel::busy,
+                        (s, f) -> onFirst(f, () -> ConnectionsPreviewSeams.search(s.pages().connections(), NO_MATCH))),
+                Scenario.connections("157-connections-found-detail-auto-connect-on", FixtureConnectionsModel::busy,
+                        selectConnection(FixtureConnectionsModel.MIRELOCK_PIPE)),
+                installed("158-installed-search-matches-nothing", (s, page) ->
+                        InstalledPreviewSeams.showQuery(page, InstalledQuery.DEFAULT.withSearch(NO_MATCH))),
+                installed("159-installed-local-builds-only", (s, page) -> InstalledPreviewSeams.showQuery(page,
+                        InstalledQuery.DEFAULT.withSource(InstalledQuery.SourceFilter.LOCAL))),
+                Scenario.advanced("160-advanced-dashboard-sorted-by-avg-loop", FixtureBoard::everyState,
+                        dashboard(Fleet.BUSY, state -> {
+                            state.setDockCollapsed(true);
+                            state.sortBy(RunnerColumn.AVG);
+                        }, SCROLL_TOP)),
+                Scenario.advanced("161-advanced-dashboard-logs-errors-only", FixtureBoard::everyState,
+                        dashboard(Fleet.BUSY, state -> {
+                            state.showTab(DockTab.LOGS);
+                            state.setLevel(LogLevel.ERROR);
+                        }, SCROLL_TOP)));
+    }
+
+    /** A search no fixture row can match, for the "nothing matches" states. */
+    private static final String NO_MATCH = "zzz";
 
     /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
     private static List<Scenario> dashboardScenarios() {
@@ -420,7 +536,7 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("23-advanced-view-log-opens-client-logs", FixtureBoard::everyState, (s, f) -> {
                     s.pages().registry().select(PageId.DASHBOARD);
                     if (f == 0) {
-                        s.pages().dashboard().openLogs(Optional.of(TAMSIN_VALE));
+                        s.pages().dashboard().openLogs(Optional.of(FixtureDashboardModel.keyOf(TAMSIN_VALE)));
                     }
                 }),
                 Scenario.advanced("33-advanced-dashboard-busy-attention", FixtureBoard::everyState,
@@ -492,7 +608,8 @@ public final class ShellPreview extends Application {
     }
 
     private static final String TAMSIN_VALE = "BotWithUs_15002";
-    private static final String CRASH_KEY = "crash:" + TAMSIN_VALE + ":Cook's Assistant";
+    private static final String CRASH_KEY = "crash:" + FixtureDashboardModel.keyOf(TAMSIN_VALE).value()
+            + ":Cook's Assistant";
     private static final float SCROLL_TOP = 0f;
     private static final float SCROLL_BOTTOM = 1f;
 
@@ -639,7 +756,9 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("96-installed-start-on-dialog", FixtureBoard::everyState,
                         ShellPreview::installedStartOn),
                 installed("97-installed-stop-everywhere-confirm", (s, page) ->
-                        InstalledPreviewSeams.armStop(page, woodcutting)));
+                        InstalledPreviewSeams.armStop(page, woodcutting)),
+                Scenario.advanced("98-installed-start-on-when-back", FixtureBoard::everyState,
+                        ShellPreview::installedStartOnWhenBack));
     }
 
     private static Scenario installed(String name, BiConsumer<Stage, InstalledPage> setUp) {
@@ -663,6 +782,20 @@ public final class ShellPreview extends Application {
         if (f == 2) {
             InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_4468");
             InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_8936");
+        }
+    }
+
+    /**
+     * Start on… for a local script with offline clients: the two remembered
+     * accounts ticked to start when back, the pipe-only client refused.
+     */
+    private static void installedStartOnWhenBack(Stage s, int f) {
+        installed((stage, page) -> InstalledPreviewSeams.openStartOn(page, FixtureInstalledModel.EXAMPLE))
+                .accept(s, f);
+        if (f == 2) {
+            InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_1117");
+            InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_2234");
+            InstalledPreviewSeams.tick(s.pages().installed(), "BotWithUs_6702");
         }
     }
 

@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.alerts;
 
 import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.QuietMode;
 import com.botwithus.bot.cli.settings.SettingKey;
 import com.botwithus.bot.cli.settings.Subscription;
 import com.botwithus.bot.core.alerts.AlertKind;
@@ -11,6 +12,7 @@ import com.botwithus.bot.core.alerts.QuietHours;
 import java.time.Duration;
 import java.time.LocalTime;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -61,6 +63,11 @@ public final class AlertSettings {
         return Optional.of(new QuietHours(time(AlertSettingKeys.QUIET_FROM), time(AlertSettingKeys.QUIET_TO)));
     }
 
+    /** Whether quiet hours hold back alerts to send later, or mute them. */
+    public QuietMode quietMode() {
+        return settings.get(AlertSettingKeys.QUIET_MODE);
+    }
+
     /** When the daily summary is due, local time. */
     public LocalTime summaryAt() {
         return time(AlertSettingKeys.SUMMARY_AT);
@@ -84,6 +91,16 @@ public final class AlertSettings {
     /** Runs {@code listener} whenever the daily summary time changes. */
     public Subscription onSummaryTimeChange(Runnable listener) {
         return settings.onChange(AlertSettingKeys.SUMMARY_AT, value -> listener.run());
+    }
+
+    /** Runs {@code listener} whenever quiet hours are switched, retimed or change mode. */
+    public Subscription onQuietHoursChange(Runnable listener) {
+        List<Subscription> watches = List.of(
+                settings.onChange(AlertSettingKeys.QUIET_ENABLED, value -> listener.run()),
+                settings.onChange(AlertSettingKeys.QUIET_FROM, value -> listener.run()),
+                settings.onChange(AlertSettingKeys.QUIET_TO, value -> listener.run()),
+                settings.onChange(AlertSettingKeys.QUIET_MODE, value -> listener.run()));
+        return () -> watches.forEach(Subscription::close);
     }
 
     private LocalTime time(SettingKey<String> key) {

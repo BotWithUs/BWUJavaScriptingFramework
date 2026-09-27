@@ -17,12 +17,15 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
  * The host's alert machinery, wired: the dispatcher on the host event bus, the
  * daily summary job, and the {@link Integrations} the Settings page binds to.
+ * Alerts that quiet hours hold back are kept in {@value HeldAlerts#FILE_NAME} beside
+ * the settings file, so a restart during quiet hours still sends them when they end.
  *
  * <p>Built once by the composition root. Secrets go to Windows Credential
  * Manager; where it cannot be opened they are kept in memory for the session and
@@ -38,18 +41,20 @@ public final class Alerts implements AutoCloseable {
 
     private final Integrations integrations;
     private final Runnable unsubscribe;
-    private final Subscription summaryTimeWatch;
+    private final List<Subscription> watches;
+    private final AlertDispatcher dispatcher;
     private final DailySummaryJob summaryJob;
     private final ExecutorService intake;
     private final VirtualDeliveryLanes lanes;
     private final JdkHttpTransport transport;
 
-    private Alerts(Integrations integrations, Runnable unsubscribe, Subscription summaryTimeWatch,
-                   DailySummaryJob summaryJob, ExecutorService intake, VirtualDeliveryLanes lanes,
-                   JdkHttpTransport transport) {
+    private Alerts(Integrations integrations, Runnable unsubscribe, List<Subscription> watches,
+                   AlertDispatcher dispatcher, DailySummaryJob summaryJob, ExecutorService intake,
+                   VirtualDeliveryLanes lanes, JdkHttpTransport transport) {
         this.integrations = integrations;
         this.unsubscribe = unsubscribe;
-        this.summaryTimeWatch = summaryTimeWatch;
+        this.watches = List.copyOf(watches);
+        this.dispatcher = dispatcher;
         this.summaryJob = summaryJob;
         this.intake = intake;
         this.lanes = lanes;
@@ -77,16 +82,19 @@ public final class Alerts implements AutoCloseable {
         ExecutorService intake = Executors.newSingleThreadExecutor(
                 Thread.ofVirtual().name(INTAKE_THREAD).factory());
         VirtualThreadScheduler scheduler = new VirtualThreadScheduler(clock);
+        HeldAlerts held = HeldAlerts.open(hostSettings.file().resolveSibling(HeldAlerts.FILE_NAME));
         AlertDispatcher dispatcher = new AlertDispatcher(settings, new AlertClassifier(directory), notifiers,
-                status, scheduler, intake, lanes, clock, zone);
+                status, scheduler, intake, lanes, held, clock, zone);
         DailySummaryJob summaryJob = new DailySummaryJob(scheduler, clock, zone, settings::summaryAt,
                 () -> dispatcher.dispatch(DailySummary.compose(clock.instant(), directory.clients(), history)));
         Integrations integrations = new IntegrationsService(settings, credentials, opened.isPersistent(), notifiers,
                 status, lanes, clock, zone);
         Runnable unsubscribe = bus.subscribe(dispatcher);
+        Subscription quietWatch = dispatcher.resumeHeld();
         summaryJob.start();
-        Subscription watch = settings.onSummaryTimeChange(summaryJob::reschedule);
-        return new Alerts(integrations, unsubscribe, watch, summaryJob, intake, lanes, transport);
+        Subscription summaryWatch = settings.onSummaryTimeChange(summaryJob::reschedule);
+        return new Alerts(integrations, unsubscribe, List.of(quietWatch, summaryWatch), dispatcher, summaryJob,
+                intake, lanes, transport);
     }
 
     /** What the Integrations section binds to. */
@@ -94,11 +102,16 @@ public final class Alerts implements AutoCloseable {
         return integrations;
     }
 
-    /** Stops taking events and cancels the pending summary. Sends already queued may still finish. */
+    /**
+     * Stops taking events and cancels the pending summary and the pending send of
+     * held alerts, which stay saved for the next start. Sends already queued may
+     * still finish.
+     */
     @Override
     public void close() {
         unsubscribe.run();
-        summaryTimeWatch.close();
+        watches.forEach(Subscription::close);
+        dispatcher.close();
         summaryJob.close();
         intake.shutdown();
         lanes.close();

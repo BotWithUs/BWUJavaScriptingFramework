@@ -89,12 +89,12 @@ final class IntegrationRows {
             String detail = ui.ellipsize(caption, DETAIL_SEPARATOR + row.detail(), Math.max(0f, firstCol - m.u(3) - dx));
             ui.textCentredY(draw, caption, dx, y, h, ImGuiTheme.COL_FG2, detail);
         }
-        float box = widgets.tickBoxSize();
+        float box = ui.tickBoxSize();
         for (int i = 0; i < row.cells().size(); i++) {
             GridRow.Cell cell = row.cells().get(i);
             ImGui.setCursorScreenPos(firstCol + colW * i + (colW - box) * 0.5f, y + (h - box) * 0.5f);
             String id = GRID_ID + cell.keyName();
-            if (widgets.tickBox("##" + id, cell.isTicked(), cell.isEnabled())) {
+            if (ui.tickBox("##" + id, cell.isTicked(), cell.isEnabled())) {
                 edits.accept(id, model.edit(cell.keyName(), String.valueOf(!cell.isTicked())));
             }
         }

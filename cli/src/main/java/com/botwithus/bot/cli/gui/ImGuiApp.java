@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
-import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.impl.ActionsCommand;
 import com.botwithus.bot.cli.command.impl.AutoStartCommand;
@@ -113,7 +112,8 @@ public class ImGuiApp extends Application {
 
     private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
 
-    private static final float UI_FONT_BASE_PX = 17f;
+    /** The atlas default font, which a script's own UI and imgui's tooltips draw with; see FontLoader. */
+    private static final float DEFAULT_FONT_PX = 17f;
     /** The taskbar's name for the window. It names no connection: no one client owns the app. */
     private static final String WINDOW_TITLE = "BotWithUs";
     /** How long the Installed scripts page reuses one read of the host: its badge and body share it. */
@@ -200,7 +200,8 @@ public class ImGuiApp extends Application {
 
         redirectImGuiIniToConfigDir();
         dpiScale = detectDpiScale();
-        ui = new Controls(FontLoader.loadAll(dpiScale, UI_FONT_BASE_PX));
+        ui = new Controls(FontLoader.loadAll(dpiScale, DEFAULT_FONT_PX),
+                Motion.following(settings, Motion.FrameClock.imGui()));
         setupTheme();
 
         textureManager = new TextureManager();
@@ -338,8 +339,7 @@ public class ImGuiApp extends Application {
                 // Safe: handle is the OutputLine this same ProgressDisplay returned from start();
                 // the interface keeps it opaque so each implementation owns its handle type.
                 OutputLine line = (OutputLine) handle;
-                outputBuffer.completeProgressWithText(line, message,
-                        ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
+                outputBuffer.completeProgressWithText(line, message, ImGuiTheme.COL_DANGER);
             }
         });
     }
@@ -371,10 +371,11 @@ public class ImGuiApp extends Application {
         all.add(managementPage());
         all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state(), this::openManagement), board));
         all.add(dashboardPage());
-        all.add(storePage(sdnCatalogue, sdnInstaller));
+        StorePage store = storePage(sdnCatalogue, sdnInstaller);
+        all.add(store);
         all.add(connectionsPage());
         all.add(groupsPage());
-        all.add(installedPage(sdnCatalogue, sdnInstaller));
+        all.add(installedPage(sdnCatalogue, sdnInstaller, store));
         all.add(settingsPage());
         return all;
     }
@@ -424,15 +425,22 @@ public class ImGuiApp extends Application {
         return new ConnectionsPage(ui, model, id -> pages.select(id));
     }
 
-    /** Installed scripts, over the host's load report, runners, failed-load list and Store ledger. */
-    private InstalledPage installedPage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
+    /**
+     * Installed scripts, over the host's load report, runners, failed-load list and Store ledger. Its
+     * Install again and Update open {@code store} on the script.
+     */
+    private InstalledPage installedPage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller,
+                                        StorePage store) {
         Path scriptsDir = LocalScriptLoader.scriptsDir();
         SecondLine.FolderPath folder = SecondLine.FolderPath.of(scriptsDir, Path.of(""),
                 Path.of(System.getProperty("user.home")));
         LiveInstalledModel model = new LiveInstalledModel(new LiveInstalledModel.Deps(ctx, sdnInstaller.ledger(),
                 sdnCatalogue::shown, inspector.state()::request, executor, LiveInstalledModel.desktopOpener(executor),
                 Clock.systemDefaultZone(), scriptsDir, folder.text(), INSTALLED_VIEW_MAX_AGE));
-        return new InstalledPage(ui, model, folder, id -> pages.select(id));
+        return new InstalledPage(ui, model, folder, id -> pages.select(id), catalogueId -> {
+            store.show(catalogueId);
+            pages.select(PageId.STORE);
+        });
     }
 
     /**
@@ -470,7 +478,7 @@ public class ImGuiApp extends Application {
     /** Settings over the live host; a text size change there rebuilds the fonts between frames. */
     private SettingsPage settingsPage() {
         HostSettings settings = ctx.getSettings();
-        fontRebuild = new FontRebuild(settings, ui, dpiScale, UI_FONT_BASE_PX);
+        fontRebuild = new FontRebuild(settings, ui, dpiScale, DEFAULT_FONT_PX);
         Path home = Path.of(System.getProperty("user.home"));
         LiveSettingsModel.Places places = new LiveSettingsModel.Places(HostSettings.defaultBaseDir(),
                 LocalScriptLoader.scriptsDir(), LiveSettingsModel.exportFolderIn(home), home, Path.of(""));
@@ -545,16 +553,20 @@ public class ImGuiApp extends Application {
         }
     }
 
-    /** "View log" on a card: the Logs tab scoped to the pipe {@code client} is on, or to every client. */
+    /**
+     * "View log" on a card or a toast: the Logs tab scoped to {@code client}, which
+     * shows what it logged on every pipe it has been on, whether or not it is
+     * connected now.
+     */
     private void openLogs(ClientKey client) {
-        openLogs(ctx.getClientRegistry().get(client).flatMap(ClientRecord::pipe));
+        openLogs(Optional.of(client));
     }
 
-    /** Switches to Advanced, Dashboard, Logs tab, scoped to {@code clientId} or to every client. */
-    private void openLogs(Optional<String> clientId) {
+    /** Switches to Advanced, Dashboard, Logs tab, scoped to {@code client} or to every client. */
+    private void openLogs(Optional<ClientKey> client) {
         modeRequest.request(AppMode.ADVANCED);
         pages.select(PageId.DASHBOARD);
-        dashboard.openLogs(clientId);
+        dashboard.openLogs(client);
     }
 
     private void shutdown() {
@@ -587,13 +599,6 @@ public class ImGuiApp extends Application {
         if (glfwWindow != 0) {
             GLFW.glfwSetWindowShouldClose(glfwWindow, true);
         }
-    }
-
-    /**
-     * Returns the CLI context for use by other components (e.g., the blueprint editor).
-     */
-    public CliContext getCliContext() {
-        return ctx;
     }
 
     public static void main(String[] args) {

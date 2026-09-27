@@ -6,6 +6,7 @@ import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.cli.groups.ClientGroup;
 import com.botwithus.bot.cli.groups.GroupStore;
 import com.botwithus.bot.cli.gui.inspector.ScriptCode;
+import com.botwithus.bot.cli.gui.runners.CrashText;
 import com.botwithus.bot.cli.management.ManagementSettings;
 import com.botwithus.bot.cli.management.ManagementTargets;
 import com.botwithus.bot.cli.management.OrchestratorAuditLog;
@@ -126,25 +127,13 @@ final class ManagementRows {
         }
         return runner.health().lastCrash()
                 .filter(crash -> started == null || !crash.when().isBefore(started))
-                .<RunState>map(crash -> new RunState.Crashed(crashSummary(crash)))
+                .<RunState>map(crash -> new RunState.Crashed(CrashText.summary(crash)))
                 .orElseGet(RunState.Stopped::new);
     }
 
     /** "IllegalStateException in onStart() · 13:10". */
     private String crashLine(LastCrash crash) {
-        return crashSummary(crash) + " · " + CLOCK.format(LocalTime.ofInstant(crash.when(), zone));
-    }
-
-    /** "IllegalStateException in onStart()". */
-    static String crashSummary(LastCrash crash) {
-        String type = crash.cause() != null ? crash.cause().getClass().getSimpleName() : "Error";
-        String method = switch (crash.phase()) {
-            case ON_START -> "onStart()";
-            case ON_LOOP -> "onLoop()";
-            case ON_STOP -> "onStop()";
-            case ON_CONFIG_UPDATE -> "onConfigUpdate()";
-        };
-        return type + " in " + method;
+        return CrashText.summary(crash) + " · " + CLOCK.format(LocalTime.ofInstant(crash.when(), zone));
     }
 
     /** The script's orchestrator calls, newest first. */

@@ -52,15 +52,16 @@ public final class InstalledPage implements Page {
     private final StartOnDialog startOn;
 
     /**
-     * @param folder   the scripts folder as the sidebar's second line shows it
-     * @param navigate switches the Advanced page: Get more, Install again and Update go to the Store
+     * @param folder      the scripts folder as the sidebar's second line shows it
+     * @param navigate    switches the Advanced page: Get more goes to the Store
+     * @param storeShower opens the Store on one script by its catalogue id: Install again and Update
      */
     public InstalledPage(Controls ui, InstalledModel model, SecondLine.FolderPath folder,
-                         Consumer<PageId> navigate) {
+                         Consumer<PageId> navigate, Consumer<String> storeShower) {
         this.model = model;
         this.ui = ui;
         this.folder = folder;
-        this.state = new InstalledState(model, navigate);
+        this.state = new InstalledState(model, navigate, storeShower);
         this.widgets = new InstalledWidgets(ui);
         this.header = new InstalledHeaderBar(widgets);
         this.list = new InstalledList(widgets);

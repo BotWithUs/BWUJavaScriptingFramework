@@ -170,6 +170,10 @@ public class UserModeRenderer {
         picker.highlight(index);
     }
 
+    void searchPicker(String text) {
+        picker.search(text);
+    }
+
     /** Focus ring in the focus blue, and a quiet scrollbar that only shows its thumb. */
     private void pushPageColors() {
         Controls.pushColor(ImGuiCol.NavHighlight, ImGuiTheme.COL_FOCUS);

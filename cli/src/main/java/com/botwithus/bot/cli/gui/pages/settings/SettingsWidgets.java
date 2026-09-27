@@ -25,16 +25,6 @@ final class SettingsWidgets {
 
     private static final int BARE_COLOURS = 5;
     private static final int BARE_VARS = 2;
-    private static final float BOX_EM = 1.067f;
-    private static final float BOX_RADIUS_PX = 3f;
-    private static final float TICK_STROKE_PX = 1.8f;
-    private static final float TICK_START_X = 0.24f;
-    private static final float TICK_START_Y = 0.5f;
-    private static final float TICK_MID_X = 0.42f;
-    private static final float TICK_MID_Y = 0.68f;
-    private static final float TICK_END_X = 0.76f;
-    private static final float TICK_END_Y = 0.32f;
-    private static final float DISABLED_TICK_ALPHA = 0.25f;
     private static final String NO_HINT = "";
 
     private final Controls ui;
@@ -97,42 +87,6 @@ final class SettingsWidgets {
     /** An on/off switch at the cursor; {@code true} when clicked. */
     boolean toggle(String id, boolean isOn) {
         return ui.toggleRow(id, "", isOn, ui.toggleWidth());
-    }
-
-    /** The size of {@link #tickBox}. */
-    float tickBoxSize() {
-        return ui.fonts().body().getFontSize() * BOX_EM;
-    }
-
-    /** A tick box at the cursor; {@code true} when clicked while enabled. A disabled box is faded. */
-    boolean tickBox(String id, boolean isTicked, boolean isEnabled) {
-        float size = tickBoxSize();
-        float x = ImGui.getCursorScreenPosX();
-        float y = ImGui.getCursorScreenPosY();
-        ImGui.beginDisabled(!isEnabled);
-        boolean clicked = ImGui.invisibleButton(id, size, size);
-        boolean isHovered = isEnabled && ImGui.isItemHovered();
-        ImGui.endDisabled();
-        paintTick(ImGui.getWindowDrawList(), x, y, size, isTicked, isHovered,
-                isEnabled ? 1f : DISABLED_TICK_ALPHA);
-        return clicked && isEnabled;
-    }
-
-    private static void paintTick(ImDrawList draw, float x, float y, float size, boolean isTicked,
-                                  boolean isHovered, float alpha) {
-        if (isTicked) {
-            draw.addRectFilled(x, y, x + size, y + size, Controls.scaleAlpha(ImGuiTheme.COL_ACCENT, alpha),
-                    BOX_RADIUS_PX);
-            draw.pathClear();
-            draw.pathLineTo(x + size * TICK_START_X, y + size * TICK_START_Y);
-            draw.pathLineTo(x + size * TICK_MID_X, y + size * TICK_MID_Y);
-            draw.pathLineTo(x + size * TICK_END_X, y + size * TICK_END_Y);
-            draw.pathStroke(Controls.scaleAlpha(ImGuiTheme.COL_ON_ACCENT, alpha), 0, TICK_STROKE_PX);
-            return;
-        }
-        int border = isHovered ? ImGuiTheme.COL_FG2 : ImGuiTheme.COL_FG3;
-        draw.addRect(x + 0.5f, y + 0.5f, x + size - 0.5f, y + size - 0.5f, Controls.scaleAlpha(border, alpha),
-                BOX_RADIUS_PX);
     }
 
     private static void pushBare(ImFont font, float height) {
