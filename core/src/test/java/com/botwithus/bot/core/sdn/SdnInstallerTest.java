@@ -2,6 +2,7 @@ package com.botwithus.bot.core.sdn;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
+import com.botwithus.bot.api.ScriptManifest;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -15,8 +16,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -30,19 +36,45 @@ import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 class SdnInstallerTest {
 
     private static final long RACE_TIMEOUT_SECONDS = 30;
     private static final int RACING_INSTALLS = 2;
+    private static final Instant NOW = Instant.parse("2026-09-26T12:00:00Z");
+    private static final int BUILD = 7;
+    private static final String DELIVERED_NAME = "Delivered Woodcutter";
 
     @TempDir
     Path dir;
 
+    @TempDir
+    Path home;
+
+    private InstalledScriptsLedger ledger() {
+        return new InstalledScriptsLedger(home, InstantSource.fixed(NOW));
+    }
+
+    private static SdnCatalogueEntry entry(String id) {
+        return entry(id, DELIVERED_NAME, DeliveredScript.class.getName(), BUILD);
+    }
+
+    private static SdnCatalogueEntry entry(String id, String name, String scriptClass, Integer build) {
+        return new SdnCatalogueEntry(id, name, "author", "me", "1.0", "2", "", "", scriptClass,
+                false, true, true, false, null, null, build);
+    }
+
+    /** An installer whose courier always delivers {@code scripts}, recording into {@link #ledger()}. */
+    private SdnInstaller delivering(List<BotScript> scripts) {
+        return new SdnInstaller(dir, () -> true, () -> scripts, ledger());
+    }
+
     @Test
     void install_withNothingSelected_saysSoRatherThanCallingTheCourier() {
-        SdnInstallResult result = new SdnInstaller(dir).install(List.of());
+        SdnInstallResult result = new SdnInstaller(dir, ledger()).install(List.of());
 
         assertInstanceOf(SdnInstallResult.NothingSelected.class, result);
     }
@@ -54,7 +86,7 @@ class SdnInstallerTest {
      */
     @Test
     void install_whenDeliveryIsNotEnabled_saysDeliveryDisabled() {
-        SdnInstallResult result = new SdnInstaller(dir).install(List.of("7"));
+        SdnInstallResult result = new SdnInstaller(dir, ledger()).install(List.of(entry("7")));
 
         assertInstanceOf(SdnInstallResult.DeliveryDisabled.class, result);
     }
@@ -73,14 +105,14 @@ class SdnInstallerTest {
         FakeCourier courier = new FakeCourier(dir.resolve(SdnRendezvous.currentPid()
                 + SdnInstaller.REQUEST_SUFFIX));
         Thread courierThread = Thread.ofPlatform().daemon().name("fake-courier").start(courier);
-        SdnInstaller store = new SdnInstaller(dir, () -> true, courier::awaitDelivery);
-        SdnInstaller picker = new SdnInstaller(dir, () -> true, courier::awaitDelivery);
+        SdnInstaller store = new SdnInstaller(dir, () -> true, courier::awaitDelivery, ledger());
+        SdnInstaller picker = new SdnInstaller(dir, () -> true, courier::awaitDelivery, ledger());
         ReentrantLock rendezvous = SdnRendezvous.exchangeLock(dir, SdnInstaller.REQUEST_SUFFIX);
 
-        FutureTask<SdnInstallResult> first = new FutureTask<>(() -> store.install(List.of("7")));
+        FutureTask<SdnInstallResult> first = new FutureTask<>(() -> store.install(List.of(entry("7"))));
         Thread.ofPlatform().name("store-install").start(first);
         courier.firstRequestSeen.await();
-        FutureTask<SdnInstallResult> second = new FutureTask<>(() -> picker.install(List.of("12")));
+        FutureTask<SdnInstallResult> second = new FutureTask<>(() -> picker.install(List.of(entry("12"))));
         Thread secondThread = Thread.ofPlatform().name("picker-install").start(second);
         while (!rendezvous.hasQueuedThread(secondThread) && courier.arrivals.get() < RACING_INSTALLS) {
             Thread.onSpinWait();
@@ -99,6 +131,90 @@ class SdnInstallerTest {
                         "a request changed or vanished before the courier answered it"),
                 () -> assertFalse(Files.exists(courier.request),
                         "the last install left its request behind"));
+    }
+
+    // The ledger ----------------------------------------------------------
+
+    @Test
+    void install_delivered_recordsTheScriptClassAgainstItsCatalogueEntry() {
+        SdnInstallResult result = delivering(List.of(new DeliveredScript())).install(List.of(entry("7")));
+
+        assertInstanceOf(SdnInstallResult.Installed.class, result);
+        // A fresh ledger over the same directory proves the record reached the disk.
+        InstalledSdnScript recorded = ledger().find(DeliveredScript.class.getName())
+                .orElseGet(() -> fail("the delivered script was not recorded"));
+        assertAll(
+                () -> assertEquals("7", recorded.catalogueId()),
+                () -> assertEquals(Integer.valueOf(BUILD), recorded.installedBuild()),
+                () -> assertEquals(NOW, recorded.installedAt()));
+    }
+
+    @Test
+    void install_entryWithoutAScriptClass_pairsTheDeliveryByManifestName() {
+        SdnCatalogueEntry byName = entry("7", DELIVERED_NAME.toUpperCase(Locale.ROOT), "", BUILD);
+
+        delivering(List.of(new DeliveredScript())).install(List.of(byName));
+
+        assertEquals(Optional.of("7"),
+                ledger().find(DeliveredScript.class.getName()).map(InstalledSdnScript::catalogueId));
+    }
+
+    @Test
+    void install_batch_recordsEachScriptAgainstItsOwnEntry() {
+        SdnCatalogueEntry first = entry("7");
+        SdnCatalogueEntry second = entry("12", "Other", OtherScript.class.getName(), null);
+
+        delivering(List.of(new OtherScript(), new DeliveredScript())).install(List.of(first, second));
+
+        Map<String, InstalledSdnScript> all = ledger().all();
+        assertAll(
+                () -> assertEquals(2, all.size()),
+                () -> assertEquals("7", all.get(DeliveredScript.class.getName()).catalogueId()),
+                () -> assertEquals("12", all.get(OtherScript.class.getName()).catalogueId()),
+                () -> assertNull(all.get(OtherScript.class.getName()).installedBuild(),
+                        "an entry with no build records no build, not zero"));
+    }
+
+    @Test
+    void install_deliveredScriptNoEntryNames_isNotRecorded() {
+        delivering(List.of(new DeliveredScript()))
+                .install(List.of(entry("7", "Else", "com.example.Else", BUILD)));
+
+        assertTrue(ledger().all().isEmpty(), "a script nobody asked for must not be credited to an entry");
+    }
+
+    @Test
+    void install_deliveredScriptTwoEntriesClaim_isNotRecorded() {
+        SdnCatalogueEntry one = entry("7", DELIVERED_NAME, "", BUILD);
+        SdnCatalogueEntry two = entry("12", DELIVERED_NAME, "", BUILD);
+
+        delivering(List.of(new DeliveredScript())).install(List.of(one, two));
+
+        assertTrue(ledger().all().isEmpty(), "an ambiguous delivery must not be credited to either entry");
+    }
+
+    @Test
+    void install_courierDeliversNothing_recordsNothing() {
+        SdnInstallResult result = delivering(List.of()).install(List.of(entry("7")));
+
+        assertInstanceOf(SdnInstallResult.CourierUnavailable.class, result);
+        assertFalse(Files.exists(ledger().file()));
+    }
+
+    /**
+     * The scripts are loaded by the time the ledger is written, so a ledger that
+     * cannot be written must not turn a working install into a failed one.
+     */
+    @Test
+    void install_ledgerUnwritable_stillReportsInstalled() throws IOException {
+        Path blocked = home.resolve("not-a-directory");
+        Files.writeString(blocked, "a file where the ledger directory should be");
+        InstalledScriptsLedger unwritable = new InstalledScriptsLedger(blocked, InstantSource.fixed(NOW));
+
+        SdnInstallResult result = new SdnInstaller(dir, () -> true, () -> List.of(new DeliveredScript()),
+                unwritable).install(List.of(entry("7")));
+
+        assertInstanceOf(SdnInstallResult.Installed.class, result);
     }
 
     @Test
@@ -207,8 +323,27 @@ class SdnInstallerTest {
         }
     }
 
-    /** What a delivery carries; the install path only counts it. */
+    /** What a delivery carries. */
+    @ScriptManifest(name = DELIVERED_NAME)
     private static final class DeliveredScript implements BotScript {
+
+        @Override
+        public void onStart(ScriptContext ctx) {
+        }
+
+        @Override
+        public int onLoop() {
+            return -1;
+        }
+
+        @Override
+        public void onStop() {
+        }
+    }
+
+    /** A second script, for batch deliveries. */
+    @ScriptManifest(name = "Other")
+    private static final class OtherScript implements BotScript {
 
         @Override
         public void onStart(ScriptContext ctx) {

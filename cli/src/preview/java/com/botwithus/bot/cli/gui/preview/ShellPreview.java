@@ -284,6 +284,8 @@ public final class ShellPreview extends Application {
                 new Scenario("14-picker-old-launcher-no-group",
                         () -> FixtureBoard.sixClients().withSubscriptions(new SubscriptionGroup.Hidden()),
                         pickerOnRow(0)),
+                new Scenario("15-picker-subscriptions-update-available", FixtureBoard::subscribedWithUpdate,
+                        pickerOnRow(DIVINATION_UPDATE_ROW)),
                 Scenario.advanced("20-advanced-opens-on-clients", FixtureBoard::sixClients, nothing),
                 Scenario.advanced("21-advanced-clients-inspector", FixtureBoard::sixClients, (s, f) -> {
                     if (f == 0) {
@@ -373,6 +375,7 @@ public final class ShellPreview extends Application {
     }
 
     /** Row indices in {@link FixtureBoard#subscribed()}'s picker; subscriptions are listed by name, first. */
+    private static final int DIVINATION_UPDATE_ROW = 1;
     private static final int HERBLORE_INSTALLING_ROW = 2;
     private static final int RUNECRAFTING_FAILED_ROW = 3;
 

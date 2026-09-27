@@ -86,7 +86,7 @@ public final class LiveClientBoard implements ClientBoard {
         this.clock = clock;
         this.commandExecutor = commandExecutor;
         this.subscriptions = new LiveSubscriptions(ctx::getConnections, catalogue, installer::install,
-                () -> loadedCatalog.locals(),
+                installer.ledger()::find, () -> loadedCatalog.locals(),
                 task -> Thread.ofVirtual().name("sdn-subscription-install").start(task));
         requestCatalogLoad();
     }

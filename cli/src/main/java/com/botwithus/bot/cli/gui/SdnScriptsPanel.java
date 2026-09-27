@@ -264,7 +264,7 @@ public class SdnScriptsPanel implements GuiPanel {
         }
         renderSummary(visible);
         ImGui.spacing();
-        renderInstallBar(ctx);
+        renderInstallBar(ctx, delivered.entries());
         ImGui.spacing();
 
         ImGui.beginChild("##sdnCards", 0, ImGui.getContentRegionAvailY(), false);
@@ -312,7 +312,7 @@ public class SdnScriptsPanel implements GuiPanel {
         }
     }
 
-    private void renderInstallBar(CliContext ctx) {
+    private void renderInstallBar(CliContext ctx, List<SdnCatalogueEntry> catalogue) {
         int count = selected.size();
         if (count == 0) {
             GuiHelpers.textMuted("Tick the scripts you want, then install them.");
@@ -320,8 +320,10 @@ public class SdnScriptsPanel implements GuiPanel {
         }
         if (GuiHelpers.buttonPrimary(Icons.DOWNLOAD + "  Install " + count + " script"
                 + (count == 1 ? "" : "s"))) {
-            List<String> ids = List.copyOf(selected);
-            executor.submit(() -> install(ctx, ids));
+            List<SdnCatalogueEntry> picked = catalogue.stream()
+                    .filter(e -> selected.contains(e.id()))
+                    .toList();
+            executor.submit(() -> install(ctx, picked));
         }
         ImGui.sameLine(0, 8);
         if (GuiHelpers.buttonSecondary("Clear")) {
@@ -453,11 +455,11 @@ public class SdnScriptsPanel implements GuiPanel {
 
     // Work, off the render thread -------------------------------------------
 
-    private void install(CliContext ctx, List<String> ids) {
+    private void install(CliContext ctx, List<SdnCatalogueEntry> entries) {
         installing = true;
-        statusLine = "Fetching " + ids.size() + " script" + (ids.size() == 1 ? "" : "s") + "...";
+        statusLine = "Fetching " + entries.size() + " script" + (entries.size() == 1 ? "" : "s") + "...";
         try {
-            reportInstall(ctx, installer.install(ids));
+            reportInstall(ctx, installer.install(entries));
         } finally {
             installing = false;
         }

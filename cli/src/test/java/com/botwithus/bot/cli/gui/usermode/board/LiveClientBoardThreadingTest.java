@@ -6,6 +6,7 @@ import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.sdn.InstalledScriptsLedger;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstaller;
@@ -74,7 +75,8 @@ class LiveClientBoardThreadingTest {
                 () -> new SdnCatalogueResult.Delivered(List.of(), false), Runnable::run,
                 InstantSource.system(), () -> MID_JITTER);
         board = new LiveClientBoard(ctx, id -> { }, Clock.systemUTC(), catalogue,
-                new SdnInstaller(tempDir), queued);
+                new SdnInstaller(tempDir, new InstalledScriptsLedger(tempDir, InstantSource.system())),
+                queued);
     }
 
     @Test

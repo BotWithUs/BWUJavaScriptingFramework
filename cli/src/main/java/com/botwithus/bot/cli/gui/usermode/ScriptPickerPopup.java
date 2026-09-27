@@ -190,6 +190,10 @@ final class ScriptPickerPopup {
                 awaitingInstall = null;
                 open = false;
             }
+            case SubscriptionState.UpdateAvailable ignored -> {
+                awaitingInstall = null;
+                open = false;
+            }
             case SubscriptionState.Installing ignored -> { }
             // Still NotInstalled means the board has not marked it yet (the pick
             // was this frame); anything else ends the wait.
@@ -632,6 +636,7 @@ final class ScriptPickerPopup {
             case PickerRow.Local ignored -> new StartFace(Icons.PLAY, "Start", true);
             case PickerRow.Subscribed sub -> switch (sub.entry().state()) {
                 case SubscriptionState.Installed ignored -> new StartFace(Icons.PLAY, "Start", true);
+                case SubscriptionState.UpdateAvailable ignored -> new StartFace(Icons.PLAY, "Start", true);
                 case SubscriptionState.NotInstalled ignored -> new StartFace(Icons.DOWNLOAD, "Install & start", true);
                 case SubscriptionState.Failed ignored -> new StartFace(Icons.DOWNLOAD, "Install & start", true);
                 case SubscriptionState.Installing ignored -> new StartFace(Icons.DOWNLOAD, "Installing…", false);

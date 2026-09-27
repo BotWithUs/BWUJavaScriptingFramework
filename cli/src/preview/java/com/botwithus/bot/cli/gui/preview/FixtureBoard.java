@@ -70,6 +70,8 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
             List.of(WOODCUTTING, FLETCHER, DIVINATION, COOKS, GHOST, WITCH, FLAG, PROBE, EXAMPLE);
     /** DIVINATION's index in {@link #CATALOG}, which is its picker key. */
     private static final int DIVINATION_KEY = CATALOG.indexOf(DIVINATION);
+    private static final int DIVINATION_INSTALLED_BUILD = 6;
+    private static final int DIVINATION_STORE_BUILD = 7;
 
     /** Item gamevals, as {@code GamevalIndex.gameval(ITEM, id)} answers them. */
     private static final Map<Integer, String> ITEMS = Map.of(
@@ -137,14 +139,26 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
      * and one whose install failed.
      */
     static FixtureBoard subscribed() {
+        return subscribedWithDivination(new SubscriptionState.Installed(), OptionalInt.of(DIVINATION_KEY));
+    }
+
+    /**
+     * {@link #subscribed()}, but Divination is a Store copy a build behind the Store.
+     * A Store copy has no local row to fold in: a local copy is never badged.
+     */
+    static FixtureBoard subscribedWithUpdate() {
+        return subscribedWithDivination(new SubscriptionState.UpdateAvailable(DIVINATION_INSTALLED_BUILD,
+                DIVINATION_STORE_BUILD), OptionalInt.empty());
+    }
+
+    private static FixtureBoard subscribedWithDivination(SubscriptionState divination, OptionalInt localKey) {
         String failure = "The launcher did not deliver the script. Check it is still running, then try again.";
         return sixClients().withSubscriptions(new SubscriptionGroup.Listed(List.of(
                 subscription("41", "Arch-Glacor Helper", "Veyra", "1.3",
                         "Handles the mechanics and loots the chest.", true, new SubscriptionState.NotInstalled(),
                         OptionalInt.empty()),
                 subscription("7", "Divination", "BotWithUs", "1.0",
-                        "Harvests wisps and converts memories.", false, new SubscriptionState.Installed(),
-                        OptionalInt.of(DIVINATION_KEY)),
+                        "Harvests wisps and converts memories.", false, divination, localKey),
                 subscription("58", "Herblore Pro", "mortar", "2.1",
                         "Cleans herbs and mixes potions at any bank.", true, new SubscriptionState.Installing(),
                         OptionalInt.empty()),

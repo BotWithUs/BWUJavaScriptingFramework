@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.ConnectionStatusTracker;
 import com.botwithus.bot.cli.FakeAgent;
+import com.botwithus.bot.core.sdn.InstalledScriptsLedger;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstaller;
@@ -63,6 +64,7 @@ class LiveClientBoardWorldTest {
                 () -> new SdnCatalogueResult.Delivered(List.of(), false), Runnable::run,
                 InstantSource.system(), () -> MID_JITTER);
         return new LiveClientBoard(ctx, id -> { }, Clock.systemUTC(), catalogue,
-                new SdnInstaller(tempDir), task -> { });
+                new SdnInstaller(tempDir, new InstalledScriptsLedger(tempDir, InstantSource.system())),
+                task -> { });
     }
 }

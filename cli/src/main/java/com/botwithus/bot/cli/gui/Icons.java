@@ -98,6 +98,8 @@ public final class Icons {
     public static final String TREE        = "\uF1BB";  // fa-tree
     public static final String RUNNING     = "\uF70C";  // fa-person-running
     public static final String FIRE        = "\uF06D";  // fa-fire
+    public static final String FIRE_CURVED = "\uF7E4";  // fa-fire-flame-curved
+    public static final String MAGIC_WAND  = "\uE2CA";  // fa-wand-magic-sparkles
     public static final String SCISSORS    = "\uF0C4";  // fa-scissors
     public static final String SEEDLING    = "\uF4D8";  // fa-seedling
     public static final String FLASK       = "\uF0C3";  // fa-flask
