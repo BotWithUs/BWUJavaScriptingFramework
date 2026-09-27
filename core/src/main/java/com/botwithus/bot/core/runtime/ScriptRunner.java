@@ -82,6 +82,15 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private volatile Runnable eventUnsubscriber;
     private volatile Runnable messageUnsubscriber;
     private volatile Runnable watchdogArmer;
+    private volatile RunnerListener runnerListener = RunnerListener.NONE;
+
+    /**
+     * Installs the host's lifecycle observer. Set by
+     * {@link ScriptRuntime#registerScript}; {@link RunnerListener#NONE} until then.
+     */
+    public void setRunnerListener(RunnerListener runnerListener) {
+        this.runnerListener = runnerListener != null ? runnerListener : RunnerListener.NONE;
+    }
 
     /**
      * Installs the hook that starts the owning runtime's watchdog. Invoked from
@@ -178,11 +187,17 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         LocalScriptLoader.pinLoaderOf(script);
     }
 
-    /** Mirrors each watchdog transition onto the {@code script.context} topic. */
+    /**
+     * Mirrors each watchdog transition onto the {@code script.context} topic, and
+     * tells the host listener when the script stalls.
+     */
     @Override
     public void onLivenessChanged(Liveness to) {
         switch (to) {
-            case STALLED   -> publishState(STATE_STALLED, "unresponsive inside onLoop()");
+            case STALLED   -> {
+                publishState(STATE_STALLED, "unresponsive inside onLoop()");
+                tellListener(l -> l.scriptStalled(connectionName, getScriptName()));
+            }
             case REVOKED   -> publishState(STATE_REVOKED, "did not stop; cut off from the game");
             case ABANDONED -> publishState(STATE_ABANDONED, "thread survived revocation; quarantined");
             case LIVE      -> { }
@@ -504,6 +519,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         try {
             script.onStart(context);
             publishState(STATE_RUNNING, null);
+            tellListener(l -> l.scriptStarted(connectionName, name));
             return true;
         } catch (Exception e) {
             log.error("onStart error in {}: {}", name, e.getMessage());
@@ -598,6 +614,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
             log.debug("Navigation cleanup error in {}: {}", name, e.getMessage());
         }
         publishState(STATE_STOPPED, null);
+        tellListener(l -> l.scriptStopped(connectionName, name));
         MDC.clear();
         // Only a clean exit clears the tag. A zombie never reaches here, so it
         // keeps its tag — which is what lets the gate keep rejecting it. Any
@@ -643,6 +660,15 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
             }
         } catch (RuntimeException e) {
             log.debug("script.context state publish threw: {}", e.getMessage());
+        }
+    }
+
+    /** Calls the host's listener; a listener that throws never reaches the script. */
+    private void tellListener(Consumer<RunnerListener> call) {
+        try {
+            call.accept(runnerListener);
+        } catch (RuntimeException e) {
+            log.warn("Runner listener threw for {}: {}", getScriptName(), e.toString());
         }
     }
 

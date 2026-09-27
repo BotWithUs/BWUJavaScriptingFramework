@@ -49,6 +49,8 @@ public class ScriptRuntime {
     private Runnable onStateChange;
     private Function<String, ScriptContextPublisher> publisherFactory;
     private ScriptGate scriptGate;
+    /** Written under {@link #registrationLock}. */
+    private RunnerListener runnerListener = RunnerListener.NONE;
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
@@ -124,6 +126,23 @@ public class ScriptRuntime {
         this.scriptGate = scriptGate;
         for (ScriptRunner runner : runners) {
             runner.setScriptGate(scriptGate);
+        }
+    }
+
+    /**
+     * Installs the host's observer of script starts, stops and stalls.
+     * Propagated to every runner, including those already registered.
+     * {@code null} restores {@link RunnerListener#NONE}.
+     */
+    public void setRunnerListener(RunnerListener listener) {
+        RunnerListener resolved = listener != null ? listener : RunnerListener.NONE;
+        // Under the registration lock, so a runner registered concurrently
+        // either reads the new listener or is already in the list below.
+        synchronized (registrationLock) {
+            this.runnerListener = resolved;
+            for (ScriptRunner runner : runners) {
+                runner.setRunnerListener(resolved);
+            }
         }
     }
 
@@ -207,6 +226,7 @@ public class ScriptRuntime {
             if (scriptGate != null) {
                 runner.setScriptGate(scriptGate);
             }
+            runner.setRunnerListener(runnerListener);
             runners.add(runner);
             return runner;
         }

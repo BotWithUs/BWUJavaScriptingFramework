@@ -27,10 +27,20 @@ public class ManagementScriptRuntime {
     private final List<ManagementScriptRunner> quarantined = new CopyOnWriteArrayList<>();
     private final LivenessWatchdog watchdog =
             new LivenessWatchdog(() -> "mgmt-script-watchdog", this::watchdogSubjects);
+    private final RunnerListener runnerListener;
     private Runnable onStateChange;
 
     public ManagementScriptRuntime(ManagementContext context) {
+        this(context, RunnerListener.NONE);
+    }
+
+    /**
+     * @param runnerListener told when a management script crashes; handed to
+     *                       every runner this runtime registers
+     */
+    public ManagementScriptRuntime(ManagementContext context, RunnerListener runnerListener) {
         this.context = context;
+        this.runnerListener = runnerListener != null ? runnerListener : RunnerListener.NONE;
     }
 
     public void setOnStateChange(Runnable callback) {
@@ -52,6 +62,7 @@ public class ManagementScriptRuntime {
     public ManagementScriptRunner registerScript(ManagementScript script) {
         ManagementScriptRunner runner = new ManagementScriptRunner(script, context);
         runner.setWatchdogArmer(this::ensureWatchdog);
+        runner.setRunnerListener(runnerListener);
         runners.add(runner);
         return runner;
     }

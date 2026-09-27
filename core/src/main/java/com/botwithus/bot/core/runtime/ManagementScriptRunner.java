@@ -69,9 +69,18 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     }
 
     private ErrorHandler errorHandler;
+    private volatile RunnerListener runnerListener = RunnerListener.NONE;
 
     public void setErrorHandler(ErrorHandler errorHandler) {
         this.errorHandler = errorHandler;
+    }
+
+    /**
+     * Installs the host's observer, told about every crash. Set by
+     * {@link ManagementScriptRuntime#registerScript}; {@link RunnerListener#NONE} until then.
+     */
+    public void setRunnerListener(RunnerListener runnerListener) {
+        this.runnerListener = runnerListener != null ? runnerListener : RunnerListener.NONE;
     }
 
     public ManagementScriptRunner(ManagementScript script, ManagementContext context) {
@@ -322,9 +331,10 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
 
     /**
      * Records the failure into {@link #health()} and forwards it to the error
-     * handler. Brings this runner up to {@link ScriptRunner}'s telemetry: it is
-     * the more privileged, cross-client runner, so having *less* visibility
-     * than a plain script was the wrong way round (audit L14).
+     * handler and the host's {@link RunnerListener}. Brings this runner up to
+     * {@link ScriptRunner}'s telemetry: it is the more privileged, cross-client
+     * runner, so having *less* visibility than a plain script was the wrong way
+     * round (audit L14).
      */
     private void notifyError(String scriptName, Phase phase, Throwable error) {
         LastCrash crash = new LastCrash(phase, loopCount.get(), Instant.now(), error);
@@ -336,6 +346,11 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             } catch (Exception e) {
                 log.error("Error handler threw for {}/{}: {}", scriptName, phase, e.getMessage());
             }
+        }
+        try {
+            runnerListener.managementScriptCrashed(scriptName, crash);
+        } catch (RuntimeException e) {
+            log.warn("Runner listener threw for {}/{}: {}", scriptName, phase, e.toString());
         }
     }
 

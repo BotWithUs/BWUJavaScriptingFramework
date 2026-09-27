@@ -5,6 +5,15 @@ import com.botwithus.bot.api.diag.StubGuard;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.botwithus.bot.cli.events.ClientRef;
+import com.botwithus.bot.cli.events.ConnectionHistory;
+import com.botwithus.bot.cli.events.GameEventBridge;
+import com.botwithus.bot.cli.events.HostEvent.ClientClosed;
+import com.botwithus.bot.cli.events.HostEvent.ClientOpened;
+import com.botwithus.bot.cli.events.HostEvent.CloseCause;
+import com.botwithus.bot.cli.events.HostEvent.ScriptLoadFailed;
+import com.botwithus.bot.cli.events.HostEventBus;
+import com.botwithus.bot.cli.events.RunnerEventBridge;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.settings.HostSettings;
@@ -55,6 +64,7 @@ import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -109,6 +119,12 @@ public class CliContext {
     private GamevalIndex gamevals;
     private final Path groupsFile;
     private HostSettings settings;
+    /** Host-level events; unlike a connection's bus it exists with no client connected. */
+    private final HostEventBus hostEvents = new HostEventBus();
+    private final ConnectionHistory connectionHistory = new ConnectionHistory();
+    private final Clock clock = Clock.systemUTC();
+    private final RunnerEventBridge runnerEvents = new RunnerEventBridge(hostEvents, clock);
+    private final GameEventBridge gameEvents = new GameEventBridge(hostEvents);
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this(logBuffer, logCapture, DEFAULT_GROUPS_FILE);
@@ -123,6 +139,7 @@ public class CliContext {
         this.logCapture = logCapture;
         this.groupsFile = groupsFile;
         this.clientManager = new ClientManager(this);
+        hostEvents.subscribe(connectionHistory);
     }
 
     /**
@@ -209,6 +226,12 @@ public class CliContext {
 
     public ClientManager getClientManager() { return clientManager; }
 
+    /** The host-wide event bus: client lifecycle, script lifecycle, load failures. */
+    public HostEventBus getHostEvents() { return hostEvents; }
+
+    /** Recent host events per client and host-wide, fed by {@link #getHostEvents()}. */
+    public ConnectionHistory getConnectionHistory() { return connectionHistory; }
+
     public ManagementScriptRuntime getManagementRuntime() {
         return managementRuntime;
     }
@@ -226,7 +249,7 @@ public class CliContext {
         var sharedState = new SharedStateImpl();
         var mgmtContext = new ManagementContextImpl(
                 clientManager, clientProvider, messageBus, sharedState);
-        managementRuntime = new ManagementScriptRuntime(mgmtContext);
+        managementRuntime = new ManagementScriptRuntime(mgmtContext, runnerEvents);
     }
 
     /**
@@ -333,6 +356,8 @@ public class CliContext {
 
     /**
      * Adds a fully built connection to the table and makes it the active one.
+     * Reports it opened on the host event bus, and from then on its script
+     * lifecycle and its connection-level game events too.
      * Package-private: {@link #connect} can only build a connection over a live
      * pipe, so this is the seam the connection-table tests drive.
      *
@@ -344,7 +369,22 @@ public class CliContext {
                 return false;
             }
             activeConnectionName = conn.getName();
-            return true;
+            // Published under the lock, so a close of this connection can only queue after it.
+            hostEvents.publish(new ClientOpened(new ClientRef(conn.getName()), clock.instant()));
+        }
+        reportToHostEvents(conn);
+        return true;
+    }
+
+    /** Feeds the connection's script lifecycle and game-side signals into the host bus. */
+    private void reportToHostEvents(Connection conn) {
+        ScriptRuntime runtime = conn.getRuntime();
+        if (runtime != null) {
+            runtime.setRunnerListener(runnerEvents);
+        }
+        EventBusImpl bus = conn.getEventBus();
+        if (bus != null) {
+            gameEvents.attach(bus, conn.getName());
         }
     }
 
@@ -353,21 +393,34 @@ public class CliContext {
      * cannot drop a newer connection registered under the same pipe name. Moves the
      * active connection to the oldest remaining one if it was the one removed.
      */
-    private boolean unregisterConnection(String name, Connection conn) {
+    private boolean unregisterConnection(String name, Connection conn, CloseCause cause) {
         synchronized (connectionLock) {
             boolean removed = connections.remove(name, conn);
             reassignActiveIfGone();
+            if (removed) {
+                publishClosed(name, cause);
+            }
             return removed;
         }
     }
 
-    /** As {@link #unregisterConnection(String, Connection)}, whatever {@code name} maps to. */
-    private Connection unregisterConnection(String name) {
+    /**
+     * As {@link #unregisterConnection(String, Connection, CloseCause)}, whatever
+     * {@code name} maps to.
+     */
+    private Connection unregisterConnection(String name, CloseCause cause) {
         synchronized (connectionLock) {
             Connection removed = connections.remove(name);
             reassignActiveIfGone();
+            if (removed != null) {
+                publishClosed(name, cause);
+            }
             return removed;
         }
+    }
+
+    private void publishClosed(String name, CloseCause cause) {
+        hostEvents.publish(new ClientClosed(new ClientRef(name), cause, clock.instant()));
     }
 
     private void reassignActiveIfGone() {
@@ -399,7 +452,7 @@ public class CliContext {
             out().println("Auto-unmounted — mounted connection was disconnected.");
         }
         boolean wasActive = target.equals(activeConnectionName);
-        if (!unregisterConnection(target, conn)) {
+        if (!unregisterConnection(target, conn, CloseCause.DISCONNECTED)) {
             out().println("Connection not found: " + target);
             return;
         }
@@ -425,7 +478,7 @@ public class CliContext {
                 out().println("Skipping '" + conn.getName() + "' — has running scripts. Use --force to override.");
                 continue;
             }
-            if (!unregisterConnection(conn.getName(), conn)) {
+            if (!unregisterConnection(conn.getName(), conn, CloseCause.DISCONNECTED)) {
                 continue;
             }
             conn.close();
@@ -456,15 +509,26 @@ public class CliContext {
      * Loads scripts and returns the full {@link LoadReport} including per-JAR
      * failures. As a side effect, publishes a {@link ScriptLoadFailedEvent}
      * onto every active connection's event bus for each failure so the
-     * notification overlay and Scripts panel can surface it.
+     * notification overlay and Scripts panel can surface it, and a
+     * {@link ScriptLoadFailed} onto the host event bus, which records it even
+     * with no client connected.
      */
     public LoadReport loadScriptReport() {
-        LoadReport report = SDNScriptLoader.loadLocalReport();
+        return recordLoadReport(SDNScriptLoader.loadLocalReport());
+    }
+
+    /**
+     * Keeps {@code report} as the latest and publishes its failures. Package-private
+     * so tests can report a failure without loading JARs from disk.
+     */
+    LoadReport recordLoadReport(LoadReport report) {
         this.lastLoadReport = report;
         for (ScriptLoadResult failure : report.failures()) {
-            ScriptLoadFailedEvent event = new ScriptLoadFailedEvent(
-                    failure.jar(), failure.error().orElse(new IllegalStateException("unknown")));
-            broadcastEvent(event);
+            Throwable cause = failure.error().orElse(new IllegalStateException("unknown"));
+            broadcastEvent(new ScriptLoadFailedEvent(failure.jar(), cause));
+            // The broadcast reaches connected clients only; the host bus keeps it
+            // when none is connected.
+            hostEvents.publish(new ScriptLoadFailed(failure.jar(), cause, clock.instant()));
         }
         return report;
     }
@@ -506,7 +570,7 @@ public class CliContext {
             out().println("Auto-unmounted — mounted connection was lost.");
         }
         boolean wasActive = connName.equals(activeConnectionName);
-        Connection conn = unregisterConnection(connName);
+        Connection conn = unregisterConnection(connName, CloseCause.CONNECTION_LOST);
         clientProvider.removeClient(connName);
         if (conn != null) {
             conn.close();
