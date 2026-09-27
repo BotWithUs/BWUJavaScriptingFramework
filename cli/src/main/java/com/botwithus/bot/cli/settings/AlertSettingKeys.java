@@ -64,7 +64,8 @@ public final class AlertSettingKeys {
 
     public static final SettingKey<Boolean> QUIET_ENABLED = new SettingKey<>(
             "alerts.quiet.enabled", "Quiet hours",
-            "Hold back every alert except crashes between the quiet-hours times.",
+            "Between the quiet-hours times, send only crashes at once; alerts.quiet.mode says "
+                    + "whether the rest are held or muted.",
             FLAG, Boolean.FALSE);
 
     public static final SettingKey<String> QUIET_FROM = new SettingKey<>(
@@ -74,6 +75,12 @@ public final class AlertSettingKeys {
     public static final SettingKey<String> QUIET_TO = new SettingKey<>(
             "alerts.quiet.to", "Quiet until", "When quiet hours end (local time).",
             TIME_OF_DAY, "08:00");
+
+    public static final SettingKey<QuietMode> QUIET_MODE = new SettingKey<>(
+            "alerts.quiet.mode", "In quiet hours",
+            "HOLD sends what quiet hours held back when they end, one message per service; "
+                    + "MUTE drops it for good.",
+            new SettingType.Choice<>(List.of(QuietMode.values())), QuietMode.HOLD);
 
     public static final SettingKey<String> SUMMARY_AT = new SettingKey<>(
             "alerts.summary.at", "Daily summary at",
@@ -132,7 +139,7 @@ public final class AlertSettingKeys {
                 keys.add(route(service, kind));
             }
         }
-        keys.addAll(List.of(BURST_SECONDS, QUIET_ENABLED, QUIET_FROM, QUIET_TO, SUMMARY_AT));
+        keys.addAll(List.of(BURST_SECONDS, QUIET_ENABLED, QUIET_FROM, QUIET_TO, QUIET_MODE, SUMMARY_AT));
         return List.copyOf(keys);
     }
 }

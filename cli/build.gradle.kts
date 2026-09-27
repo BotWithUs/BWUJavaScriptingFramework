@@ -139,9 +139,9 @@ tasks.named<Test>("test") {
 
 // ── Dev-only UI preview ──────────────────────────────────────────────────────
 // Renders the UI with fixture data and writes one PNG per scenario to
-// build/preview/: Normal mode (every card state, 6 and 12 clients, empty, host
-// offline, picker, inspector, toasts) and Advanced mode (the sidebar and its
-// pages). It is how a UI change is checked without a game client or a person
+// build/preview/: Normal mode (every card and script state, 7 and 13 clients,
+// empty, a client restarting, the picker, the inspector, toasts) and Advanced
+// mode (the sidebar and every page in its states). It is how a UI change is checked without a game client or a person
 // clicking through it.
 //
 // Gated by construction: the code lives in its own `preview` source set, which
@@ -158,16 +158,29 @@ val preview: SourceSet by sourceSets.creating {
 // this it could stop compiling and nobody would notice until the next UI change.
 tasks.named("check") { dependsOn(preview.classesTaskName) }
 
-val renderPreviews by tasks.registering(JavaExec::class) {
-    description = "Dev only: renders both modes from fixtures and writes one PNG per scenario to build/preview"
+/** Runs the preview renderer, writing its PNGs to build/[outDirName], followed by [extraArgs]. */
+fun JavaExec.renderPreviewsInto(outDirName: String, vararg extraArgs: String) {
     group = "verification"
     dependsOn(extractNatives)
     classpath = preview.runtimeClasspath
     mainClass = "com.botwithus.bot.cli.gui.preview.ShellPreview"
-    val outDir = layout.buildDirectory.dir("preview")
-    args(outDir.get().asFile.absolutePath)
+    args(layout.buildDirectory.dir(outDirName).get().asFile.absolutePath, *extraArgs)
     jvmArgs("-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}")
     outputs.upToDateWhen { false }
+}
+
+val renderPreviews by tasks.registering(JavaExec::class) {
+    description = "Dev only: renders both modes from fixtures and writes one PNG per scenario to build/preview"
+    renderPreviewsInto("preview")
+}
+
+// The same render as a check: fails if a scenario throws, if a frame shows no
+// page, or if the window closes before the last scenario. It opens a window and
+// needs a desktop session with OpenGL (GLFW has no headless mode), which is why it
+// is not part of `check` and CI does not run it. Run it after a UI change.
+tasks.register<JavaExec>("previewSmokeTest") {
+    description = "Dev only: renders every preview scenario and fails on an exception or an empty frame"
+    renderPreviewsInto("preview-smoke", "--check")
 }
 
 // The task's name before it drew Advanced mode too; kept so existing habits still work.
@@ -427,8 +440,25 @@ val verifySdnRuntime by tasks.registering {
     }
 }
 
+// The bundled fonts' licences (Inter, JetBrains Mono, Font Awesome Free). They
+// ship inside the jar beside the fonts, but a copy in the image's lib/modules
+// cannot be read without tools, and the SIL OFL wants each copy of a font to carry
+// its licence where a user can see it. So the image also carries them as plain
+// files, under legal/fonts/ next to the JDK's own notices; the jpackage app image
+// and the MSI take the runtime from here, so they carry them too.
+val fontNotices by tasks.registering(Copy::class) {
+    description = "Copies the bundled fonts' licences into the runtime image's legal/fonts folder"
+    dependsOn(tasks.named("jlink"))
+    from(layout.projectDirectory.dir("src/main/resources/fonts")) {
+        include("*.txt")
+    }
+    into(layout.buildDirectory.dir("image/legal/fonts"))
+}
+tasks.named("jlink") { finalizedBy(fontNotices) }
+tasks.named("jpackageImage") { dependsOn(fontNotices) }
+
 val packageJre by tasks.registering(Zip::class) {
-    dependsOn(tasks.named("jlink"), verifySdnRuntime)
+    dependsOn(tasks.named("jlink"), verifySdnRuntime, fontNotices)
     archiveFileName.set("jre.zip")
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
     from(layout.buildDirectory.dir("image"))

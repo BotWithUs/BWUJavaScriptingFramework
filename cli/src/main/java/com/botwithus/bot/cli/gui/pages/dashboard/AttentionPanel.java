@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.dashboard;
 
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
@@ -66,7 +67,7 @@ final class AttentionPanel {
     }
 
     private void empty(Scope scope, DashboardView view) {
-        String where = scope.client().map(pipe -> " on " + labelOf(view, scope, pipe)).orElse("");
+        String where = scope.client().map(key -> " on " + labelOf(view, scope, key)).orElse("");
         String text = "Nothing needs attention" + where + ".";
         ImFont font = ui.fonts().small();
         ImFont icons = ui.fonts().caption();
@@ -81,9 +82,9 @@ final class AttentionPanel {
         ImGui.dummy(w, h);
     }
 
-    private static String labelOf(DashboardView view, Scope scope, String pipe) {
+    private static String labelOf(DashboardView view, Scope scope, ClientKey key) {
         return view.scopes().stream().filter(o -> o.scope().equals(scope)).findFirst()
-                .map(ScopeOption::label).orElse(pipe);
+                .map(ScopeOption::label).orElse(key.value());
     }
 
     // ── Content per kind ────────────────────────────────────────────────
@@ -107,11 +108,11 @@ final class AttentionPanel {
                     List.of(new Act("Thread dump", () -> dump(c.ref(), state, actions))), "");
             case AttentionItem.NotResponding n -> new Entry(Icons.PLUG_EXCLAMATION, ImGuiTheme.COL_WARN,
                     n.clientLabel() + " not responding", notResponding(n, now),
-                    List.of(new Act("Reconnect now", () -> actions.retryNow(n.pipe()))), "");
+                    List.of(new Act("Reconnect now", () -> actions.retryNow(n.clientKey()))), "");
             case AttentionItem.GaveUp g -> new Entry(Icons.PLUG_XMARK, ImGuiTheme.COL_DANGER,
                     g.clientLabel() + " stopped reconnecting",
                     g.pipe() + " · gave up after " + g.attempts() + " attempts",
-                    List.of(new Act("Try again", () -> actions.retryNow(g.pipe()))), "");
+                    List.of(new Act("Try again", () -> actions.retryNow(g.clientKey()))), "");
             case AttentionItem.LoadFailed f -> new Entry(Icons.FILE_XMARK, ImGuiTheme.COL_DANGER,
                     fileName(f.jar()) + " failed to load", f.error(),
                     List.of(new Act("Reload", actions::reload), copy(f.trace())), f.trace());

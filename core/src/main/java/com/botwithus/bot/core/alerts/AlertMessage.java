@@ -21,6 +21,8 @@ public record AlertMessage(String title, String body, boolean isProblem) {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
     private static final String NEWLINE = "\n";
+    private static final String HELD_TITLE_SUFFIX = " during quiet hours";
+    private static final String NOT_LISTED = " more, not listed";
 
     public AlertMessage {
         Objects.requireNonNull(title, "title");
@@ -46,16 +48,45 @@ public record AlertMessage(String title, String body, boolean isProblem) {
         if (burst.total() == 1) {
             return of(burst.alerts().getFirst());
         }
+        return new AlertMessage(burst.total() + " alerts", timedLines(burst.alerts(), burst.total(), zone),
+                isAnyProblem(burst.alerts()));
+    }
+
+    /**
+     * The message sent when quiet hours end, for what they held back: one line per
+     * alert with its local time, oldest first, the first {@link #MAX_BURST_LINES}
+     * listed and the rest counted. Even one held alert is sent in this form, so the
+     * title says it is late.
+     *
+     * @param held     the alerts kept, oldest first
+     * @param overflow how many more were held than kept
+     * @param zone     the zone the times are shown in
+     * @throws IllegalArgumentException if there is nothing to report
+     */
+    public static AlertMessage ofHeld(List<Alert> held, int overflow, ZoneId zone) {
+        int total = held.size() + overflow;
+        if (total <= 0) {
+            throw new IllegalArgumentException("nothing was held");
+        }
+        String title = total + (total == 1 ? " alert" : " alerts") + HELD_TITLE_SUFFIX;
+        String body = held.isEmpty() ? overflow + NOT_LISTED : timedLines(held, total, zone);
+        return new AlertMessage(title, body, isAnyProblem(held));
+    }
+
+    private static String timedLines(List<Alert> alerts, int total, ZoneId zone) {
         List<String> lines = new ArrayList<>();
-        List<Alert> listed = burst.alerts().subList(0, Math.min(MAX_BURST_LINES, burst.alerts().size()));
+        List<Alert> listed = alerts.subList(0, Math.min(MAX_BURST_LINES, alerts.size()));
         for (Alert alert : listed) {
             lines.add(TIME.format(alert.at().atZone(zone)) + " " + alert.headline());
         }
-        int unlisted = burst.total() - listed.size();
+        int unlisted = total - listed.size();
         if (unlisted > 0) {
             lines.add("and " + unlisted + " more");
         }
-        boolean isProblem = burst.alerts().stream().anyMatch(alert -> alert.kind().isProblem());
-        return new AlertMessage(burst.total() + " alerts", String.join(NEWLINE, lines), isProblem);
+        return String.join(NEWLINE, lines);
+    }
+
+    private static boolean isAnyProblem(List<Alert> alerts) {
+        return alerts.stream().anyMatch(alert -> alert.kind().isProblem());
     }
 }

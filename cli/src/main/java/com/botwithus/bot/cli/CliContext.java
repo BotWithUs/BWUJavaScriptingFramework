@@ -34,6 +34,7 @@ import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.management.ManagementControl;
 import com.botwithus.bot.cli.management.ManagementFile;
 import com.botwithus.bot.cli.management.ManagementSettings;
+import com.botwithus.bot.cli.management.ManagementStartup;
 import com.botwithus.bot.cli.management.ManagementTargets;
 import com.botwithus.bot.cli.management.OrchestratorAuditLog;
 import com.botwithus.bot.cli.management.Scope;
@@ -145,7 +146,6 @@ public class CliContext {
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
-    private Consumer<Connection> onConnect;
     private volatile LoadReport lastLoadReport = LoadReport.EMPTY;
     /**
      * The failed-load list across load passes and both script folders. Kept
@@ -192,6 +192,8 @@ public class CliContext {
     private final ManagementTargets managementTargets;
     private final OrchestratorAuditLog orchestratorAudit = new OrchestratorAuditLog(hostEvents::publish, clock);
     private final ManagementControl managementControl;
+    /** Starts the scripts that should run once the first management load pass has registered them. */
+    private final ManagementStartup managementStartup;
     /** Management scripts' defaults and per-target settings, shared with their runners. */
     private final ManagementSettingsStore managementSettingsStore;
     private final ManagementSettings managementSettings;
@@ -232,6 +234,7 @@ public class CliContext {
                 new ManagementFile(groupsFile.resolveSibling(ManagementFile.FILE_NAME)), groupStore);
         this.managementControl = new ManagementControl(this::managementRuntimeOrInit, managementTargets,
                 groupStore, clientManager);
+        this.managementStartup = new ManagementStartup(managementControl);
         this.managementSettingsStore = new ManagementSettingsStore(
                 groupsFile.resolveSibling(CONFIG_DIR_NAME), background);
         this.managementSettings = new ManagementSettings(managementSettingsStore, managementTargets, groupStore);
@@ -394,6 +397,13 @@ public class CliContext {
 
     /** Every client the host knows, live or remembered, one per account. */
     public ClientRegistry getClientRegistry() { return clientRegistry; }
+
+    /** The name the client on account {@code accountUuid} last showed, if the host knows the account. */
+    public Optional<String> accountNameOf(String accountUuid) {
+        return AccountReply.identified(accountUuid)
+                .flatMap(account -> clientRegistry.get(ClientKey.account(account)))
+                .flatMap(ClientRecord::name);
+    }
 
     /** The key the client on {@code pipe} is known by now; the pipe's own key until it is identified. */
     public ClientKey clientKeyOf(String pipe) {
@@ -694,13 +704,6 @@ public class CliContext {
         // runtime is bound to the account UUID for a manual connect too.
         statusTracker.attach(conn);
         statusTracker.startPolling(this::getConnections);
-        if (onConnect != null) {
-            try {
-                onConnect.accept(conn);
-            } catch (RuntimeException e) {
-                log.warn("onConnect hook threw for '{}': {}", name, e.getMessage());
-            }
-        }
         out().println("Connected to pipe: " + conn.getPipe().getPipePath());
         if (connections.values().size() > 1) {
             out().println("Active connection set to '" + name + "'.");
@@ -940,6 +943,14 @@ public class CliContext {
      * available connection (or clears the active view).
      */
     public void handleConnectionError(String connName) {
+        removeConnection(connName, CloseCause.CONNECTION_LOST);
+    }
+
+    /**
+     * Takes {@code connName} out of the host: stops its stream, unmounts it,
+     * unregisters and closes its connection, publishing a close for {@code cause}.
+     */
+    private void removeConnection(String connName, CloseCause cause) {
         if (streamManager != null) {
             streamManager.handleConnectionLost(connName);
         }
@@ -948,7 +959,7 @@ public class CliContext {
             out().println("Auto-unmounted — mounted connection was lost.");
         }
         boolean wasActive = connName.equals(activeConnectionName);
-        Connection conn = unregisterConnection(connName, CloseCause.CONNECTION_LOST);
+        Connection conn = unregisterConnection(connName, cause);
         clientProvider.removeClient(connName);
         if (conn != null) {
             conn.close();
@@ -986,7 +997,9 @@ public class CliContext {
                 && !connectionHistory.clients().contains(key)) {
             return ForgetResult.NOT_FOUND;
         }
-        registered.forEach(conn -> handleConnectionError(conn.getName()));
+        // Closed as disconnected, not lost: forgetting is the user's own doing, so
+        // nothing downstream reports the client closing.
+        registered.forEach(conn -> removeConnection(conn.getName(), CloseCause.DISCONNECTED));
         // Published after the close, so every subscriber drops the client after it.
         clientKeys.forget(key, clock.instant());
         return ForgetResult.FORGOTTEN;
@@ -1027,13 +1040,6 @@ public class CliContext {
 
     public void setProgressDisplay(ProgressDisplay d) { this.progressDisplay = d; }
     public ProgressDisplay getProgressDisplay() { return progressDisplay; }
-
-    /**
-     * Wiring hook for an observer that wants to react to a successful
-     * {@link #connect}, e.g. the notification overlay subscribing to the
-     * new connection's event bus.
-     */
-    public void setOnConnect(Consumer<Connection> hook) { this.onConnect = hook; }
 
     public void setConfigPanelOpener(Consumer<ScriptRunner> opener) { this.configPanelOpener = opener; }
     public void openConfigPanel(ScriptRunner runner) {
@@ -1176,14 +1182,35 @@ public class CliContext {
         return reloadScripts(getConnections().stream().filter(Connection::isAlive).toList(), after);
     }
 
-    /** Reloads {@code scripts/management/} into the management runtime. */
+    /**
+     * Reloads {@code scripts/management/} into the management runtime. The
+     * first pass since the host started then starts each script that should
+     * be running, as it was before the host stopped; later passes leave that
+     * to {@code after}.
+     */
     public ManagementReload reloadManagementScripts(AfterReload after) {
         if (managementRuntime == null) {
             initManagementRuntime();
         }
         synchronized (reloadLock) {
-            return newReloader().reloadManagement(managementRuntime, after);
+            ManagementReload summary = newReloader().reloadManagement(managementRuntime, after);
+            managementStartup.afterLoadPass();
+            return summary;
         }
+    }
+
+    /**
+     * The host's first management load pass: registers every script in
+     * {@code scripts/management/} and starts the ones that should be running.
+     * Blocks while scripts load; call it off the render thread.
+     */
+    public ManagementReload loadManagementAtStartup() {
+        return reloadManagementScripts(AfterReload.REGISTER_ONLY);
+    }
+
+    /** Whether a management load pass has finished since the host started. */
+    public boolean hasLoadedManagement() {
+        return managementStartup.hasLoaded();
     }
 
     /** Built per call so each load pass goes through this object's own load methods. */

@@ -1,12 +1,16 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.alerts.Integrations;
+import com.botwithus.bot.cli.alerts.SecretChange;
 import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.core.alerts.AlertService;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.secrets.Secret;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,14 +61,23 @@ public final class LiveSettingsModel implements SettingsModel {
     /**
      * What the page reads from the host.
      *
-     * @param settings    the host's settings
-     * @param profiles    the saved account profiles, when the host has a store for them
-     * @param connections the open connections, read when metrics are reset
+     * @param settings     the host's settings
+     * @param profiles     the saved account profiles, when the host has a store for them
+     * @param connections  the open connections, read when metrics are reset
+     * @param integrations the alert services, once the host has started its alerts
      */
     public record Host(HostSettings settings, Optional<ScriptProfileStore> profiles,
-                       Supplier<List<Connection>> connections) {}
+                       Supplier<List<Connection>> connections, Supplier<Optional<Integrations>> integrations) {
+
+        /** A host without alerts: the Integrations section says they are not running. */
+        public Host(HostSettings settings, Optional<ScriptProfileStore> profiles,
+                    Supplier<List<Connection>> connections) {
+            this(settings, profiles, connections, Optional::empty);
+        }
+    }
 
     static final Duration ACCOUNTS_REFRESH = Duration.ofSeconds(2);
+    static final String ALERTS_NOT_RUNNING = "Alerts are not running, so nothing was saved";
 
     private static final Logger log = LoggerFactory.getLogger(LiveSettingsModel.class);
     private static final DateTimeFormatter EXPORT_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
@@ -101,7 +114,8 @@ public final class LiveSettingsModel implements SettingsModel {
     @Override
     public SettingsView view() {
         SettingsSheet.Inputs inputs = new SettingsSheet.Inputs(accounts(), folder(places.dataFolder()),
-                folder(places.scriptsFolder()), file(settings.file()), windowsPercent.getAsInt(), note);
+                folder(places.scriptsFolder()), file(settings.file()), windowsPercent.getAsInt(), note,
+                host.integrations().get());
         return SettingsSheet.build(settings, settings.status(), inputs);
     }
 
@@ -161,6 +175,23 @@ public final class LiveSettingsModel implements SettingsModel {
             case RESET_METRICS -> note = Optional.of(resetMetrics(host.connections().get()));
             case EXPORT_SETTINGS -> background.execute(this::exportNow);
         }
+    }
+
+    @Override
+    public Optional<Secret> readSecret(AlertService service) {
+        return host.integrations().get().flatMap(live -> live.readSecret(service));
+    }
+
+    @Override
+    public SecretChange saveSecret(AlertService service, String text) {
+        return host.integrations().get().map(live -> live.saveSecret(service, text))
+                .orElseGet(() -> new SecretChange.Refused(ALERTS_NOT_RUNNING));
+    }
+
+    /** The card follows the send through the back end's status; the result is not needed here. */
+    @Override
+    public void sendTest(AlertService service) {
+        host.integrations().get().ifPresent(live -> live.sendTest(service));
     }
 
     /**

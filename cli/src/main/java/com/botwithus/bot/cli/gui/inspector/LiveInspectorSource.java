@@ -4,11 +4,8 @@ import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.ui.ScriptUI;
-import com.botwithus.bot.cli.AccountReply;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
-import com.botwithus.bot.cli.clients.ClientRecord;
-import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
 import com.botwithus.bot.cli.gui.inspector.SettingsFor.Choice;
@@ -39,8 +36,10 @@ import java.util.function.Supplier;
  */
 public final class LiveInspectorSource implements InspectorSource {
 
-    /** The header line under a management script's name. */
-    public static final String MANAGEMENT_CONTEXT = "Management script · whole host";
+    /** How the header line under a management script's name starts. */
+    private static final String MANAGEMENT_CONTEXT = "Management script";
+    private static final String NOT_APPLIED = "not applied";
+    private static final String SEP = " · ";
     /** The picker's note on the defaults. */
     static final String DEFAULTS_NOTE = "Every target uses these unless it has its own value.";
 
@@ -67,14 +66,23 @@ public final class LiveInspectorSource implements InspectorSource {
     public LiveInspectorSource(CliContext ctx) {
         this(() -> new ArrayList<>(ctx.getConnections()), ctx::getManagementRuntime,
                 new ManagementAccess(ctx.getManagementTargets(), ctx.getManagementSettings(),
-                        new TargetLabels(ctx.getGroupStore(), uuid -> accountName(ctx, uuid))));
+                        new TargetLabels(ctx.getGroupStore(), ctx::accountNameOf)));
     }
 
-    /** The name the client on {@code uuid} last showed, if the host knows the account. */
-    private static Optional<String> accountName(CliContext ctx, String uuid) {
-        return AccountReply.identified(uuid)
-                .flatMap(account -> ctx.getClientRegistry().get(ClientKey.account(account)))
-                .flatMap(ClientRecord::name);
+    /**
+     * The header line under a management script's name, from what it manages:
+     * "Management script · Woodcutters", "Management script · 3 targets", or
+     * "Management script · not applied" when it manages nothing.
+     *
+     * @param targetLabels the labels of the script's targets, in order
+     */
+    public static String managementContext(List<String> targetLabels) {
+        String what = switch (targetLabels.size()) {
+            case 0 -> NOT_APPLIED;
+            case 1 -> targetLabels.getFirst();
+            default -> targetLabels.size() + " targets";
+        };
+        return MANAGEMENT_CONTEXT + SEP + what;
     }
 
     /** Package-private: the tests' seam, which needs no live connection. */
@@ -119,15 +127,17 @@ public final class LiveInspectorSource implements InspectorSource {
         ScriptInfo info = ScriptInfo.of(runner.getManifest(), name, fields.size(), ui != null);
         List<Target> pickable = pickableTargets(name);
         Optional<Target> picked = subject.settingsFor().filter(pickable::contains);
+        String context = managementContext(access.targets().targetsOf(name).stream()
+                .map(access.labels()::of).toList());
         if (picked.isEmpty()) {
             ScriptConfig defaults = access.settings().defaults(name, fields);
-            return new InspectorTarget(subject.withSettingsFor(picked), MANAGEMENT_CONTEXT, info, fields,
+            return new InspectorTarget(subject.withSettingsFor(picked), context, info, fields,
                     () -> defaults, runner::applyConfig, ui, itemNames::of, runner::isDisposed,
                     picker(name, pickable, Optional.empty(), DEFAULTS_NOTE, Map.of()));
         }
         Target target = picked.get();
         TargetView view = access.settings().view(name, target, fields);
-        return new InspectorTarget(subject, MANAGEMENT_CONTEXT, info, fields, view::merged,
+        return new InspectorTarget(subject, context, info, fields, view::merged,
                 cfg -> access.settings().apply(name, target, cfg, fields), ui, itemNames::of, runner::isDisposed,
                 picker(name, pickable, picked, targetNote(name, target), inheritedLabels(view)));
     }

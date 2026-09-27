@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.alerts.Integrations;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.ReconnectPolicySettings;
 import com.botwithus.bot.cli.settings.SaveStatus;
@@ -9,6 +10,7 @@ import com.botwithus.bot.cli.settings.SettingType;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -33,12 +35,20 @@ public final class SettingsSheet {
      * @param configFile     the settings file, as the header shows it
      * @param windowsPercent the monitor's display scaling, for the text-size choice
      * @param note           what the last button did
+     * @param integrations   the alert services, once the alerts have started
      */
     public record Inputs(List<AccountRow> accounts, String dataFolder, String scriptsFolder, String configFile,
-                         int windowsPercent, Optional<ActionNote> note) {
+                         int windowsPercent, Optional<ActionNote> note, Optional<Integrations> integrations) {
 
         public Inputs {
             accounts = List.copyOf(accounts);
+            Objects.requireNonNull(integrations, "integrations");
+        }
+
+        /** Inputs for a host whose alerts have not started. */
+        public Inputs(List<AccountRow> accounts, String dataFolder, String scriptsFolder, String configFile,
+                      int windowsPercent, Optional<ActionNote> note) {
+            this(accounts, dataFolder, scriptsFolder, configFile, windowsPercent, note, Optional.empty());
         }
     }
 
@@ -55,6 +65,11 @@ public final class SettingsSheet {
     }
 
     private static List<SettingsItem> items(SettingsSection section, HostSettings settings, Inputs in) {
+        if (section == SettingsSection.INTEGRATIONS) {
+            // Its plain rows sit among its cards, grid and quiet hours, so it places them itself.
+            return IntegrationsSheet.items(settings, in.integrations(),
+                    placement -> keyRow(placement, settings, in.windowsPercent()));
+        }
         List<SettingsItem> items = new ArrayList<>(keyRows(section, settings, in.windowsPercent()));
         switch (section) {
             case RECONNECTING -> items.add(new SettingsItem.WaitPreview(
@@ -71,7 +86,7 @@ public final class SettingsSheet {
                 items.add(new SettingsItem.ActionRow(SettingsAction.EXPORT_SETTINGS, "Export settings",
                         "Save config, profiles and groups to one file to move them to another PC."));
             }
-            case CONNECTING, NOTIFICATIONS, INTERFACE -> { }
+            case CONNECTING, NOTIFICATIONS, INTEGRATIONS, INTERFACE -> { }
         }
         return items;
     }
@@ -79,12 +94,15 @@ public final class SettingsSheet {
     private static List<SettingsItem> keyRows(SettingsSection section, HostSettings settings, int windowsPercent) {
         List<SettingsItem> rows = new ArrayList<>();
         for (Placement placement : SettingsLayout.in(section)) {
-            SettingKey<?> key = placement.key();
-            String text = settings.text(key);
-            rows.add(new SettingsItem.KeyRow(key.name(), key.label(), placement.description(),
-                    controlFor(key, text, placement.unit(), windowsPercent), settings.isExplicit(key)));
+            rows.add(keyRow(placement, settings, windowsPercent));
         }
         return rows;
+    }
+
+    private static SettingsItem keyRow(Placement placement, HostSettings settings, int windowsPercent) {
+        SettingKey<?> key = placement.key();
+        return new SettingsItem.KeyRow(key.name(), key.label(), placement.description(),
+                controlFor(key, settings.text(key), placement.unit(), windowsPercent), settings.isExplicit(key));
     }
 
     /**
@@ -120,7 +138,8 @@ public final class SettingsSheet {
     private static List<RawKeyRow> rawKeys(HostSettings settings) {
         List<RawKeyRow> rows = new ArrayList<>();
         for (SettingKey<?> key : settings.keys()) {
-            String shownAs = SettingsLayout.find(key.name()).map(p -> p.key().label()).orElse(NOT_SHOWN_ABOVE);
+            String shownAs = SettingsLayout.find(key.name()).map(p -> p.key().label())
+                    .or(() -> IntegrationsSheet.shownAs(key.name())).orElse(NOT_SHOWN_ABOVE);
             rows.add(new RawKeyRow(key.name(), settings.text(key), shownAs, true, settings.isExplicit(key)));
         }
         for (Map.Entry<String, String> entry : settings.unknownEntries().entrySet()) {

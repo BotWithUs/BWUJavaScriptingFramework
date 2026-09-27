@@ -39,6 +39,11 @@ final class ConnectionsFilterBar {
         filter = next;
     }
 
+    /** Package-private: the dev preview's seam for typing into the search box. */
+    void search(String text) {
+        search.set(text);
+    }
+
     /** Back to every row, with no search. */
     void clear() {
         filter = RowFilter.ALL;

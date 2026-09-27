@@ -90,6 +90,15 @@ class SettingsSheetTest {
                 () -> assertEquals(new RowControl.Switch(false), control(SettingKeys.NATIVE_FRAME)));
     }
 
+    /** The row is in seconds and the default is ten minutes, so the default is said in words. */
+    @Test
+    void layout_stallRow_saysItsDefault() {
+        Placement placement = SettingsLayout.find(SettingKeys.STALL_AFTER_MS.name()).orElseThrow();
+
+        assertEquals("Flag a script when one loop runs longer than this. The default, 10 minutes, "
+                + "leaves room for scripts that wait a long time on purpose.", placement.description());
+    }
+
     @Test
     void controlFor_showsAMillisecondSettingInSecondsWhenItsRowSaysSo() {
         settings.set(SettingKeys.STALL_AFTER_MS, 90_500L);

@@ -4,8 +4,7 @@ import com.botwithus.bot.cli.gui.Icons;
 
 /**
  * The Settings page's sections, in the order the page and its section list show
- * them. Integrations (alerts to ntfy, Slack and Discord) will take its place
- * between Notifications and Interface when it lands.
+ * them.
  */
 public enum SettingsSection {
 
@@ -20,6 +19,9 @@ public enum SettingsSection {
             "Loading and reloading script JARs from the scripts folder."),
     NOTIFICATIONS("Notifications", "Notifications", Icons.BELL,
             "Pop-ups in the top-right corner. Everything also goes to Logs."),
+    INTEGRATIONS("Integrations", "Integrations", IntegrationIcons.SHARE_NODES,
+            "Send the same alerts to your phone or a chat channel, so you know when a client stops "
+                    + "while you’re away."),
     INTERFACE("Interface", "Interface", Icons.DISPLAY, ""),
     DIAGNOSTICS("Diagnostics", "Diagnostics", Icons.GAUGE_HIGH,
             "Numbers behind the Dashboard. Collecting them costs very little."),

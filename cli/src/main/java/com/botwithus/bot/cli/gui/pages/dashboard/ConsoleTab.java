@@ -79,8 +79,7 @@ final class ConsoleTab {
             case PROGRESS -> progress(line);
             case STREAM -> {
                 if (line.getLabel() != null) {
-                    ImGui.textColored(ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 1f,
-                            "  " + line.getLabel());
+                    ImGui.textColored(ImGuiTheme.COL_FG3, "  " + line.getLabel());
                 }
                 image(line);
             }
@@ -99,9 +98,8 @@ final class ConsoleTab {
                 ImGui.sameLine(0f, 0f);
             }
             isFirst = false;
-            float lift = seg.bold() ? BOLD_LIFT : 0f;
-            ImGui.textColored(Math.min(seg.r() + lift, 1f), Math.min(seg.g() + lift, 1f),
-                    Math.min(seg.b() + lift, 1f), seg.a(), seg.text());
+            int color = seg.bold() ? Controls.lighten(seg.color(), BOLD_LIFT) : seg.color();
+            ImGui.textColored(color, seg.text());
         }
     }
 
@@ -166,8 +164,7 @@ final class ConsoleTab {
         ui.textCentredY(draw, mono, x, y, h, ImGuiTheme.COL_FG2, head);
         float cx = x + ui.width(mono, head);
         if (!target.isEmpty()) {
-            ui.textCentredY(draw, mono, cx, y, h, ImGuiTheme.imCol32(ImGuiTheme.CYAN_R, ImGuiTheme.CYAN_G,
-                    ImGuiTheme.CYAN_B, 1f), target);
+            ui.textCentredY(draw, mono, cx, y, h, ImGuiTheme.COL_CYAN, target);
             cx += ui.width(mono, target);
         }
         String tail = " ›";
@@ -176,8 +173,7 @@ final class ConsoleTab {
     }
 
     private static String targetLabel(ConsoleView console, String pipe) {
-        return console.targets().stream().filter(o -> o.scope().equals(Scope.of(pipe))).findFirst()
-                .map(ScopeOption::label).orElse(pipe);
+        return console.labelOf(pipe);
     }
 
     private void input(ConsoleView console, DashboardActions actions, float w, float h) {

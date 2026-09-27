@@ -59,9 +59,10 @@ final class ScriptRowView {
     /**
      * Draws {@code row} with its top-left at ({@code x}, {@code y}).
      *
-     * @return whether its Settings was clicked, for the page to open the inspector
+     * @return what the page should open: the inspector when its Settings was
+     *         clicked, Management when its robot link was
      */
-    boolean render(ClientView view, ScriptRow row, float x, float y, float w, ClientActions actions) {
+    ClientCard.Intent render(ClientView view, ScriptRow row, float x, float y, float w, ClientActions actions) {
         ImGuiTheme.Metrics m = ui.m();
         ImDrawList draw = ImGui.getWindowDrawList();
         float tile = m.iconTile();
@@ -73,7 +74,9 @@ final class ScriptRowView {
         ui.iconTile(draw, left, top + (block - tile) * 0.5f, tile,
                 CategoryStyle.of(row.script().category()).icon(), tone.fg(), tone.bg());
         float textX = left + tile + m.u(3);
-        paintText(draw, view, row, textX, top + (block - textHeight(view, row, textW)) * 0.5f, textW);
+        float textY = top + (block - textHeight(view, row, textW)) * 0.5f;
+        paintText(draw, view, row, textX, textY, textW);
+        boolean isManagement = managedLink(view, row, textX, textY, textW);
         boolean isConfigure = paintActions(view, row, x + w - m.u(3), top + (block - m.controlHeight()) * 0.5f,
                 actions);
         if (row.state().isRunning() && view.state().isConnected()) {
@@ -81,7 +84,11 @@ final class ScriptRowView {
             lane.running(draw, textX, laneY, x + w - m.u(3) - textX, laneHeight(), row.laneNanos(),
                     row.avgLoopMs());
         }
-        return isConfigure;
+        if (isConfigure) {
+            return new ClientCard.Intent.Configure(row.name());
+        }
+        return isManagement ? new ClientCard.Intent.OpenManagement(row.managedBy().orElseThrow())
+                : new ClientCard.Intent.None();
     }
 
     private float laneHeight() {
@@ -132,6 +139,50 @@ final class ScriptRowView {
             ui.text(draw, mono, x, lineY + (metaLineHeight() - mono.getFontSize()) * 0.5f, meta.tone().fg(), line);
             lineY += metaLineHeight();
         }
+    }
+
+    /** The name line's width before the robot link: the name and its version. */
+    private float nameLineWidth(ScriptRow row, float w) {
+        ImFont nameFont = ui.fonts().smallMedium();
+        ImFont mono = ui.fonts().monoCaption();
+        ScriptInfo script = row.script();
+        String version = script.version().isBlank() ? "" : "v" + script.version();
+        float versionW = version.isEmpty() ? 0f : ui.m().u(1) + ui.width(mono, version);
+        String name = ui.ellipsize(nameFont, script.name(), Math.max(1f, w - versionW));
+        return ui.width(nameFont, name) + versionW;
+    }
+
+    /**
+     * The blue robot link after the version, "🤖 Break Scheduler", when a
+     * management script manages this script on this client; returns whether
+     * it was clicked.
+     */
+    private boolean managedLink(ClientView view, ScriptRow row, float x, float y, float w) {
+        if (row.managedBy().isEmpty()) {
+            return false;
+        }
+        String manager = row.managedBy().get();
+        ImFont cap = ui.fonts().caption();
+        float lx = x + nameLineWidth(row, w) + ui.m().u(2);
+        float glyphW = ui.width(cap, Icons.ROBOT) + ui.m().u(1);
+        float room = x + w - lx - glyphW;
+        if (room <= 0f) {
+            return false;
+        }
+        String label = ui.ellipsize(cap, manager, room);
+        float h = ui.fonts().smallMedium().getFontSize() * NAME_LINE;
+        float linkW = glyphW + ui.width(cap, label);
+        ImGui.setCursorScreenPos(lx, y);
+        boolean isClicked = ImGui.invisibleButton("mgd##" + view.id().value() + "/" + row.name(), linkW, h);
+        boolean isHovered = ImGui.isItemHovered();
+        if (isHovered) {
+            ImGui.setTooltip("Managed by " + manager + ". Open Management.");
+        }
+        int col = isHovered ? ImGuiTheme.COL_FG : ImGuiTheme.COL_INFO;
+        ImDrawList draw = ImGui.getWindowDrawList();
+        ui.textCentredY(draw, cap, lx, y, h, col, Icons.ROBOT);
+        ui.textCentredY(draw, cap, lx + glyphW, y, h, col, label);
+        return isClicked;
     }
 
     private static CardTone tileTone(ScriptState state, ClientState client) {
