@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
-import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.impl.ActionsCommand;
 import com.botwithus.bot.cli.command.impl.AutoStartCommand;
@@ -35,16 +34,24 @@ import com.botwithus.bot.cli.gui.nav.Page;
 import com.botwithus.bot.cli.gui.nav.PageId;
 import com.botwithus.bot.cli.gui.nav.PageRegistry;
 import com.botwithus.bot.cli.gui.nav.SecondLine;
-import com.botwithus.bot.cli.gui.notify.Notification;
+import com.botwithus.bot.cli.gui.notify.HostToasts;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
+import com.botwithus.bot.cli.gui.notify.ToastRoutes;
 import com.botwithus.bot.cli.gui.pages.ClientsPage;
-import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
 import com.botwithus.bot.cli.gui.pages.connections.ConnectCommandPipes;
 import com.botwithus.bot.cli.gui.pages.connections.ConnectionsPage;
 import com.botwithus.bot.cli.gui.pages.connections.LiveConnectionsModel;
+import com.botwithus.bot.cli.gui.pages.groups.GroupsPage;
+import com.botwithus.bot.cli.gui.pages.groups.LiveGroupsModel;
 import com.botwithus.bot.cli.gui.pages.dashboard.CommandConsole;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPage;
 import com.botwithus.bot.cli.gui.pages.dashboard.LiveDashboardModel;
+import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
+import com.botwithus.bot.cli.gui.pages.installed.LiveInstalledModel;
+import com.botwithus.bot.cli.gui.pages.management.LiveManagementModel;
+import com.botwithus.bot.cli.gui.pages.management.ManagementPage;
+import com.botwithus.bot.cli.gui.pages.settings.LiveSettingsModel;
+import com.botwithus.bot.cli.gui.pages.settings.SettingsPage;
 import com.botwithus.bot.cli.gui.pages.store.LiveStoreModel;
 import com.botwithus.bot.cli.gui.pages.store.StoreCatalogue;
 import com.botwithus.bot.cli.gui.pages.store.StorePage;
@@ -85,6 +92,7 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.List;
@@ -104,9 +112,14 @@ public class ImGuiApp extends Application {
 
     private static final Logger log = LoggerFactory.getLogger(ImGuiApp.class);
 
-    private static final float UI_FONT_BASE_PX = 17f;
+    /** The atlas default font, which a script's own UI and imgui's tooltips draw with; see FontLoader. */
+    private static final float DEFAULT_FONT_PX = 17f;
     /** The taskbar's name for the window. It names no connection: no one client owns the app. */
     private static final String WINDOW_TITLE = "BotWithUs";
+    /** How long the Installed scripts page reuses one read of the host: its badge and body share it. */
+    private static final Duration INSTALLED_VIEW_MAX_AGE = Duration.ofMillis(250);
+    /** How long the Management page reuses one read of the host: its badge and body share it. */
+    private static final Duration MANAGEMENT_VIEW_MAX_AGE = Duration.ofMillis(250);
 
     // The ASCII-art \\ sequences javac reads as line-continuation markers; suppression
     // is narrower than rewriting the banner as concatenated string literals.
@@ -134,19 +147,25 @@ public class ImGuiApp extends Application {
         return t;
     });
 
-    // Pages. The Dashboard is kept so "View log" can bring its Logs tab forward.
+    // Pages. The Dashboard is kept so "View log" can bring its Logs tab forward, and
+    // Management so a robot link elsewhere can open it on one script.
     private PageRegistry pages;
     private DashboardPage dashboard;
+    private ManagementPage management;
     // The Script Store's background catalogue ticker, and the user's favourite and seen scripts.
     private ScheduledExecutorService catalogueTicker;
     private FavouritesStore favourites;
     private float dpiScale = 1f;
 
+    // Applies a text size change between frames; set once the settings are open.
+    private FontRebuild fontRebuild;
+
     // The one config inspector, shared by both modes and every "Settings" button
     private InspectorDock inspector;
 
-    // Toast/banner overlay (event-driven, fixed-position, top-right)
+    // Toasts (top-right), fed from the host event bus, and what their buttons do
     private NotificationOverlay notificationOverlay;
+    private ToastRoutes toastRoutes;
 
     // GLFW window handle, for closing the window from the console's `exit`
     private long glfwWindow;
@@ -181,7 +200,8 @@ public class ImGuiApp extends Application {
 
         redirectImGuiIniToConfigDir();
         dpiScale = detectDpiScale();
-        ui = new Controls(FontLoader.loadAll(dpiScale, UI_FONT_BASE_PX));
+        ui = new Controls(FontLoader.loadAll(dpiScale, DEFAULT_FONT_PX),
+                Motion.following(settings, Motion.FrameClock.imGui()));
         setupTheme();
 
         textureManager = new TextureManager();
@@ -192,6 +212,10 @@ public class ImGuiApp extends Application {
         ScriptProfileStore profileStore = new ScriptProfileStore();
         ctx.setProfileStore(profileStore);
         ctx.setSettings(settings);
+        // Before anything can connect or load scripts, so no toast-worthy event is missed.
+        notificationOverlay = new NotificationOverlay(Clock.systemDefaultZone());
+        HostToasts.attach(ctx, notificationOverlay);
+        ctx.startAlerts();
         currentMode = AppMode.openingIn(settings.get(SettingKeys.START_MODE));
         AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore, ctx.getSettings());
         ctx.setAutoStartManager(autoStartManager);
@@ -203,6 +227,9 @@ public class ImGuiApp extends Application {
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
 
         ctx.initManagementRuntime();
+        // The first management load pass, which also starts the scripts that were
+        // running when the host last stopped. Loading JARs blocks, so off the render thread.
+        executor.submit(this::loadManagementAtStartup);
         autoStartManager.start();
 
         buildPanels();
@@ -312,8 +339,7 @@ public class ImGuiApp extends Application {
                 // Safe: handle is the OutputLine this same ProgressDisplay returned from start();
                 // the interface keeps it opaque so each implementation owns its handle type.
                 OutputLine line = (OutputLine) handle;
-                outputBuffer.completeProgressWithText(line, message,
-                        ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B);
+                outputBuffer.completeProgressWithText(line, message, ImGuiTheme.COL_DANGER);
             }
         });
     }
@@ -327,9 +353,6 @@ public class ImGuiApp extends Application {
         inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx));
         ctx.setConfigPanelOpener(inspectorState.clientScriptOpener());
 
-        // Notification overlay (event-driven). Subscribed to each connection's
-        // event bus the moment connect() succeeds.
-        notificationOverlay = new NotificationOverlay(clock, this::accountOf);
         // One catalogue for the whole host: the Script Store and Normal mode's
         // "Your subscriptions" group read the same refresher, so there is one fetch loop.
         SdnCatalogueRefresher sdnCatalogue = StoreCatalogue.refresherFor(new SdnCatalogueSource());
@@ -339,39 +362,21 @@ public class ImGuiApp extends Application {
         board = new LiveClientBoard(ctx, this::openLogs, clock, sdnCatalogue, sdnInstaller, executor);
         pages = new PageRegistry(buildPages(sdnCatalogue, sdnInstaller));
         shell = new Shell(ui, pages, inspector, notificationOverlay, hostWindow.chrome(ui));
-        ctx.setOnConnect(conn -> {
-            if (conn.getEventBus() != null) {
-                notificationOverlay.subscribeTo(conn.getEventBus());
-            }
-        });
-    }
-
-    /**
-     * The Advanced pages not yet redesigned. Until each redesigned page lands,
-     * the pre-redesign panel is hosted as an interim page so nothing goes
-     * missing. A script's own UI is the inspector's Script UI tab, so it has no
-     * page of its own.
-     */
-    private List<LegacyPanelPage> legacyPages() {
-        ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
-        mgmtPanel.setConfigOpener(inspector.state().managementScriptOpener());
-        Path scriptsDir = LocalScriptLoader.scriptsDir();
-        Optional<SecondLine> scriptsLine = Optional.of(folderLine(scriptsDir));
-        Optional<SecondLine> managementLine = Optional.of(folderLine(ManagementScriptLoader.managementDirIn(scriptsDir)));
-        return List.of(
-                LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
-                new LegacyPanelPage(PageId.INSTALLED, ui, ctx, List.of(new ScriptsPanel(executor)),
-                        () -> scriptsLine),
-                new LegacyPanelPage(PageId.MANAGEMENT, ui, ctx, List.of(mgmtPanel), () -> managementLine),
-                LegacyPanelPage.of(PageId.SETTINGS, ui, ctx, new SettingsPanel()));
+        toastRoutes = new ToastRoutes(key -> board.actions().retryNow(key), this::openLogs,
+                () -> openLogs(Optional.empty()));
     }
 
     private List<Page> buildPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
-        List<Page> all = new ArrayList<>(legacyPages());
-        all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state()), board));
+        List<Page> all = new ArrayList<>();
+        all.add(managementPage());
+        all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state(), this::openManagement), board));
         all.add(dashboardPage());
-        all.add(storePage(sdnCatalogue, sdnInstaller));
+        StorePage store = storePage(sdnCatalogue, sdnInstaller);
+        all.add(store);
         all.add(connectionsPage());
+        all.add(groupsPage());
+        all.add(installedPage(sdnCatalogue, sdnInstaller, store));
+        all.add(settingsPage());
         return all;
     }
 
@@ -400,6 +405,16 @@ public class ImGuiApp extends Application {
     }
 
     /**
+     * Groups over the live host. Its Start script dialog lists the scripts the
+     * Clients board last loaded, off the render thread; every change runs on the
+     * console's queue. A member's robot link opens Management.
+     */
+    private GroupsPage groupsPage() {
+        return new GroupsPage(ui, new LiveGroupsModel(ctx, board::catalog, executor, inspector.state()::request,
+                this::openManagement, Clock.systemDefaultZone()));
+    }
+
+    /**
      * Connections over the live host. Scans run on their own virtual thread, as
      * they probe every pipe; connects and disconnects share the console's queue.
      */
@@ -408,6 +423,78 @@ public class ImGuiApp extends Application {
                 task -> Thread.ofVirtual().name("pipe-scan").start(task), ClipboardHelper::copyToClipboard,
                 Clock.systemUTC());
         return new ConnectionsPage(ui, model, id -> pages.select(id));
+    }
+
+    /**
+     * Installed scripts, over the host's load report, runners, failed-load list and Store ledger. Its
+     * Install again and Update open {@code store} on the script.
+     */
+    private InstalledPage installedPage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller,
+                                        StorePage store) {
+        Path scriptsDir = LocalScriptLoader.scriptsDir();
+        SecondLine.FolderPath folder = SecondLine.FolderPath.of(scriptsDir, Path.of(""),
+                Path.of(System.getProperty("user.home")));
+        LiveInstalledModel model = new LiveInstalledModel(new LiveInstalledModel.Deps(ctx, sdnInstaller.ledger(),
+                sdnCatalogue::shown, inspector.state()::request, executor, LiveInstalledModel.desktopOpener(executor),
+                Clock.systemDefaultZone(), scriptsDir, folder.text(), INSTALLED_VIEW_MAX_AGE));
+        return new InstalledPage(ui, model, folder, id -> pages.select(id), catalogueId -> {
+            store.show(catalogueId);
+            pages.select(PageId.STORE);
+        });
+    }
+
+    /**
+     * Management over the live host: the management runtime, each script's
+     * targets and settings, and the orchestrator audit log. Its Open folder
+     * runs on a virtual thread, as the file browser can take a while to answer.
+     */
+    private ManagementPage managementPage() {
+        Path dir = ManagementScriptLoader.managementDirIn(LocalScriptLoader.scriptsDir());
+        SecondLine.FolderPath folder = SecondLine.FolderPath.of(dir, Path.of(""),
+                Path.of(System.getProperty("user.home")));
+        LiveManagementModel model = new LiveManagementModel(new LiveManagementModel.Deps(ctx,
+                inspector.state()::request, executor,
+                LiveInstalledModel.desktopOpener(task -> Thread.ofVirtual().name("open-folder").start(task)),
+                Clock.systemDefaultZone(), dir, folder.text(), MANAGEMENT_VIEW_MAX_AGE));
+        management = new ManagementPage(ui, model, folder, id -> pages.select(id));
+        return management;
+    }
+
+    /** Opens Management on {@code script}, from anywhere: a robot link on a card or a group member. */
+    private void openManagement(String script) {
+        modeRequest.request(AppMode.ADVANCED);
+        pages.select(PageId.MANAGEMENT);
+        management.show(script);
+    }
+
+    private void loadManagementAtStartup() {
+        try {
+            ctx.loadManagementAtStartup();
+        } catch (RuntimeException e) {
+            log.error("The first management load pass failed", e);
+        }
+    }
+
+    /** Settings over the live host; a text size change there rebuilds the fonts between frames. */
+    private SettingsPage settingsPage() {
+        HostSettings settings = ctx.getSettings();
+        fontRebuild = new FontRebuild(settings, ui, dpiScale, DEFAULT_FONT_PX);
+        Path home = Path.of(System.getProperty("user.home"));
+        LiveSettingsModel.Places places = new LiveSettingsModel.Places(HostSettings.defaultBaseDir(),
+                LocalScriptLoader.scriptsDir(), LiveSettingsModel.exportFolderIn(home), home, Path.of(""));
+        LiveSettingsModel.Host host = new LiveSettingsModel.Host(settings,
+                Optional.ofNullable(ctx.getProfileStore()), ctx::getConnections, ctx::getIntegrations);
+        return new SettingsPage(ui, new LiveSettingsModel(host, places, LiveSettingsModel::openOnDesktop,
+                task -> Thread.ofVirtual().name("settings-io").start(task), Clock.systemDefaultZone(),
+                fontRebuild::monitorPercent));
+    }
+
+    @Override
+    protected void startFrame() {
+        if (fontRebuild != null) {
+            fontRebuild.applyIfDue(imGuiGl3);
+        }
+        super.startFrame();
     }
 
     /** A folder as the sidebar's second line shows it, relative to where the host runs from. */
@@ -431,7 +518,7 @@ public class ImGuiApp extends Application {
         // openLogs() runs inside render (card "View log", toast actions), so it
         // requests the switch rather than setting currentMode, which the render's
         // own result would overwrite.
-        currentMode = modeRequest.resolve(shell.render(currentMode, board, this::onToastAction));
+        currentMode = modeRequest.resolve(shell.render(currentMode, board, toastRoutes));
 
         hostWindow.endFrame();
     }
@@ -466,40 +553,20 @@ public class ImGuiApp extends Application {
         }
     }
 
-    /** "View log" on a card: the Logs tab scoped to the pipe {@code client} is on, or to every client. */
+    /**
+     * "View log" on a card or a toast: the Logs tab scoped to {@code client}, which
+     * shows what it logged on every pipe it has been on, whether or not it is
+     * connected now.
+     */
     private void openLogs(ClientKey client) {
-        openLogs(ctx.getClientRegistry().get(client).flatMap(ClientRecord::pipe));
+        openLogs(Optional.of(client));
     }
 
-    /** "View log" for one client: Advanced, Dashboard, the Logs tab scoped to {@code clientId}. */
-    private void openLogs(String clientId) {
-        openLogs(Optional.ofNullable(clientId).filter(id -> !id.isBlank()));
-    }
-
-    /** Switches to Advanced, Dashboard, Logs tab, scoped to {@code clientId} or to every client. */
-    private void openLogs(Optional<String> clientId) {
+    /** Switches to Advanced, Dashboard, Logs tab, scoped to {@code client} or to every client. */
+    private void openLogs(Optional<ClientKey> client) {
         modeRequest.request(AppMode.ADVANCED);
         pages.select(PageId.DASHBOARD);
-        dashboard.openLogs(clientId);
-    }
-
-    private void onToastAction(Notification n) {
-        switch (n.kind()) {
-            case GAVE_UP -> board.actions().reconnect(ctx.clientKeyOf(n.subject()));
-            case SCRIPT_CRASHED -> openLogs(n.subject());
-            case LOAD_FAILED -> openLogs(Optional.empty());
-            case CONNECTION_LOST, RECONNECTING, RECONNECTED -> { }
-        }
-    }
-
-    /** The account playing on connection {@code name}, or the name itself when unknown. */
-    private String accountOf(String name) {
-        for (var conn : new ArrayList<>(ctx.getConnections())) {
-            if (conn.getName().equals(name) && conn.getAccountName() != null) {
-                return conn.getAccountName();
-            }
-        }
-        return name;
+        dashboard.openLogs(client);
     }
 
     private void shutdown() {
@@ -523,6 +590,7 @@ public class ImGuiApp extends Application {
         }
         ctx.disconnectAll();
         ctx.saveClients();
+        ctx.stopAlerts();
         ctx.closeGamevals();
         if (catalogueTicker != null) {
             catalogueTicker.shutdownNow();
@@ -531,13 +599,6 @@ public class ImGuiApp extends Application {
         if (glfwWindow != 0) {
             GLFW.glfwSetWindowShouldClose(glfwWindow, true);
         }
-    }
-
-    /**
-     * Returns the CLI context for use by other components (e.g., the blueprint editor).
-     */
-    public CliContext getCliContext() {
-        return ctx;
     }
 
     public static void main(String[] args) {
