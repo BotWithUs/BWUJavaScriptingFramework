@@ -1,9 +1,8 @@
 package com.botwithus.bot.cli.command.impl;
 
 import com.botwithus.bot.cli.CliContext;
+import com.botwithus.bot.cli.TestContexts;
 import com.botwithus.bot.cli.command.CommandParser;
-import com.botwithus.bot.cli.log.LogBuffer;
-import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import org.junit.jupiter.api.AfterEach;
@@ -34,7 +33,7 @@ class ConfigCommandTest {
     @BeforeEach
     void setUp() {
         PrintStream ps = new PrintStream(output);
-        ctx = new CliContext(new LogBuffer(), new LogCapture(new LogBuffer(), ps, ps));
+        ctx = TestContexts.inDir(dir, ps);
         settings = HostSettings.open(dir);
         command = new ConfigCommand(settings);
     }

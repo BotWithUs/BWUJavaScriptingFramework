@@ -2,6 +2,8 @@ package com.botwithus.bot.cli.command.impl;
 
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.GroupMembers;
+import com.botwithus.bot.cli.groups.ClientGroup;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
@@ -9,6 +11,7 @@ import com.botwithus.bot.cli.scripts.AfterReload;
 import com.botwithus.bot.cli.scripts.ReloadSummary;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * {@code reload}: reloads {@code scripts/} on the active connection or a group.
@@ -53,8 +56,8 @@ public class ReloadCommand implements Command {
     }
 
     private void reloadGroup(String groupName, AfterReload after, CliContext ctx) {
-        var group = ctx.getGroup(groupName);
-        if (group == null) {
+        Optional<ClientGroup> group = ctx.findGroup(groupName);
+        if (group.isEmpty()) {
             ctx.out().println("Group not found: " + groupName);
             return;
         }
@@ -64,11 +67,9 @@ public class ReloadCommand implements Command {
             return;
         }
         reload(conns, after, true, ctx);
-        // Warn about disconnected members
-        for (String connName : group.getConnectionNames()) {
-            if (conns.stream().noneMatch(c -> c.getName().equals(connName))) {
-                ctx.out().println("[" + connName + "] " + AnsiCodes.colorize("Warning: disconnected, skipped.", AnsiCodes.YELLOW));
-            }
+        for (String uuid : GroupMembers.offline(group.get(), conns)) {
+            ctx.out().println("[" + ctx.describeAccount(uuid) + "] "
+                    + AnsiCodes.colorize("Warning: disconnected, skipped.", AnsiCodes.YELLOW));
         }
     }
 

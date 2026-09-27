@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui.usermode;
 
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -51,7 +50,7 @@ final class CardWidgets {
         if (ImGui.isMouseHoveringRect(x, y, x + size, y + size) && ImGui.isWindowHovered()) {
             ImGui.setTooltip(tooltip);
         }
-        float t = Motion.step("icon:" + id, enabled && hovered ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("icon:" + id, enabled && hovered ? 1f : 0f, HOVER_SPEED);
         float alpha = enabled ? 1f : ImGuiTheme.DISABLED_ALPHA;
         paintIconButton(ImGui.getWindowDrawList(), x, y, size, icon, tint, t, alpha);
         return clicked && enabled;
@@ -105,7 +104,7 @@ final class CardWidgets {
         float tw = fs * SWITCH_W_EM;
         float th = fs * SWITCH_H_EM;
         float ty = y + (h - th) * 0.5f;
-        float t = Motion.step("switch:" + id, isOn ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("switch:" + id, isOn ? 1f : 0f, HOVER_SPEED);
         draw.addRectFilled(x, ty, x + tw, ty + th, Controls.lerp(ImGuiTheme.COL_ELEVATED, ImGuiTheme.COL_ACCENT, t),
                 th * 0.5f);
         draw.addRect(x + 0.5f, ty + 0.5f, x + tw - 0.5f, ty + th - 0.5f,
