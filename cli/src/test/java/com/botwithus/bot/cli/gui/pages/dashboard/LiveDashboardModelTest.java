@@ -50,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -94,6 +95,7 @@ class LiveDashboardModelTest {
         when(ctx.getConnections()).thenReturn(connections);
         when(ctx.getConnectionHistory()).thenReturn(history);
         when(ctx.getClientRegistry()).thenReturn(registry);
+        when(ctx.clientKeyOf(anyString())).thenAnswer(call -> ClientKey.pipe(call.getArgument(0)));
         when(ctx.getLogBuffer()).thenReturn(logBuffer);
         when(ctx.getLastLoadReport()).thenReturn(LoadReport.EMPTY);
         InstantSource clock = () -> now;
@@ -129,7 +131,7 @@ class LiveDashboardModelTest {
         connect(OAKHEART, latencies(1), List.of());
         connect(FERNMOSS, latencies(SAMPLES_PER_CLIENT + 1), List.of());
 
-        RpcRow row = model.view(Scope.of(FERNMOSS)).rpc().getFirst();
+        RpcRow row = model.view(Scope.of(ClientKey.pipe(FERNMOSS))).rpc().getFirst();
 
         assertEquals(SAMPLES_PER_CLIENT, row.calls());
         assertEquals(75.0, row.p50Ms(), EPSILON);
@@ -153,8 +155,8 @@ class LiveDashboardModelTest {
 
         List<AttentionItem> items = model.view(Scope.ALL).attention();
 
-        assertEquals(List.of("jar:" + jar, "crash:" + OAKHEART + ":Cook's Assistant",
-                "stall:" + OAKHEART + ":Divination", "conn:" + FERNMOSS), keys(items));
+        assertEquals(List.of("jar:" + jar, "crash:pipe:" + OAKHEART + ":Cook's Assistant",
+                "stall:pipe:" + OAKHEART + ":Divination", "conn:" + FERNMOSS), keys(items));
         assertEquals(4, attemptOf(items.get(3)));
     }
 
@@ -166,20 +168,19 @@ class LiveDashboardModelTest {
         when(lost.currentReconnectState()).thenReturn(new ReconnectState.GivingUp(0L, 5, null));
         when(ctx.getLastLoadReport()).thenReturn(failedToLoad(Path.of("scripts", "broken.jar")));
 
-        assertEquals(List.of("gaveup:" + FERNMOSS), keys(model.view(Scope.of(FERNMOSS)).attention()));
+        assertEquals(List.of("gaveup:" + FERNMOSS),
+                keys(model.view(Scope.of(ClientKey.pipe(FERNMOSS))).attention()));
     }
 
     /**
      * "Reconnect now" and "Try again" are the board's Retry: they wake or restart
      * the client's own recovery, which rebuilds the connection itself only when
-     * there is nothing to retry, rather than always tearing it down. The board is
-     * keyed by account, so the pipe is handed over as the key it is known by now.
+     * there is nothing to retry, rather than always tearing it down. Both are
+     * keyed by the client, so the key is handed straight over.
      */
     @Test
     void reconnectControls_retryThroughTheBoard_ratherThanTearingTheConnectionDown() {
-        when(ctx.clientKeyOf(FERNMOSS)).thenReturn(FERNMOSS_ACCOUNT);
-
-        model.actions().retryNow(FERNMOSS);
+        model.actions().retryNow(FERNMOSS_ACCOUNT);
 
         verify(clientActions).retryNow(FERNMOSS_ACCOUNT);
         verify(clientActions, never()).reconnect(any());
@@ -236,8 +237,8 @@ class LiveDashboardModelTest {
         logBuffer.add(new LogEntry("ScriptLoader", "ERROR", "Bad JAR", null));
         logBuffer.add(new LogEntry("Woodcutting", "ERROR", "Tree gone", OAKHEART));
 
-        LogsView oakheart = model.logs(Scope.of(OAKHEART), LogLevel.ALL);
-        LogsView oakheartInfo = model.logs(Scope.of(OAKHEART), LogLevel.INFO);
+        LogsView oakheart = model.logs(Scope.of(ClientKey.pipe(OAKHEART)), LogLevel.ALL);
+        LogsView oakheartInfo = model.logs(Scope.of(ClientKey.pipe(OAKHEART)), LogLevel.INFO);
         LogsView everyone = model.logs(Scope.ALL, LogLevel.ALL);
 
         assertAll(
@@ -249,6 +250,63 @@ class LiveDashboardModelTest {
                 () -> assertEquals(3, everyone.errors()));
     }
 
+    /** A client's logs follow its account across pipes, as its events do. */
+    @Test
+    void logs_scopedToAClient_includeWhatItLoggedOnAnEarlierPipe() {
+        history.accept(new HostEvent.ClientOpened(new ClientRef(OAKHEART_BEFORE), at(1)));
+        history.accept(new HostEvent.ClientIdentified(new ClientRef(OAKHEART_ACCOUNT, OAKHEART_BEFORE),
+                Optional.empty(), at(2)));
+        history.accept(new HostEvent.ClientOpened(new ClientRef(OAKHEART), at(3)));
+        history.accept(new HostEvent.ClientIdentified(new ClientRef(OAKHEART_ACCOUNT, OAKHEART),
+                Optional.empty(), at(4)));
+        logBuffer.add(new LogEntry("Woodcutting", "INFO", "Before the restart", OAKHEART_BEFORE));
+        logBuffer.add(new LogEntry("Divination", "INFO", "Someone else", FERNMOSS));
+        logBuffer.add(new LogEntry("Woodcutting", "INFO", "After the restart", OAKHEART));
+
+        LogsView oakheart = model.logs(Scope.of(OAKHEART_ACCOUNT), LogLevel.ALL);
+
+        assertEquals(List.of("Before the restart", "After the restart"), messages(oakheart));
+    }
+
+    /**
+     * "View log" on a remembered client with no connection scopes to that client,
+     * not to every client, and names it as the registry does.
+     */
+    @Test
+    void logs_ofAClientWithNoConnection_showOnlyItsLines_underTheNameTheRegistryHasForIt() {
+        remembered.add(new RememberedClient(OAKHEART_UUID, Optional.of("Tamsin Vale"), OptionalInt.empty(), T0));
+        registry.load();
+        history.accept(new HostEvent.ClientOpened(new ClientRef(OAKHEART_BEFORE), at(1)));
+        history.accept(new HostEvent.ClientIdentified(new ClientRef(OAKHEART_ACCOUNT, OAKHEART_BEFORE),
+                Optional.empty(), at(2)));
+        logBuffer.add(new LogEntry("Woodcutting", "INFO", "Mine", OAKHEART_BEFORE));
+        logBuffer.add(new LogEntry("Divination", "INFO", "Not mine", FERNMOSS));
+        logBuffer.add(new LogEntry("ScriptLoader", "INFO", "Host-wide", null));
+        Scope scope = Scope.of(OAKHEART_ACCOUNT);
+
+        LogsView logs = model.logs(scope, LogLevel.ALL);
+        ScopeOption option = model.view(scope).scopes().getLast();
+
+        assertAll(
+                () -> assertEquals(List.of("Mine"), messages(logs)),
+                () -> assertEquals("Tamsin Vale", logs.clientOf(OAKHEART_BEFORE)),
+                () -> assertEquals(scope, option.scope()),
+                () -> assertEquals("Tamsin Vale · closed", option.display()));
+    }
+
+    @Test
+    void runnerActions_findTheRunnerByItsClientsKey_onWhicheverPipeTheClientIsOnNow() {
+        ScriptRunner woodcutting = runner("Woodcutting", Liveness.LIVE, true, ScriptHealth.HEALTHY);
+        connect(OAKHEART, new RpcMetrics(), List.of(woodcutting));
+        when(ctx.clientKeyOf(OAKHEART)).thenReturn(OAKHEART_ACCOUNT);
+
+        RunnerRef ref = model.view(Scope.of(OAKHEART_ACCOUNT)).runners().getFirst().ref();
+        model.actions().stop(ref);
+
+        assertEquals(new RunnerRef(OAKHEART_ACCOUNT, "Woodcutting"), ref);
+        verify(woodcutting).stop();
+    }
+
     @Test
     void events_scopedToAClient_leaveOutOtherClientsAndHostWideEvents() {
         history.accept(new HostEvent.ClientOpened(new ClientRef(OAKHEART), at(1)));
@@ -256,7 +314,8 @@ class LiveDashboardModelTest {
         history.accept(new HostEvent.ScriptLoadFailed(Path.of("a.jar"), new IllegalStateException(), at(3)));
         history.accept(new HostEvent.ScriptStalled(new ClientRef(OAKHEART), "Divination", at(4)));
 
-        List<String> scoped = model.events(Scope.of(OAKHEART)).stream().map(EventRow::type).toList();
+        List<String> scoped = model.events(Scope.of(ClientKey.pipe(OAKHEART))).stream()
+                .map(EventRow::type).toList();
         List<String> all = model.events(Scope.ALL).stream().map(EventRow::type).toList();
 
         assertEquals(List.of("ClientOpened", "ScriptStalled"), scoped);
@@ -264,8 +323,8 @@ class LiveDashboardModelTest {
     }
 
     /**
-     * A client's history follows its account across pipes, so a client scoped
-     * by its current pipe also shows what it did before its game was restarted.
+     * A client's history follows its account across pipes, so a client's scope
+     * also shows what it did before its game was restarted.
      */
     @Test
     void events_scopedToAClient_includeWhatItsAccountDidOnAnEarlierPipe() {
@@ -279,7 +338,7 @@ class LiveDashboardModelTest {
         history.accept(new HostEvent.ClientIdentified(new ClientRef(OAKHEART_ACCOUNT, OAKHEART),
                 Optional.empty(), at(6)));
 
-        List<String> scoped = model.events(Scope.of(OAKHEART)).stream().map(EventRow::type).toList();
+        List<String> scoped = model.events(Scope.of(OAKHEART_ACCOUNT)).stream().map(EventRow::type).toList();
 
         assertEquals(List.of("ClientOpened", "ClientIdentified", "ScriptStopped", "ClientOpened",
                 "ClientIdentified"), scoped);

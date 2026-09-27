@@ -176,8 +176,7 @@ final class ConsoleTab {
     }
 
     private static String targetLabel(ConsoleView console, String pipe) {
-        return console.targets().stream().filter(o -> o.scope().equals(Scope.of(pipe))).findFirst()
-                .map(ScopeOption::label).orElse(pipe);
+        return console.labelOf(pipe);
     }
 
     private void input(ConsoleView console, DashboardActions actions, float w, float h) {

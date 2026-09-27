@@ -132,7 +132,7 @@ final class RunnersPanel {
             state.sortBy(SORTABLE.get(clicked));
         }
         for (RunnerRow row : rows) {
-            ImGui.pushID(row.ref().client() + "/" + row.script());
+            ImGui.pushID(row.ref().client().value() + "/" + row.script());
             row(row, state, actions, now, fs * ROW_EM);
             ImGui.popID();
         }

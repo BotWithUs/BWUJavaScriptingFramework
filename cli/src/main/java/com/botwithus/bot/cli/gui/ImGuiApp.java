@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
-import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.command.CommandRegistry;
 import com.botwithus.bot.cli.command.impl.ActionsCommand;
 import com.botwithus.bot.cli.command.impl.AutoStartCommand;
@@ -554,16 +553,20 @@ public class ImGuiApp extends Application {
         }
     }
 
-    /** "View log" on a card: the Logs tab scoped to the pipe {@code client} is on, or to every client. */
+    /**
+     * "View log" on a card or a toast: the Logs tab scoped to {@code client}, which
+     * shows what it logged on every pipe it has been on, whether or not it is
+     * connected now.
+     */
     private void openLogs(ClientKey client) {
-        openLogs(ctx.getClientRegistry().get(client).flatMap(ClientRecord::pipe));
+        openLogs(Optional.of(client));
     }
 
-    /** Switches to Advanced, Dashboard, Logs tab, scoped to {@code clientId} or to every client. */
-    private void openLogs(Optional<String> clientId) {
+    /** Switches to Advanced, Dashboard, Logs tab, scoped to {@code client} or to every client. */
+    private void openLogs(Optional<ClientKey> client) {
         modeRequest.request(AppMode.ADVANCED);
         pages.select(PageId.DASHBOARD);
-        dashboard.openLogs(clientId);
+        dashboard.openLogs(client);
     }
 
     private void shutdown() {

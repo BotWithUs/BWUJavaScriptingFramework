@@ -8,6 +8,7 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.clients.ClientRegistry;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.ConnectionHistory;
 import com.botwithus.bot.cli.events.HostEvent;
@@ -33,10 +34,14 @@ import java.time.Instant;
 import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.Future;
 import java.util.function.Consumer;
@@ -112,7 +117,7 @@ public final class LiveDashboardModel implements DashboardModel {
         Instant now = clock.instant();
         noteLoadPass(now);
         List<Connection> all = ctx.getConnections();
-        List<Connection> conns = all.stream().filter(c -> scope.includes(c.getName())).toList();
+        List<Connection> conns = all.stream().filter(c -> scope.includes(keyOf(c))).toList();
         List<Seen> seen = readRunners(conns);
         List<RunnerRow> rows = seen.stream().map(Seen::row).sorted(RUNNER_ORDER).toList();
         RpcSpread.Table rpc = rpcSpread.table(scope, metricsOf(conns), now);
@@ -121,12 +126,18 @@ public final class LiveDashboardModel implements DashboardModel {
                 setting(SettingKeys.COLLECT_RPC_TIMING), setting(SettingKeys.COLLECT_LOOP_TIMING));
     }
 
+    /**
+     * A client's lines are those logged on every pipe it has been on, so they
+     * follow its account across a game restart as its events do. Lines no client
+     * logged are host-wide and show only for every client.
+     */
     @Override
     public LogsView logs(Scope scope, LogLevel level) {
+        Optional<Set<String>> pipes = scope.client().map(this::pipesOf);
         List<LogEntry> lines = new ArrayList<>();
         int errors = 0;
         for (LogEntry entry : ctx.getLogBuffer().tail(LOG_LINES)) {
-            if (!scope.includes(entry.connection())) {
+            if (pipes.isPresent() && !pipes.get().contains(entry.connection())) {
                 continue;
             }
             if (LogLevel.ERROR.admits(entry.level())) {
@@ -136,27 +147,22 @@ public final class LiveDashboardModel implements DashboardModel {
                 lines.add(entry);
             }
         }
-        return new LogsView(lines, errors);
+        return new LogsView(lines, errors, pipeLabels(lines));
     }
 
-    /**
-     * A client's events are its whole history, which follows its account across
-     * pipes: the scope names its current pipe, and the history finds the client
-     * that pipe belongs to now.
-     */
+    /** A client's events are its whole history, which follows its account across pipes. */
     @Override
     public List<EventRow> events(Scope scope) {
         ConnectionHistory history = ctx.getConnectionHistory();
-        List<HostEvent> events = scope.client().map(pipe -> history.forClient(pipe))
-                .orElseGet(history::merged);
+        List<HostEvent> events = scope.client().map(history::forClient).orElseGet(history::merged);
         Function<ClientRef, String> labels = eventLabels(ctx.getConnections());
         return events.stream().map(event -> EventRows.of(event, labels)).toList();
     }
 
     @Override
     public ConsoleView console() {
-        List<ScopeOption> targets = ctx.getConnections().stream()
-                .map(c -> new ScopeOption(Scope.of(c.getName()), labelOf(c)))
+        List<ConsoleTarget> targets = ctx.getConnections().stream()
+                .map(c -> new ConsoleTarget(c.getName(), labelOf(c)))
                 .toList();
         return new ConsoleView(console.lines(), Optional.ofNullable(ctx.getActiveConnectionName()), targets,
                 ctx.isMounted(), console.commandNames());
@@ -173,14 +179,15 @@ public final class LiveDashboardModel implements DashboardModel {
         List<Seen> seen = new ArrayList<>();
         for (Connection conn : conns) {
             String label = labelOf(conn);
+            ClientKey key = keyOf(conn);
             for (ScriptRunner runner : conn.getRuntime().getRunners()) {
-                seen.add(new Seen(runner, row(conn.getName(), label, runner)));
+                seen.add(new Seen(runner, row(key, label, runner)));
             }
         }
         return seen;
     }
 
-    private RunnerRow row(String pipe, String label, ScriptRunner runner) {
+    private RunnerRow row(ClientKey client, String label, ScriptRunner runner) {
         ScriptProfiler p = runner.getProfiler();
         RunnerStatus status = RunnerReading.of(runner).status();
         ScriptManifest manifest = runner.getManifest();
@@ -188,8 +195,8 @@ public final class LiveDashboardModel implements DashboardModel {
         ScriptCategory category = manifest != null ? manifest.category() : ScriptCategory.UNCATEGORIZED;
         String script = runner.getScriptName();
         Optional<Instant> stalledSince = status == RunnerStatus.STALLED
-                ? latest(pipe, e -> stalledAt(e, script)) : Optional.empty();
-        return new RunnerRow(new RunnerRef(pipe, script), label, version, category, status,
+                ? latest(client, e -> stalledAt(e, script)) : Optional.empty();
+        return new RunnerRow(new RunnerRef(client, script), label, version, category, status,
                 p.getLoopCount(), p.avgLoopMs(), ms(p.getLastLoopNanos()), ms(p.getMaxLoopNanos()),
                 p.recentLoopNanos(), runner.health().totalCrashes(), stalledSince, hasSettings(runner));
     }
@@ -233,15 +240,17 @@ public final class LiveDashboardModel implements DashboardModel {
             return Optional.empty();
         }
         String pipe = conn.getName();
-        Optional<Instant> lostAt = latest(pipe, LiveDashboardModel::lostAt);
+        ClientKey key = keyOf(conn);
+        Optional<Instant> lostAt = latest(key, LiveDashboardModel::lostAt);
         ReconnectState state = conn.currentReconnectState();
         return Optional.of(switch (state) {
             case ReconnectState.Reconnecting r -> new AttentionItem.NotResponding(
-                    pipe, labelOf(conn), r.attempt(), r.nextDelayMs(), lostAt);
-            case ReconnectState.GivingUp g -> new AttentionItem.GaveUp(pipe, labelOf(conn), g.attempts(), lostAt);
+                    key, pipe, labelOf(conn), r.attempt(), r.nextDelayMs(), lostAt);
+            case ReconnectState.GivingUp g ->
+                    new AttentionItem.GaveUp(key, pipe, labelOf(conn), g.attempts(), lostAt);
             case ReconnectState.Connected _, ReconnectState.Disconnected _ ->
-                    new AttentionItem.NotResponding(pipe, labelOf(conn), 0, 0L, lostAt);
-            case null -> new AttentionItem.NotResponding(pipe, labelOf(conn), 0, 0L, lostAt);
+                    new AttentionItem.NotResponding(key, pipe, labelOf(conn), 0, 0L, lostAt);
+            case null -> new AttentionItem.NotResponding(key, pipe, labelOf(conn), 0, 0L, lostAt);
         });
     }
 
@@ -321,20 +330,83 @@ public final class LiveDashboardModel implements DashboardModel {
         return settings != null ? settings.get(key) : key.defaultValue();
     }
 
+    /**
+     * "All clients", then one entry per client with a connection, then the
+     * scope shown now if it names a client with none, such as a closed one
+     * "View log" was opened on.
+     */
     private List<ScopeOption> scopes(List<Connection> all, Scope scope) {
         List<ScopeOption> out = new ArrayList<>();
         out.add(new ScopeOption(Scope.ALL, "All clients (" + all.size() + ")"));
         for (Connection conn : all) {
-            String note = isNotResponding(conn) ? "not responding" : "";
-            out.add(new ScopeOption(Scope.of(conn.getName()), labelOf(conn), note));
+            Scope client = Scope.of(keyOf(conn));
+            if (out.stream().noneMatch(o -> o.scope().equals(client))) {
+                out.add(new ScopeOption(client, labelOf(conn), isNotResponding(conn) ? "not responding" : ""));
+            }
         }
         if (out.stream().noneMatch(o -> o.scope().equals(scope))) {
-            out.add(new ScopeOption(scope, scope.client().orElse(""), "closed"));
+            String label = scope.client().map(key -> labelOf(key, all)).orElse("");
+            out.add(new ScopeOption(scope, label, "closed"));
         }
         return out;
     }
 
     // ── Small readers ───────────────────────────────────────────────────
+
+    /** The key the host knows {@code conn}'s client by now. */
+    private ClientKey keyOf(Connection conn) {
+        return ctx.clientKeyOf(conn.getName());
+    }
+
+    /**
+     * Every pipe the client under {@code key} has been on: those its history
+     * recorded, any it holds now that the history has not seen yet, and, for a
+     * client known only by its pipe, that pipe.
+     */
+    private Set<String> pipesOf(ClientKey key) {
+        Set<String> pipes = new HashSet<>(ctx.getConnectionHistory().pipesOf(key));
+        ctx.getConnections().stream()
+                .filter(c -> keyOf(c).equals(key))
+                .forEach(c -> pipes.add(c.getName()));
+        switch (key) {
+            case ClientKey.Pipe pipe -> pipes.add(pipe.pipe());
+            case ClientKey.Account _ -> { }
+        }
+        return pipes;
+    }
+
+    /**
+     * The client under {@code key} as the user knows it: as its connection is
+     * labelled while it has one, else by the name the client registry has for
+     * it, else by its key.
+     */
+    String labelOf(ClientKey key, List<Connection> conns) {
+        return conns.stream().filter(c -> keyOf(c).equals(key)).findFirst()
+                .map(LiveDashboardModel::labelOf)
+                .or(() -> ctx.getClientRegistry().get(key).flatMap(ClientRecord::name))
+                .orElse(key.value());
+    }
+
+    /**
+     * The client behind each pipe {@code lines} came from: the connection's
+     * label while it is open, else that of the client whose history the pipe
+     * is in, a remembered account before a pipe's own key.
+     */
+    private Map<String, String> pipeLabels(List<LogEntry> lines) {
+        Set<String> wanted = new HashSet<>();
+        lines.stream().map(LogEntry::connection).filter(Objects::nonNull).forEach(wanted::add);
+        List<Connection> conns = ctx.getConnections();
+        ConnectionHistory history = ctx.getConnectionHistory();
+        Map<String, String> labels = new HashMap<>();
+        history.clients().stream()
+                .sorted(Comparator.comparing(key -> !key.isRemembered()))
+                .forEach(key -> history.pipesOf(key).stream()
+                        .filter(pipe -> wanted.contains(pipe) && !labels.containsKey(pipe))
+                        .forEach(pipe -> labels.put(pipe, labelOf(key, conns))));
+        conns.stream().filter(c -> wanted.contains(c.getName()))
+                .forEach(c -> labels.put(c.getName(), labelOf(c)));
+        return labels;
+    }
 
     /** The client as the user knows it: the account's display name, else its name, else the pipe. */
     static String labelOf(Connection conn) {
@@ -377,8 +449,8 @@ public final class LiveDashboardModel implements DashboardModel {
         };
     }
 
-    private Optional<Instant> latest(String pipe, Function<HostEvent, Optional<Instant>> match) {
-        return latestIn(ctx.getConnectionHistory().forClient(pipe), match);
+    private Optional<Instant> latest(ClientKey client, Function<HostEvent, Optional<Instant>> match) {
+        return latestIn(ctx.getConnectionHistory().forClient(client), match);
     }
 
     private static Optional<Instant> latestIn(List<HostEvent> events, Function<HostEvent, Optional<Instant>> match) {
@@ -424,11 +496,15 @@ public final class LiveDashboardModel implements DashboardModel {
         });
     }
 
-    private Optional<ScriptRunner> runner(RunnerRef ref) {
+    /** The connection {@code ref}'s client is on now, a live one first. */
+    private Optional<Connection> connectionOf(RunnerRef ref) {
         return ctx.getConnections().stream()
-                .filter(c -> c.getName().equals(ref.client()))
-                .findFirst()
-                .map(c -> c.getRuntime().findRunner(ref.script()));
+                .filter(c -> keyOf(c).equals(ref.client()))
+                .min(Comparator.comparing(c -> !c.isAlive()));
+    }
+
+    private Optional<ScriptRunner> runner(RunnerRef ref) {
+        return connectionOf(ref).map(c -> c.getRuntime().findRunner(ref.script()));
     }
 
     private void resetMetrics() {
@@ -462,12 +538,13 @@ public final class LiveDashboardModel implements DashboardModel {
 
         @Override
         public void threadDump(RunnerRef ref) {
-            runner(ref).ifPresent(r -> ThreadDump.print(r, ref, console.out()));
+            connectionOf(ref).ifPresent(conn -> Optional.ofNullable(conn.getRuntime().findRunner(ref.script()))
+                    .ifPresent(r -> ThreadDump.print(r, ref.script(), conn.getName(), console.out())));
         }
 
         @Override
-        public void retryNow(String pipe) {
-            clientActions.retryNow(ctx.clientKeyOf(pipe));
+        public void retryNow(ClientKey client) {
+            clientActions.retryNow(client);
         }
 
         @Override

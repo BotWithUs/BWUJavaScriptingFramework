@@ -421,7 +421,7 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("23-advanced-view-log-opens-client-logs", FixtureBoard::everyState, (s, f) -> {
                     s.pages().registry().select(PageId.DASHBOARD);
                     if (f == 0) {
-                        s.pages().dashboard().openLogs(Optional.of(TAMSIN_VALE));
+                        s.pages().dashboard().openLogs(Optional.of(FixtureDashboardModel.keyOf(TAMSIN_VALE)));
                     }
                 }),
                 Scenario.advanced("33-advanced-dashboard-busy-attention", FixtureBoard::everyState,
@@ -493,7 +493,8 @@ public final class ShellPreview extends Application {
     }
 
     private static final String TAMSIN_VALE = "BotWithUs_15002";
-    private static final String CRASH_KEY = "crash:" + TAMSIN_VALE + ":Cook's Assistant";
+    private static final String CRASH_KEY = "crash:" + FixtureDashboardModel.keyOf(TAMSIN_VALE).value()
+            + ":Cook's Assistant";
     private static final float SCROLL_TOP = 0f;
     private static final float SCROLL_BOTTOM = 1f;
 
