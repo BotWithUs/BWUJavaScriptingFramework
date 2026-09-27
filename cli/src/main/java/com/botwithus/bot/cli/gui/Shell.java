@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui;
 
+import com.botwithus.bot.cli.gui.inspector.InspectorDock;
+import com.botwithus.bot.cli.gui.nav.Page;
 import com.botwithus.bot.cli.gui.nav.PageRegistry;
 import com.botwithus.bot.cli.gui.nav.Sidebar;
 import com.botwithus.bot.cli.gui.notify.Notification;
@@ -19,7 +21,9 @@ import java.util.function.Consumer;
  * One shell, two depths: the top bar, the mode's body and the status bar, laid
  * out edge to edge in a full-window ImGui window, with toasts floating above.
  * Normal mode's body is the Clients page; Advanced adds the sidebar and shows
- * whichever page it has selected, Clients included. The real app and the
+ * whichever page it has selected, Clients included. In both, the one config
+ * inspector docks on the right of the page body when that page owns the open
+ * script, and opening it from elsewhere switches to that page. The real app and the
  * dev-only preview both draw through this class, so what the preview captures
  * is what users get.
  */
@@ -30,14 +34,16 @@ public final class Shell {
     private final StatusBar statusBar;
     private final Sidebar sidebar;
     private final PageRegistry pages;
+    private final InspectorDock inspector;
     private final NotificationOverlay toasts;
 
-    public Shell(Controls ui, PageRegistry pages, NotificationOverlay toasts) {
+    public Shell(Controls ui, PageRegistry pages, InspectorDock inspector, NotificationOverlay toasts) {
         this.ui = ui;
         this.topBar = new TopBar(ui);
         this.statusBar = new StatusBar(ui);
         this.sidebar = new Sidebar(ui);
         this.pages = pages;
+        this.inspector = inspector;
         this.toasts = toasts;
     }
 
@@ -46,13 +52,14 @@ public final class Shell {
      *
      * @param board   what the status bar reports
      * @param onToast runs a toast's action button
-     * @return the mode for the next frame (F12 or the switch may have changed it)
+     * @return the mode for the next frame (F12, the switch or an inspector request may have changed it)
      */
     public AppMode render(AppMode mode, ClientBoard board, Consumer<Notification> onToast) {
         AppMode next = mode;
         if (ImGui.isKeyPressed(ImGuiKey.F12, false)) {
             next = mode == AppMode.NORMAL ? AppMode.ADVANCED : AppMode.NORMAL;
         }
+        next = inspector.state().route(pages, next);
         var vp = ImGui.getMainViewport();
         ImGui.setNextWindowPos(vp.getPosX(), vp.getPosY(), ImGuiCond.Always);
         ImGui.setNextWindowSize(vp.getSizeX(), vp.getSizeY(), ImGuiCond.Always);
@@ -83,13 +90,22 @@ public final class Shell {
         if (mode == AppMode.ADVANCED) {
             sidebar.render(pages, h);
             ImGui.sameLine(0f, 0f);
-            beginBareChild("##page", 0f, h);
-            pages.bodyFor(mode).render();
-            ImGui.endChild();
-        } else {
-            pages.bodyFor(mode).render();
         }
+        renderPageAndInspector(pages.bodyFor(mode), h);
         ImGui.endChild();
+    }
+
+    /** The page, narrowed by however far the inspector drawer has slid in beside it. */
+    private void renderPageAndInspector(Page page, float h) {
+        float availW = ImGui.getContentRegionAvailX();
+        float drawerW = inspector.beginFrame(page.id(), availW);
+        beginBareChild("##page", availW - drawerW, h);
+        page.render();
+        ImGui.endChild();
+        if (drawerW > 0f) {
+            ImGui.sameLine(0f, 0f);
+            inspector.render(drawerW, availW, h);
+        }
     }
 
     /** A child with no padding and no scrolling of its own; the page inside decides both. */

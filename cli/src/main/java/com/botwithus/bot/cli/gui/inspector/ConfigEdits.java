@@ -1,4 +1,4 @@
-package com.botwithus.bot.cli.gui.usermode;
+package com.botwithus.bot.cli.gui.inspector;
 
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ConfigField.BoolField;
@@ -21,6 +21,11 @@ import java.util.Objects;
  * The inspector's pending edits for one script, against the config it last saw
  * applied. Each field variant keeps its ImGui wrapper in a typed map, so nothing
  * is cast.
+ *
+ * <p>Covers every {@link ConfigField} variant with a typed editor: whole numbers
+ * and item ids as ints, free text, toggles, and choices by index. The switches
+ * are exhaustive over the sealed field type, so a new variant does not compile
+ * until it has an editor here.</p>
  *
  * <p>When the applied config changes underneath (the script's own UI saved
  * something), fields the user has not touched follow it; fields they have edited
@@ -88,6 +93,21 @@ final class ConfigEdits {
         for (ConfigField field : fields) {
             seed(field, applied.get(field.key()));
         }
+    }
+
+    /**
+     * Sets every field to the default its script declares. Like any edit it is
+     * pending until applied, so it shows as unsaved and Reset takes it back.
+     */
+    void restoreDefaults() {
+        for (ConfigField field : fields) {
+            seed(field, field.defaultAsString());
+        }
+    }
+
+    /** Whether every pending value already equals its field's declared default. */
+    boolean isAtDefaults() {
+        return fields.stream().allMatch(f -> Objects.equals(pending(f), f.defaultAsString()));
     }
 
     /** The full config to apply: every field's pending value. */

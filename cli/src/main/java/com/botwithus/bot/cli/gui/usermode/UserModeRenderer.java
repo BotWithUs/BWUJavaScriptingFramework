@@ -5,34 +5,35 @@ import com.botwithus.bot.cli.gui.Controls.Segment;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
+import com.botwithus.bot.cli.gui.inspector.InspectorState;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
+import com.botwithus.bot.cli.gui.inspector.InspectorTab;
 import com.botwithus.bot.cli.gui.usermode.ClientFilter.View;
 import com.botwithus.bot.cli.gui.usermode.board.BoardStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
+import com.botwithus.bot.cli.gui.usermode.board.ClientStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
-import com.botwithus.bot.cli.gui.usermode.board.InspectorTarget;
+import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
 import imgui.ImGui;
 import imgui.flag.ImGuiChildFlags;
 import imgui.flag.ImGuiCol;
-import imgui.flag.ImGuiKey;
 import imgui.flag.ImGuiStyleVar;
-import imgui.flag.ImGuiWindowFlags;
 import imgui.type.ImString;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
- * The Clients page — Normal mode's only screen, and the first thing Advanced
- * mode will show once its sidebar is redesigned. A page header with counts and
- * the view filter, a responsive grid of {@link ClientCard}s, the empty and
- * host-offline states, and the docked config inspector that pushes the grid
- * aside when open.
+ * The Clients page — Normal mode's only screen, and the first page of
+ * Advanced. A page header with counts and the view filter, a responsive grid of
+ * {@link ClientCard}s, and the empty and host-offline states. A card's
+ * "Configure" opens the shared inspector, which the shell docks beside this page.
  */
 public class UserModeRenderer {
 
@@ -45,7 +46,6 @@ public class UserModeRenderer {
     private static final float RADAR_SWEEP = (float) (Math.PI / 2);
     private static final float RADAR_OFF_ANGLE = (float) (-Math.PI / 4);
     private static final float RADAR_STROKE_PX = 2f;
-    private static final float REVIEW_WAIT_S = 3f;
     private static final String ZERO = "0";
     private static final int PAGE_COLOR_COUNT = 5;
     /** The filter box is 200 px where a card is 290 px at the base size. */
@@ -54,22 +54,20 @@ public class UserModeRenderer {
     private final Controls ui;
     private final ClientCard card;
     private final ScriptPickerPopup picker;
-    private final ConfigInspector inspector;
+    private final InspectorState inspector;
 
     private final ImString query = new ImString(QUERY_CAPACITY);
     private final Map<String, Double> firstSeen = new HashMap<>();
     private View view = View.ALL;
     private String selectedId;
-    private float drawerProgress;
-    private InspectorTarget lastTarget;
-    private String pendingReview;
-    private double pendingReviewUntil;
+    private InspectorSubject lastInspected;
 
-    public UserModeRenderer(Controls ui) {
+    /** @param inspector the one inspector both modes share */
+    public UserModeRenderer(Controls ui, InspectorState inspector) {
         this.ui = ui;
         this.card = new ClientCard(ui);
         this.picker = new ScriptPickerPopup(ui);
-        this.inspector = new ConfigInspector(ui);
+        this.inspector = inspector;
     }
 
     /** Opens the picker for {@code clientId}, as its card's "Start script" would. */
@@ -78,9 +76,9 @@ public class UserModeRenderer {
                 .ifPresent(c -> picker.open(c, board.catalog()));
     }
 
-    /** Opens the inspector on {@code clientId}'s running script, on the given tab. */
-    public void openInspector(String clientId, boolean scriptUiTab) {
-        inspector.open(clientId, scriptUiTab);
+    /** Opens the inspector on {@code scriptName} on {@code clientId}, as its card's "Configure" would. */
+    public void openInspector(String clientId, String scriptName, InspectorTab tab) {
+        inspector.open(new ClientScript(clientId, scriptName), tab);
         selectedId = clientId;
     }
 
@@ -89,35 +87,28 @@ public class UserModeRenderer {
         view = next;
     }
 
-    /** Package-private: the dev preview's seam for staging an edit in the inspector. */
-    ConfigInspector inspector() {
-        return inspector;
-    }
-
     public void render(ClientBoard board) {
         pushPageColors();
-        float availW = ImGui.getContentRegionAvailX();
-        float availH = ImGui.getContentRegionAvailY();
-        Optional<InspectorTarget> target = resolveInspector(board);
-        float drawerFull = ui.m().drawerWidth(availW);
-        float drawerW = animateDrawer(target.isPresent()) * drawerFull;
-
-        ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, 0f, 0f);
-        ImGui.beginChild("##clients-page", availW - drawerW, availH, false,
-                ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
-        ImGui.popStyleVar();
+        followInspector();
         renderPage(board);
-        ImGui.endChild();
-
-        if (drawerW > 1f && lastTarget != null) {
-            ImGui.sameLine(0f, 0f);
-            renderDrawer(drawerW, drawerFull, availH);
-        }
-        boolean pickerWasOpen = picker.isOpen();
         picker.render(board::subscriptions).ifPresent(pick -> startPick(board, pick));
-        handleEscape(pickerWasOpen);
         ImGui.popStyleColor(PAGE_COLOR_COUNT);
         ImGui.popStyleVar();
+    }
+
+    /**
+     * Selects the card the inspector was just opened on, wherever it was opened
+     * from (a card here, or a "Settings" button on another page).
+     */
+    private void followInspector() {
+        InspectorSubject now = inspector.subject().orElse(null);
+        if (now != null && !now.equals(lastInspected)) {
+            switch (now) {
+                case ClientScript opened -> selectedId = opened.clientId();
+                case ManagementScript ignored -> { }
+            }
+        }
+        lastInspected = now;
     }
 
     /**
@@ -129,8 +120,7 @@ public class UserModeRenderer {
             case PickerRow.Local local -> {
                 board.actions().startScript(pick.clientId(), local.entry());
                 if (pick.reviewSettings()) {
-                    pendingReview = pick.clientId();
-                    pendingReviewUntil = ImGui.getTime() + REVIEW_WAIT_S;
+                    openInspector(pick.clientId(), local.entry().info().name(), InspectorTab.SETTINGS);
                 }
             }
             case PickerRow.Subscribed sub -> board.actions().startSubscription(pick.clientId(), sub.entry().id());
@@ -150,64 +140,6 @@ public class UserModeRenderer {
         Controls.pushColor(ImGuiCol.ScrollbarGrabHovered, ImGuiTheme.COL_BORDER_HOVER);
         Controls.pushColor(ImGuiCol.ScrollbarGrabActive, ImGuiTheme.COL_BORDER_HOVER);
         ImGui.pushStyleVar(ImGuiStyleVar.ScrollbarSize, ui.m().u(2));
-    }
-
-    // ── Drawer ─────────────────────────────────────────────────────────────
-
-    private Optional<InspectorTarget> resolveInspector(ClientBoard board) {
-        if (pendingReview != null) {
-            if (board.inspect(pendingReview).isPresent()) {
-                openInspector(pendingReview, false);
-                pendingReview = null;
-            } else if (ImGui.getTime() > pendingReviewUntil) {
-                pendingReview = null;
-            }
-        }
-        if (!inspector.isOpen()) {
-            return Optional.empty();
-        }
-        Optional<InspectorTarget> target = board.inspect(inspector.clientId());
-        if (target.isEmpty() || target.get().isGone().getAsBoolean()) {
-            inspector.close();
-            return Optional.empty();
-        }
-        lastTarget = target.get();
-        return target;
-    }
-
-    private float animateDrawer(boolean open) {
-        float step = ImGui.getIO().getDeltaTime() / ImGuiTheme.DURATION_S;
-        drawerProgress = Math.max(0f, Math.min(1f, drawerProgress + (open ? step : -step)));
-        return Motion.easeOutCubic(drawerProgress);
-    }
-
-    private void renderDrawer(float drawerW, float drawerFull, float h) {
-        Controls.pushColor(ImGuiCol.ChildBg, ImGuiTheme.COL_SURFACE);
-        ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, 0f, 0f);
-        ImGui.beginChild("##inspector-drawer", drawerW, h, false,
-                ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
-        ImGui.popStyleVar();
-        ImGui.popStyleColor();
-        ImDrawList draw = ImGui.getWindowDrawList();
-        float x = ImGui.getWindowPosX();
-        float y = ImGui.getWindowPosY();
-        inspector.render(lastTarget, drawerFull, h);
-        draw.addLine(x + 0.5f, y, x + 0.5f, y + h, ImGuiTheme.COL_BORDER, ui.m().hairline());
-        ImGui.endChild();
-    }
-
-    /**
-     * Esc closes the inspector, unless the picker was up this frame: the picker
-     * handles its own Esc and closes during its render, so checking only whether
-     * it is open now would let the same key press close the inspector too.
-     */
-    private void handleEscape(boolean pickerWasOpen) {
-        if (pickerWasOpen || picker.isOpen() || !inspector.isOpen() || ImGui.isAnyItemActive()) {
-            return;
-        }
-        if (ImGui.isKeyPressed(ImGuiKey.Escape, false)) {
-            inspector.close();
-        }
     }
 
     // ── Page ───────────────────────────────────────────────────────────────
@@ -320,8 +252,28 @@ public class UserModeRenderer {
                 selectedId = v.id();
                 picker.open(v, board.catalog());
             }
-            case CONFIGURE -> openInspector(v.id(), false);
+            case CONFIGURE -> configure(v);
         }
+    }
+
+    /** Opens the inspector on the card's running script, on the tab its settings suggest. */
+    private void configure(ClientView v) {
+        ScriptInfo script = runningScript(v.status());
+        if (script != null) {
+            openInspector(v.id(), script.name(),
+                    InspectorTab.initialFor(script.settingsCount() > 0, script.hasCustomUi()));
+        }
+    }
+
+    private static ScriptInfo runningScript(ClientStatus status) {
+        return switch (status) {
+            case ClientStatus.Running r -> r.script();
+            case ClientStatus.Idle ignored -> null;
+            case ClientStatus.Loading ignored -> null;
+            case ClientStatus.Lost ignored -> null;
+            case ClientStatus.Reconnecting ignored -> null;
+            case ClientStatus.Crashed ignored -> null;
+        };
     }
 
     // ── Empty, offline, no-match ───────────────────────────────────────────

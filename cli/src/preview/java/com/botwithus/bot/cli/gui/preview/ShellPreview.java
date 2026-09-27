@@ -12,6 +12,12 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.FontLoader;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Shell;
+import com.botwithus.bot.cli.gui.inspector.InspectorDock;
+import com.botwithus.bot.cli.gui.inspector.InspectorPreviewSeams;
+import com.botwithus.bot.cli.gui.inspector.InspectorRequest;
+import com.botwithus.bot.cli.gui.inspector.InspectorState;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
+import com.botwithus.bot.cli.gui.inspector.InspectorTab;
 import com.botwithus.bot.cli.gui.nav.PageId;
 import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
@@ -101,7 +107,8 @@ public final class ShellPreview extends Application {
     }
 
     /** What a scenario's frame hook can reach. */
-    private record Stage(FixtureBoard board, UserModeRenderer page, EventBusImpl bus, FixturePages.Built pages) {}
+    private record Stage(FixtureBoard board, UserModeRenderer page, EventBusImpl bus, FixturePages.Built pages,
+                         InspectorDock inspector) {}
 
     private final Path outDir;
     private final List<Scenario> scenarios = scenarios();
@@ -110,6 +117,8 @@ public final class ShellPreview extends Application {
     private Controls ui;
     private Stage stage;
     private Shell shell;
+    /** The mode the shell drew last; an inspector request can switch it, as in the app. */
+    private AppMode mode;
     private int fbo;
     /** The interim Console page wants one; nothing is ever submitted to it. */
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -145,15 +154,17 @@ public final class ShellPreview extends Application {
     private void startScenario() {
         Scenario s = scenarios.get(scenarioIndex);
         FixtureBoard board = s.board().get();
-        UserModeRenderer page = new UserModeRenderer(ui);
+        InspectorDock inspector = new InspectorDock(ui, new InspectorState(Clock.systemDefaultZone()), board);
+        UserModeRenderer page = new UserModeRenderer(ui, inspector.state());
         EventBusImpl bus = new EventBusImpl();
         NotificationOverlay toasts = new NotificationOverlay(Clock.systemDefaultZone(),
                 name -> board.clients().stream().filter(c -> c.id().equals(name)).map(ClientView::account)
                         .findFirst().orElse(name));
         toasts.subscribeTo(bus);
         FixturePages.Built pages = FixturePages.build(ui, page, board, s.store(), executor);
-        stage = new Stage(board, page, bus, pages);
-        shell = new Shell(ui, pages.registry(), toasts);
+        stage = new Stage(board, page, bus, pages, inspector);
+        shell = new Shell(ui, pages.registry(), inspector, toasts);
+        mode = s.mode();
         frame = 0;
     }
 
@@ -162,7 +173,7 @@ public final class ShellPreview extends Application {
         ImGui.getIO().setMousePos(OFF_SCREEN, OFF_SCREEN);
         Scenario s = scenarios.get(scenarioIndex);
         s.onFrame().accept(stage, frame);
-        shell.render(s.mode(), stage.board(), n -> { });
+        mode = shell.render(mode, stage.board(), n -> { });
         frame++;
     }
 
@@ -238,6 +249,7 @@ public final class ShellPreview extends Application {
 
     private static final String WOODCUTTER = "BotWithUs_14208";
     private static final String IDLE = "BotWithUs_11820";
+    private static final String WOODCUTTING = FixtureBoard.WOODCUTTING.name();
 
     private static List<Scenario> scenarios() {
         BiConsumer<Stage, Integer> nothing = (s, f) -> { };
@@ -256,7 +268,7 @@ public final class ShellPreview extends Application {
                 new Scenario("07-inspector-settings", FixtureBoard::sixClients, ShellPreview::stagedEdits),
                 new Scenario("08-inspector-script-ui", FixtureBoard::sixClients, (s, f) -> {
                     if (f == 0) {
-                        s.page().openInspector(WOODCUTTER, true);
+                        s.page().openInspector(WOODCUTTER, WOODCUTTING, InspectorTab.SCRIPT_UI);
                     }
                 }),
                 new Scenario("09-toasts-failures", FixtureBoard::sixClients, ShellPreview::failureToasts),
@@ -275,7 +287,7 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("20-advanced-opens-on-clients", FixtureBoard::sixClients, nothing),
                 Scenario.advanced("21-advanced-clients-inspector", FixtureBoard::sixClients, (s, f) -> {
                     if (f == 0) {
-                        s.page().openInspector(WOODCUTTER, false);
+                        s.page().openInspector(WOODCUTTER, WOODCUTTING, InspectorTab.SETTINGS);
                     }
                 }),
                 Scenario.advanced("22-advanced-dashboard-interim", FixtureBoard::sixClients,
@@ -291,7 +303,69 @@ public final class ShellPreview extends Application {
                         StoreSignInLine.of(Optional.of(new SdnCatalogueResult.NotSignedIn())),
                         select(PageId.STORE)),
                 Scenario.advanced("27-advanced-settings-selected", FixtureBoard::offline,
-                        select(PageId.SETTINGS)));
+                        select(PageId.SETTINGS)),
+                Scenario.advanced("28-advanced-inspector-client-settings-from-installed", FixtureBoard::sixClients,
+                        ShellPreview::clientSettingsFromInstalled),
+                Scenario.advanced("29-advanced-inspector-client-script-ui", FixtureBoard::sixClients,
+                        fromPage(PageId.INSTALLED, new InspectorRequest(
+                                new InspectorSubject.ClientScript(WOODCUTTER, WOODCUTTING), InspectorTab.SCRIPT_UI))),
+                new Scenario("30-advanced-inspector-management-settings", FixtureBoard::sixClients,
+                        ShellPreview::managementSettingsFromNormal),
+                Scenario.advanced("31-advanced-inspector-management-script-ui", FixtureBoard::sixClients,
+                        fromPage(PageId.MANAGEMENT, new InspectorRequest(
+                                new InspectorSubject.ManagementScript(FixtureBoard.FLEET_MONITOR.name()),
+                                InspectorTab.initialFor(false, true)))),
+                Scenario.advanced("32-advanced-inspector-restore-defaults", FixtureBoard::sixClients,
+                        ShellPreview::managementOffDefaults));
+    }
+
+    /** A short management form with one field off its default, so "Restore defaults" is live. */
+    private static void managementOffDefaults(Stage s, int f) {
+        fromPage(PageId.MANAGEMENT, new InspectorRequest(
+                new InspectorSubject.ManagementScript(FixtureBoard.LOGIN_WATCHER.name()),
+                InspectorTab.SETTINGS)).accept(s, f);
+        if (f == 3) {
+            InspectorPreviewSeams.stageEdit(s.inspector(), "delay", 45);
+        }
+    }
+
+    /**
+     * Starts on {@code page} and asks for the inspector as a "Settings" button
+     * there would; the shell routes to the page that owns the script.
+     */
+    private static BiConsumer<Stage, Integer> fromPage(PageId page, InspectorRequest request) {
+        return (s, f) -> {
+            if (f == 0) {
+                s.pages().registry().select(page);
+            } else if (f == 1) {
+                s.inspector().state().request(request);
+            }
+        };
+    }
+
+    /** Installed scripts' Settings on Oakheart's Woodcutting: lands on Clients, two fields edited. */
+    private static void clientSettingsFromInstalled(Stage s, int f) {
+        fromPage(PageId.INSTALLED, new InspectorRequest(
+                new InspectorSubject.ClientScript(WOODCUTTER, WOODCUTTING), InspectorTab.SETTINGS)).accept(s, f);
+        if (f == 3) {
+            InspectorPreviewSeams.stageEdit(s.inspector(), "stopValue", 95);
+            InspectorPreviewSeams.stageEdit(s.inspector(), "disposal", 2);
+        }
+    }
+
+    /**
+     * A management script's Settings asked for from Normal mode: the shell
+     * switches to Advanced and Management. One field of every type, two edited.
+     */
+    private static void managementSettingsFromNormal(Stage s, int f) {
+        if (f == 1) {
+            s.inspector().state().request(new InspectorRequest(
+                    new InspectorSubject.ManagementScript(FixtureBoard.BREAK_SCHEDULER.name()),
+                    InspectorTab.SETTINGS));
+        } else if (f == 3) {
+            InspectorPreviewSeams.stageEdit(s.inspector(), "logOut", false);
+            InspectorPreviewSeams.stageEdit(s.inspector(), "quietHours", "22:00-06:00");
+        }
     }
 
     private static BiConsumer<Stage, Integer> select(PageId id) {
@@ -316,10 +390,10 @@ public final class ShellPreview extends Application {
     /** Opens the Woodcutting inspector and changes two fields, so the unsaved state shows. */
     private static void stagedEdits(Stage s, int f) {
         if (f == 0) {
-            s.page().openInspector(WOODCUTTER, false);
+            s.page().openInspector(WOODCUTTER, WOODCUTTING, InspectorTab.SETTINGS);
         } else if (f == 2) {
-            PreviewSeams.stageEdit(s.page(), "stopValue", 95);
-            PreviewSeams.stageEdit(s.page(), "disposal", 2);
+            InspectorPreviewSeams.stageEdit(s.inspector(), "stopValue", 95);
+            InspectorPreviewSeams.stageEdit(s.inspector(), "disposal", 2);
         }
     }
 

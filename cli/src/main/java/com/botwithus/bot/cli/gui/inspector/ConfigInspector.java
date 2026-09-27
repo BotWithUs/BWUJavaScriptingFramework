@@ -1,4 +1,4 @@
-package com.botwithus.bot.cli.gui.usermode;
+package com.botwithus.bot.cli.gui.inspector;
 
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ConfigField.BoolField;
@@ -14,7 +14,8 @@ import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.Motion;
-import com.botwithus.bot.cli.gui.usermode.board.InspectorTarget;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -22,7 +23,6 @@ import imgui.ImGui;
 import imgui.flag.ImGuiChildFlags;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiStyleVar;
-import imgui.flag.ImGuiWindowFlags;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,12 +31,15 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The docked config inspector: one running script's settings and its own UI, in
- * a drawer on the right of the Clients page. Only one is ever open.
+ * The docked config inspector's contents: one script's settings and its own UI.
+ * The shell docks it beside the page that owns the script, in either mode, and
+ * only one is ever open; {@link InspectorState} says which.
  *
  * <p>The Settings tab edits the script's declared fields and applies them in one
  * go; changed fields carry an amber dot and the footer counts them. The Script
- * UI tab frames the script's own ImGui without restyling it.</p>
+ * UI tab, offered only when the script draws its own UI, frames that ImGui
+ * without restyling it and has no footer: Apply and Reset act on the fields,
+ * which are not on screen there.</p>
  */
 final class ConfigInspector {
 
@@ -50,33 +53,16 @@ final class ConfigInspector {
     private static final float DASH_EM = 0.267f;
     private static final float LINE = 1.35f;
     private static final float NAME_LINE = 1.25f;
-
-    private enum Tab { SETTINGS, SCRIPT_UI }
+    private static final float NAME_SHARE = 0.7f;
 
     private final Controls ui;
-    private String clientId;
-    private Tab tab = Tab.SETTINGS;
+    private final InspectorState state;
     private ConfigEdits edits;
-    private String editsFor;
+    private InspectorSubject editsFor;
 
-    ConfigInspector(Controls ui) {
+    ConfigInspector(Controls ui, InspectorState state) {
         this.ui = ui;
-    }
-
-    void open(String clientId, boolean scriptUiTab) {
-        if (!clientId.equals(this.clientId)) {
-            edits = null;
-        }
-        this.clientId = clientId;
-        this.tab = scriptUiTab ? Tab.SCRIPT_UI : Tab.SETTINGS;
-    }
-
-    boolean isOpen() {
-        return clientId != null;
-    }
-
-    String clientId() {
-        return clientId;
+        this.state = state;
     }
 
     /** The open form, or {@code null} before its first frame. The dev preview's seam. */
@@ -84,31 +70,32 @@ final class ConfigInspector {
         return edits;
     }
 
-    void close() {
-        clientId = null;
-        edits = null;
-        editsFor = null;
-    }
-
     /** Renders at full drawer width into the current (possibly narrower, clipping) child. */
     void render(InspectorTarget target, float width, float height) {
         ConfigEdits form = editsFor(target);
+        InspectorTab tab = shownTab(target);
         float x = ImGui.getWindowPosX();
         float y = ImGui.getWindowPosY();
         float headerH = renderHeader(target, x, y, width);
-        float tabsH = renderTabs(x, y + headerH, width, target.clientId());
-        float footerH = footerHeight();
+        float tabsH = renderTabs(target, tab, x, y + headerH, width);
+        float footerH = tab == InspectorTab.SETTINGS ? footerHeight() : 0f;
         ImGui.setCursorScreenPos(x, y + headerH + tabsH);
-        float bodyH = height - headerH - tabsH - footerH;
-        renderBody(target, form, width, bodyH);
-        renderFooter(form, target, x, y + height - footerH, width);
+        renderBody(target, tab, form, width, height - headerH - tabsH - footerH);
+        if (tab == InspectorTab.SETTINGS) {
+            renderFooter(form, target, x, y + height - footerH, width);
+        }
     }
 
+    /** The tab to draw: Script UI falls back to Settings for a script that draws none. */
+    private InspectorTab shownTab(InspectorTarget target) {
+        return target.hasCustomUi() ? state.tab() : InspectorTab.SETTINGS;
+    }
+
+    /** The form for this subject, rebuilt when the subject or its fields change (a reload can do both). */
     private ConfigEdits editsFor(InspectorTarget target) {
-        String key = target.clientId() + "/" + target.script().name();
-        if (edits == null || !key.equals(editsFor)) {
+        if (edits == null || !target.subject().equals(editsFor) || !target.fields().equals(edits.fields())) {
             edits = new ConfigEdits(target.fields(), target.current().get());
-            editsFor = key;
+            editsFor = target.subject();
         } else {
             edits.sync(target.current().get());
         }
@@ -122,13 +109,12 @@ final class ConfigInspector {
         ImDrawList draw = ImGui.getWindowDrawList();
         float tile = m.iconTile();
         float top = y + m.u(4);
-        CategoryStyle.Style cat = CategoryStyle.of(target.script().category());
-        ui.iconTile(draw, x + m.u(4), top, tile, cat.icon(), ImGuiTheme.COL_ACCENT, ImGuiTheme.COL_ACCENT_SOFT);
+        ui.iconTile(draw, x + m.u(4), top, tile, iconOf(target), ImGuiTheme.COL_ACCENT, ImGuiTheme.COL_ACCENT_SOFT);
         float tx = x + m.u(4) + tile + m.u(3);
         float closeX = x + width - m.u(3) - m.controlHeight();
         float tw = closeX - m.u(3) - tx;
         ImFont nameFont = ui.fonts().bodyMedium();
-        String name = ui.ellipsize(nameFont, target.script().name(), tw * 0.7f);
+        String name = ui.ellipsize(nameFont, target.script().name(), tw * NAME_SHARE);
         float textH = nameFont.getFontSize() * NAME_LINE + ui.fonts().small().getFontSize() * LINE;
         float nameY = top + (tile - textH) * 0.5f;
         ui.text(draw, nameFont, tx, nameY, ImGuiTheme.COL_FG, name);
@@ -138,37 +124,48 @@ final class ConfigInspector {
             ui.text(draw, mono, vx, nameY + nameFont.getFontSize() - mono.getFontSize(), ImGuiTheme.COL_FG2,
                     "v" + target.script().version());
         }
-        String meta = "on " + target.account() + " · " + target.clientId();
         ui.text(draw, ui.fonts().small(), tx, nameY + nameFont.getFontSize() * NAME_LINE, ImGuiTheme.COL_FG2,
-                ui.ellipsize(ui.fonts().small(), meta, tw));
+                ui.ellipsize(ui.fonts().small(), target.context(), tw));
         ImGui.setCursorScreenPos(closeX, top + (tile - m.controlHeight()) * 0.5f);
         if (ui.button("##inspector-close", Icons.XMARK, "", Tone.ICON, true)) {
-            close();
+            state.close();
         }
         return m.u(4) + tile + m.u(3);
     }
 
-    private float renderTabs(float x, float y, float width, String id) {
+    /** A client script shows its category; a management script, which has no client, the robot. */
+    private static String iconOf(InspectorTarget target) {
+        return switch (target.subject()) {
+            case ClientScript ignored -> CategoryStyle.of(target.script().category()).icon();
+            case ManagementScript ignored -> Icons.ROBOT;
+        };
+    }
+
+    private float renderTabs(InspectorTarget target, InspectorTab shown, float x, float y, float width) {
         ImGuiTheme.Metrics m = ui.m();
         float h = ui.fonts().body().getFontSize() * TAB_HEIGHT_EM;
         ImDrawList draw = ImGui.getWindowDrawList();
+        String id = target.subject().toString();
         float tx = x + m.u(4);
-        tx += tabButton(draw, "Settings", Tab.SETTINGS, tx, y, h, id) + m.u(4);
-        tabButton(draw, "Script UI", Tab.SCRIPT_UI, tx, y, h, id);
+        tx += tabButton(draw, "Settings", InspectorTab.SETTINGS, shown, tx, y, h, id) + m.u(4);
+        if (target.hasCustomUi()) {
+            tabButton(draw, "Script UI", InspectorTab.SCRIPT_UI, shown, tx, y, h, id);
+        }
         draw.addLine(x, y + h - 0.5f, x + width, y + h - 0.5f, ImGuiTheme.COL_BORDER, m.hairline());
         return h;
     }
 
-    private float tabButton(ImDrawList draw, String label, Tab which, float x, float y, float h, String id) {
+    private float tabButton(ImDrawList draw, String label, InspectorTab which, InspectorTab shown,
+                            float x, float y, float h, String id) {
         ImFont font = ui.fonts().smallMedium();
         float w = ui.width(font, label);
         ImGui.setCursorScreenPos(x, y);
         if (ImGui.invisibleButton("##tab-" + which + id, w, h)) {
-            tab = which;
+            state.showTab(which);
         }
         float t = Motion.step("tab:" + which + id, ImGui.isItemHovered() ? 1f : 0f,
                 1f / ImGuiTheme.DURATION_FAST_S);
-        boolean on = tab == which;
+        boolean on = shown == which;
         int col = on ? ImGuiTheme.COL_FG : Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
         ui.textCentredY(draw, font, x, y, h, col, label);
         if (on) {
@@ -179,7 +176,8 @@ final class ConfigInspector {
 
     // ── Body ───────────────────────────────────────────────────────────────
 
-    private void renderBody(InspectorTarget target, ConfigEdits form, float width, float height) {
+    private void renderBody(InspectorTarget target, InspectorTab tab, ConfigEdits form, float width,
+                            float height) {
         ImGuiTheme.Metrics m = ui.m();
         ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, m.u(4), m.u(4));
         ImGui.pushStyleVar(ImGuiStyleVar.ItemSpacing, m.u(2), m.u(4));
@@ -203,6 +201,9 @@ final class ConfigInspector {
             renderLabel(field, form.isDirty(field), w);
             renderControl(field, form, target, w);
             ImGui.popID();
+        }
+        if (ui.button("##inspector-defaults", Icons.ROTATE, "Restore defaults", Tone.GHOST, !form.isAtDefaults())) {
+            form.restoreDefaults();
         }
     }
 
@@ -289,10 +290,6 @@ final class ConfigInspector {
 
     private void renderScriptUi(InspectorTarget target) {
         ScriptUI scriptUi = target.customUi();
-        if (scriptUi == null) {
-            renderNothing(target.script().name() + " doesn’t ship a custom UI.");
-            return;
-        }
         ImGuiTheme.Metrics m = ui.m();
         ImDrawList draw = ImGui.getWindowDrawList();
         float x = ImGui.getCursorScreenPosX();

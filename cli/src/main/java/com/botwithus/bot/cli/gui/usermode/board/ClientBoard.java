@@ -1,7 +1,6 @@
 package com.botwithus.bot.cli.gui.usermode.board;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * The data behind Normal mode. The live implementation reads the connected game
@@ -24,9 +23,6 @@ public interface ClientBoard {
      * frame while the picker is open, so install progress shows as it happens.
      */
     SubscriptionGroup subscriptions(String clientId);
-
-    /** The running script on {@code clientId}, if any, for the config inspector. */
-    Optional<InspectorTarget> inspect(String clientId);
 
     ClientActions actions();
 }

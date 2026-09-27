@@ -3,12 +3,17 @@ package com.botwithus.bot.cli.gui.preview;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.cli.gui.inspector.InspectorSource;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
+import com.botwithus.bot.cli.gui.inspector.InspectorTarget;
+import com.botwithus.bot.cli.gui.inspector.LiveInspectorSource;
 import com.botwithus.bot.cli.gui.usermode.board.BoardStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientActions;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
 import com.botwithus.bot.cli.gui.usermode.board.ClientStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
-import com.botwithus.bot.cli.gui.usermode.board.InspectorTarget;
 import com.botwithus.bot.cli.gui.usermode.board.PriceBadge;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptEntry;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
@@ -27,10 +32,11 @@ import java.util.Random;
 
 /**
  * Fixture data for the dev preview: the prototype's sample fleet, its script
- * catalogue, and a Woodcutting config to inspect. Account names and timings are
- * made-up sample data; none of it reaches the shipped app.
+ * catalogue, a Woodcutting config to inspect, and two management scripts. Account
+ * names, script names and timings are made-up sample data; none of it reaches
+ * the shipped app.
  */
-final class FixtureBoard implements ClientBoard {
+final class FixtureBoard implements ClientBoard, InspectorSource {
 
     private static final long MS = 1_000_000L;
     private static final int LANE = 24;
@@ -65,9 +71,33 @@ final class FixtureBoard implements ClientBoard {
     /** DIVINATION's index in {@link #CATALOG}, which is its picker key. */
     private static final int DIVINATION_KEY = CATALOG.indexOf(DIVINATION);
 
+    /** Item gamevals, as {@code GamevalIndex.gameval(ITEM, id)} answers them. */
     private static final Map<Integer, String> ITEMS = Map.of(
-            1511, "Logs", 1521, "Oak logs", 1519, "Willow logs", 1517, "Maple logs",
-            1515, "Yew logs", 1513, "Magic logs");
+            1511, "LOGS", 1521, "OAK_LOGS", 1519, "WILLOW_LOGS", 1517, "MAPLE_LOGS",
+            1515, "YEW_LOGS", 1513, "MAGIC_LOGS", 995, "COINS");
+
+    /** A management script with one field of every type, and no UI of its own. */
+    static final ScriptInfo BREAK_SCHEDULER = new ScriptInfo("Break Scheduler", "BotWithUs", "1.2",
+            ScriptCategory.UTILITY, "Takes every client off for a break on a schedule.", 6, false);
+    /** A management script that draws its own UI and declares no fields. */
+    static final ScriptInfo FLEET_MONITOR = new ScriptInfo("Fleet Monitor", "BotWithUs", "0.4",
+            ScriptCategory.UTILITY, "Shows every client's progress in one table.", 0, true);
+
+    /** A management script with two fields, so the whole form and its footer fit on screen. */
+    static final ScriptInfo LOGIN_WATCHER = new ScriptInfo("Login Watcher", "BotWithUs", "1.0",
+            ScriptCategory.UTILITY, "Logs a client back in when it drops to the lobby.", 2, false);
+
+    private static final List<ConfigField> LOGIN_FIELDS = List.of(
+            ConfigField.boolField("relog", "Log back in", true),
+            ConfigField.intField("delay", "Wait before logging in (s)", 30));
+
+    private static final List<ConfigField> BREAK_FIELDS = List.of(
+            ConfigField.intField("breakEvery", "Break every (min)", 90),
+            ConfigField.intField("breakLength", "Break length (min)", 15),
+            ConfigField.boolField("logOut", "Log out during breaks", true),
+            ConfigField.choiceField("jitter", "Jitter", List.of("None", "Light", "Heavy"), "Light"),
+            ConfigField.stringField("quietHours", "Quiet hours", "23:00-07:00"),
+            ConfigField.itemIdField("bankItem", "Keep in bank", 995));
 
     private static final List<ConfigField> WOODCUTTING_FIELDS = List.of(
             ConfigField.choiceField("tree", "Tree",
@@ -209,21 +239,54 @@ final class FixtureBoard implements ClientBoard {
     }
 
     @Override
-    public Optional<InspectorTarget> inspect(String clientId) {
-        return clients.stream()
-                .filter(c -> c.id().equals(clientId) && c.status().isRunning())
-                .findFirst()
-                .map(this::target);
+    public Optional<InspectorTarget> resolve(InspectorSubject subject) {
+        return switch (subject) {
+            case ClientScript s -> clients.stream()
+                    .filter(c -> c.id().equals(s.clientId()) && c.scriptOrNull() != null
+                            && c.scriptOrNull().name().equals(s.scriptName()))
+                    .findFirst()
+                    .map(c -> clientTarget(s, c));
+            case ManagementScript s -> managementTarget(s);
+        };
     }
 
-    private InspectorTarget target(ClientView c) {
+    private InspectorTarget clientTarget(ClientScript subject, ClientView c) {
         boolean woodcutting = c.scriptOrNull() == WOODCUTTING;
-        return new InspectorTarget(c.id(), c.account(), c.scriptOrNull(),
+        return new InspectorTarget(subject, "on " + c.account() + " · " + c.id(), c.scriptOrNull(),
                 woodcutting ? WOODCUTTING_FIELDS : List.of(),
                 () -> applied, cfg -> { },
                 woodcutting ? FixtureBoard::sampleScriptUi : null,
                 id -> Optional.ofNullable(ITEMS.get(id)),
                 () -> false);
+    }
+
+    private Optional<InspectorTarget> managementTarget(ManagementScript subject) {
+        if (subject.scriptName().equals(BREAK_SCHEDULER.name())) {
+            return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, BREAK_SCHEDULER,
+                    BREAK_FIELDS, () -> applied, cfg -> { }, null, id -> Optional.ofNullable(ITEMS.get(id)),
+                    () -> false));
+        }
+        if (subject.scriptName().equals(LOGIN_WATCHER.name())) {
+            return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, LOGIN_WATCHER,
+                    LOGIN_FIELDS, () -> applied, cfg -> { }, null, id -> Optional.empty(), () -> false));
+        }
+        if (subject.scriptName().equals(FLEET_MONITOR.name())) {
+            return Optional.of(new InspectorTarget(subject, LiveInspectorSource.MANAGEMENT_CONTEXT, FLEET_MONITOR,
+                    List.of(), () -> applied, cfg -> { }, FixtureBoard::sampleFleetUi, id -> Optional.empty(),
+                    () -> false));
+        }
+        return Optional.empty();
+    }
+
+    /** Stands in for a management script's own ImGui. */
+    private static void sampleFleetUi() {
+        ImGui.text("Clients:  7 connected, 5 running");
+        ImGui.text("Oakheart     Woodcutting   84 lvl");
+        ImGui.text("Fernmoss     Divination    71 lvl");
+        ImGui.text("Kestrel Moor Walk to Flag  --");
+        ImGui.button("Pause all");
+        ImGui.sameLine();
+        ImGui.button("Resume all");
     }
 
     /** Stands in for a script's own ImGui: plain widgets in the default font, unstyled by the host. */

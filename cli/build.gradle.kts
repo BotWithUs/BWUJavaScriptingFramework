@@ -133,7 +133,8 @@ tasks.named<JavaExec>("run") {
 // Gated by construction: the code lives in its own `preview` source set, which
 // the `jar` task, the jlink image and the installer never read, so none of it can
 // reach a user. It runs on the classpath (no module-info), which is also why it
-// can reach the handful of package-private seams it needs in gui.usermode.
+// can reach the handful of package-private seams it needs in gui.usermode and
+// gui.inspector.
 val preview: SourceSet by sourceSets.creating {
     compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
     runtimeClasspath += output + compileClasspath + sourceSets.main.get().runtimeClasspath

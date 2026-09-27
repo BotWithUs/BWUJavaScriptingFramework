@@ -101,7 +101,7 @@ GUI panels:
 - **Logs** — In-memory log capture with copy-to-clipboard
 - **Scripts** — Script management (alphabetically sorted)
 - **Management Scripts** — Load, start/stop/restart management scripts and their configs
-- **Script UI** — Custom per-script ImGui UI rendered in tabs
+- **Config inspector** — One docked panel on the right, in both modes, with a script's **Settings** and its own **Script UI**
 - **Blueprint Editor** — Visual node-graph workflow editor with drag-and-drop, linking, and save/load
 
 ### example-script
@@ -236,7 +236,7 @@ orchestrator.listScheduled().forEach(e ->
 
 ## Script UI
 
-Scripts can provide custom ImGui-based UI that renders in the **Script UI** tab. Override `getUI()` to return a `ScriptUI` implementation:
+Scripts can provide custom ImGui-based UI that renders in the config inspector's **Script UI** tab. Override `getUI()` to return a `ScriptUI` implementation:
 
 ```java
 import imgui.ImGui;
@@ -264,7 +264,7 @@ module my.script {
 }
 ```
 
-The `render()` method is called every frame on the UI thread. Each script with a UI gets its own tab in the Script UI panel.
+The `render()` method is called every frame on the UI thread while the script's inspector shows its Script UI tab. The tab is offered only to scripts whose `getUI()` returns a UI, and a script with a UI but no settings opens its inspector on that tab.
 
 ## Live Config
 
@@ -290,12 +290,12 @@ public void onConfigUpdate(ScriptConfig config) {
 }
 ```
 
-`ConfigField` supports five kinds: `INT`, `STRING`, `BOOLEAN`, `CHOICE`, and `ITEM_ID`. The framework renders a typed widget per field — number spinner for `INT`/`ITEM_ID`, text input for `STRING`, checkbox for `BOOLEAN`, dropdown for `CHOICE`. Open the panel from the Scripts list (Configure button on each script card).
+`ConfigField` supports five kinds: `INT`, `STRING`, `BOOLEAN`, `CHOICE`, and `ITEM_ID`. The inspector's **Settings** tab renders a typed widget per field — a stepper for `INT`, a number field for `ITEM_ID` with the item's name under it, text input for `STRING`, a switch for `BOOLEAN`, and a segmented control or dropdown for `CHOICE`. Open it with **Configure** on a client card, the settings button in the Scripts list, or `scripts config <name>` in the console; management scripts open theirs from the Management page.
 
 `onConfigUpdate(ScriptConfig)` fires twice:
 
 1. **At startup** — once the saved config is loaded from disk (or the defaults if nothing is persisted yet). This happens before `onLoop` begins.
-2. **At runtime** — every time the user clicks "Apply" in the config panel. The script keeps running; treat this as a hot reload of your tuning knobs.
+2. **At runtime** — every time the user clicks "Apply" in the config inspector. The script keeps running; treat this as a hot reload of your tuning knobs.
 
 Persistence: configs are written to `~/.botwithus/config/<scriptName>.json` after every "Apply". The same file is read at script start. Editing the JSON by hand works — the change picks up on next start. Delete the file to reset to declared defaults.
 

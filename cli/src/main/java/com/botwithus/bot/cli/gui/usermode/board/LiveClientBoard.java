@@ -1,10 +1,8 @@
 package com.botwithus.bot.cli.gui.usermode.board;
 
 import com.botwithus.bot.api.BotScript;
-import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
-import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ReconnectState;
@@ -12,7 +10,6 @@ import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.settings.SettingKeys;
-import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.runtime.ScriptRunner;
@@ -53,8 +50,6 @@ public final class LiveClientBoard implements ClientBoard {
 
     private static final Logger log = LoggerFactory.getLogger(LiveClientBoard.class);
 
-    private static final String NO_ITEM_NAME = "null";
-
     private final CliContext ctx;
     private final Consumer<String> logOpener;
     private final Clock clock;
@@ -62,7 +57,6 @@ public final class LiveClientBoard implements ClientBoard {
 
     private final Map<String, Long> deadSinceMillis = new HashMap<>();
     private final Set<String> cancelledReconnects = new HashSet<>();
-    private final Map<Integer, Optional<String>> itemNames = new HashMap<>();
     private final LiveSubscriptions subscriptions;
     private final Executor commandExecutor;
     private final AtomicBoolean catalogLoadQueued = new AtomicBoolean();
@@ -187,18 +181,6 @@ public final class LiveClientBoard implements ClientBoard {
     @Override
     public SubscriptionGroup subscriptions(String clientId) {
         return subscriptions.group(clientId);
-    }
-
-    @Override
-    public Optional<InspectorTarget> inspect(String clientId) {
-        Connection conn = find(clientId);
-        if (conn == null) {
-            return Optional.empty();
-        }
-        return conn.getRuntime().getRunners().stream()
-                .filter(ScriptRunner::isRunning)
-                .findFirst()
-                .map(runner -> targetFor(conn, runner));
     }
 
     @Override
@@ -340,13 +322,7 @@ public final class LiveClientBoard implements ClientBoard {
     }
 
     private static ScriptInfo infoOf(BotScript script, ScriptManifest manifest, String name) {
-        List<ConfigField> fields = safeFields(script);
-        boolean hasUi = safeHasUi(script);
-        if (manifest == null) {
-            return new ScriptInfo(name, "", "", ScriptCategory.UNCATEGORIZED, "", fields.size(), hasUi);
-        }
-        return new ScriptInfo(name, manifest.author(), manifest.version(), manifest.category(),
-                manifest.description(), fields.size(), hasUi);
+        return ScriptInfo.of(manifest, name, safeFields(script).size(), safeHasUi(script));
     }
 
     /** Script code: a throwing {@code getConfigFields()} must not take the frame down. */
@@ -371,44 +347,6 @@ public final class LiveClientBoard implements ClientBoard {
         } catch (RuntimeException e) {
             log.debug("getUI() threw for {}: {}", script.getClass().getName(), e.toString());
             return null;
-        }
-    }
-
-    private InspectorTarget targetFor(Connection conn, ScriptRunner runner) {
-        return new InspectorTarget(
-                conn.getName(),
-                displayName(conn),
-                infoOf(runner),
-                safeFields(runner.getScript()),
-                runner::getCurrentConfig,
-                runner::applyConfig,
-                safeUi(runner.getScript()),
-                id -> itemName(conn, id),
-                runner::isDisposed);
-    }
-
-    /**
-     * Item names come from the host's own cache reader (NXTCache, in-process),
-     * not the pipe. Memoised, misses included; with no cache every id is empty.
-     */
-    private Optional<String> itemName(Connection conn, int id) {
-        return itemNames.computeIfAbsent(id, k -> lookupItemName(conn.getGameAPI(), k));
-    }
-
-    private static Optional<String> lookupItemName(GameAPIImpl api, int id) {
-        if (api == null) {
-            return Optional.empty();
-        }
-        try {
-            ItemType type = api.getItemType(id);
-            if (type == null || type.name() == null || type.name().isBlank()
-                    || NO_ITEM_NAME.equals(type.name())) {
-                return Optional.empty();
-            }
-            return Optional.of(type.name());
-        } catch (RuntimeException e) {
-            log.debug("Item name lookup for {} failed: {}", id, e.getMessage());
-            return Optional.empty();
         }
     }
 

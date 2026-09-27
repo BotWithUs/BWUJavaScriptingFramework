@@ -25,6 +25,9 @@ import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.gui.inspector.InspectorDock;
+import com.botwithus.bot.cli.gui.inspector.InspectorState;
+import com.botwithus.bot.cli.gui.inspector.LiveInspectorSource;
 import com.botwithus.bot.cli.gui.nav.Page;
 import com.botwithus.bot.cli.gui.nav.PageId;
 import com.botwithus.bot.cli.gui.nav.PageRegistry;
@@ -49,7 +52,6 @@ import com.botwithus.bot.core.sdn.SdnCatalogueSource;
 import com.botwithus.bot.core.sdn.SdnInstaller;
 import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
-import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImGui;
 import imgui.app.Application;
@@ -78,7 +80,8 @@ import java.util.concurrent.Executors;
 
 /**
  * Main imgui-based application. The shell draws Normal mode's Clients page, or
- * Advanced mode's sidebar and the selected page from the {@link PageRegistry}.
+ * Advanced mode's sidebar and the selected page from the {@link PageRegistry},
+ * with the one config inspector docked beside whichever page owns its script.
  */
 public class ImGuiApp extends Application {
 
@@ -125,16 +128,8 @@ public class ImGuiApp extends Application {
     private GuiPanel logsPanel;
     private float dpiScale = 1f;
 
-
-    // Script custom UI window (floating window)
-    private ScriptUIWindow scriptUIWindow;
-
-    // Script config-field editor (floating window) — used for scripts that
-    // expose ConfigFields but no custom ScriptUI.
-    private ScriptConfigPanel scriptConfigPanel;
-
-    // Management script config panel (floating window)
-    private ManagementConfigPanel managementConfigPanel;
+    // The one config inspector, shared by both modes and every "Settings" button
+    private InspectorDock inspector;
 
     // Toast/banner overlay (event-driven, fixed-position, top-right)
     private NotificationOverlay notificationOverlay;
@@ -296,18 +291,16 @@ public class ImGuiApp extends Application {
     }
 
     private void buildPanels() {
-        // Floating windows (created before opener wiring so the lambdas can capture them).
-        // Advanced mode's Configure buttons still open these; Normal mode uses the
-        // docked inspector on the clients page instead.
-        scriptUIWindow = new ScriptUIWindow();
-        scriptConfigPanel = new ScriptConfigPanel();
-
-        ctx.setConfigPanelOpener(this::openScriptConfig);
-        managementConfigPanel = new ManagementConfigPanel();
+        // Created before the pages so their "Settings" buttons can open it. The
+        // console's `scripts config` reaches it from the command thread, which is
+        // why the opener only requests and the shell opens it on the next frame.
+        Clock clock = Clock.systemDefaultZone();
+        InspectorState inspectorState = new InspectorState(clock);
+        inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx));
+        ctx.setConfigPanelOpener(inspectorState.clientScriptOpener());
 
         // Notification overlay (event-driven). Subscribed to each connection's
         // event bus the moment connect() succeeds.
-        Clock clock = Clock.systemDefaultZone();
         notificationOverlay = new NotificationOverlay(clock, this::accountOf);
         // One catalogue for the whole host: the Scripts Store panel and Normal mode's
         // "Your subscriptions" group read the same refresher, so there is one fetch loop.
@@ -315,7 +308,7 @@ public class ImGuiApp extends Application {
         SdnInstaller sdnInstaller = new SdnInstaller();
         board = new LiveClientBoard(ctx, clientId -> openLogs(), clock, sdnCatalogue, sdnInstaller, executor);
         pages = new PageRegistry(buildPages(sdnCatalogue, sdnInstaller));
-        shell = new Shell(ui, pages, notificationOverlay);
+        shell = new Shell(ui, pages, inspector, notificationOverlay);
         ctx.setOnConnect(conn -> {
             if (conn.getEventBus() != null) {
                 notificationOverlay.subscribeTo(conn.getEventBus());
@@ -326,8 +319,8 @@ public class ImGuiApp extends Application {
     /**
      * The Advanced pages. Until each redesigned page lands, the pre-redesign
      * panels are hosted as interim pages so nothing goes missing: Console, Logs
-     * and Diagnostics are the Dashboard's tabs, and Script UI sits beside the
-     * Scripts panel under Installed scripts.
+     * and Diagnostics are the Dashboard's tabs. A script's own UI is the
+     * inspector's Script UI tab, so it has no page of its own.
      */
     private List<LegacyPanelPage> legacyPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
         logsPanel = new LogsPanel();
@@ -335,7 +328,7 @@ public class ImGuiApp extends Application {
                 List.of(new ConsolePanel(outputBuffer, registry, executor, this::shutdown), logsPanel,
                         new DiagnosticsPanel()), Optional::empty);
         ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
-        mgmtPanel.setConfigOpener(runner -> managementConfigPanel.open(runner));
+        mgmtPanel.setConfigOpener(inspector.state().managementScriptOpener());
         sdnScriptsPanel = new SdnScriptsPanel(executor, sdnCatalogue, sdnInstaller);
         Path scriptsDir = LocalScriptLoader.scriptsDir();
         Optional<SecondLine> scriptsLine = Optional.of(folderLine(scriptsDir));
@@ -344,8 +337,8 @@ public class ImGuiApp extends Application {
                 dashboard,
                 LegacyPanelPage.of(PageId.CONNECTIONS, ui, ctx, new ConnectionsPanel(executor, registry)),
                 LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
-                new LegacyPanelPage(PageId.INSTALLED, ui, ctx,
-                        List.of(new ScriptsPanel(executor), new ScriptUIPanel()), () -> scriptsLine),
+                new LegacyPanelPage(PageId.INSTALLED, ui, ctx, List.of(new ScriptsPanel(executor)),
+                        () -> scriptsLine),
                 new LegacyPanelPage(PageId.MANAGEMENT, ui, ctx, List.of(mgmtPanel), () -> managementLine),
                 new LegacyPanelPage(PageId.STORE, ui, ctx, List.of(sdnScriptsPanel),
                         () -> Optional.of(StoreSignInLine.of(sdnCatalogue.shown()))),
@@ -354,37 +347,13 @@ public class ImGuiApp extends Application {
 
     private List<Page> buildPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
         List<Page> all = new ArrayList<>(legacyPages(sdnCatalogue, sdnInstaller));
-        all.add(new ClientsPage(new UserModeRenderer(ui), board));
+        all.add(new ClientsPage(new UserModeRenderer(ui, inspector.state()), board));
         return all;
     }
 
     /** A folder as the sidebar's second line shows it, relative to where the host runs from. */
     private static SecondLine folderLine(Path dir) {
         return SecondLine.FolderPath.of(dir, Path.of(""), Path.of(System.getProperty("user.home")));
-    }
-
-    /**
-     * Routes the "Configure" action on a running script to whichever floating window
-     * fits the script's surface: the custom {@link com.botwithus.bot.api.ui.ScriptUI}
-     * if the script provides one, otherwise the generic config-field editor.
-     * The card surfaces the button when either is present, so without this routing
-     * config-only scripts open a window that immediately closes itself.
-     */
-    private void openScriptConfig(ScriptRunner runner) {
-        if (runner == null) {
-            return;
-        }
-        var fields = runner.getConfigFields();
-        boolean hasFields = fields != null && !fields.isEmpty();
-        if (hasFields) {
-            // The config panel renders the ConfigFields (with Apply/persist) AND,
-            // below them, the script's custom getUI() if it has one — so a script
-            // that provides both shows both here instead of the custom UI hiding the
-            // settings. UI-only scripts (no fields) still get the dedicated window.
-            scriptConfigPanel.open(runner);
-        } else if (runner.getScript().getUI() != null) {
-            scriptUIWindow.open(runner);
-        }
     }
 
     private void captureGlfwHandle() {
@@ -404,21 +373,6 @@ public class ImGuiApp extends Application {
         // requests the switch rather than setting currentMode, which the render's
         // own result would overwrite.
         currentMode = modeRequest.resolve(shell.render(currentMode, board, this::onToastAction));
-
-        // Render script custom UI as a floating window (outside the main window)
-        if (scriptUIWindow != null && scriptUIWindow.isOpen()) {
-            scriptUIWindow.render();
-        }
-
-        // Render script config-field editor as a floating window
-        if (scriptConfigPanel != null && scriptConfigPanel.isOpen()) {
-            scriptConfigPanel.render();
-        }
-
-        // Render management script config panel as a floating window
-        if (managementConfigPanel != null && managementConfigPanel.isOpen()) {
-            managementConfigPanel.render();
-        }
 
         // Update window title based on connection state
         updateTitle();
