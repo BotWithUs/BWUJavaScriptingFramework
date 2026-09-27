@@ -13,6 +13,7 @@ import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.api.util.Interfaces;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
@@ -536,6 +537,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                 api.queueAction(new GameAction(actionId, c, subComponent, hash));
             }
             case DIALOGUE_SELECT -> dispatchDialogueSelect(a, b, c, d);
+            case CLICK_NPC -> clickNpc(a, new WwTile(b, c, d), e, f, g);
             default ->
                 // Wait / WaitInterface are handled executor-side and never sent
                 // here; a stray one is a producer/consumer drift — log, ignore.
@@ -564,6 +566,31 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         log.info("ww runChainStep DIALOGUE_SELECT: iface={} index={} -> page={} comp={} hash={}",
                 iface, index, targetPage, comp, (iface << 16) | comp);
         api.queueAction(new GameAction(ActionTypes.DIALOGUE, 0, -1, (iface << 16) | comp));
+    }
+
+    // The origin of a transition with no loc (a charter ship's crewmember). An
+    // NPC action targets a live server index, so it can't be baked into a CLICK;
+    // resolve the nearest NPC with typeId in [firstTypeId, lastTypeId] on the
+    // centre's plane within Chebyshev `radius`. No NPC (or a bad option) is a
+    // no-op: the executor's next WaitInterface times out and the transition is
+    // reported as a missing origin and routed around, like an absent loc.
+    private void clickNpc(int optionIndex, WwTile centre, int radius,
+                          int firstTypeId, int lastTypeId) {
+        if (optionIndex < 0 || optionIndex + 1 >= ActionTypes.NPC_OPTIONS.length) {
+            log.warn("ww runChainStep CLICK_NPC: option index {} out of range for npc {}..{}",
+                    optionIndex, firstTypeId, lastTypeId);
+            return;
+        }
+        Npc npc = resolveNpc(centre, radius, firstTypeId, lastTypeId);
+        if (npc == null) {
+            log.info("ww runChainStep CLICK_NPC: no npc {}..{} within {} of ({},{},{}), nothing clicked",
+                    firstTypeId, lastTypeId, radius, centre.x(), centre.y(), centre.plane());
+            return;
+        }
+        log.info("ww runChainStep CLICK_NPC: npc {} (index {}) at {},{} op {}",
+                npc.typeId(), npc.serverIndex(), npc.tileX(), npc.tileY(), optionIndex);
+        api.queueAction(new GameAction(
+                ActionTypes.NPC_OPTIONS[optionIndex + 1], npc.serverIndex(), 0, 0));
     }
 
     @Override
@@ -623,6 +650,24 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                         && !loc.isDeleted())
                 .min(Comparator.comparingInt(loc -> chebyshev(loc, tile)))
                 .map(loc -> new WwTile(loc.tileX(), loc.tileY(), loc.plane()))
+                .orElse(null);
+    }
+
+    private static int chebyshev(Npc npc, WwTile tile) {
+        return Math.max(Math.abs(npc.tileX() - tile.x()), Math.abs(npc.tileY() - tile.y()));
+    }
+
+    private Npc resolveNpc(WwTile centre, int radius, int firstTypeId, int lastTypeId) {
+        GameSnapshot snap = snapshotSource.get();
+        if (snap == null) {
+            return null;
+        }
+        return snap.npcs().stream()
+                .filter(npc -> npc.typeId() >= firstTypeId
+                        && npc.typeId() <= lastTypeId
+                        && npc.plane() == centre.plane()
+                        && chebyshev(npc, centre) <= radius)
+                .min(Comparator.comparingInt(npc -> chebyshev(npc, centre)))
                 .orElse(null);
     }
 }

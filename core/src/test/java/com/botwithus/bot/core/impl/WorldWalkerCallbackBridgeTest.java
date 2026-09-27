@@ -17,6 +17,7 @@ import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
@@ -51,6 +52,7 @@ class WorldWalkerCallbackBridgeTest {
     private GameAPI api;
     private GameSnapshot snapshot;
     private GameSnapshot.Locations locationsTable;
+    private GameSnapshot.Npcs npcsTable;
     private AtomicBoolean cancel;
     private List<WwEvent> events;
     private WorldWalkerCallbackBridge bridge;
@@ -62,6 +64,9 @@ class WorldWalkerCallbackBridgeTest {
         locationsTable = mock(GameSnapshot.Locations.class);
         when(snapshot.locations()).thenReturn(locationsTable);
         when(locationsTable.stream()).thenReturn(Stream.empty());
+        npcsTable = mock(GameSnapshot.Npcs.class);
+        when(snapshot.npcs()).thenReturn(npcsTable);
+        when(npcsTable.stream()).thenReturn(Stream.empty());
         cancel = new AtomicBoolean(false);
         events = new ArrayList<>();
         bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL);
@@ -605,6 +610,90 @@ class WorldWalkerCallbackBridgeTest {
         GameAction action = captor.getValue();
         assertEquals(ActionTypes.DIALOGUE, action.actionId());
         assertEquals((720 << 16) | 20, action.param3(), "option component 20 for index 1");
+    }
+
+    // ---- CLICK_NPC: the origin of a transition with no loc ----
+
+    // Charter-ship crewmembers: Trader Crewmember type ids 4650..4656.
+    private static final int CREW_FIRST_ID = 4650;
+    private static final int CREW_LAST_ID  = 4656;
+    private static final int CREW_RADIUS   = 8;
+
+    private static Npc npc(int serverIndex, int typeId, int x, int y, int plane) {
+        return new Npc(serverIndex, typeId, x, y, plane, 0, -1, -1, -1, 0, 0, -1);
+    }
+
+    private void runClickNpc(int option, int x, int y, int plane) {
+        bridge.runChainStep(ChainStepKind.CLICK_NPC.wire(),
+                option, x, y, plane, CREW_RADIUS, CREW_FIRST_ID, CREW_LAST_ID, 0, 0);
+    }
+
+    @Test
+    void runChainStepClickNpcQueuesNpcOptionOnServerIndex() {
+        when(npcsTable.stream()).thenReturn(Stream.of(npc(321, 4652, 2800, 3414, 0)));
+
+        runClickNpc(0, 2801, 3414, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.NPC1, action.actionId(), "0-based option 0 is NPC_OPTIONS[1]");
+        assertEquals(321, action.param1(), "server index in param1");
+        assertEquals(0, action.param2());
+        assertEquals(0, action.param3());
+    }
+
+    @Test
+    void runChainStepClickNpcOptionIndexIsZeroBased() {
+        when(npcsTable.stream()).thenReturn(Stream.of(npc(5, CREW_FIRST_ID, 100, 200, 0)));
+
+        runClickNpc(2, 100, 200, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(ActionTypes.NPC3, captor.getValue().actionId());
+    }
+
+    @Test
+    void runChainStepClickNpcPicksNearestInRange() {
+        when(npcsTable.stream()).thenReturn(Stream.of(
+                npc(1, CREW_LAST_ID, 106, 200, 0),
+                npc(2, CREW_FIRST_ID, 102, 201, 0)));
+
+        runClickNpc(0, 100, 200, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(2, captor.getValue().param1());
+    }
+
+    @Test
+    void runChainStepClickNpcIgnoresWrongTypePlaneAndDistance() {
+        when(npcsTable.stream()).thenReturn(Stream.of(
+                npc(1, CREW_FIRST_ID - 1, 100, 200, 0),               // type below range
+                npc(2, CREW_LAST_ID + 1, 100, 200, 0),                // type above range
+                npc(3, CREW_FIRST_ID, 100, 200, 1),                   // other plane
+                npc(4, CREW_FIRST_ID, 100 + CREW_RADIUS + 1, 200, 0))); // beyond radius
+
+        runClickNpc(0, 100, 200, 0);
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepClickNpcDoesNothingWhenNoNpc() {
+        runClickNpc(0, 100, 200, 0);
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepClickNpcDoesNothingForOutOfRangeOption() {
+        when(npcsTable.stream()).thenReturn(Stream.of(npc(5, CREW_FIRST_ID, 100, 200, 0)));
+
+        runClickNpc(ActionTypes.NPC_OPTIONS.length - 1, 100, 200, 0);
+
+        verify(api, never()).queueAction(any());
     }
 
     @Test
