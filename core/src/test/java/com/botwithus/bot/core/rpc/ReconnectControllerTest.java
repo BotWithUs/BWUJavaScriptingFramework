@@ -105,6 +105,7 @@ class ReconnectControllerTest {
         ReconnectState.GivingUp gu = assertInstanceOf(ReconnectState.GivingUp.class, last);
         assertEquals(3, gu.attempts());
         assertInstanceOf(ReconnectState.GivingUp.class, controller.currentState());
+        assertFalse(ReconnectController.wasStoppedOnRequest(gu), "running out of attempts is not a stop");
     }
 
     @Test
@@ -293,6 +294,13 @@ class ReconnectControllerTest {
         };
     }
 
+    private static ReconnectState.GivingUp givingUp(ReconnectState state) {
+        return switch (state) {
+            case ReconnectState.GivingUp g -> g;
+            default -> throw new AssertionError("not giving up: " + state);
+        };
+    }
+
     private static int attemptOf(ReconnectState state) {
         return switch (state) {
             case ReconnectState.Reconnecting r -> r.attempt();
@@ -361,6 +369,7 @@ class ReconnectControllerTest {
         controller.onDisconnectSync(new RuntimeException("drop"));
 
         assertTrue(controller.isClientGone());
+        assertFalse(ReconnectController.wasStoppedOnRequest(givingUp(controller.currentState())));
         assertEquals(ReconnectController.RetryOutcome.CLIENT_GONE, controller.retryNow());
         assertEquals(1, resolves.get(), "a retry that cannot succeed must not be attempted");
     }
@@ -421,6 +430,8 @@ class ReconnectControllerTest {
 
             states.await(ReconnectControllerTest::isGivingUp);
             assertTrue(isGivingUp(controller.currentState()), "stopping must be visible, not silent");
+            assertTrue(ReconnectController.wasStoppedOnRequest(givingUp(controller.currentState())),
+                    "a stop must be told apart from a failure, so it is not reported as one");
             assertTrue(events.stream().anyMatch(ReconnectControllerTest::isGivingUpEvent),
                     "subscribers on the connection's bus must hear it too");
             assertEquals(0, r.calls.get());

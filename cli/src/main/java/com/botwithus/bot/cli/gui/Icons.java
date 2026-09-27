@@ -75,12 +75,20 @@ public final class Icons {
     public static final String CLOCK       = "\uF017";  // fa-clock
     public static final String FOLDER      = "\uF07B";  // fa-folder
     public static final String FILE        = "\uF15B";  // fa-file
+    public static final String FILE_LINES  = "\uF15C";  // fa-file-lines
     public static final String NETWORK     = "\uF6FF";  // fa-network-wired
     public static final String PLUG        = "\uF1E6";  // fa-plug
     public static final String ROBOT       = "\uF544";  // fa-robot
     public static final String SCROLL      = "\uF70E";  // fa-scroll
     public static final String LAYER_GROUP = "\uF5FD";  // fa-layer-group
     public static final String DIAGRAM     = "\uE4A6";  // fa-diagram-project
+
+    // Settings page
+    public static final String USER        = "\uF007";  // fa-user
+    public static final String BELL        = "\uF0F3";  // fa-bell
+    public static final String DISPLAY     = "\uE163";  // fa-display
+    public static final String FILE_EXPORT = "\uF56E";  // fa-file-export
+    public static final String ERASER      = "\uF12D";  // fa-eraser
 
     // Misc
     public static final String SEARCH      = "\uF002";  // fa-magnifying-glass

@@ -10,14 +10,15 @@ final class ThreadDump {
 
     private ThreadDump() {}
 
-    static void print(ScriptRunner runner, RunnerRef ref, PrintStream out) {
-        out.println(AnsiCodes.colorize("> threads " + ref.script() + " on " + ref.client(), AnsiCodes.YELLOW));
+    /** @param pipe the connection the runner is on, as the console names it */
+    static void print(ScriptRunner runner, String script, String pipe, PrintStream out) {
+        out.println(AnsiCodes.colorize("> threads " + script + " on " + pipe, AnsiCodes.YELLOW));
         StackTraceElement[] frames = runner.threadStackTrace();
         if (frames.length == 0) {
-            out.println("\"script-" + ref.script() + "\" is not alive.");
+            out.println("\"script-" + script + "\" is not alive.");
             return;
         }
-        out.println("\"script-" + ref.script() + "\" " + runner.liveness());
+        out.println("\"script-" + script + "\" " + runner.liveness());
         for (StackTraceElement frame : frames) {
             out.println("  at " + frame);
         }

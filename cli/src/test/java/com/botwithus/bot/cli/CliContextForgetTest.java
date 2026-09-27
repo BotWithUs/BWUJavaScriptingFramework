@@ -1,12 +1,22 @@
 package com.botwithus.bot.cli;
 
+import com.botwithus.bot.api.runtime.ReconnectState;
+import com.botwithus.bot.cli.alerts.AlertClassifier;
+import com.botwithus.bot.cli.alerts.LiveClientDirectory;
+import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.events.ClientRef;
 import com.botwithus.bot.cli.events.HostEvent;
 import com.botwithus.bot.cli.events.HostEvent.ClientClosed;
 import com.botwithus.bot.cli.events.HostEvent.ClientForgotten;
 import com.botwithus.bot.cli.events.HostEvent.ClientOpened;
+import com.botwithus.bot.cli.events.HostEvent.ReconnectStateChanged;
+import com.botwithus.bot.cli.gui.notify.HostToasts;
+import com.botwithus.bot.cli.gui.notify.Toast;
+import com.botwithus.bot.cli.gui.notify.ToastSink;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.core.alerts.Alert;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -16,7 +26,9 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -68,6 +80,30 @@ class CliContextForgetTest {
     }
 
     @Test
+    void forgettingAClientTheUserStoppedRetrying_raisesNoAlertAndNoToast() {
+        List<Alert> alerts = new CopyOnWriteArrayList<>();
+        AlertClassifier classifier = new AlertClassifier(new LiveClientDirectory(ctx));
+        ctx.getHostEvents().subscribe(event -> classifier.classify(event).ifPresent(alerts::add));
+        List<Toast> toasts = new CopyOnWriteArrayList<>();
+        try (HostSettings settings = HostSettings.open(tempDir.resolve("settings"))) {
+            ctx.setSettings(settings);
+            HostToasts.attach(ctx, new RecordingSink(toasts));
+            Connection dead = connection(false);
+            ctx.registerConnection(dead);
+            // What pressing "Stop retrying" publishes once the controller halts.
+            ctx.getHostEvents().publish(new ReconnectStateChanged(CLIENT,
+                    new ReconnectState.GivingUp(0, 1, new CancellationException("stopped")), Instant.now()));
+            flush();
+
+            assertEquals(ForgetResult.FORGOTTEN, ctx.forget(PIPE));
+
+            flush();
+            assertEquals(List.of(), alerts, "forgetting is the user's own doing");
+            assertEquals(List.of(), toasts);
+        }
+    }
+
+    @Test
     void aLiveConnectionIsNotForgotten() {
         Connection live = connection(true);
         ctx.registerConnection(live);
@@ -116,6 +152,20 @@ class CliContextForgetTest {
             case HostEvent.ClientEvent client -> client.client();
             default -> throw new AssertionError("not about a client: " + event);
         };
+    }
+
+    /** Keeps every toast posted; a withdrawal takes nothing down that the test checks. */
+    private record RecordingSink(List<Toast> posted) implements ToastSink {
+
+        @Override
+        public void post(Toast toast) {
+            posted.add(toast);
+        }
+
+        @Override
+        public void withdraw(ClientKey client) {
+            // Nothing to take down: the test asserts on what was posted.
+        }
     }
 
     private static Connection connection(boolean isAlive) {

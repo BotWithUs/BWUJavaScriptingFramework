@@ -1,10 +1,16 @@
 package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.api.config.ConfigField;
+import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.diag.StubGuard;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.botwithus.bot.cli.alerts.Alerts;
+import com.botwithus.bot.cli.alerts.Integrations;
+import com.botwithus.bot.cli.alerts.LiveClientDirectory;
+import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.clients.ClientRegistry;
 import com.botwithus.bot.cli.clients.JsonClientStore;
 import com.botwithus.bot.cli.clients.LiveClient;
@@ -18,7 +24,22 @@ import com.botwithus.bot.cli.events.HostEvent.CloseCause;
 import com.botwithus.bot.cli.events.HostEvent.ScriptLoadFailed;
 import com.botwithus.bot.cli.events.HostEventBus;
 import com.botwithus.bot.cli.events.RunnerEventBridge;
+import com.botwithus.bot.cli.groups.ClientGroup;
+import com.botwithus.bot.cli.groups.GroupId;
+import com.botwithus.bot.cli.groups.GroupStore;
+import com.botwithus.bot.cli.groups.GroupsFile;
+import com.botwithus.bot.cli.groups.StartWhenBackDrain;
+import com.botwithus.bot.cli.groups.StartWhenBackQueue;
 import com.botwithus.bot.cli.log.LogBuffer;
+import com.botwithus.bot.cli.management.ManagementControl;
+import com.botwithus.bot.cli.management.ManagementFile;
+import com.botwithus.bot.cli.management.ManagementSettings;
+import com.botwithus.bot.cli.management.ManagementStartup;
+import com.botwithus.bot.cli.management.ManagementTargets;
+import com.botwithus.bot.cli.management.OrchestratorAuditLog;
+import com.botwithus.bot.cli.management.Scope;
+import com.botwithus.bot.cli.management.ScopedClientOrchestrator;
+import com.botwithus.bot.cli.management.ScopedClientProvider;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.scripts.AfterReload;
 import com.botwithus.bot.cli.scripts.ManagementReload;
@@ -42,6 +63,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.rpc.ReconnectPolicy;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.config.ManagementSettingsStore;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
@@ -61,35 +83,32 @@ import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.cli.watch.ScriptWatchControl;
 import com.botwithus.bot.core.impl.ManagementContextImpl;
 import com.botwithus.bot.core.impl.SharedStateImpl;
+import com.botwithus.bot.core.runtime.ManagementScriptRunner;
 import com.botwithus.bot.core.runtime.ManagementScriptRuntime;
 import com.botwithus.bot.core.runtime.ManagementLoadReport;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
+import com.botwithus.bot.api.isc.MessageBus;
+import com.botwithus.bot.api.isc.SharedState;
+import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.core.gameval.SqliteGamevalIndex;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
-
 import java.awt.image.BufferedImage;
-import java.io.IOException;
 import java.io.PrintStream;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 public class CliContext {
 
@@ -119,18 +138,14 @@ public class CliContext {
     // Read from the render thread every frame while the command thread, the pipe
     // scanner and reconnects mutate them: copy-on-write, insertion-ordered.
     private final OrderedSnapshotMap<String, Connection> connections = new OrderedSnapshotMap<>();
-    private final OrderedSnapshotMap<String, ConnectionGroup> groups = new OrderedSnapshotMap<>();
     /** Guards every change to the connection table together with the active name. */
     private final Object connectionLock = new Object();
-    /** Serialises group-file writes, so the file always holds a complete, recent state. */
-    private final Object groupsFileLock = new Object();
     private volatile String activeConnectionName;
     private volatile String mountedConnectionName;
     private ImageDisplay imageDisplay;
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
-    private Consumer<Connection> onConnect;
     private volatile LoadReport lastLoadReport = LoadReport.EMPTY;
     /**
      * The failed-load list across load passes and both script folders. Kept
@@ -152,8 +167,15 @@ public class CliContext {
     private NXTCache nxtCache;
     private boolean nxtCacheInitAttempted;
     private GamevalIndex gamevals;
-    private final Path groupsFile;
-    private HostSettings settings;
+    private final GroupStore groupStore;
+    private final StartWhenBackQueue startWhenBack;
+    private final StartWhenBackDrain startWhenBackDrain;
+    /** Runs saves and other work that must not hold up the thread that asked for it. */
+    private final Executor background;
+    // Volatile: connections and runtimes read it from their own threads.
+    private volatile HostSettings settings;
+    /** Guarded by {@code this}; set by {@link #startAlerts()}. */
+    private Alerts alerts;
     /** Host-level events; unlike a connection's bus it exists with no client connected. */
     private final HostEventBus hostEvents = new HostEventBus();
     private final ConnectionHistory connectionHistory = new ConnectionHistory();
@@ -166,34 +188,56 @@ public class CliContext {
             task -> Thread.ofVirtual().name("connection-status").start(task),
             ConnectionStatusTracker.POLL_INTERVAL, this::onStatusRefreshed);
     private final ClientRegistry clientRegistry;
+    /** Each management script's targets; read on first use. */
+    private final ManagementTargets managementTargets;
+    private final OrchestratorAuditLog orchestratorAudit = new OrchestratorAuditLog(hostEvents::publish, clock);
+    private final ManagementControl managementControl;
+    /** Starts the scripts that should run once the first management load pass has registered them. */
+    private final ManagementStartup managementStartup;
+    /** Management scripts' defaults and per-target settings, shared with their runners. */
+    private final ManagementSettingsStore managementSettingsStore;
+    private final ManagementSettings managementSettings;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this(logBuffer, logCapture, DEFAULT_GROUPS_FILE);
     }
 
     /**
-     * @param groupsFile where groups persist; remembered clients persist beside
-     *                   it. Package-private so tests can keep both out of the
-     *                   user's real home directory.
+     * @param groupsFile where groups persist; remembered clients and the
+     *                   start-when-back queue persist beside it. Package-private
+     *                   so tests can keep them out of the user's real home directory.
      */
     CliContext(LogBuffer logBuffer, LogCapture logCapture, Path groupsFile) {
         this(logBuffer, logCapture, groupsFile,
-                task -> Thread.ofVirtual().name("client-registry-save").start(task));
+                task -> Thread.ofVirtual().name("host-background").start(task));
     }
 
     /**
-     * @param clientSaves runs the writes of {@code clients.json}. Package-private
-     *                    so a test can run them in line and read the file as soon
-     *                    as the host events are delivered.
+     * @param background runs the writes of {@code clients.json} and the starts
+     *                   queued for a client that is back. Package-private so a
+     *                   test can run them in line and see their effects as soon
+     *                   as the host events are delivered.
      */
-    CliContext(LogBuffer logBuffer, LogCapture logCapture, Path groupsFile, Executor clientSaves) {
+    CliContext(LogBuffer logBuffer, LogCapture logCapture, Path groupsFile, Executor background) {
         this.logBuffer = logBuffer;
         this.logCapture = logCapture;
-        this.groupsFile = groupsFile;
+        this.background = background;
         this.clientManager = new ClientManager(this);
         this.clientRegistry = new ClientRegistry(
                 new JsonClientStore(groupsFile.resolveSibling(JsonClientStore.FILE_NAME)),
-                this::liveClient, connectionHistory, hostEvents::publish, clock, clientSaves);
+                this::liveClient, connectionHistory, hostEvents::publish, clock, background);
+        this.groupStore = new GroupStore(new GroupsFile(groupsFile));
+        this.startWhenBack = new StartWhenBackQueue(groupsFile.resolveSibling(StartWhenBackQueue.FILE_NAME));
+        this.startWhenBackDrain = new StartWhenBackDrain(startWhenBack, this::liveRuntime, this::loadScripts,
+                background, line -> out().println(line));
+        this.managementTargets = new ManagementTargets(
+                new ManagementFile(groupsFile.resolveSibling(ManagementFile.FILE_NAME)), groupStore);
+        this.managementControl = new ManagementControl(this::managementRuntimeOrInit, managementTargets,
+                groupStore, clientManager);
+        this.managementStartup = new ManagementStartup(managementControl);
+        this.managementSettingsStore = new ManagementSettingsStore(
+                groupsFile.resolveSibling(CONFIG_DIR_NAME), background);
+        this.managementSettings = new ManagementSettings(managementSettingsStore, managementTargets, groupStore);
         hostEvents.subscribe(connectionHistory);
         hostEvents.subscribe(clientRegistry);
     }
@@ -264,6 +308,38 @@ public class CliContext {
         }
     }
 
+    /**
+     * Starts sending alerts to ntfy, Slack and Discord, as the {@code alerts.*}
+     * settings say (all off until the user turns a service on). Call once, from the
+     * composition root, after {@link #setSettings}; a second call returns the same
+     * integrations.
+     *
+     * @return what the Integrations section of the Settings page binds to
+     * @throws IllegalStateException if no settings are set
+     */
+    public synchronized Integrations startAlerts() {
+        if (settings == null) {
+            throw new IllegalStateException("settings must be set before alerts start");
+        }
+        if (alerts == null) {
+            alerts = Alerts.start(settings, hostEvents, new LiveClientDirectory(this), connectionHistory);
+        }
+        return alerts.integrations();
+    }
+
+    /** The alert integrations, once {@link #startAlerts()} has run. */
+    public synchronized Optional<Integrations> getIntegrations() {
+        return Optional.ofNullable(alerts).map(Alerts::integrations);
+    }
+
+    /** Stops the alerts. Called from the two shutdown paths, beside {@link #closeGamevals()}. */
+    public synchronized void stopAlerts() {
+        if (alerts != null) {
+            alerts.close();
+            alerts = null;
+        }
+    }
+
     public void setStreamManager(StreamManager sm) { this.streamManager = sm; }
     public StreamManager getStreamManager() { return streamManager; }
 
@@ -281,7 +357,30 @@ public class CliContext {
         this.settings = settings;
         if (settings != null) {
             watchControl.bind(settings);
+            settings.onChange(SettingKeys.RPC_TIMEOUT_MS, this::applyRpcTimeout);
         }
+    }
+
+    /** Gives every open connection's RPC client the new per-call timeout; calls already waiting keep theirs. */
+    private void applyRpcTimeout(long timeoutMs) {
+        for (Connection conn : connections.values()) {
+            RpcClient rpc = conn.getRpc();
+            if (rpc != null) {
+                rpc.setTimeout(timeoutMs);
+            }
+        }
+    }
+
+    /** {@code defaultTimeout} now, or the RPC client's own default when no settings are set. */
+    private OptionalLong rpcTimeoutMs() {
+        HostSettings current = settings;
+        return current != null ? OptionalLong.of(current.get(SettingKeys.RPC_TIMEOUT_MS)) : OptionalLong.empty();
+    }
+
+    /** {@code scripts.stallAfterMs} now, read on every watchdog sweep so a change applies at once. */
+    private long stallAfterMs() {
+        HostSettings current = settings;
+        return current != null ? current.get(SettingKeys.STALL_AFTER_MS) : ScriptRuntime.DEFAULT_STALL_AFTER_MS;
     }
     public HostSettings getSettings() { return settings; }
 
@@ -298,6 +397,13 @@ public class CliContext {
 
     /** Every client the host knows, live or remembered, one per account. */
     public ClientRegistry getClientRegistry() { return clientRegistry; }
+
+    /** The name the client on account {@code accountUuid} last showed, if the host knows the account. */
+    public Optional<String> accountNameOf(String accountUuid) {
+        return AccountReply.identified(accountUuid)
+                .flatMap(account -> clientRegistry.get(ClientKey.account(account)))
+                .flatMap(ClientRecord::name);
+    }
 
     /** The key the client on {@code pipe} is known by now; the pipe's own key until it is identified. */
     public ClientKey clientKeyOf(String pipe) {
@@ -330,13 +436,45 @@ public class CliContext {
     }
 
     /**
-     * Settles the key of a connection whose account was just read. A connection
-     * no longer in the table is past identifying.
+     * Settles the key of a connection whose account was just read, then treats a
+     * client on a remembered account as back; see {@link #clientBack}. A
+     * connection no longer in the table is past identifying.
      */
     private void onStatusRefreshed(Connection conn) {
-        if (connections.get(conn.getName()) == conn) {
-            clientKeys.identify(conn.getName(), conn.getAccountUuid(), conn.getDisplayName(), clock.instant());
+        String pipe = conn.getName();
+        if (connections.get(pipe) != conn) {
+            return;
         }
+        clientKeys.identify(pipe, conn.getAccountUuid(), conn.getDisplayName(), clock.instant());
+        rememberedAccountOn(pipe).ifPresent(uuid -> clientBack(pipe, uuid));
+    }
+
+    /**
+     * The client on {@code pipe} was read and is on account {@code uuid}: an
+     * unresolved group member on that pipe becomes the account, and what is
+     * queued to start on it starts. Both are checked in memory first, so a
+     * routine re-read does no work.
+     */
+    private void clientBack(String pipe, String uuid) {
+        if (groupStore.isUnresolved(pipe)) {
+            background.execute(() -> groupStore.resolve(pipe, uuid));
+        }
+        startWhenBackDrain.clientBack(pipe, uuid);
+    }
+
+    /**
+     * The account of the client on {@code pipe}, if it has been identified and
+     * can be remembered: a group member or a queued start can only name such an
+     * account. Empty for a pipe key and for a second client open on an account.
+     */
+    private Optional<String> rememberedAccountOn(String pipe) {
+        ClientKey key = clientKeyOf(pipe);
+        return key.isRemembered() ? key.accountUuid() : Optional.empty();
+    }
+
+    private Optional<ScriptRuntime> liveRuntime(String pipe) {
+        Connection conn = connections.get(pipe);
+        return conn != null && conn.isAlive() ? Optional.ofNullable(conn.getRuntime()) : Optional.empty();
     }
 
     public ManagementScriptRuntime getManagementRuntime() {
@@ -356,8 +494,90 @@ public class CliContext {
         var sharedState = new SharedStateImpl();
         var mgmtContext = new ManagementContextImpl(
                 clientManager, clientProvider, messageBus, sharedState);
-        managementRuntime = new ManagementScriptRuntime(mgmtContext, runnerEvents);
+        managementRuntime = new ManagementScriptRuntime(mgmtContext, runnerEvents, managementSettingsStore);
+        managementRuntime.setStallThreshold(this::stallAfterMs);
+        managementRuntime.setContextFactory(script -> scopedManagementContext(script, messageBus, sharedState));
     }
+
+    /**
+     * The context a management script runs with: an orchestrator and a client
+     * provider limited to its targets, recording what it does, and its
+     * settings as they apply to each client.
+     */
+    private ManagementContext scopedManagementContext(String script, MessageBus messageBus,
+                                                      SharedState sharedState) {
+        Supplier<Scope> scope = () -> managementTargets.scopeOf(script);
+        return new ManagementContextImpl(
+                new ScopedClientOrchestrator(script, clientManager, scope, this::accountOfClient, orchestratorAudit),
+                new ScopedClientProvider(clientProvider, scope, this::accountOfClient),
+                messageBus, sharedState, () -> managementTargets.apiTargetsOf(script),
+                managementConfigs(script));
+    }
+
+    /** Answers a management script's {@code configFor} from its settings and declared fields. */
+    private ManagementContextImpl.ConfigLookup managementConfigs(String script) {
+        return new ManagementContextImpl.ConfigLookup() {
+            @Override
+            public ScriptConfig forAccount(String accountUuid) {
+                return managementSettings.configFor(script, managementFieldsOf(script), accountUuid);
+            }
+
+            @Override
+            public ScriptConfig forClientScript(String accountUuid, String scriptName) {
+                return managementSettings.configFor(script, managementFieldsOf(script), accountUuid, scriptName);
+            }
+        };
+    }
+
+    /**
+     * The fields the management script registered as {@code script} declares;
+     * none when it is not registered or its {@code getConfigFields} throws.
+     */
+    private List<ConfigField> managementFieldsOf(String script) {
+        ManagementScriptRuntime runtime = managementRuntime;
+        ManagementScriptRunner runner = runtime != null ? runtime.findRunner(script) : null;
+        if (runner == null) {
+            return List.of();
+        }
+        try {
+            return Objects.requireNonNullElse(runner.getConfigFields(), List.of());
+        } catch (RuntimeException e) {
+            log.warn("{}'s getConfigFields threw; its settings fall back to the saved ones: {}", script,
+                    e.toString());
+            return List.of();
+        }
+    }
+
+    /**
+     * The account of the client an orchestrator call names: a connection's
+     * pipe, or the account UUID of a client that is not connected. Empty for a
+     * client with no account.
+     */
+    private Optional<String> accountOfClient(String name) {
+        if (connections.get(name) != null) {
+            return clientKeyOf(name).accountUuid();
+        }
+        return AccountReply.identified(name);
+    }
+
+    private ManagementScriptRuntime managementRuntimeOrInit() {
+        if (managementRuntime == null) {
+            initManagementRuntime();
+        }
+        return managementRuntime;
+    }
+
+    /** What each management script manages, and whether it should run. */
+    public ManagementTargets getManagementTargets() { return managementTargets; }
+
+    /** The recent orchestrator calls of each management script. */
+    public OrchestratorAuditLog getOrchestratorAudit() { return orchestratorAudit; }
+
+    /** Start, stop and restart management scripts, and stop a group without its manager restarting it. */
+    public ManagementControl getManagementControl() { return managementControl; }
+
+    /** Each management script's defaults and per-target settings, and the order they are inherited in. */
+    public ManagementSettings getManagementSettings() { return managementSettings; }
 
     /**
      * Loads management scripts from {@code scripts/management/} and registers
@@ -369,6 +589,7 @@ public class CliContext {
         }
         ManagementLoadReport report = ManagementScriptLoader.loadReport();
         loadIssues.record(ScriptFolder.MANAGEMENT, report.results());
+        managementTargets.recordLoaded(report.results().stream().flatMap(r -> r.scriptName().stream()).toList());
         return report.scripts();
     }
 
@@ -483,13 +704,6 @@ public class CliContext {
         // runtime is bound to the account UUID for a manual connect too.
         statusTracker.attach(conn);
         statusTracker.startPolling(this::getConnections);
-        if (onConnect != null) {
-            try {
-                onConnect.accept(conn);
-            } catch (RuntimeException e) {
-                log.warn("onConnect hook threw for '{}': {}", name, e.getMessage());
-            }
-        }
         out().println("Connected to pipe: " + conn.getPipe().getPipePath());
         if (connections.values().size() > 1) {
             out().println("Active connection set to '" + name + "'.");
@@ -514,8 +728,22 @@ public class CliContext {
             // Published under the lock, so a close of this connection can only queue after it.
             clientKeys.opened(conn.getName(), clock.instant());
         }
+        applySettings(conn);
         reportToHostEvents(conn);
         return true;
+    }
+
+    /** The host settings that shape a connection: its RPC timeout and its runtime's stall threshold. */
+    private void applySettings(Connection conn) {
+        RpcClient rpc = conn.getRpc();
+        OptionalLong timeout = rpcTimeoutMs();
+        if (rpc != null && timeout.isPresent()) {
+            rpc.setTimeout(timeout.getAsLong());
+        }
+        ScriptRuntime runtime = conn.getRuntime();
+        if (runtime != null) {
+            runtime.setStallThreshold(this::stallAfterMs);
+        }
     }
 
     /** Feeds the connection's script lifecycle and game-side signals into the host bus. */
@@ -715,6 +943,14 @@ public class CliContext {
      * available connection (or clears the active view).
      */
     public void handleConnectionError(String connName) {
+        removeConnection(connName, CloseCause.CONNECTION_LOST);
+    }
+
+    /**
+     * Takes {@code connName} out of the host: stops its stream, unmounts it,
+     * unregisters and closes its connection, publishing a close for {@code cause}.
+     */
+    private void removeConnection(String connName, CloseCause cause) {
         if (streamManager != null) {
             streamManager.handleConnectionLost(connName);
         }
@@ -723,7 +959,7 @@ public class CliContext {
             out().println("Auto-unmounted — mounted connection was lost.");
         }
         boolean wasActive = connName.equals(activeConnectionName);
-        Connection conn = unregisterConnection(connName, CloseCause.CONNECTION_LOST);
+        Connection conn = unregisterConnection(connName, cause);
         clientProvider.removeClient(connName);
         if (conn != null) {
             conn.close();
@@ -761,7 +997,9 @@ public class CliContext {
                 && !connectionHistory.clients().contains(key)) {
             return ForgetResult.NOT_FOUND;
         }
-        registered.forEach(conn -> handleConnectionError(conn.getName()));
+        // Closed as disconnected, not lost: forgetting is the user's own doing, so
+        // nothing downstream reports the client closing.
+        registered.forEach(conn -> removeConnection(conn.getName(), CloseCause.DISCONNECTED));
         // Published after the close, so every subscriber drops the client after it.
         clientKeys.forget(key, clock.instant());
         return ForgetResult.FORGOTTEN;
@@ -803,13 +1041,6 @@ public class CliContext {
     public void setProgressDisplay(ProgressDisplay d) { this.progressDisplay = d; }
     public ProgressDisplay getProgressDisplay() { return progressDisplay; }
 
-    /**
-     * Wiring hook for an observer that wants to react to a successful
-     * {@link #connect}, e.g. the notification overlay subscribing to the
-     * new connection's event bus.
-     */
-    public void setOnConnect(Consumer<Connection> hook) { this.onConnect = hook; }
-
     public void setConfigPanelOpener(Consumer<ScriptRunner> opener) { this.configPanelOpener = opener; }
     public void openConfigPanel(ScriptRunner runner) {
         if (configPanelOpener != null) {
@@ -817,129 +1048,97 @@ public class CliContext {
         }
     }
 
-    // --- Connection Group management & persistence ---
+    // --- Groups and the start-when-back queue ---
 
-    private static final Path DEFAULT_GROUPS_FILE = Path.of(System.getProperty("user.home"), ".botwithus", "groups.json");
+    /** The folder beside the groups file that scripts' settings are kept in. */
+    private static final String CONFIG_DIR_NAME = "config";
 
-    /** Simple DTO for JSON serialization of a group. */
-    private static class GroupData {
-        String description;
-        List<String> members;
-        GroupData() {}
-        GroupData(String description, List<String> members) {
-            this.description = description;
-            this.members = members;
-        }
-    }
+    private static final Path DEFAULT_GROUPS_FILE =
+            Path.of(System.getProperty("user.home"), ".botwithus", GroupsFile.FILE_NAME);
 
-    /** Loads persisted groups from ~/.botwithus/groups.json. */
+    /**
+     * Loads the groups and the start-when-back queue saved by an earlier run.
+     * Call once, at startup. A groups file from a host that kept members by pipe
+     * name is migrated: a member whose pipe has an identified client now becomes
+     * that client's account, and the rest stay on their group as unresolved
+     * until a client on that pipe is identified or the user removes them.
+     */
     public void loadGroups() {
-        if (!Files.exists(groupsFile)) {
-            return;
-        }
-        try {
-            String json = Files.readString(groupsFile);
-            Gson gson = new Gson();
-            Map<String, GroupData> data = gson.fromJson(json,
-                    new TypeToken<LinkedHashMap<String, GroupData>>() {}.getType());
-            if (data != null) {
-                Map<String, ConnectionGroup> loaded = new LinkedHashMap<>();
-                for (var entry : data.entrySet()) {
-                    ConnectionGroup group = new ConnectionGroup(entry.getKey());
-                    GroupData gd = entry.getValue();
-                    if (gd.description != null) {
-                        group.setDescription(gd.description);
-                    }
-                    if (gd.members != null) {
-                        gd.members.forEach(group::add);
-                    }
-                    loaded.put(entry.getKey(), group);
-                }
-                groups.replaceAll(loaded);
-            }
-        } catch (Exception e) {
-            log.error("Failed to load groups", e);
-        }
+        groupStore.load(pipe -> isPipeLive(pipe) ? rememberedAccountOn(pipe) : Optional.empty());
+        startWhenBack.load();
     }
 
-    /** Persists current groups to ~/.botwithus/groups.json. */
-    void saveGroups() {
-        // The snapshot is taken inside the lock, so whichever save runs last
-        // writes a state that includes every change made before it.
-        synchronized (groupsFileLock) {
-            try {
-                Files.createDirectories(groupsFile.getParent());
-                Gson gson = new GsonBuilder().setPrettyPrinting().create();
-                Map<String, GroupData> data = new LinkedHashMap<>();
-                for (var entry : groups.asMap().entrySet()) {
-                    ConnectionGroup g = entry.getValue();
-                    data.put(entry.getKey(), new GroupData(g.getDescription(), new ArrayList<>(g.getConnectionNames())));
-                }
-                Files.writeString(groupsFile, gson.toJson(data));
-            } catch (Exception e) {
-                log.error("Failed to save groups", e);
-            }
-        }
+    /** The host's groups: create, rename, change members and managers, look up. */
+    public GroupStore getGroupStore() { return groupStore; }
+
+    /** Scripts waiting to start on clients that are not connected. */
+    public StartWhenBackQueue getStartWhenBackQueue() { return startWhenBack; }
+
+    /** The group called exactly {@code name}. */
+    public Optional<ClientGroup> findGroup(String name) {
+        return groupStore.byName(name);
     }
 
-    public void createGroup(String name) {
-        groups.put(name, new ConnectionGroup(name));
-        saveGroups();
-    }
-
-    public boolean deleteGroup(String name) {
-        boolean removed = groups.remove(name) != null;
-        if (removed) {
-            saveGroups();
-        }
-        return removed;
-    }
-
-    public ConnectionGroup getGroup(String name) {
-        return groups.get(name);
-    }
-
-    /**
-     * The groups in creation order. An immutable snapshot, safe to iterate from any
-     * thread; call again to see later changes. The groups themselves are live.
-     */
-    public Map<String, ConnectionGroup> getGroups() {
-        return groups.asMap();
-    }
-
-    public void addToGroup(String groupName, String connectionName) {
-        ConnectionGroup group = groups.get(groupName);
-        if (group != null) {
-            group.add(connectionName);
-            saveGroups();
-        }
-    }
-
-    public void removeFromGroup(String groupName, String connectionName) {
-        ConnectionGroup group = groups.get(groupName);
-        if (group != null) {
-            group.remove(connectionName);
-            saveGroups();
-        }
-    }
-
-    /**
-     * Returns the list of active (connected) Connection objects for a group.
-     * Connections that are in the group but not currently connected are skipped.
-     */
+    /** The live connections of the group called {@code groupName}; see {@link #getGroupConnections(ClientGroup)}. */
     public List<Connection> getGroupConnections(String groupName) {
-        ConnectionGroup group = groups.get(groupName);
-        if (group == null) {
+        return groupStore.byName(groupName).map(this::getGroupConnections).orElse(List.of());
+    }
+
+    /** The live connections of the group with id {@code id}; see {@link #getGroupConnections(ClientGroup)}. */
+    public List<Connection> getGroupConnections(GroupId id) {
+        return groupStore.get(id).map(this::getGroupConnections).orElse(List.of());
+    }
+
+    /**
+     * The live connections of {@code group}'s members, in member order. A member
+     * that is not connected now is skipped.
+     */
+    public List<Connection> getGroupConnections(ClientGroup group) {
+        return group.members().stream()
+                .flatMap(uuid -> liveConnectionsOf(uuid).stream())
+                .toList();
+    }
+
+    /**
+     * The live connection of the client on account {@code accountUuid}, as a
+     * list: empty while it is not connected. A second client open on the same
+     * account at once is a different client and is not included.
+     */
+    public List<Connection> liveConnectionsOf(String accountUuid) {
+        if (AccountReply.identified(accountUuid).isEmpty()) {
             return List.of();
         }
-        List<Connection> result = new ArrayList<>();
-        for (String connName : group.getConnectionNames()) {
-            Connection conn = connections.get(connName);
-            if (conn != null && conn.isAlive()) {
-                result.add(conn);
-            }
+        return clientKeys.pipesOf(ClientKey.account(accountUuid)).stream()
+                .map(connections::get)
+                .filter(Objects::nonNull)
+                .filter(Connection::isAlive)
+                .toList();
+    }
+
+    /**
+     * Queues {@code script} to start on the client on account {@code accountUuid}
+     * when it is back. If that client is connected already, it is started now,
+     * on a background thread, rather than waiting for it to come back.
+     *
+     * @return {@code false} if that start was already queued
+     * @throws IllegalArgumentException if {@code accountUuid} is not an account
+     *                                  UUID or {@code script} is blank
+     */
+    public boolean startWhenBack(String accountUuid, String script) {
+        boolean isQueued = startWhenBack.enqueue(accountUuid, script, clock.instant());
+        for (Connection conn : liveConnectionsOf(accountUuid)) {
+            startWhenBackDrain.clientBack(conn.getName(), accountUuid);
         }
-        return result;
+        return isQueued;
+    }
+
+    /** "Name (uuid)" when the host knows the account's name, else the UUID alone. */
+    public String describeAccount(String accountUuid) {
+        return AccountReply.identified(accountUuid)
+                .flatMap(uuid -> clientRegistry.get(ClientKey.account(uuid)))
+                .flatMap(ClientRecord::name)
+                .map(name -> name + " (" + accountUuid + ")")
+                .orElse(accountUuid);
     }
 
     public void mount(String connectionName) {
@@ -983,14 +1182,35 @@ public class CliContext {
         return reloadScripts(getConnections().stream().filter(Connection::isAlive).toList(), after);
     }
 
-    /** Reloads {@code scripts/management/} into the management runtime. */
+    /**
+     * Reloads {@code scripts/management/} into the management runtime. The
+     * first pass since the host started then starts each script that should
+     * be running, as it was before the host stopped; later passes leave that
+     * to {@code after}.
+     */
     public ManagementReload reloadManagementScripts(AfterReload after) {
         if (managementRuntime == null) {
             initManagementRuntime();
         }
         synchronized (reloadLock) {
-            return newReloader().reloadManagement(managementRuntime, after);
+            ManagementReload summary = newReloader().reloadManagement(managementRuntime, after);
+            managementStartup.afterLoadPass();
+            return summary;
         }
+    }
+
+    /**
+     * The host's first management load pass: registers every script in
+     * {@code scripts/management/} and starts the ones that should be running.
+     * Blocks while scripts load; call it off the render thread.
+     */
+    public ManagementReload loadManagementAtStartup() {
+        return reloadManagementScripts(AfterReload.REGISTER_ONLY);
+    }
+
+    /** Whether a management load pass has finished since the host started. */
+    public boolean hasLoadedManagement() {
+        return managementStartup.hasLoaded();
     }
 
     /** Built per call so each load pass goes through this object's own load methods. */

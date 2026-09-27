@@ -14,8 +14,7 @@ final class EventsTab {
 
     private static final float EVENT_EM = 13f;
     private static final float CLIENT_EM = 8f;
-    private static final int EVENT_COLOR = ImGuiTheme.imCol32(ImGuiTheme.MAGENTA_R, ImGuiTheme.MAGENTA_G,
-            ImGuiTheme.MAGENTA_B, 1f);
+    private static final int EVENT_COLOR = ImGuiTheme.COL_MAGENTA;
 
     private final PanelChrome chrome;
     private final Controls ui;

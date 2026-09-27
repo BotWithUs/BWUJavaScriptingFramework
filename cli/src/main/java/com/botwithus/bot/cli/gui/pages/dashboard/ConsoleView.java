@@ -15,7 +15,7 @@ import java.util.Optional;
  * @param isMounted whether the output filter is on (the console shows the target only)
  * @param commands  every command name and alias, for Tab completion
  */
-public record ConsoleView(List<OutputLine> lines, Optional<String> target, List<ScopeOption> targets,
+public record ConsoleView(List<OutputLine> lines, Optional<String> target, List<ConsoleTarget> targets,
                           boolean isMounted, List<String> commands) {
 
     public ConsoleView {
@@ -23,5 +23,11 @@ public record ConsoleView(List<OutputLine> lines, Optional<String> target, List<
         lines = List.copyOf(lines);
         targets = List.copyOf(targets);
         commands = List.copyOf(commands);
+    }
+
+    /** The client on {@code pipe} as the picker names it, else the pipe itself. */
+    public String labelOf(String pipe) {
+        return targets.stream().filter(t -> t.pipe().equals(pipe)).findFirst()
+                .map(ConsoleTarget::label).orElse(pipe);
     }
 }

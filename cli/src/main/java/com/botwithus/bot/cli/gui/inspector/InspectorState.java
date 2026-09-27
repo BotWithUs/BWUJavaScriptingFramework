@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.gui.inspector;
 import com.botwithus.bot.cli.gui.AppMode;
 import com.botwithus.bot.cli.gui.nav.PageId;
 import com.botwithus.bot.cli.gui.nav.PageRegistry;
+import com.botwithus.bot.cli.management.Target;
 import com.botwithus.bot.core.runtime.ManagementScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
@@ -85,6 +86,20 @@ public final class InspectorState {
 
     public void close() {
         subject = null;
+    }
+
+    /**
+     * Points an open management script's form at {@code target}'s own
+     * settings, or at the defaults when empty: the "Settings for" picker. Each
+     * target is its own subject, so its form starts afresh. Does nothing when
+     * the inspector is closed or open on a client script.
+     */
+    public void pickSettingsFor(Optional<Target> target) {
+        switch (subject) {
+            case null -> { }
+            case InspectorSubject.ManagementScript script -> open(script.withSettingsFor(target), InspectorTab.SETTINGS);
+            case InspectorSubject.ClientScript _ -> { }
+        }
     }
 
     public boolean isOpen() {
