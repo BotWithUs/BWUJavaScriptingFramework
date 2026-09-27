@@ -6,7 +6,6 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Segment;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImGui;
@@ -169,7 +168,7 @@ final class StoreFilterBar {
             ImGui.openPopup(CATEGORY_POPUP);
             ImGui.setNextWindowPos(x, y + h + m.u(1));
         }
-        float t = Motion.step("store-cat", ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("store-cat", ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImGui.endDisabled();
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + bw, y + h, ImGuiTheme.COL_BG, m.radius());

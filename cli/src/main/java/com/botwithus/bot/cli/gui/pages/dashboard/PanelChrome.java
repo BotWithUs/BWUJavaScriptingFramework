@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.gui.pages.dashboard;
 
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -142,7 +141,7 @@ final class PanelChrome {
         if (hovered && !tooltip.isEmpty()) {
             ImGui.setTooltip(tooltip);
         }
-        float t = Motion.step("dash-ib:" + id, hovered ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("dash-ib:" + id, hovered ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         draw.addRectFilled(x, y, x + s, y + s, Controls.scaleAlpha(hoverBg, t), m().radius());
         float alpha = enabled ? 1f : ImGuiTheme.DISABLED_ALPHA;
@@ -164,7 +163,7 @@ final class PanelChrome {
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         boolean clicked = ImGui.invisibleButton(id, w, h);
-        float t = Motion.step("dash-tb:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
+        float t = ui.motion().step("dash-tb:" + id, ImGui.isItemHovered() ? 1f : 0f, HOVER_SPEED);
         ImDrawList draw = ImGui.getWindowDrawList();
         int fg = Controls.lerp(ImGuiTheme.COL_FG2, ImGuiTheme.COL_FG, t);
         float cx = x + m().u(2);

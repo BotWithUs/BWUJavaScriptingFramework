@@ -1,5 +1,10 @@
 package com.botwithus.bot.cli;
 
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.groups.ClientGroup;
+import com.botwithus.bot.cli.groups.GroupId;
+import com.botwithus.bot.cli.groups.GroupStore;
+import com.botwithus.bot.cli.groups.GroupsFile;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 
@@ -14,7 +19,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -58,7 +63,7 @@ class CliContextConcurrencyTest {
         PrintStream discard = new PrintStream(OutputStream.nullOutputStream());
         LogBuffer logBuffer = new LogBuffer();
         ctx = new CliContext(logBuffer, new LogCapture(logBuffer, discard, discard),
-                tempDir.resolve("groups.json"));
+                tempDir.resolve(GroupsFile.FILE_NAME));
     }
 
     @Test
@@ -82,14 +87,17 @@ class CliContextConcurrencyTest {
 
     @Test
     void groupsMutatedConcurrentlyStayConsistentAndLoseNothing() throws InterruptedException {
-        ctx.createGroup(SHARED_GROUP);
-        Hammer hammer = new Hammer(this::writeGroups, this::readGroupsOnce);
+        GroupId shared = ctx.getGroupStore().create(SHARED_GROUP, Optional.empty()).orElseThrow().id();
+        Hammer hammer = new Hammer(writer -> writeGroups(writer, shared), this::readGroupsOnce);
         hammer.run();
 
-        Map<String, ConnectionGroup> groups = ctx.getGroups();
+        List<ClientGroup> groups = ctx.getGroupStore().all();
         assertEquals(1 + WRITERS * GROUP_ROUNDS / 2, groups.size(), "a group write was lost");
-        assertEquals(WRITERS * GROUP_ROUNDS, groups.get(SHARED_GROUP).getConnectionNames().size(),
+        assertEquals(WRITERS * GROUP_ROUNDS, ctx.getGroupStore().get(shared).orElseThrow().members().size(),
                 "a member write was lost");
+        GroupStore saved = new GroupStore(new GroupsFile(tempDir.resolve(GroupsFile.FILE_NAME)));
+        saved.load(pipe -> Optional.empty());
+        assertEquals(groups, saved.all(), "the file must end up holding the latest state");
     }
 
     @Test
@@ -148,13 +156,14 @@ class CliContextConcurrencyTest {
         }
     }
 
-    private void writeGroups(int writer) {
+    /** Creates groups, deleting every odd one, and adds one account per round to the shared group. */
+    private void writeGroups(int writer, GroupId shared) {
         for (int n = 0; n < GROUP_ROUNDS; n++) {
-            String group = connName(writer, n);
-            ctx.createGroup(group);
-            ctx.addToGroup(SHARED_GROUP, group);
+            String name = connName(writer, n);
+            GroupId created = ctx.getGroupStore().create(name, Optional.empty()).orElseThrow().id();
+            ctx.getGroupStore().addMember(shared, ClientKey.account(name));
             if (n % 2 == 1) {
-                ctx.deleteGroup(group);
+                ctx.getGroupStore().delete(created);
             }
         }
     }
@@ -172,9 +181,9 @@ class CliContextConcurrencyTest {
 
     private boolean readGroupsOnce() {
         int members = 0;
-        for (Map.Entry<String, ConnectionGroup> entry : ctx.getGroups().entrySet()) {
-            assertNotNull(entry.getValue(), "null in a group snapshot");
-            for (String member : entry.getValue().getConnectionNames()) {
+        for (ClientGroup group : ctx.getGroupStore().all()) {
+            assertNotNull(group, "null in a group snapshot");
+            for (String member : group.members()) {
                 assertNotNull(member, "null member in a group");
                 members++;
             }

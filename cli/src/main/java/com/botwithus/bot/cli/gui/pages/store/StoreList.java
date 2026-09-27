@@ -3,7 +3,6 @@ package com.botwithus.bot.cli.gui.pages.store;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
-import com.botwithus.bot.cli.gui.Motion;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -128,7 +127,7 @@ final class StoreList {
         ImDrawList draw = ImGui.getWindowDrawList();
         float h = painter.rowHeight();
         float icon = ui.fonts().body().getFontSize() * 2f;
-        float alpha = 1f - SKELETON_DIM * Motion.pulse(SKELETON_HZ);
+        float alpha = 1f - SKELETON_DIM * ui.motion().pulse(SKELETON_HZ);
         int fill = Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, alpha);
         for (int i = 0; i < SKELETON_ROWS; i++) {
             float ry = y + i * h;

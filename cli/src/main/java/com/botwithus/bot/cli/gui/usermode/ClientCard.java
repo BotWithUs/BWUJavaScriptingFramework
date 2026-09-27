@@ -1,84 +1,88 @@
 package com.botwithus.bot.cli.gui.usermode;
 
-import com.botwithus.bot.cli.gui.CategoryStyle;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
-import com.botwithus.bot.cli.gui.Motion;
+import com.botwithus.bot.cli.gui.usermode.CardText.Chip;
+import com.botwithus.bot.cli.gui.usermode.CardText.Note;
+import com.botwithus.bot.cli.gui.usermode.CardText.Stat;
 import com.botwithus.bot.cli.gui.usermode.board.ClientActions;
-import com.botwithus.bot.cli.gui.usermode.board.ClientStatus;
+import com.botwithus.bot.cli.gui.usermode.board.ClientState;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
-import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
+import com.botwithus.bot.cli.gui.usermode.board.ResumeSwitch;
+import com.botwithus.bot.cli.gui.usermode.board.ScriptRow;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
 import imgui.ImGui;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * One client card: account and pipe, a status chip, an inset with the script
- * and its pulse lane, and the actions that make sense for the card's state.
+ * One client card, keyed by the client's account: its name, short UUID and
+ * world with a status chip; its stats, or a note while it is not connected; a
+ * row per script; and a footer with "Resume after restart" and the action its
+ * state calls for.
  *
- * <p>Every state draws the same height, so a grid of mixed states lines up.
- * Actions that change the client go straight to {@link ClientActions}; the two
- * that open something (the picker, the inspector) are handed back as an
- * {@link Intent} for the page to act on.</p>
+ * <p>Cards are as tall as their content, so a client running three scripts is
+ * taller than an idle one. Actions that change the client go straight to
+ * {@link ClientActions}; the two that open something (the picker, the
+ * inspector) are handed back as an {@link Intent} for the page to act on.</p>
  */
 final class ClientCard {
 
     /** What the page must do after a card was clicked. */
-    enum Intent { NONE, SELECT, START_SCRIPT, CONFIGURE }
+    sealed interface Intent {
+        record None() implements Intent { }
 
-    private static final float ACCOUNT_LINE = 1.25f;
-    private static final float PIPE_LINE = 1.4f;
-    private static final float NAME_LINE = 1.25f;
-    private static final float META_LINE = 1.35f;
+        record Select() implements Intent { }
+
+        record StartScript() implements Intent { }
+
+        /** Open the inspector on {@code scriptName}. */
+        record Configure(String scriptName) implements Intent { }
+
+        /** Open Management on {@code managementScript}, which manages a script on the card. */
+        record OpenManagement(String managementScript) implements Intent { }
+    }
+
+    private static final float NAME_LINE = 1.3f;
+    private static final float SUB_LINE = 1.5f;
+    private static final float LABEL_LINE = 1.3f;
+    private static final float VALUE_LINE = 1.4f;
+    private static final float NOTE_TITLE_LINE = 1.45f;
+    private static final float NOTE_BODY_LINE = 1.45f;
+    private static final float NOTE_ICON_EM = 1.067f;
     private static final float SKELETON_EM = 0.667f;
-    private static final float SKELETON_WIDE = 0.7f;
-    private static final float SKELETON_NARROW = 0.45f;
+    private static final float SKELETON_WIDE = 0.6f;
+    private static final float SKELETON_NARROW = 0.4f;
     private static final float SKELETON_DIM = 0.45f;
-    private static final float SPINNER_EM = 0.933f;
-    private static final float SPINNER_PERIOD_S = 0.9f;
-    private static final float SPINNER_SWEEP = (float) (Math.PI / 2);
-    private static final float SPINNER_STROKE_PX = 2f;
     private static final float BEAT_PERIOD_S = 2f;
     private static final float BEAT_CENTER = 0.85f;
     private static final float BEAT_HALF_WIDTH = 0.15f;
     private static final float BEAT_LOW = 0.35f;
     private static final float APPEAR_SLIDE_EM = 0.267f;
-    private static final long MILLIS_PER_SECOND = 1000L;
-    private static final long SECONDS_PER_MINUTE = 60L;
+    /** A closed card's body shows at 62% opacity. */
+    private static final float CLOSED_BODY_VEIL = 0.38f;
+    private static final String RESUME_LABEL = "Resume after restart";
+    private static final String RESUME_TOOLTIP =
+            "Remember the running scripts for this account and restart them after the game client restarts";
 
     private final Controls ui;
-    private final PulseLaneView lane;
+    private final CardWidgets widgets;
+    private final ScriptRowView rows;
 
     ClientCard(Controls ui) {
         this.ui = ui;
-        this.lane = new PulseLaneView(ui);
+        this.widgets = new CardWidgets(ui);
+        this.rows = new ScriptRowView(ui, widgets);
     }
 
-    /** Height of every card at the current scale. */
-    float height() {
-        ImGuiTheme.Metrics m = ui.m();
-        return m.u(3) * 2f + headHeight() + m.u(3) + insetHeight() + m.u(3) + m.controlHeight();
-    }
-
-    private float headHeight() {
-        return ui.fonts().body().getFontSize() * ACCOUNT_LINE + ui.fonts().monoCaption().getFontSize() * PIPE_LINE;
-    }
-
-    private float rowHeight() {
-        float text = ui.fonts().body().getFontSize() * NAME_LINE + ui.fonts().small().getFontSize() * META_LINE;
-        return Math.max(ui.m().iconTile(), text);
-    }
-
-    private float insetHeight() {
-        ImGuiTheme.Metrics m = ui.m();
-        float natural = m.u(3) * 2f + rowHeight() + m.u(2) + m.laneHeight() + m.hairline() * 2f;
-        return Math.max(m.insetMinHeight(), natural);
+    /** Height of {@code view}'s card at width {@code w}. */
+    float height(ClientView view, float w) {
+        return headHeight() + bodyHeight(view, w) + footerHeight();
     }
 
     /**
@@ -88,71 +92,72 @@ final class ClientCard {
      */
     Intent render(ClientView view, float x, float y, float w, boolean selected, float appear,
                   ClientActions actions) {
-        float slide = (1f - Motion.easeOutCubic(appear)) * ui.fonts().body().getFontSize() * APPEAR_SLIDE_EM;
+        float slide = (1f - ui.motion().ease(appear)) * ui.fonts().body().getFontSize() * APPEAR_SLIDE_EM;
         float top = y + slide;
-        float h = height();
+        float bodyH = bodyHeight(view, w);
+        float h = headHeight() + bodyH + footerHeight();
         ImDrawList draw = ImGui.getWindowDrawList();
         boolean hovered = ImGui.isMouseHoveringRect(x, top, x + w, top + h) && ImGui.isWindowHovered();
-        paintFrame(draw, view.id(), x, top, w, h, selected, hovered);
+        paintFrame(draw, view, x, top, w, h, selected, hovered);
         paintHead(draw, view, x, top, w);
-        float insetY = top + ui.m().u(3) + headHeight() + ui.m().u(3);
-        paintInset(draw, view.status(), x + ui.m().u(4), insetY, w - ui.m().u(4) - ui.m().u(3));
-        Intent intent = footer(view, x, top, w, h, actions);
+        float bodyTop = top + headHeight();
+        Intent intent = renderBody(view, x, bodyTop, w, actions);
+        if (view.isClosed()) {
+            draw.addRectFilled(x + 1f, bodyTop, x + w - 1f, bodyTop + bodyH,
+                    Controls.scaleAlpha(ImGuiTheme.COL_SURFACE, CLOSED_BODY_VEIL));
+        }
+        Intent footer = renderFooter(view, x, bodyTop + bodyH, w, actions);
         if (appear < 1f) {
             draw.addRectFilled(x - 1f, top - 1f, x + w + 1f, top + h + 1f,
                     Controls.scaleAlpha(ImGuiTheme.COL_BG, 1f - appear));
         }
-        if (intent == Intent.NONE && hovered && ImGui.isMouseClicked(0) && !ImGui.isAnyItemHovered()) {
-            return Intent.SELECT;
+        Intent chosen = isNone(intent) ? footer : intent;
+        if (isNone(chosen) && hovered && ImGui.isMouseClicked(0) && !ImGui.isAnyItemHovered()) {
+            return new Intent.Select();
         }
-        return intent;
+        return chosen;
+    }
+
+    private static boolean isNone(Intent intent) {
+        return switch (intent) {
+            case Intent.None _ -> true;
+            case Intent.Select _, Intent.StartScript _, Intent.Configure _, Intent.OpenManagement _ -> false;
+        };
     }
 
     // ── Frame + head ───────────────────────────────────────────────────────
 
-    private void paintFrame(ImDrawList draw, String id, float x, float y, float w, float h,
+    private void paintFrame(ImDrawList draw, ClientView view, float x, float y, float w, float h,
                             boolean selected, boolean hovered) {
         float r = ui.m().radiusLarge();
-        float t = Motion.step("card:" + id, hovered ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
+        float t = ui.motion().step("card:" + view.id().value(), hovered ? 1f : 0f, 1f / ImGuiTheme.DURATION_FAST_S);
         draw.addRectFilled(x, y, x + w, y + h, ImGuiTheme.COL_SURFACE, r);
         int border = selected ? ImGuiTheme.COL_ACCENT
                 : Controls.lerp(ImGuiTheme.COL_BORDER, ImGuiTheme.COL_BORDER_HOVER, t);
         draw.addRect(x + 0.5f, y + 0.5f, x + w - 0.5f, y + h - 0.5f, border, r);
     }
 
+    private float headHeight() {
+        return ui.m().u(3) + ui.fonts().bodyMedium().getFontSize() * NAME_LINE
+                + ui.fonts().monoCaption().getFontSize() * SUB_LINE;
+    }
+
     private void paintHead(ImDrawList draw, ClientView view, float x, float y, float w) {
         ImGuiTheme.Metrics m = ui.m();
-        Chip chip = chipFor(view.status());
+        Chip chip = CardText.chip(view);
         float chipW = ui.chipWidth(chip.label());
         float right = x + w - m.u(3);
         float left = x + m.u(4);
         float textW = right - chipW - m.u(2) - left;
         float top = y + m.u(3);
-        ImFont account = ui.fonts().bodyMedium();
-        ui.text(draw, account, left, top, ImGuiTheme.COL_FG, ui.ellipsize(account, view.account(), textW));
-        String pipe = view.world() > 0 ? view.id() + " · W" + view.world() : view.id();
+        ImFont name = ui.fonts().bodyMedium();
+        int nameCol = view.account().isPresent() ? ImGuiTheme.COL_FG : ImGuiTheme.COL_FG2;
+        ui.text(draw, name, left, top, nameCol, ui.ellipsize(name, CardText.title(view), textW));
         ImFont mono = ui.fonts().monoCaption();
-        float pipeY = top + ui.fonts().body().getFontSize() * ACCOUNT_LINE;
-        ui.text(draw, mono, left, pipeY, ImGuiTheme.COL_FG2, ui.ellipsize(mono, pipe, textW));
-        ui.chip(draw, right - chipW, top, chip.label(), chip.fg(), chip.bg(), chip.dotAlpha());
-    }
-
-    private record Chip(String label, int fg, int bg, float dotAlpha) {}
-
-    private static Chip chipFor(ClientStatus status) {
-        return switch (status) {
-            case ClientStatus.Running ignored ->
-                    new Chip("Running", ImGuiTheme.COL_ACCENT, ImGuiTheme.COL_ACCENT_SOFT, beat());
-            case ClientStatus.Idle ignored -> new Chip("Idle", ImGuiTheme.COL_FG2, ImGuiTheme.COL_ELEVATED, 1f);
-            case ClientStatus.Loading ignored -> new Chip("Loading", ImGuiTheme.COL_INFO, ImGuiTheme.COL_INFO_SOFT, 1f);
-            case ClientStatus.Lost lost ->
-                    new Chip(lost.canRetry() ? "Lost contact" : "Closed",
-                            ImGuiTheme.COL_DANGER, ImGuiTheme.COL_DANGER_SOFT, 1f);
-            case ClientStatus.Reconnecting ignored ->
-                    new Chip("Reconnecting", ImGuiTheme.COL_WARN, ImGuiTheme.COL_WARN_SOFT, 1f);
-            case ClientStatus.Crashed ignored ->
-                    new Chip("Crashed", ImGuiTheme.COL_DANGER, ImGuiTheme.COL_DANGER_SOFT, 1f);
-        };
+        float subY = top + name.getFontSize() * NAME_LINE;
+        ui.text(draw, mono, left, subY, ImGuiTheme.COL_FG2, ui.ellipsize(mono, CardText.subLine(view), textW));
+        float dot = chip.tone() == CardTone.RUN ? beat() : 1f;
+        ui.chip(draw, right - chipW, top + 1f, chip.label(), chip.tone().fg(), chip.tone().bg(), dot);
     }
 
     /** The running dot's heartbeat: steady, with one soft dip late in each 2 s cycle. */
@@ -162,241 +167,248 @@ final class ClientCard {
         return distance >= 1f ? 1f : BEAT_LOW + (1f - BEAT_LOW) * distance;
     }
 
-    // ── Inset ──────────────────────────────────────────────────────────────
+    // ── Body: stats or note, then the script rows ──────────────────────────
 
-    private void paintInset(ImDrawList draw, ClientStatus status, float x, float y, float w) {
+    private float bodyHeight(ClientView view, float w) {
+        float h = view.state().isConnected() ? statsHeight() : noteHeight(view, w);
+        return h + rowsHeight(view, w);
+    }
+
+    private Intent renderBody(ClientView view, float x, float y, float w, ClientActions actions) {
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float rowsTop;
+        switch (view.state()) {
+            case ClientState.Connected connected -> {
+                paintStats(draw, CardText.stats(view, connected), x, y, w);
+                rowsTop = y + statsHeight();
+            }
+            case ClientState.Identifying _, ClientState.NotResponding _, ClientState.Closed _,
+                 ClientState.Resuming _ -> {
+                CardText.note(view).ifPresent(note -> paintNote(draw, view, note, x, y, w));
+                rowsTop = y + noteHeight(view, w);
+            }
+        }
+        return renderRows(view, x, rowsTop, w, actions);
+    }
+
+    private float statsHeight() {
+        return ui.m().u(3) * 2f + ui.fonts().caption().getFontSize() * LABEL_LINE
+                + ui.fonts().small().getFontSize() * VALUE_LINE;
+    }
+
+    private void paintStats(ImDrawList draw, List<Stat> stats, float x, float y, float w) {
         ImGuiTheme.Metrics m = ui.m();
-        float h = insetHeight();
-        draw.addRectFilled(x, y, x + w, y + h, ImGuiTheme.COL_BG, m.radius());
-        draw.addRect(x + 0.5f, y + 0.5f, x + w - 0.5f, y + h - 0.5f, ImGuiTheme.COL_BORDER, m.radius());
-        float cx = x + m.u(3);
-        float cy = y + m.u(3);
-        float cw = w - m.u(3) * 2f;
-        float laneY = y + h - m.u(3) - m.laneHeight();
-        switch (status) {
-            case ClientStatus.Running r -> {
-                paintRunningRow(draw, r, cx, cy, cw);
-                lane.running(draw, cx, laneY, cw, m.laneHeight(), r.recentLoopNanos(), r.avgLoopMs());
+        float left = x + m.u(4);
+        float colW = (x + w - m.u(3) - left) / stats.size();
+        float labelY = y + m.u(3);
+        float valueY = labelY + ui.fonts().caption().getFontSize() * LABEL_LINE;
+        ImFont value = ui.fonts().monoSmall();
+        ImFont unit = ui.fonts().monoCaption();
+        for (int i = 0; i < stats.size(); i++) {
+            Stat stat = stats.get(i);
+            float cx = left + i * colW + (i == 0 ? 0f : m.u(3));
+            if (i > 0) {
+                float divX = left + i * colW;
+                draw.addLine(divX, labelY, divX, valueY + value.getFontSize() * VALUE_LINE, ImGuiTheme.COL_BORDER,
+                        m.hairline());
             }
-            case ClientStatus.Idle ignored -> {
-                paintRow(draw, cx, cy, cw, Row.idle(ui));
-                lane.idle(draw, cx, laneY, cw, m.laneHeight());
-            }
-            case ClientStatus.Loading ignored -> {
-                paintSkeletonRow(draw, cx, cy, cw);
-                lane.loading(draw, cx, laneY, cw, m.laneHeight());
-            }
-            case ClientStatus.Lost l -> {
-                paintRow(draw, cx, cy, cw, Row.lost(ui, l));
-                lane.dead(draw, cx, laneY, cw, m.laneHeight());
-            }
-            case ClientStatus.Reconnecting r -> {
-                paintRow(draw, cx, cy, cw, Row.reconnecting(ui, r));
-                paintSpinner(draw, cx, cy);
-                lane.dead(draw, cx, laneY, cw, m.laneHeight());
-            }
-            case ClientStatus.Crashed c -> {
-                paintRow(draw, cx, cy, cw, Row.crashed(ui, c));
-                lane.dead(draw, cx, laneY, cw, m.laneHeight());
+            ui.text(draw, ui.fonts().caption(), cx, labelY, ImGuiTheme.COL_FG2, stat.label());
+            ui.text(draw, value, cx, valueY, ImGuiTheme.COL_FG, stat.value());
+            if (!stat.unit().isEmpty()) {
+                float ux = cx + ui.width(value, stat.value()) + m.u(0.5f);
+                ui.text(draw, unit, ux, valueY + value.getFontSize() - unit.getFontSize(), ImGuiTheme.COL_FG2,
+                        stat.unit());
             }
         }
     }
 
-    /**
-     * The icon tile, name and meta line of an inset.
-     *
-     * @param icon  glyph for the tile, or {@code null} to leave the tile empty (spinner drawn over it)
-     */
-    private record Row(String icon, int iconFg, int iconBg, String name, ImFont nameFont, int nameCol,
-                       String meta, ImFont metaFont, int metaCol) {
-
-        static Row idle(Controls ui) {
-            return new Row(Icons.PLAY, ImGuiTheme.COL_FG2, ImGuiTheme.COL_ELEVATED,
-                    "No script running", ui.fonts().body(), ImGuiTheme.COL_FG2,
-                    "Pick a script to run", ui.fonts().small(), ImGuiTheme.COL_FG2);
-        }
-
-        static Row lost(Controls ui, ClientStatus.Lost l) {
-            String meta = l.wasRunning() != null ? "Was running " + l.wasRunning().name() : "No script was running";
-            String name = l.canRetry() ? "No reply for " + clock(l.silentForMillis()) : "Client closed";
-            return new Row(Icons.LINK_SLASH, ImGuiTheme.COL_DANGER, ImGuiTheme.COL_DANGER_SOFT,
-                    name, ui.fonts().bodyMedium(), ImGuiTheme.COL_FG,
-                    meta, ui.fonts().small(), ImGuiTheme.COL_FG2);
-        }
-
-        static Row reconnecting(Controls ui, ClientStatus.Reconnecting r) {
-            long seconds = Math.max(1L, Math.round(r.nextDelayMs() / (double) MILLIS_PER_SECOND));
-            String cap = r.maxAttempts().isPresent() ? " of " + r.maxAttempts().getAsInt() : "";
-            String meta = "Attempt " + r.attempt() + cap + " · next in " + seconds + " s";
-            return new Row(null, ImGuiTheme.COL_WARN, ImGuiTheme.COL_WARN_SOFT,
-                    "Reconnecting…", ui.fonts().bodyMedium(), ImGuiTheme.COL_FG,
-                    meta, ui.fonts().small(), ImGuiTheme.COL_FG2);
-        }
-
-        static Row crashed(Controls ui, ClientStatus.Crashed c) {
-            return new Row(Icons.WARNING, ImGuiTheme.COL_DANGER, ImGuiTheme.COL_DANGER_SOFT,
-                    c.script().name() + " stopped", ui.fonts().bodyMedium(), ImGuiTheme.COL_FG,
-                    c.summary(), ui.fonts().monoCaption(), ImGuiTheme.COL_DANGER);
-        }
-    }
-
-    private void paintRow(ImDrawList draw, float x, float y, float w, Row row) {
-        paintRow(draw, x, y, w, row, 0f);
-    }
-
-    private void paintRow(ImDrawList draw, float x, float y, float w, Row row, float rightReserve) {
+    private float noteTextWidth(float w) {
         ImGuiTheme.Metrics m = ui.m();
-        float tile = m.iconTile();
-        float rowH = rowHeight();
-        float tileY = y + (rowH - tile) * 0.5f;
-        if (row.icon() != null) {
-            ui.iconTile(draw, x, tileY, tile, row.icon(), row.iconFg(), row.iconBg());
-        } else {
-            draw.addRectFilled(x, tileY, x + tile, tileY + tile, row.iconBg(), m.radius());
-        }
-        float tx = x + tile + m.u(3);
-        float tw = w - tile - m.u(3) - rightReserve;
-        float nameH = ui.fonts().body().getFontSize() * NAME_LINE;
-        float metaH = ui.fonts().small().getFontSize() * META_LINE;
-        float ty = y + (rowH - nameH - metaH) * 0.5f;
-        ui.text(draw, row.nameFont(), tx, ty, row.nameCol(), ui.ellipsize(row.nameFont(), row.name(), tw));
-        float metaY = ty + nameH + (metaH - row.metaFont().getFontSize()) * 0.5f;
-        ui.text(draw, row.metaFont(), tx, metaY, row.metaCol(), ui.ellipsize(row.metaFont(), row.meta(), tw));
+        return Math.max(1f, w - m.u(4) - m.u(3) - noteIconColumn() - m.u(2));
     }
 
-    private void paintRunningRow(ImDrawList draw, ClientStatus.Running r, float x, float y, float w) {
-        ScriptInfo s = r.script();
-        String ms = r.avgLoopMs() > 0 ? String.valueOf(Math.round(r.avgLoopMs())) : "—";
-        String unit = "ms/loop";
-        ImFont numFont = ui.fonts().monoSmall();
-        ImFont unitFont = ui.fonts().monoCaption();
-        float unitGap = ui.m().u(0.5f);
-        float msW = ui.width(numFont, ms) + unitGap + ui.width(unitFont, unit);
-        CategoryStyle.Style cat = CategoryStyle.of(s.category());
-        paintRow(draw, x, y, w, new Row(cat.icon(), ImGuiTheme.COL_ACCENT, ImGuiTheme.COL_ACCENT_SOFT,
-                s.name(), ui.fonts().bodyMedium(), ImGuiTheme.COL_FG,
-                s.byline(), ui.fonts().small(), ImGuiTheme.COL_FG2), msW + ui.m().u(3));
-        float rowH = rowHeight();
-        float baseY = y + (rowH - numFont.getFontSize()) * 0.5f;
-        float mx = x + w - msW;
-        ui.text(draw, numFont, mx, baseY, ImGuiTheme.COL_FG, ms);
-        float unitY = baseY + numFont.getFontSize() - unitFont.getFontSize();
-        ui.text(draw, unitFont, mx + ui.width(numFont, ms) + unitGap, unitY, ImGuiTheme.COL_FG2, unit);
+    private float noteIconColumn() {
+        return ui.fonts().body().getFontSize() * NOTE_ICON_EM;
+    }
+
+    private float noteHeight(ClientView view, float w) {
+        Optional<Note> note = CardText.note(view);
+        if (note.isEmpty()) {
+            return 0f;
+        }
+        int lines = ui.wrap(ui.fonts().caption(), note.get().body(), noteTextWidth(w)).size();
+        return ui.m().u(3) * 2f + ui.fonts().smallMedium().getFontSize() * NOTE_TITLE_LINE
+                + lines * ui.fonts().caption().getFontSize() * NOTE_BODY_LINE;
+    }
+
+    private void paintNote(ImDrawList draw, ClientView view, Note note, float x, float y, float w) {
+        ImGuiTheme.Metrics m = ui.m();
+        float left = x + m.u(4);
+        float top = y + m.u(3);
+        ImFont title = ui.fonts().smallMedium();
+        float titleH = title.getFontSize() * NOTE_TITLE_LINE;
+        paintNoteIcon(draw, view.state(), note.tone(), left, top, titleH);
+        float tx = left + noteIconColumn() + m.u(2);
+        ui.textCentredY(draw, title, tx, top, titleH, ImGuiTheme.COL_FG, note.title());
+        ImFont body = ui.fonts().caption();
+        float lineH = body.getFontSize() * NOTE_BODY_LINE;
+        float ly = top + titleH;
+        for (String line : ui.wrap(body, note.body(), noteTextWidth(w))) {
+            ui.textCentredY(draw, body, tx, ly, lineH, ImGuiTheme.COL_FG2, line);
+            ly += lineH;
+        }
+    }
+
+    /** A spinner while the host is working on it, else the state's icon. */
+    private void paintNoteIcon(ImDrawList draw, ClientState state, CardTone tone, float x, float y, float h) {
+        float col = noteIconColumn();
+        switch (state) {
+            case ClientState.Identifying _, ClientState.NotResponding _ ->
+                    widgets.spinner(draw, x + col * 0.5f, y + h * 0.5f, tone);
+            case ClientState.Closed _ -> icon(draw, Icons.POWER, ImGuiTheme.COL_FG2, x, y, h);
+            case ClientState.Resuming _ -> icon(draw, Icons.LINK, tone.fg(), x, y, h);
+            case ClientState.Connected _ -> { }
+        }
+    }
+
+    private void icon(ImDrawList draw, String glyph, int col, float x, float y, float h) {
+        ImFont font = ui.fonts().caption();
+        float gx = x + (noteIconColumn() - ui.width(font, glyph)) * 0.5f;
+        ui.textCentredY(draw, font, gx, y, h, col, glyph);
+    }
+
+    private float rowsHeight(ClientView view, float w) {
+        if (view.scripts().isEmpty()) {
+            return isIdentifying(view) ? ui.m().hairline() + skeletonHeight() : 0f;
+        }
+        float h = 0f;
+        for (ScriptRow row : view.scripts()) {
+            h += ui.m().hairline() + rows.height(view, row, w);
+        }
+        return h;
+    }
+
+    private Intent renderRows(ClientView view, float x, float y, float w, ClientActions actions) {
+        ImDrawList draw = ImGui.getWindowDrawList();
+        if (view.scripts().isEmpty()) {
+            if (isIdentifying(view)) {
+                divider(draw, x, y, w);
+                paintSkeletonRow(draw, x, y + ui.m().hairline(), w);
+            }
+            return new Intent.None();
+        }
+        Intent intent = new Intent.None();
+        float ry = y;
+        for (ScriptRow row : view.scripts()) {
+            divider(draw, x, ry, w);
+            ry += ui.m().hairline();
+            Intent clicked = rows.render(view, row, x, ry, w, actions);
+            if (!isNone(clicked)) {
+                intent = clicked;
+            }
+            ry += rows.height(view, row, w);
+        }
+        return intent;
+    }
+
+    private void divider(ImDrawList draw, float x, float y, float w) {
+        draw.addLine(x + 1f, y + 0.5f, x + w - 1f, y + 0.5f, ImGuiTheme.COL_BORDER, ui.m().hairline());
+    }
+
+    private static boolean isIdentifying(ClientView view) {
+        return switch (view.state()) {
+            case ClientState.Identifying _ -> true;
+            case ClientState.Connected _, ClientState.NotResponding _, ClientState.Closed _,
+                 ClientState.Resuming _ -> false;
+        };
+    }
+
+    private float skeletonHeight() {
+        return ui.m().u(3) * 2f + ui.m().iconTile();
     }
 
     private void paintSkeletonRow(ImDrawList draw, float x, float y, float w) {
         ImGuiTheme.Metrics m = ui.m();
-        float breathe = Motion.pulse(1.0 / ImGuiTheme.PULSE_PERIOD_S);
+        float breathe = ui.motion().pulse(1.0 / ImGuiTheme.PULSE_PERIOD_S);
         int col = Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, 1f - (1f - SKELETON_DIM) * breathe);
         float tile = m.iconTile();
-        float rowH = rowHeight();
-        float tileY = y + (rowH - tile) * 0.5f;
-        draw.addRectFilled(x, tileY, x + tile, tileY + tile, col, m.radius());
-        float tx = x + tile + m.u(3);
-        float tw = w - tile - m.u(3);
+        float left = x + m.u(4);
+        float top = y + m.u(3);
+        draw.addRectFilled(left, top, left + tile, top + tile, col, m.radius());
+        float tx = left + tile + m.u(3);
+        float tw = x + w - m.u(3) - tx;
         float barH = ui.fonts().body().getFontSize() * SKELETON_EM;
         float gap = m.u(2);
-        float by = y + (rowH - barH * 2f - gap) * 0.5f;
+        float by = top + (tile - barH * 2f - gap) * 0.5f;
         draw.addRectFilled(tx, by, tx + tw * SKELETON_WIDE, by + barH, col, m.radiusSmall());
         float by2 = by + barH + gap;
         draw.addRectFilled(tx, by2, tx + tw * SKELETON_NARROW, by2 + barH, col, m.radiusSmall());
     }
 
-    private void paintSpinner(ImDrawList draw, float x, float y) {
-        float tile = ui.m().iconTile();
-        float cx = x + tile * 0.5f;
-        float cy = y + rowHeight() * 0.5f;
-        float r = ui.fonts().body().getFontSize() * SPINNER_EM * 0.5f - SPINNER_STROKE_PX * 0.5f;
-        draw.addCircle(cx, cy, r, ImGuiTheme.COL_WARN_SOFT, 0, SPINNER_STROKE_PX);
-        float a0 = (float) ((ImGui.getTime() % SPINNER_PERIOD_S) / SPINNER_PERIOD_S * Math.PI * 2);
-        draw.pathClear();
-        draw.pathArcTo(cx, cy, r, a0, a0 + SPINNER_SWEEP);
-        draw.pathStroke(ImGuiTheme.COL_WARN, 0, SPINNER_STROKE_PX);
-    }
-
-    static String clock(long millis) {
-        long seconds = Math.max(0L, millis / MILLIS_PER_SECOND);
-        long minutes = seconds / SECONDS_PER_MINUTE;
-        return minutes + ":" + String.format("%02d", seconds % SECONDS_PER_MINUTE);
-    }
-
     // ── Footer ─────────────────────────────────────────────────────────────
 
-    private record Action(String id, String icon, String label, Tone tone, boolean enabled, Runnable run,
-                          Intent intent) {}
+    private float footerHeight() {
+        return ui.m().hairline() + ui.m().u(2) * 2f + ui.m().controlHeight();
+    }
 
-    private Intent footer(ClientView view, float x, float y, float w, float h, ClientActions actions) {
+    private Intent renderFooter(ClientView view, float x, float y, float w, ClientActions actions) {
         ImGuiTheme.Metrics m = ui.m();
-        List<Action> buttons = footerActions(view, actions);
-        float total = 0f;
-        for (Action a : buttons) {
-            total += ui.buttonWidth(a.icon(), a.label(), a.tone());
-        }
-        total += m.u(2) * Math.max(0, buttons.size() - 1);
-        float by = y + h - m.u(3) - m.controlHeight();
-        String note = footerNote(view.status());
-        if (note != null) {
-            ui.textCentredY(ImGui.getWindowDrawList(), ui.fonts().caption(), x + m.u(4), by, m.controlHeight(),
-                    ImGuiTheme.COL_FG2, note);
-        }
-        float bx = x + w - m.u(3) - total;
-        Intent intent = Intent.NONE;
-        for (Action a : buttons) {
-            ImGui.setCursorScreenPos(bx, by);
-            if (ui.button(a.id() + "##" + view.id(), a.icon(), a.label(), a.tone(), a.enabled())) {
-                a.run().run();
-                intent = a.intent();
-            }
-            bx += ui.buttonWidth(a.icon(), a.label(), a.tone()) + m.u(2);
-        }
-        return intent;
+        ImDrawList draw = ImGui.getWindowDrawList();
+        divider(draw, x, y, w);
+        float rowY = y + m.hairline() + m.u(2);
+        float rowH = m.controlHeight();
+        renderResume(view, x + m.u(4), rowY, rowH, actions);
+        return renderFooterAction(view, x + w - m.u(3), rowY, rowH, actions);
     }
 
-    /** Left-aligned footer text, or {@code null} when the state has none. */
-    private static String footerNote(ClientStatus status) {
-        return switch (status) {
-            case ClientStatus.Loading ignored -> "Loading game state…";
-            case ClientStatus.Running ignored -> null;
-            case ClientStatus.Idle ignored -> null;
-            case ClientStatus.Lost ignored -> null;
-            case ClientStatus.Reconnecting ignored -> null;
-            case ClientStatus.Crashed ignored -> null;
-        };
+    private void renderResume(ClientView view, float x, float y, float h, ClientActions actions) {
+        switch (view.resume()) {
+            case ResumeSwitch.Available available -> {
+                ImGui.setCursorScreenPos(x, y);
+                if (widgets.labelledSwitch("##resume" + view.id().value(), RESUME_LABEL, available.isOn(), h,
+                        RESUME_TOOLTIP)) {
+                    actions.setResumeAfterRestart(view.id(), !available.isOn());
+                }
+            }
+            case ResumeSwitch.Unavailable unavailable ->
+                    ui.textCentredY(ImGui.getWindowDrawList(), ui.fonts().caption(), x, y, h, ImGuiTheme.COL_FG2,
+                            unavailable.reason());
+        }
     }
 
-    private static List<Action> footerActions(ClientView view, ClientActions actions) {
-        String id = view.id();
-        Runnable none = () -> { };
-        List<Action> list = new ArrayList<>();
-        switch (view.status()) {
-            case ClientStatus.Running ignored -> {
-                list.add(new Action("cfg", Icons.SLIDERS, "Configure", Tone.GHOST, true, none, Intent.CONFIGURE));
-                list.add(new Action("stop", Icons.STOP, "Stop", Tone.STOP, true,
-                        () -> actions.stopScript(id), Intent.NONE));
+    /** The one button on the footer's right, if the client's state calls for one. */
+    private Intent renderFooterAction(ClientView view, float right, float y, float h, ClientActions actions) {
+        String id = "##" + view.id().value();
+        switch (view.state()) {
+            case ClientState.Connected _ -> {
+                if (view.scripts().isEmpty()) {
+                    return button("start" + id, Icons.PLAY, "Start script", Tone.SOFT, right, y, h)
+                            ? new Intent.StartScript() : new Intent.None();
+                }
+                float small = ui.m().controlSmallHeight();
+                return button("add" + id, Icons.PLUS, "Add", Tone.GHOST, right, y + (h - small) * 0.5f, small)
+                        ? new Intent.StartScript() : new Intent.None();
             }
-            case ClientStatus.Idle ignored ->
-                    list.add(new Action("start", Icons.PLAY, "Start script", Tone.SOFT, true, none,
-                            Intent.START_SCRIPT));
-            case ClientStatus.Loading ignored ->
-                    list.add(new Action("start", null, "Start script", Tone.GHOST, false, none, Intent.NONE));
-            case ClientStatus.Lost lost -> list.add(lost.canRetry()
-                    ? new Action("retry", Icons.REDO, "Retry now", Tone.GHOST, true,
-                            () -> actions.retryNow(id), Intent.NONE)
-                    : new Action("forget", Icons.XMARK, "Forget", Tone.GHOST, true,
-                            () -> actions.forget(id), Intent.NONE));
-            case ClientStatus.Reconnecting ignored -> {
-                list.add(new Action("stop-retrying", null, "Stop retrying", Tone.GHOST, true,
-                        () -> actions.stopRetrying(id), Intent.NONE));
-                list.add(new Action("retry", Icons.REDO, "Retry now", Tone.SOFT, true,
-                        () -> actions.retryNow(id), Intent.NONE));
+            case ClientState.NotResponding _ -> {
+                if (button("retry" + id, Icons.REDO, "Retry now", Tone.GHOST, right, y, h)) {
+                    actions.retryNow(view.id());
+                }
             }
-            case ClientStatus.Crashed ignored -> {
-                list.add(new Action("log", null, "View log", Tone.GHOST, true,
-                        () -> actions.viewLog(id), Intent.NONE));
-                list.add(new Action("restart", Icons.REDO, "Restart", Tone.SOFT, true,
-                        () -> actions.restartScript(id), Intent.NONE));
+            case ClientState.Closed _ -> {
+                if (button("dismiss" + id, null, "Dismiss", Tone.GHOST, right, y, h)) {
+                    actions.forget(view.id());
+                }
+                if (ImGui.isItemHovered()) {
+                    ImGui.setTooltip("Remove this card. Its saved scripts are kept.");
+                }
             }
+            case ClientState.Identifying _, ClientState.Resuming _ -> { }
         }
-        return list;
+        return new Intent.None();
+    }
+
+    private boolean button(String id, String icon, String label, Tone tone, float right, float y, float h) {
+        ImGui.setCursorScreenPos(right - ui.buttonWidth(icon, label, tone), y);
+        return ui.button(id, icon, label, tone, true, h);
     }
 }

@@ -7,6 +7,7 @@ import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerColumn;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerFilter;
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
 import com.botwithus.bot.cli.gui.usermode.PulseLaneView;
 
 import imgui.ImDrawList;
@@ -131,7 +132,7 @@ final class RunnersPanel {
             state.sortBy(SORTABLE.get(clicked));
         }
         for (RunnerRow row : rows) {
-            ImGui.pushID(row.ref().client() + "/" + row.script());
+            ImGui.pushID(row.ref().client().value() + "/" + row.script());
             row(row, state, actions, now, fs * ROW_EM);
             ImGui.popID();
         }

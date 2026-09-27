@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui.pages.dashboard;
 
+import com.botwithus.bot.cli.events.ClientKey;
+
 /**
  * Everything the Dashboard can ask the host to do. Called from the render
  * thread; anything slow runs elsewhere and returns at once. Each method is a
@@ -23,7 +25,7 @@ public interface DashboardActions {
      * cuts a reconnect back-off short, or starts recovering again after giving up,
      * and rebuilds the connection only when there is nothing to retry.
      */
-    void retryNow(String pipe);
+    void retryNow(ClientKey client);
 
     /** Runs the {@code reload} command on the command thread. */
     void reload();

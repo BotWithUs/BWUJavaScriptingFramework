@@ -1,5 +1,8 @@
 package com.botwithus.bot.cli.gui.pages.dashboard;
 
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.gui.runners.RunnerStatus;
+
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -68,7 +71,7 @@ public final class DashboardState {
      * whole page scopes with it, and the level chip goes back to All so the
      * client's lines are not hidden by a filter picked earlier.
      */
-    public void openLogs(Optional<String> client) {
+    public void openLogs(Optional<ClientKey> client) {
         scope = client.map(Scope::of).orElse(Scope.ALL);
         level = LogLevel.ALL;
         showTab(DockTab.LOGS);

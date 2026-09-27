@@ -5,14 +5,16 @@ import com.botwithus.bot.api.script.ClientOrchestrator.ScriptStatusEntry;
 import com.botwithus.bot.cli.ClientManager;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
-import com.botwithus.bot.cli.ConnectionGroup;
+import com.botwithus.bot.cli.GroupMembers;
+import com.botwithus.bot.cli.groups.ClientGroup;
+import com.botwithus.bot.cli.groups.MemberChange;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.output.TableFormatter;
 
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
 /**
  * CLI command for the ClientManager.
@@ -153,7 +155,7 @@ public class ClientCommand implements Command {
             ctx.out().println("Usage: client group create <name> [description]");
             return;
         }
-        if (mgr.getGroup(name) != null) {
+        if (mgr.getGroup(name).isPresent()) {
             ctx.out().println("Group '" + name + "' already exists.");
             return;
         }
@@ -184,11 +186,13 @@ public class ClientCommand implements Command {
             ctx.out().println("Usage: client group add <group> <client>");
             return;
         }
-        if (mgr.addToGroup(groupName, clientName)) {
-            ctx.out().println("Added '" + clientName + "' to group '" + groupName + "'.");
-        } else {
-            ctx.out().println("Group not found: " + groupName);
-        }
+        String message = switch (mgr.addMember(groupName, clientName)) {
+            case MemberChange.Added _ -> "Added '" + clientName + "' to group '" + groupName + "'.";
+            case MemberChange.AlreadyMember _ -> "'" + clientName + "' is already in group '" + groupName + "'.";
+            case MemberChange.NoSuchGroup _ -> "Group not found: " + groupName;
+            case MemberChange.Refused refused -> "Cannot add '" + clientName + "': " + refused.reason();
+        };
+        ctx.out().println(message);
     }
 
     private void groupRemove(ParsedCommand parsed, ClientManager mgr, CliContext ctx) {
@@ -198,26 +202,28 @@ public class ClientCommand implements Command {
             ctx.out().println("Usage: client group remove <group> <client>");
             return;
         }
-        if (mgr.removeFromGroup(groupName, clientName)) {
+        if (mgr.getGroup(groupName).isEmpty()) {
+            ctx.out().println("Group not found: " + groupName);
+        } else if (mgr.removeFromGroup(groupName, clientName)) {
             ctx.out().println("Removed '" + clientName + "' from group '" + groupName + "'.");
         } else {
-            ctx.out().println("Group not found: " + groupName);
+            ctx.out().println("'" + clientName + "' is not in group '" + groupName + "'.");
         }
     }
 
     private void groupList(ClientManager mgr, CliContext ctx) {
-        Map<String, ConnectionGroup> groups = mgr.getGroups();
+        List<ClientGroup> groups = mgr.getGroups();
         if (groups.isEmpty()) {
             ctx.out().println("No groups. Use 'client group create <name> [desc]' to create one.");
             return;
         }
         TableFormatter table = new TableFormatter().headers("Group", "Description", "Members");
-        for (ConnectionGroup group : groups.values()) {
-            String desc = group.getDescription() != null ? group.getDescription() : "";
-            String members = group.getConnectionNames().isEmpty()
+        for (ClientGroup group : groups) {
+            List<String> labels = group.members().stream().map(ctx::describeAccount).toList();
+            String members = labels.isEmpty() && group.unresolved().isEmpty()
                     ? "(empty)"
-                    : String.join(", ", group.getConnectionNames());
-            table.row(group.getName(), desc, members);
+                    : String.join(", ", labels) + unresolvedSuffix(group);
+            table.row(group.name(), group.description().orElse(""), members);
         }
         ctx.out().print(table.build());
     }
@@ -228,27 +234,30 @@ public class ClientCommand implements Command {
             ctx.out().println("Usage: client group info <name>");
             return;
         }
-        ConnectionGroup group = mgr.getGroup(name);
-        if (group == null) {
+        Optional<ClientGroup> found = mgr.getGroup(name);
+        if (found.isEmpty()) {
             ctx.out().println("Group not found: " + name);
             return;
         }
+        ClientGroup group = found.get();
 
-        ctx.out().println("Group: " + AnsiCodes.colorize(group.getName(), AnsiCodes.CYAN));
-        if (group.getDescription() != null) {
-            ctx.out().println("  Description: " + group.getDescription());
-        }
-        if (group.getConnectionNames().isEmpty()) {
+        ctx.out().println("Group: " + AnsiCodes.colorize(group.name(), AnsiCodes.CYAN));
+        group.description().ifPresent(text -> ctx.out().println("  Description: " + text));
+        if (group.members().isEmpty() && group.unresolved().isEmpty()) {
             ctx.out().println("  (no members)");
             return;
         }
         ctx.out().println("  Members:");
-        for (String memberName : group.getConnectionNames()) {
-            boolean alive = mgr.isClientAlive(memberName);
-            String status = alive
-                    ? AnsiCodes.colorize("connected", AnsiCodes.GREEN)
-                    : AnsiCodes.colorize("disconnected", AnsiCodes.RED);
-            ctx.out().println("    " + memberName + " [" + status + "]");
+        List<String> offline = GroupMembers.offline(group, mgr.getGroupClients(name));
+        for (String uuid : group.members()) {
+            String status = offline.contains(uuid)
+                    ? AnsiCodes.colorize("disconnected", AnsiCodes.RED)
+                    : AnsiCodes.colorize("connected", AnsiCodes.GREEN);
+            ctx.out().println("    " + ctx.describeAccount(uuid) + " [" + status + "]");
+        }
+        for (String pipe : group.unresolved()) {
+            ctx.out().println("    unknown client (pipe " + pipe + ") ["
+                    + AnsiCodes.colorize("unknown", AnsiCodes.YELLOW) + "]");
         }
 
         // Show scripts running on group members
@@ -270,8 +279,7 @@ public class ClientCommand implements Command {
             ctx.out().println("Usage: client group describe <name> <description>");
             return;
         }
-        ConnectionGroup group = mgr.getGroup(name);
-        if (group == null) {
+        if (mgr.getGroup(name).isEmpty()) {
             ctx.out().println("Group not found: " + name);
             return;
         }
@@ -280,7 +288,7 @@ public class ClientCommand implements Command {
             ctx.out().println("Usage: client group describe <name> <description>");
             return;
         }
-        group.setDescription(desc);
+        mgr.setGroupDescription(name, desc);
         ctx.out().println("Group '" + name + "' description set to: " + desc);
     }
 
@@ -362,6 +370,14 @@ public class ClientCommand implements Command {
         for (OpResult r : results) {
             printResult(r, ctx);
         }
+    }
+
+    private static String unresolvedSuffix(ClientGroup group) {
+        if (group.unresolved().isEmpty()) {
+            return "";
+        }
+        String unknown = group.unresolved().size() + " unknown";
+        return group.members().isEmpty() ? unknown : ", " + unknown;
     }
 
     private String buildRemainingArgs(ParsedCommand parsed, int startIndex) {
