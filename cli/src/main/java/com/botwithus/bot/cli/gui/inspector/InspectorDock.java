@@ -20,7 +20,9 @@ import java.util.Optional;
  * aside rather than covering it. Render thread only.
  *
  * <p>Each frame the shell calls {@link #beginFrame} before drawing the page, to
- * learn how much width to leave, and {@link #render} after it.</p>
+ * learn how much width to leave, and {@link #render} after it. Once the shell's
+ * own window has ended it calls {@link #renderWindows} for the popped-out
+ * script UIs.</p>
  */
 public final class InspectorDock {
 
@@ -30,6 +32,7 @@ public final class InspectorDock {
     private final InspectorState state;
     private final InspectorSource source;
     private final ConfigInspector inspector;
+    private final ScriptUiWindows windows;
     private float progress;
     private InspectorTarget lastTarget;
 
@@ -38,6 +41,7 @@ public final class InspectorDock {
         this.state = state;
         this.source = source;
         this.inspector = new ConfigInspector(ui, state);
+        this.windows = new ScriptUiWindows(ui, state, source);
     }
 
     public InspectorState state() {
@@ -82,6 +86,15 @@ public final class InspectorDock {
         inspector.render(lastTarget, ui.m().drawerWidth(availWidth), h);
         draw.addLine(x + 0.5f, y, x + 0.5f, y + h, ImGuiTheme.COL_BORDER, ui.m().hairline());
         ImGui.endChild();
+    }
+
+    /**
+     * Draws the scripts' UIs that are popped out into windows of their own.
+     * The shell calls this every frame after its own window, whatever page or
+     * drawer is showing: a popped-out UI does not belong to either.
+     */
+    public void renderWindows() {
+        windows.render();
     }
 
     /**

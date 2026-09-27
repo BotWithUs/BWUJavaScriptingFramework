@@ -11,13 +11,18 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The retired floating windows picked what to show from the runner: its fields
- * when it had any, else its own UI. The inspector keeps that choice as the tab
- * it opens on, and the kind decides the page.
+ * What "Settings" shows is picked from the runner: a script's own UI opens in a
+ * window of its own, as the floating window did before the drawer, and its
+ * fields open in the drawer when it has any. The kind decides the page.
  */
 class InspectorRequestTest {
+
+    private static final ClientScript WOODCUTTING = new ClientScript(TestScripts.PIPE, "Woodcutting");
 
     @Test
     void clientScriptWithFields_opensOnSettings_onItsClient() {
@@ -25,17 +30,20 @@ class InspectorRequestTest {
                 TestScripts.clientRunner(new TestScripts.Woodcutting()));
 
         assertAll(
-                () -> assertEquals(new ClientScript(TestScripts.PIPE, "Woodcutting"), request.subject()),
-                () -> assertEquals(InspectorTab.SETTINGS, request.tab()),
+                () -> assertEquals(WOODCUTTING, request.subject()),
+                () -> assertEquals(Optional.of(InspectorTab.SETTINGS), request.drawer()),
+                () -> assertFalse(request.popsOutUi(), "no UI to pop out"),
                 () -> assertEquals(PageId.CLIENTS, request.subject().ownerPage()));
     }
 
     @Test
-    void clientScriptWithOnlyAUi_opensOnScriptUi() {
+    void clientScriptWithOnlyAUi_popsItOut_andLeavesTheDrawerAlone() {
         InspectorRequest request = InspectorRequest.forClientScript(
                 TestScripts.clientRunner(new TestScripts.UiOnly()));
 
-        assertEquals(InspectorTab.SCRIPT_UI, request.tab());
+        assertAll(
+                () -> assertTrue(request.popsOutUi()),
+                () -> assertEquals(Optional.empty(), request.drawer(), "no near-empty drawer beside the window"));
     }
 
     @Test
@@ -52,12 +60,12 @@ class InspectorRequestTest {
 
         assertAll(
                 () -> assertEquals(new InspectorSubject.ManagementScript("Break Scheduler"), request.subject()),
-                () -> assertEquals(InspectorTab.SETTINGS, request.tab()),
+                () -> assertEquals(Optional.of(InspectorTab.SETTINGS), request.drawer()),
                 () -> assertEquals(PageId.MANAGEMENT, request.subject().ownerPage()));
     }
 
     @Test
-    void aManagementTarget_opensOnThatTargetsSettings() {
+    void aManagementTarget_opensOnThatTargetsSettings_andPopsNothingOut() {
         Target woodcutting = new Target.ClientScript("3f9a1c2e58b04d7a9e216c0f4b7d2a18", "Woodcutting");
 
         InspectorRequest request = InspectorRequest.forManagementTarget(
@@ -66,15 +74,19 @@ class InspectorRequestTest {
         assertAll(
                 () -> assertEquals(new InspectorSubject.ManagementScript("Fleet Monitor", Optional.of(woodcutting)),
                         request.subject()),
-                () -> assertEquals(InspectorTab.SETTINGS, request.tab(), "settings, even for a UI-only script"));
+                () -> assertEquals(Optional.of(InspectorTab.SETTINGS), request.drawer(),
+                        "settings, even for a UI-only script"),
+                () -> assertFalse(request.popsOutUi()));
     }
 
     @Test
-    void managementScriptWithOnlyAUi_opensOnScriptUi() {
+    void managementScriptWithOnlyAUi_popsItOut() {
         InspectorRequest request = InspectorRequest.forManagementScript(
                 TestScripts.managementRunner(new TestScripts.FleetMonitor()));
 
-        assertEquals(InspectorTab.SCRIPT_UI, request.tab());
+        assertAll(
+                () -> assertTrue(request.popsOutUi()),
+                () -> assertEquals(Optional.empty(), request.drawer()));
     }
 
     @Test
@@ -82,15 +94,25 @@ class InspectorRequestTest {
         InspectorRequest request = InspectorRequest.forManagementScript(
                 TestScripts.managementRunner(new TestScripts.Broken()));
 
-        assertEquals(InspectorTab.SETTINGS, request.tab());
+        assertEquals(Optional.of(InspectorTab.SETTINGS), request.drawer());
     }
 
     @Test
-    void initialTab_fieldsWin_uiOnlyOpensTheUi_neitherOpensSettings() {
+    void settings_theUiPopsOutWheneverThereIsOne_theDrawerOpensOnFieldsOrWhenThereIsNoUi() {
         assertAll(
-                () -> assertEquals(InspectorTab.SETTINGS, InspectorTab.initialFor(true, true)),
-                () -> assertEquals(InspectorTab.SETTINGS, InspectorTab.initialFor(true, false)),
-                () -> assertEquals(InspectorTab.SCRIPT_UI, InspectorTab.initialFor(false, true)),
-                () -> assertEquals(InspectorTab.SETTINGS, InspectorTab.initialFor(false, false)));
+                () -> assertEquals(new InspectorRequest(WOODCUTTING, Optional.of(InspectorTab.SETTINGS), true),
+                        InspectorRequest.settings(WOODCUTTING, true, true)),
+                () -> assertEquals(new InspectorRequest(WOODCUTTING, InspectorTab.SETTINGS),
+                        InspectorRequest.settings(WOODCUTTING, true, false)),
+                () -> assertEquals(InspectorRequest.scriptUi(WOODCUTTING),
+                        InspectorRequest.settings(WOODCUTTING, false, true)),
+                () -> assertEquals(new InspectorRequest(WOODCUTTING, InspectorTab.SETTINGS),
+                        InspectorRequest.settings(WOODCUTTING, false, false)));
+    }
+
+    @Test
+    void aRequestThatShowsNothing_isRefused() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new InspectorRequest(WOODCUTTING, Optional.empty(), false));
     }
 }

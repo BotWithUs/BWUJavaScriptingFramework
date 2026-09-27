@@ -8,7 +8,6 @@ import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.inspector.InspectorRequest;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
-import com.botwithus.bot.cli.gui.inspector.InspectorTab;
 import com.botwithus.bot.cli.management.ManagedLinks;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
@@ -300,10 +299,9 @@ public final class LiveInstalledModel implements InstalledModel {
     public void openSettings(String key, String clientId) {
         find(clientId).map(conn -> conn.getRuntime().findRunner(key)).ifPresent(runner -> {
             BotScript script = runner.getScript();
-            InspectorTab tab = InspectorTab.initialFor(RunnerDetails.settingsCount(script) > 0,
-                    RunnerDetails.hasUi(script));
-            deps.inspector().accept(new InspectorRequest(
-                    new InspectorSubject.ClientScript(clientId, runner.getScriptName()), tab));
+            deps.inspector().accept(InspectorRequest.settings(
+                    new InspectorSubject.ClientScript(clientId, runner.getScriptName()),
+                    RunnerDetails.settingsCount(script) > 0, RunnerDetails.hasUi(script)));
         });
     }
 

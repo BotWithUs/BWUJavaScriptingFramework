@@ -6,6 +6,7 @@ import com.botwithus.bot.cli.gui.Controls.Segment;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
+import com.botwithus.bot.cli.gui.inspector.InspectorRequest;
 import com.botwithus.bot.cli.gui.inspector.InspectorState;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
@@ -31,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * The Clients page — Normal mode's only screen, and the first page of
@@ -103,8 +105,13 @@ public class UserModeRenderer {
     }
 
     private void openInspector(ClientView client, String scriptName, InspectorTab tab) {
+        show(client, scriptName, subject -> new InspectorRequest(subject, tab));
+    }
+
+    /** Shows the request built for {@code scriptName} on {@code client}, when the client has a pipe. */
+    private void show(ClientView client, String scriptName, Function<ClientScript, InspectorRequest> request) {
         client.pipe().ifPresent(pipe -> {
-            inspector.open(new ClientScript(pipe, scriptName), tab);
+            inspector.show(request.apply(new ClientScript(pipe, scriptName)));
             selectedId = client.id();
         });
     }
@@ -308,11 +315,11 @@ public class UserModeRenderer {
         }
     }
 
-    /** Opens the inspector on the row's script, on the tab its settings suggest. */
+    /** The row's "Settings": its own UI in a window, its fields in the inspector, as it has them. */
     private void configure(ClientView v, String scriptName) {
         Optional<ScriptInfo> script = v.script(scriptName).map(ScriptRow::script);
-        script.ifPresent(s -> openInspector(v, s.name(),
-                InspectorTab.initialFor(s.settingsCount() > 0, s.hasCustomUi())));
+        script.ifPresent(s -> show(v, s.name(),
+                subject -> InspectorRequest.settings(subject, s.settingsCount() > 0, s.hasCustomUi())));
     }
 
     // ── Empty, no-match ────────────────────────────────────────────────────

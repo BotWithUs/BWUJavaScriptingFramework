@@ -121,8 +121,8 @@ final class SettingsTab {
         w.heading(draw, x, y, "Drawn by " + row.name());
         float cy = y + w.ui().fonts().captionMedium().getFontSize() + m.u(2);
         cy += w.paragraph(draw, font, x, cy, width, font.getFontSize() * LINE, ImGuiTheme.COL_FG2,
-                "The script draws its own UI. It shows in the inspector beside this page, framed by the host"
-                        + " and not restyled.") + m.u(3);
+                "The script draws its own UI. It opens in a window of its own, framed by the host and not"
+                        + " restyled.") + m.u(3);
         ImGui.setCursorScreenPos(x, cy);
         if (w.ui().button("##mgmt-open-ui", Icons.WINDOW, "Show its UI", Tone.GHOST, true)) {
             state.model().openScriptUi(row.name());

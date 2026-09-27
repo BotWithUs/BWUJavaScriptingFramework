@@ -459,7 +459,11 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("31-advanced-inspector-management-script-ui", FixtureBoard::everyState,
                         fromPage(PageId.MANAGEMENT, new InspectorRequest(
                                 new InspectorSubject.ManagementScript(FixtureBoard.FLEET_MONITOR.name()),
-                                InspectorTab.initialFor(false, true)))),
+                                InspectorTab.SCRIPT_UI))),
+                // "Settings" on a script with fields and a UI: the fields in the drawer, the UI in its own window.
+                Scenario.advanced("25-advanced-inspector-settings-pops-out-script-ui", FixtureBoard::everyState,
+                        fromPage(PageId.INSTALLED, InspectorRequest.settings(
+                                new InspectorSubject.ClientScript(WOODCUTTER, WOODCUTTING), true, true))),
                 Scenario.advanced("32-advanced-inspector-restore-defaults", FixtureBoard::everyState,
                         ShellPreview::managementOffDefaults),
                 // The frameless window's own chrome: every scenario draws it, these two isolate it.

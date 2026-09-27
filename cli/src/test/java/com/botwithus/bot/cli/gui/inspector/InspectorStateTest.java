@@ -31,7 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Routing: a "Settings" button anywhere opens the one inspector and switches to
- * the page that owns the script, in a mode that shows that page.
+ * the page that owns the script, in a mode that shows that page, and pops a
+ * script's own UI out into a window that floats over whichever page is shown.
  */
 class InspectorStateTest {
 
@@ -95,6 +96,70 @@ class InspectorStateTest {
                 () -> assertEquals(PageId.MANAGEMENT, pages.selected()),
                 () -> assertTrue(state.docksBeside(PageId.MANAGEMENT)),
                 () -> assertFalse(state.docksBeside(PageId.CLIENTS)));
+    }
+
+    @Test
+    void settingsOnAScriptWithOnlyAUi_popsItOut_andLeavesThePageTheModeAndTheDrawerAlone() {
+        pages.select(PageId.DASHBOARD);
+        state.request(InspectorRequest.settings(WOODCUTTING, false, true));
+
+        AppMode mode = state.route(pages, AppMode.NORMAL);
+
+        assertAll(
+                () -> assertEquals(AppMode.NORMAL, mode),
+                () -> assertEquals(PageId.DASHBOARD, pages.selected()),
+                () -> assertFalse(state.isOpen(), "no near-empty drawer beside the window"),
+                () -> assertTrue(state.isPoppedOut(WOODCUTTING)));
+    }
+
+    @Test
+    void settingsOnAScriptWithFieldsAndAUi_opensTheFieldsInTheDrawer_andPopsTheUiOut() {
+        pages.select(PageId.INSTALLED);
+        state.request(InspectorRequest.settings(WOODCUTTING, true, true));
+
+        AppMode mode = state.route(pages, AppMode.ADVANCED);
+
+        assertAll(
+                () -> assertEquals(AppMode.ADVANCED, mode),
+                () -> assertEquals(PageId.CLIENTS, pages.selected()),
+                () -> assertEquals(Optional.of(WOODCUTTING), state.subject()),
+                () -> assertEquals(InspectorTab.SETTINGS, state.tab()),
+                () -> assertTrue(state.isPoppedOut(WOODCUTTING)));
+    }
+
+    @Test
+    void settingsAgain_afterTheWindowWasClosed_popsItOutAgain() {
+        state.show(InspectorRequest.settings(WOODCUTTING, false, true));
+        state.bringBack(WOODCUTTING);
+        assertFalse(state.isPoppedOut(WOODCUTTING));
+
+        state.show(InspectorRequest.settings(WOODCUTTING, false, true));
+
+        assertTrue(state.isPoppedOut(WOODCUTTING));
+    }
+
+    @Test
+    void aScriptWithNoUi_isNeverPoppedOut() {
+        state.request(InspectorRequest.settings(WOODCUTTING, true, false));
+        state.route(pages, AppMode.NORMAL);
+
+        assertAll(
+                () -> assertTrue(state.isOpen()),
+                () -> assertFalse(state.isPoppedOut(WOODCUTTING)));
+    }
+
+    @Test
+    void thePoppedOutWindows_closeOnceTheirRunnerIsDisposed() {
+        AtomicBoolean gone = new AtomicBoolean(false);
+        InspectorTarget target = new InspectorTarget(WOODCUTTING, "", INFO, List.of(),
+                () -> new ScriptConfig(Map.of()), cfg -> { }, TestScripts.NO_OP_UI, id -> Optional.empty(), gone::get);
+        state.show(InspectorRequest.scriptUi(WOODCUTTING));
+
+        assertEquals(List.of(target), state.poppedOut(subject -> Optional.of(target)));
+        gone.set(true);
+
+        assertTrue(state.poppedOut(subject -> Optional.of(target)).isEmpty());
+        assertFalse(state.isPoppedOut(WOODCUTTING));
     }
 
     @Test
