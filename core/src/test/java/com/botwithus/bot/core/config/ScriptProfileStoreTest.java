@@ -226,60 +226,6 @@ class ScriptProfileStoreTest {
         assertFalse(store.clearAccountProfile("acc-nobody"));
     }
 
-    // --- Global settings ---
-
-    @Test
-    void isAutoConnect_defaultsTrue() {
-        ScriptProfileStore store = newStore();
-        assertTrue(store.isAutoConnect());
-    }
-
-    @Test
-    void setAndGetAutoConnect() {
-        ScriptProfileStore store = newStore();
-        store.setAutoConnect(true);
-        store.saveSettings();
-
-        ScriptProfileStore store2 = newStore();
-        assertTrue(store2.isAutoConnect());
-    }
-
-    @Test
-    void getPipePrefix_default() {
-        ScriptProfileStore store = newStore();
-        assertEquals("BotWithUs", store.getPipePrefix());
-    }
-
-    @Test
-    void setAndGetPipePrefix() {
-        ScriptProfileStore store = newStore();
-        store.setPipePrefix("CustomPipe");
-        store.saveSettings();
-
-        ScriptProfileStore store2 = newStore();
-        assertEquals("CustomPipe", store2.getPipePrefix());
-    }
-
-    @Test
-    void isProbeLobby_defaultsTrue() {
-        ScriptProfileStore store = newStore();
-        assertTrue(store.isProbeLobby());
-    }
-
-    @Test
-    void getScanIntervalMs_default() {
-        ScriptProfileStore store = newStore();
-        assertEquals(5000, store.getScanIntervalMs());
-    }
-
-    @Test
-    void getScanIntervalMs_handlesInvalidValue() {
-        // Write a bad value manually
-        ScriptProfileStore store = newStore();
-        store.getSettings().setProperty("scanIntervalMs", "notAnumber");
-        assertEquals(5000, store.getScanIntervalMs());
-    }
-
     // --- Name sanitization ---
 
     @Test
@@ -312,16 +258,6 @@ class ScriptProfileStoreTest {
         Path groupsDir = baseDir.resolve("profiles").resolve("groups");
         assertTrue(Files.isDirectory(groupsDir));
         assertTrue(Files.exists(groupsDir.resolve("mygroup.properties")));
-    }
-
-    @Test
-    void settingsFileIsCreated() {
-        ScriptProfileStore store = newStore();
-        store.setAutoConnect(true);
-        store.saveSettings();
-
-        Path settingsFile = baseDir.resolve("autostart.properties");
-        assertTrue(Files.exists(settingsFile));
     }
 
     // --- One-shot hard-cut migration ---

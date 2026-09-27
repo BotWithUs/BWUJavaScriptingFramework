@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
@@ -107,6 +108,7 @@ public class CliContext {
     private boolean nxtCacheInitAttempted;
     private GamevalIndex gamevals;
     private final Path groupsFile;
+    private HostSettings settings;
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this(logBuffer, logCapture, DEFAULT_GROUPS_FILE);
@@ -197,6 +199,13 @@ public class CliContext {
 
     public void setAutoStartManager(AutoStartManager manager) { this.autoStartManager = manager; }
     public AutoStartManager getAutoStartManager() { return autoStartManager; }
+
+    /**
+     * The process's one {@link HostSettings}, set by the composition root before
+     * any command or panel runs. {@code null} only in tests that never set it.
+     */
+    public void setSettings(HostSettings settings) { this.settings = settings; }
+    public HostSettings getSettings() { return settings; }
 
     public ClientManager getClientManager() { return clientManager; }
 

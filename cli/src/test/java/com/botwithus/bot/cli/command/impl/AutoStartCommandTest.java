@@ -7,11 +7,14 @@ import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -39,6 +42,7 @@ class AutoStartCommandTest {
     private AutoStartCommand command;
     private CliContext ctx;
     private ScriptProfileStore profileStore;
+    private HostSettings settings;
     private AutoStartManager autoStartManager;
     private ByteArrayOutputStream output;
 
@@ -51,11 +55,21 @@ class AutoStartCommandTest {
         ctx = new CliContext(logBuffer, logCapture);
 
         profileStore = new ScriptProfileStore(tempDir.resolve(".botwithus"));
-        autoStartManager = new AutoStartManager(ctx, profileStore);
+        settings = HostSettings.open(tempDir.resolve(".botwithus"));
+        // "autostart on" starts the real scanner; make sure it can never match a live client.
+        settings.set(SettingKeys.PIPE_PREFIX, "NoSuchPipeForAutoStartCommandTest");
+        autoStartManager = new AutoStartManager(ctx, profileStore, settings);
         ctx.setProfileStore(profileStore);
+        ctx.setSettings(settings);
         ctx.setAutoStartManager(autoStartManager);
 
-        command = new AutoStartCommand(profileStore, autoStartManager);
+        command = new AutoStartCommand(profileStore, autoStartManager, settings);
+    }
+
+    @AfterEach
+    void tearDown() {
+        autoStartManager.stop();
+        settings.close();
     }
 
     private ParsedCommand parse(String input) {
@@ -337,27 +351,41 @@ class AutoStartCommandTest {
     void showSettings() {
         command.execute(parse("autostart settings"), ctx);
         String out = output();
-        assertTrue(out.contains("autoConnect"));
-        assertTrue(out.contains("pipePrefix"));
-        assertTrue(out.contains("probeLobby"));
-        assertTrue(out.contains("scanInterval"));
+        assertTrue(out.contains("autoConnect = true"));
+        assertTrue(out.contains("autoConnectPipes = NoSuchPipeForAutoStartCommandTest"));
+        assertTrue(out.contains("scanIntervalMs = 5000"));
+    }
+
+    @Test
+    void showSettings_readsTheSettingsStore() {
+        settings.set(SettingKeys.SCAN_INTERVAL_MS, 7000L);
+        command.execute(parse("autostart settings"), ctx);
+        assertTrue(output().contains("scanIntervalMs = 7000"));
     }
 
     // --- On / Off ---
 
     @Test
     void onEnablesAutoConnect() {
+        settings.set(SettingKeys.AUTO_CONNECT, false);
         command.execute(parse("autostart on"), ctx);
         assertTrue(output().contains("Auto-connect enabled"));
-        assertTrue(profileStore.isAutoConnect());
+        assertTrue(settings.get(SettingKeys.AUTO_CONNECT));
+        assertTrue(autoStartManager.isScanning());
+        assertTrue(HostSettings.open(tempDir.resolve(".botwithus")).get(SettingKeys.AUTO_CONNECT),
+                "autostart on must be on disk when the command returns");
     }
 
     @Test
     void offDisablesAutoConnect() {
-        profileStore.setAutoConnect(true);
+        autoStartManager.start();
+        assertTrue(autoStartManager.isScanning());
         command.execute(parse("autostart off"), ctx);
         assertTrue(output().contains("Auto-connect disabled"));
-        assertFalse(profileStore.isAutoConnect());
+        assertFalse(settings.get(SettingKeys.AUTO_CONNECT));
+        assertFalse(autoStartManager.isScanning());
+        assertFalse(HostSettings.open(tempDir.resolve(".botwithus")).get(SettingKeys.AUTO_CONNECT),
+                "autostart off must be on disk when the command returns");
     }
 
     // --- Unknown subcommand ---

@@ -25,7 +25,6 @@ import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
-import com.botwithus.bot.cli.config.CliConfig;
 import com.botwithus.bot.cli.gui.notify.Notification;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
@@ -35,6 +34,7 @@ import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
+import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.stream.StreamManager;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
@@ -163,7 +163,8 @@ public class ImGuiApp extends Application {
 
         ScriptProfileStore profileStore = new ScriptProfileStore();
         ctx.setProfileStore(profileStore);
-        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore);
+        ctx.setSettings(HostSettings.openForHost(HostSettings.defaultBaseDir()));
+        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore, ctx.getSettings());
         ctx.setAutoStartManager(autoStartManager);
 
         registry = new CommandRegistry();
@@ -238,12 +239,12 @@ public class ImGuiApp extends Application {
         r.register(new StreamCommand());
         r.register(new MetricsCommand());
         r.register(new ProfileCommand());
-        r.register(new ConfigCommand(CliConfig.defaults()));
+        r.register(new ConfigCommand(ctx.getSettings()));
         r.register(new ActionsCommand());
         r.register(new EventsCommand());
         r.register(new PlayerCommand());
         r.register(new ClientCommand());
-        r.register(new AutoStartCommand(profileStore, autoStartManager));
+        r.register(new AutoStartCommand(profileStore, autoStartManager, ctx.getSettings()));
         r.register(new ManagementScriptsCommand());
         r.register(new ClearCommand());
         r.register(new ExitCommand());

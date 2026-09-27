@@ -2,6 +2,8 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.rpc.RpcMetrics;
 import com.botwithus.bot.core.runtime.ScriptProfiler;
@@ -137,7 +139,10 @@ public class SettingsPanel implements GuiPanel {
         }
 
         float fontH = ImGui.getFontSize();
-        renderAutoConnectToggle(store, fontH);
+        HostSettings settings = ctx.getSettings();
+        if (settings != null) {
+            renderAutoConnectToggle(settings, fontH);
+        }
 
         ImGui.dummy(0f, fontH * 0.3f);
         GuiHelpers.subtleSeparator();
@@ -147,7 +152,7 @@ public class SettingsPanel implements GuiPanel {
         endSectionCard();
     }
 
-    private static void renderAutoConnectToggle(ScriptProfileStore store, float fontH) {
+    private static void renderAutoConnectToggle(HostSettings settings, float fontH) {
         float rowStartX = ImGui.getCursorPosX();
         float avail = ImGui.getContentRegionAvailX();
         float toggleW = fontH * 1.05f * 1.9f;
@@ -155,16 +160,16 @@ public class SettingsPanel implements GuiPanel {
         ImGui.beginGroup();
         ImGui.textColored(
                 ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f,
-                "Auto-connect on startup");
-        GuiHelpers.textSecondary("Opens saved pipe connections automatically when the CLI launches.");
+                SettingKeys.AUTO_CONNECT.label());
+        GuiHelpers.textSecondary(SettingKeys.AUTO_CONNECT.description());
         ImGui.endGroup();
 
         // Jump the toggle to the top-right of the row
         ImGui.sameLine(rowStartX + avail - toggleW);
-        boolean current = store.isAutoConnect();
+        boolean current = settings.get(SettingKeys.AUTO_CONNECT);
         if (GuiHelpers.toggleSwitch("autoconnect", current)) {
-            store.setAutoConnect(!current);
-            store.saveSettings();
+            // Saves on its own; AutoStartManager follows the setting and starts or stops the scanner.
+            settings.set(SettingKeys.AUTO_CONNECT, !current);
         }
     }
 

@@ -30,6 +30,7 @@ module com.botwithus.bot.cli {
     // legitimately depend on these types so they must be addressable.
     exports com.botwithus.bot.cli.command;
     exports com.botwithus.bot.cli.log;
+    exports com.botwithus.bot.cli.settings;
     exports com.botwithus.bot.cli.stream;
     exports com.botwithus.bot.cli.gui;
     exports com.botwithus.bot.cli.gui.usermode;

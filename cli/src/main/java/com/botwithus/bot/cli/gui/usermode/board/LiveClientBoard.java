@@ -11,6 +11,7 @@ import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MapHelper;
 import com.botwithus.bot.core.pipe.PipeClient;
@@ -116,12 +117,12 @@ public final class LiveClientBoard implements ClientBoard {
                 .map(Connection::currentReconnectState)
                 .mapToInt(LiveClientBoard::attemptsIfGaveUp)
                 .max().orElse(0);
-        var store = ctx.getProfileStore();
+        var settings = ctx.getSettings();
         return new BoardStatus(
                 allGaveUp,
                 attempts,
                 ctx.getActiveConnectionName(),
-                store != null && store.isAutoConnect(),
+                settings != null && settings.get(SettingKeys.AUTO_CONNECT),
                 "\\\\.\\pipe\\" + PipeClient.NAME_PREFIX + "*",
                 ctx.isMounted() ? ctx.getMountedConnectionName() : null,
                 ctx.isWatcherRunning());

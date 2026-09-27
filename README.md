@@ -84,7 +84,7 @@ Commands:
 | `logs` | | View log output |
 | `metrics` | | View RPC call statistics (latency, error rates) |
 | `profile` | `prof` | View per-script loop timing data |
-| `config` | | Persistent CLI configuration (`~/.botwithus/config.properties`) |
+| `config` | `cfg` | Show or change host settings (`~/.botwithus/config.properties`); `config set <key> <value>` saves at once |
 | `actions` | | Inspect the game action queue, history, and blocked state |
 | `events` | | Monitor event bus subscriptions and publish counts |
 | `player` | `self`, `pos` | Print local player position and state from the snapshot (`player skills` for the skills table) |
@@ -337,8 +337,7 @@ The auto-start system remembers which scripts were running on each account and c
 
 ```
 ~/.botwithus/
-├── autostart.properties              # Global settings (autoConnect, pipePrefix, etc.)
-├── config.properties                 # CLI config
+├── config.properties                 # Host settings (autoConnect, autoConnectPipes, scanIntervalMs, ...)
 ├── groups.json                       # Persisted connection groups
 └── profiles/
     ├── PlayerOne.properties          # Per-account: scripts=Script1,Script2  autoStart=true
@@ -358,11 +357,13 @@ autostart save                        # Save current running scripts as profile
 autostart clear [account]             # Clear a profile
 autostart group <name> add <script>   # Add script to group auto-start
 autostart group <name> list           # List scripts in a group
-autostart settings                    # Show global settings
+autostart settings                    # Show the auto-connect settings
 autostart on / off                    # Enable/disable background pipe scanning
 ```
 
-When enabled (`autostart on`), the app scans for new pipes in the background and automatically connects, identifies accounts, and starts their configured scripts.
+When enabled (`autostart on`, the `autoConnect` setting, or the switch in Settings), the app scans for new pipes in the background and automatically connects, identifies accounts, and starts their configured scripts. Turning it off stops the scanner at once. The pipe prefix (`autoConnectPipes`) and scan interval (`scanIntervalMs`) are read on every scan, so `config set` changes apply without a restart.
+
+Earlier versions kept the auto-connect settings in `~/.botwithus/autostart.properties`. On first start the host copies them into `config.properties` and renames the old file to `autostart.properties.bak`.
 
 ## Communication Flow
 
