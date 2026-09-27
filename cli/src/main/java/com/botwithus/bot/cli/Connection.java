@@ -16,6 +16,8 @@ import com.botwithus.bot.core.shm.SharedRegionEventPump;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public class Connection {
@@ -32,10 +34,12 @@ public class Connection {
     private ReconnectController reconnectController;
     private GameAPIImpl gameAPI;
     private ScriptContextChannel scriptContextChannel;
-    private String accountName;
-    private String accountUuid;
-    private Map<String, Object> accountInfo;
-    private boolean lobbyLoginAttempted;
+    // Written by the pipe scanner and commands once the agent identifies the
+    // account, read every frame by the GUI: volatile so readers see the update.
+    private volatile String accountName;
+    private volatile String accountUuid;
+    private volatile Map<String, Object> accountInfo;
+    private volatile boolean lobbyLoginAttempted;
 
     public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime, ScriptManagerImpl scriptManager) {
         this.name = name;
@@ -83,15 +87,24 @@ public class Connection {
      */
     public String getAccountUuid() { return accountUuid; }
 
+    /**
+     * Stores an unmodifiable copy of the agent's {@code get_account_info} reply, so
+     * a reader on another thread never sees the map change underneath it.
+     */
     public void setAccountInfo(Map<String, Object> accountInfo) {
-        this.accountInfo = accountInfo;
-        if (accountInfo != null) {
-            Object uuid = accountInfo.get("account_uuid");
-            if (uuid != null) {
-                this.accountUuid = uuid.toString();
-            }
+        if (accountInfo == null) {
+            this.accountInfo = null;
+            return;
         }
+        Map<String, Object> copy = Collections.unmodifiableMap(new LinkedHashMap<>(accountInfo));
+        Object uuid = copy.get("account_uuid");
+        if (uuid != null) {
+            this.accountUuid = uuid.toString();
+        }
+        this.accountInfo = copy;
     }
+
+    /** The last {@code get_account_info} reply, unmodifiable; {@code null} until the account is probed. */
     public Map<String, Object> getAccountInfo() { return accountInfo; }
 
     /**

@@ -303,7 +303,7 @@ public class ImGuiApp extends Application {
         // "Your subscriptions" group read the same refresher, so there is one fetch loop.
         SdnCatalogueRefresher sdnCatalogue = SdnScriptsPanel.catalogueRefresher(new SdnCatalogueSource());
         SdnInstaller sdnInstaller = new SdnInstaller();
-        board = new LiveClientBoard(ctx, clientId -> openLogs(), clock, sdnCatalogue, sdnInstaller);
+        board = new LiveClientBoard(ctx, clientId -> openLogs(), clock, sdnCatalogue, sdnInstaller, executor);
         shell = new Shell(ui, new UserModeRenderer(ui), notificationOverlay);
         ctx.setOnConnect(conn -> {
             if (conn.getEventBus() != null) {

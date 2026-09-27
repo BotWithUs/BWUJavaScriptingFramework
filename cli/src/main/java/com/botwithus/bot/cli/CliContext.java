@@ -55,8 +55,6 @@ import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,16 +82,22 @@ public class CliContext {
     private final LogBuffer logBuffer;
     private final LogCapture logCapture;
     private final ClientProviderImpl clientProvider = new ClientProviderImpl();
-    private final Map<String, Connection> connections = new LinkedHashMap<>();
-    private final Map<String, ConnectionGroup> groups = new LinkedHashMap<>();
-    private String activeConnectionName;
-    private String mountedConnectionName;
+    // Read from the render thread every frame while the command thread, the pipe
+    // scanner and reconnects mutate them: copy-on-write, insertion-ordered.
+    private final OrderedSnapshotMap<String, Connection> connections = new OrderedSnapshotMap<>();
+    private final OrderedSnapshotMap<String, ConnectionGroup> groups = new OrderedSnapshotMap<>();
+    /** Guards every change to the connection table together with the active name. */
+    private final Object connectionLock = new Object();
+    /** Serialises group-file writes, so the file always holds a complete, recent state. */
+    private final Object groupsFileLock = new Object();
+    private volatile String activeConnectionName;
+    private volatile String mountedConnectionName;
     private ImageDisplay imageDisplay;
     private ProgressDisplay progressDisplay;
     private StreamManager streamManager;
     private Consumer<ScriptRunner> configPanelOpener;
     private Consumer<Connection> onConnect;
-    private LoadReport lastLoadReport = LoadReport.EMPTY;
+    private volatile LoadReport lastLoadReport = LoadReport.EMPTY;
     private ScriptWatcher scriptWatcher;
     private ScriptProfileStore profileStore;
     private AutoStartManager autoStartManager;
@@ -258,7 +262,6 @@ public class CliContext {
             ScriptContextChannel scriptCtxChannel = new ScriptContextChannel(rpc, resolvedName);
 
             ClientImpl client = new ClientImpl(resolvedName, gameAPI, eventBus, pipe::isOpen, pump.region());
-            clientProvider.putClient(resolvedName, client);
 
             ScriptRuntime runtime = new ScriptRuntime(context,
                     ConnectionContext::set, ConnectionContext::clear, eventBus::publish);
@@ -287,20 +290,35 @@ public class CliContext {
             conn.setReconnectController(reconnect);
             conn.setGameAPI(gameAPI);
             conn.setScriptContextChannel(scriptCtxChannel);
-            registerConnection(conn);
-            if (onConnect != null) {
-                try {
-                    onConnect.accept(conn);
-                } catch (RuntimeException e) {
-                    log.warn("onConnect hook threw for '{}': {}", resolvedName, e.getMessage());
-                }
-            }
-            out().println("Connected to pipe: " + pipe.getPipePath());
-            if (connections.size() > 1) {
-                out().println("Active connection set to '" + resolvedName + "'.");
-            }
+            publishConnection(conn, client);
         } catch (Exception e) {
             out().println("Connection failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Makes a built connection visible to the rest of the host. Two threads (the
+     * pipe scanner and a command) can race to connect the same pipe; the loser
+     * closes what it built rather than replacing the winner's connection.
+     */
+    private void publishConnection(Connection conn, ClientImpl client) {
+        String name = conn.getName();
+        if (!registerConnection(conn)) {
+            conn.close();
+            out().println("Already connected to '" + name + "'. Use 'use " + name + "' to switch.");
+            return;
+        }
+        clientProvider.putClient(name, client);
+        if (onConnect != null) {
+            try {
+                onConnect.accept(conn);
+            } catch (RuntimeException e) {
+                log.warn("onConnect hook threw for '{}': {}", name, e.getMessage());
+            }
+        }
+        out().println("Connected to pipe: " + conn.getPipe().getPipePath());
+        if (connections.values().size() > 1) {
+            out().println("Active connection set to '" + name + "'.");
         }
     }
 
@@ -312,21 +330,53 @@ public class CliContext {
      * @return {@code false} if a connection with the same name is already registered
      */
     boolean registerConnection(Connection conn) {
-        if (connections.containsKey(conn.getName())) {
-            return false;
+        synchronized (connectionLock) {
+            if (!connections.putIfAbsent(conn.getName(), conn)) {
+                return false;
+            }
+            activeConnectionName = conn.getName();
+            return true;
         }
-        connections.put(conn.getName(), conn);
-        activeConnectionName = conn.getName();
-        return true;
+    }
+
+    /**
+     * Removes {@code name} while it still maps to {@code conn}, so a stale caller
+     * cannot drop a newer connection registered under the same pipe name. Moves the
+     * active connection to the oldest remaining one if it was the one removed.
+     */
+    private boolean unregisterConnection(String name, Connection conn) {
+        synchronized (connectionLock) {
+            boolean removed = connections.remove(name, conn);
+            reassignActiveIfGone();
+            return removed;
+        }
+    }
+
+    /** As {@link #unregisterConnection(String, Connection)}, whatever {@code name} maps to. */
+    private Connection unregisterConnection(String name) {
+        synchronized (connectionLock) {
+            Connection removed = connections.remove(name);
+            reassignActiveIfGone();
+            return removed;
+        }
+    }
+
+    private void reassignActiveIfGone() {
+        synchronized (connectionLock) {
+            String active = activeConnectionName;
+            if (active != null && !connections.containsKey(active)) {
+                activeConnectionName = connections.firstKey().orElse(null);
+            }
+        }
     }
 
     public void disconnect(String name, boolean force) {
         String target = name != null ? name : activeConnectionName;
-        if (target == null || !connections.containsKey(target)) {
+        Connection conn = target != null ? connections.get(target) : null;
+        if (conn == null) {
             out().println(target == null ? "No active connection." : "Connection not found: " + target);
             return;
         }
-        Connection conn = connections.get(target);
         if (conn.hasRunningScripts() && !force) {
             out().println("Connection '" + target + "' has running scripts. Use 'disconnect --force' to stop them and disconnect.");
             return;
@@ -339,16 +389,17 @@ public class CliContext {
             unmount();
             out().println("Auto-unmounted — mounted connection was disconnected.");
         }
-        connections.remove(target);
+        boolean wasActive = target.equals(activeConnectionName);
+        if (!unregisterConnection(target, conn)) {
+            out().println("Connection not found: " + target);
+            return;
+        }
         clientProvider.removeClient(target);
         conn.close();
         out().println("Disconnected from '" + target + "'.");
-
-        if (target.equals(activeConnectionName)) {
-            activeConnectionName = connections.isEmpty() ? null : connections.keySet().iterator().next();
-            if (activeConnectionName != null) {
-                out().println("Active connection switched to '" + activeConnectionName + "'.");
-            }
+        String active = activeConnectionName;
+        if (wasActive && active != null) {
+            out().println("Active connection switched to '" + active + "'.");
         }
     }
 
@@ -358,22 +409,19 @@ public class CliContext {
 
     public void disconnectAll(boolean force) {
         if (streamManager != null) {
-            streamManager.stopAll(name -> connections.containsKey(name) ? connections.get(name) : null);
+            streamManager.stopAll(connections::get);
         }
-        var iter = connections.entrySet().iterator();
-        while (iter.hasNext()) {
-            Connection conn = iter.next().getValue();
+        for (Connection conn : connections.values()) {
             if (conn.hasRunningScripts() && !force) {
                 out().println("Skipping '" + conn.getName() + "' — has running scripts. Use --force to override.");
+                continue;
+            }
+            if (!unregisterConnection(conn.getName(), conn)) {
                 continue;
             }
             conn.close();
             clientProvider.removeClient(conn.getName());
             out().println("Disconnected from '" + conn.getName() + "'.");
-            iter.remove();
-        }
-        if (activeConnectionName != null && !connections.containsKey(activeConnectionName)) {
-            activeConnectionName = connections.isEmpty() ? null : connections.keySet().iterator().next();
         }
     }
 
@@ -382,11 +430,13 @@ public class CliContext {
     }
 
     public boolean setActive(String name) {
-        if (!connections.containsKey(name)) {
-            return false;
+        synchronized (connectionLock) {
+            if (!connections.containsKey(name)) {
+                return false;
+            }
+            activeConnectionName = name;
+            return true;
         }
-        activeConnectionName = name;
-        return true;
     }
 
     public List<BotScript> loadScripts() {
@@ -446,25 +496,34 @@ public class CliContext {
             unmount();
             out().println("Auto-unmounted — mounted connection was lost.");
         }
-        Connection conn = connections.remove(connName);
+        boolean wasActive = connName.equals(activeConnectionName);
+        Connection conn = unregisterConnection(connName);
         clientProvider.removeClient(connName);
         if (conn != null) {
             conn.close();
             out().println("Connection '" + connName + "' lost — removed.");
         }
-        if (connName.equals(activeConnectionName)) {
-            activeConnectionName = connections.isEmpty() ? null : connections.keySet().iterator().next();
-            if (activeConnectionName != null) {
-                out().println("Active connection switched to '" + activeConnectionName + "'.");
-            }
+        String active = activeConnectionName;
+        if (wasActive && active != null) {
+            out().println("Active connection switched to '" + active + "'.");
         }
     }
 
     public boolean hasConnections() { return !connections.isEmpty(); }
     public boolean hasActiveConnection() { return activeConnectionName != null; }
     public String getActiveConnectionName() { return activeConnectionName; }
-    public Connection getActiveConnection() { return activeConnectionName != null ? connections.get(activeConnectionName) : null; }
-    public Collection<Connection> getConnections() { return connections.values(); }
+
+    public Connection getActiveConnection() {
+        String active = activeConnectionName;
+        return active != null ? connections.get(active) : null;
+    }
+
+    /**
+     * The connected clients in the order they connected. An immutable snapshot:
+     * safe to iterate from any thread, including the render thread, while other
+     * threads connect and disconnect. Call again to see later changes.
+     */
+    public List<Connection> getConnections() { return connections.values(); }
 
     public ScriptRuntime getRuntime() {
         Connection conn = getActiveConnection();
@@ -521,7 +580,7 @@ public class CliContext {
             Map<String, GroupData> data = gson.fromJson(json,
                     new TypeToken<LinkedHashMap<String, GroupData>>() {}.getType());
             if (data != null) {
-                groups.clear();
+                Map<String, ConnectionGroup> loaded = new LinkedHashMap<>();
                 for (var entry : data.entrySet()) {
                     ConnectionGroup group = new ConnectionGroup(entry.getKey());
                     GroupData gd = entry.getValue();
@@ -531,8 +590,9 @@ public class CliContext {
                     if (gd.members != null) {
                         gd.members.forEach(group::add);
                     }
-                    groups.put(entry.getKey(), group);
+                    loaded.put(entry.getKey(), group);
                 }
+                groups.replaceAll(loaded);
             }
         } catch (Exception e) {
             log.error("Failed to load groups", e);
@@ -541,17 +601,21 @@ public class CliContext {
 
     /** Persists current groups to ~/.botwithus/groups.json. */
     void saveGroups() {
-        try {
-            Files.createDirectories(groupsFile.getParent());
-            Gson gson = new GsonBuilder().setPrettyPrinting().create();
-            Map<String, GroupData> data = new LinkedHashMap<>();
-            for (var entry : groups.entrySet()) {
-                ConnectionGroup g = entry.getValue();
-                data.put(entry.getKey(), new GroupData(g.getDescription(), new ArrayList<>(g.getConnectionNames())));
+        // The snapshot is taken inside the lock, so whichever save runs last
+        // writes a state that includes every change made before it.
+        synchronized (groupsFileLock) {
+            try {
+                Files.createDirectories(groupsFile.getParent());
+                Gson gson = new GsonBuilder().setPrettyPrinting().create();
+                Map<String, GroupData> data = new LinkedHashMap<>();
+                for (var entry : groups.asMap().entrySet()) {
+                    ConnectionGroup g = entry.getValue();
+                    data.put(entry.getKey(), new GroupData(g.getDescription(), new ArrayList<>(g.getConnectionNames())));
+                }
+                Files.writeString(groupsFile, gson.toJson(data));
+            } catch (Exception e) {
+                log.error("Failed to save groups", e);
             }
-            Files.writeString(groupsFile, gson.toJson(data));
-        } catch (Exception e) {
-            log.error("Failed to save groups", e);
         }
     }
 
@@ -572,8 +636,12 @@ public class CliContext {
         return groups.get(name);
     }
 
+    /**
+     * The groups in creation order. An immutable snapshot, safe to iterate from any
+     * thread; call again to see later changes. The groups themselves are live.
+     */
     public Map<String, ConnectionGroup> getGroups() {
-        return Collections.unmodifiableMap(groups);
+        return groups.asMap();
     }
 
     public void addToGroup(String groupName, String connectionName) {

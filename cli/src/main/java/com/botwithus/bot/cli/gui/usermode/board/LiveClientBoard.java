@@ -32,6 +32,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
@@ -42,6 +44,10 @@ import java.util.function.Consumer;
  * which reconnects the user cancelled. Cancelling closes the controller, but its
  * last published state stays {@code Reconnecting}; without the second set the card
  * would claim to be retrying forever.</p>
+ *
+ * <p>Nothing here blocks the render thread. Reconnecting and loading the script
+ * catalogue both do pipe or disk work, so they run on the host's command executor;
+ * {@link #catalog()} answers from the last completed load.</p>
  */
 public final class LiveClientBoard implements ClientBoard {
 
@@ -59,28 +65,43 @@ public final class LiveClientBoard implements ClientBoard {
     private final Set<String> cancelledReconnects = new HashSet<>();
     private final Map<Integer, Optional<String>> itemNames = new HashMap<>();
     private final LiveSubscriptions subscriptions;
-    private List<BotScript> catalogScripts = List.of();
-    private List<LocalScript> localScripts = List.of();
+    private final Executor commandExecutor;
+    private final AtomicBoolean catalogLoadQueued = new AtomicBoolean();
+    /** Written by the command executor, read by the render thread. */
+    private volatile Catalog loadedCatalog = Catalog.EMPTY;
+
+    /** One load of the installed scripts; the entry keys index {@code scripts}. */
+    private record Catalog(List<BotScript> scripts, List<ScriptEntry> entries, List<LocalScript> locals) {
+        static final Catalog EMPTY = new Catalog(List.of(), List.of(), List.of());
+    }
 
     /**
-     * @param logOpener shows the log for a client; receives the client id
-     * @param catalogue the SDN catalogue refresher the Scripts Store panel also reads
-     * @param installer installs a subscribed script through the launcher
+     * Queues the first catalogue load, so the picker has scripts to offer by the
+     * time it is first opened.
+     *
+     * @param logOpener       shows the log for a client; receives the client id
+     * @param catalogue       the SDN catalogue refresher the Scripts Store panel also reads
+     * @param installer       installs a subscribed script through the launcher
+     * @param commandExecutor runs the blocking work (reconnects, catalogue loads) off
+     *                        the render thread; the one console commands run on
      */
     public LiveClientBoard(CliContext ctx, Consumer<String> logOpener, Clock clock,
-                           SdnCatalogueRefresher catalogue, SdnInstaller installer) {
+                           SdnCatalogueRefresher catalogue, SdnInstaller installer,
+                           Executor commandExecutor) {
         this.ctx = ctx;
         this.logOpener = logOpener;
         this.clock = clock;
+        this.commandExecutor = commandExecutor;
         this.subscriptions = new LiveSubscriptions(ctx::getConnections, catalogue, installer::install,
-                () -> localScripts,
+                () -> loadedCatalog.locals(),
                 task -> Thread.ofVirtual().name("sdn-subscription-install").start(task));
+        requestCatalogLoad();
     }
 
     @Override
     public List<ClientView> clients() {
         List<ClientView> views = new ArrayList<>();
-        for (Connection conn : new ArrayList<>(ctx.getConnections())) {
+        for (Connection conn : ctx.getConnections()) {
             views.add(new ClientView(conn.getName(), displayName(conn), worldOf(conn), statusOf(conn)));
         }
         deadSinceMillis.keySet().retainAll(views.stream().map(ClientView::id).toList());
@@ -89,7 +110,7 @@ public final class LiveClientBoard implements ClientBoard {
 
     @Override
     public BoardStatus status() {
-        List<Connection> conns = new ArrayList<>(ctx.getConnections());
+        List<Connection> conns = ctx.getConnections();
         boolean allGaveUp = !conns.isEmpty() && conns.stream().allMatch(this::hasGivenUp);
         int attempts = conns.stream()
                 .map(Connection::currentReconnectState)
@@ -106,20 +127,62 @@ public final class LiveClientBoard implements ClientBoard {
                 ctx.isWatcherRunning());
     }
 
+    /**
+     * The scripts from the last completed load, which may be empty until the first
+     * load finishes. Also queues a fresh load, so JARs dropped in since show up the
+     * next time the picker opens. Never touches the disk on the calling thread.
+     */
     @Override
     public List<ScriptEntry> catalog() {
-        List<BotScript> all = new ArrayList<>(ctx.loadScripts());
-        all.addAll(ctx.loadBlueprints());
-        catalogScripts = List.copyOf(all);
+        requestCatalogLoad();
+        return loadedCatalog.entries();
+    }
+
+    /** Queues one catalogue load on the command executor; a load already queued absorbs the request. */
+    private void requestCatalogLoad() {
+        if (catalogLoadQueued.compareAndSet(false, true)) {
+            commandExecutor.execute(this::loadCatalog);
+        }
+    }
+
+    private void loadCatalog() {
+        catalogLoadQueued.set(false);
+        try {
+            List<BotScript> all = new ArrayList<>(ctx.loadScripts());
+            all.addAll(ctx.loadBlueprints());
+            loadedCatalog = catalogOf(List.copyOf(all));
+        } catch (RuntimeException e) {
+            log.warn("Loading the script catalogue failed; keeping the previous one: {}", e.toString());
+        }
+    }
+
+    private static Catalog catalogOf(List<BotScript> scripts) {
         List<ScriptEntry> entries = new ArrayList<>();
         List<LocalScript> locals = new ArrayList<>();
-        for (int i = 0; i < catalogScripts.size(); i++) {
-            ScriptInfo info = infoOf(catalogScripts.get(i));
+        for (int i = 0; i < scripts.size(); i++) {
+            ScriptInfo info = infoOf(scripts.get(i));
             entries.add(new ScriptEntry(i, info));
-            locals.add(new LocalScript(i, catalogScripts.get(i), info.name()));
+            locals.add(new LocalScript(i, scripts.get(i), info.name()));
         }
-        localScripts = List.copyOf(locals);
-        return entries;
+        return new Catalog(scripts, List.copyOf(entries), List.copyOf(locals));
+    }
+
+    /**
+     * The script behind a picker row. A reload can land while the picker is open,
+     * so the row's key is trusted only while it still names the same script; if
+     * the list shifted, the script is found by name instead.
+     */
+    private Optional<BotScript> scriptFor(ScriptEntry entry) {
+        Catalog current = loadedCatalog;
+        int key = entry.key();
+        if (key >= 0 && key < current.scripts().size()
+                && current.entries().get(key).info().name().equals(entry.info().name())) {
+            return Optional.of(current.scripts().get(key));
+        }
+        return current.locals().stream()
+                .filter(local -> local.name().equals(entry.info().name()))
+                .map(LocalScript::script)
+                .findFirst();
     }
 
     @Override
@@ -353,7 +416,7 @@ public final class LiveClientBoard implements ClientBoard {
     // ── Helpers ────────────────────────────────────────────────────────────
 
     private Connection find(String clientId) {
-        for (Connection conn : new ArrayList<>(ctx.getConnections())) {
+        for (Connection conn : ctx.getConnections()) {
             if (conn.getName().equals(clientId)) {
                 return conn;
             }
@@ -376,10 +439,9 @@ public final class LiveClientBoard implements ClientBoard {
         @Override
         public void startScript(String clientId, ScriptEntry script) {
             Connection conn = find(clientId);
-            if (conn == null || script.key() < 0 || script.key() >= catalogScripts.size()) {
-                return;
+            if (conn != null) {
+                scriptFor(script).ifPresent(conn.getRuntime()::startScript);
             }
-            conn.getRuntime().startScript(catalogScripts.get(script.key()));
         }
 
         @Override
@@ -406,12 +468,15 @@ public final class LiveClientBoard implements ClientBoard {
             crashedRunner(conn.getRuntime().getRunners()).ifPresent(ScriptRunner::start);
         }
 
+        /** Returns at once: tearing down and reopening the pipe runs on the command executor. */
         @Override
         public void reconnect(String clientId) {
             cancelledReconnects.remove(clientId);
             deadSinceMillis.remove(clientId);
-            ctx.disconnect(clientId, true);
-            ctx.connect(clientId);
+            commandExecutor.execute(() -> {
+                ctx.disconnect(clientId, true);
+                ctx.connect(clientId);
+            });
         }
 
         @Override
@@ -430,7 +495,7 @@ public final class LiveClientBoard implements ClientBoard {
 
         @Override
         public void retryHost() {
-            for (Connection conn : new ArrayList<>(ctx.getConnections())) {
+            for (Connection conn : ctx.getConnections()) {
                 if (hasGivenUp(conn)) {
                     reconnect(conn.getName());
                 }
