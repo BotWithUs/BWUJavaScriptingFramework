@@ -113,6 +113,14 @@ final class ScriptPickerPopup {
     }
 
     /**
+     * Package-private: the dev preview's seam for typing into the search box. It
+     * holds only on the frame the picker opens, before the box takes the keyboard.
+     */
+    void search(String text) {
+        query.set(text);
+    }
+
+    /**
      * Renders the modal if open; returns the pick on the frame the user starts one.
      *
      * @param subscriptions the "Your subscriptions" group for a client id; asked every frame

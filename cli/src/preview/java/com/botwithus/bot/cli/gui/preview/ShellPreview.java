@@ -32,13 +32,16 @@ import com.botwithus.bot.cli.gui.pages.connections.ConnectionsPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.connections.RowFilter;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState;
+import com.botwithus.bot.cli.gui.pages.dashboard.LogLevel;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.DockTab;
+import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerColumn;
 import com.botwithus.bot.cli.gui.pages.dashboard.DashboardState.RunnerFilter;
 import com.botwithus.bot.cli.gui.pages.groups.BusyChoice;
 import com.botwithus.bot.cli.gui.pages.groups.GroupsPage;
 import com.botwithus.bot.cli.gui.pages.groups.GroupsPreviewSeams;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPage;
 import com.botwithus.bot.cli.gui.pages.installed.InstalledPreviewSeams;
+import com.botwithus.bot.cli.gui.pages.installed.InstalledQuery;
 import com.botwithus.bot.cli.gui.pages.management.ManagementPage;
 import com.botwithus.bot.cli.gui.pages.management.ManagementPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
@@ -409,9 +412,65 @@ public final class ShellPreview extends Application {
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
                 installedScenarios(), settingsScenarios(), integrationsScenarios(), groupsScenarios(),
-                toastScenarios(), managementSettingsScenarios(), managementScenarios())
+                toastScenarios(), managementSettingsScenarios(), managementScenarios(), coverageScenarios())
                 .flatMap(List::stream).toList();
     }
+
+    /**
+     * States the design names that the per-page lists above did not reach: the
+     * empty results of each filter and search, the inline confirms, the group
+     * manager's paused and stopped slots, a found pipe's detail, and the runners
+     * table sorted and the logs narrowed.
+     */
+    private static List<Scenario> coverageScenarios() {
+        GroupId woodcutters = FixtureGroupsModel.WOODCUTTERS;
+        return List.of(
+                new Scenario("150-clients-view-matches-nothing", () -> FixtureBoard.restart(RestartStep.RUNNING_AGAIN),
+                        (s, f) -> PreviewSeams.showNeedsAttention(s.page())),
+                new Scenario("151-picker-search-matches-nothing", FixtureBoard::everyState, (s, f) -> {
+                    if (f == 0) {
+                        s.page().openPicker(s.board(), IDLE);
+                        PreviewSeams.searchPicker(s.page(), NO_MATCH);
+                    }
+                }),
+                management("152-management-stop-all-confirm", (s, page) -> {
+                    ManagementPreviewSeams.selectOverview(page, FixtureManagementModel.BREAK_SCHEDULER);
+                    ManagementPreviewSeams.armStopAll(page);
+                }),
+                groups("153-groups-delete-confirm", (s, page) -> {
+                    GroupsPreviewSeams.select(page, woodcutters);
+                    GroupsPreviewSeams.askDelete(page);
+                }),
+                groups("154-groups-manager-paused", (s, page) -> {
+                    s.pages().groupsModel().showManagerPaused();
+                    GroupsPreviewSeams.select(page, woodcutters);
+                }),
+                groups("155-groups-manager-stopped", (s, page) -> {
+                    s.pages().groupsModel().showManagerStopped();
+                    GroupsPreviewSeams.select(page, woodcutters);
+                }),
+                Scenario.connections("156-connections-search-matches-nothing", FixtureConnectionsModel::busy,
+                        (s, f) -> onFirst(f, () -> ConnectionsPreviewSeams.search(s.pages().connections(), NO_MATCH))),
+                Scenario.connections("157-connections-found-detail-auto-connect-on", FixtureConnectionsModel::busy,
+                        selectConnection(FixtureConnectionsModel.MIRELOCK_PIPE)),
+                installed("158-installed-search-matches-nothing", (s, page) ->
+                        InstalledPreviewSeams.showQuery(page, InstalledQuery.DEFAULT.withSearch(NO_MATCH))),
+                installed("159-installed-local-builds-only", (s, page) -> InstalledPreviewSeams.showQuery(page,
+                        InstalledQuery.DEFAULT.withSource(InstalledQuery.SourceFilter.LOCAL))),
+                Scenario.advanced("160-advanced-dashboard-sorted-by-avg-loop", FixtureBoard::everyState,
+                        dashboard(Fleet.BUSY, state -> {
+                            state.setDockCollapsed(true);
+                            state.sortBy(RunnerColumn.AVG);
+                        }, SCROLL_TOP)),
+                Scenario.advanced("161-advanced-dashboard-logs-errors-only", FixtureBoard::everyState,
+                        dashboard(Fleet.BUSY, state -> {
+                            state.showTab(DockTab.LOGS);
+                            state.setLevel(LogLevel.ERROR);
+                        }, SCROLL_TOP)));
+    }
+
+    /** A search no fixture row can match, for the "nothing matches" states. */
+    private static final String NO_MATCH = "zzz";
 
     /** The Dashboard: busy, scoped by "View log", each dock tab, a filter, quiet, and an empty host. */
     private static List<Scenario> dashboardScenarios() {
