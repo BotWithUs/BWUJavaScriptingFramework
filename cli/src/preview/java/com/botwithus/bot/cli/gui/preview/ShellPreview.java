@@ -12,12 +12,16 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.FontLoader;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Shell;
+import com.botwithus.bot.cli.gui.nav.PageId;
+import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
+import com.botwithus.bot.cli.gui.pages.StoreSignInLine;
 import com.botwithus.bot.cli.gui.usermode.PreviewSeams;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.core.impl.EventBusImpl;
+import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 
 import imgui.ImGui;
 import imgui.app.Application;
@@ -40,25 +44,28 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
 import javax.imageio.ImageIO;
 
 /**
- * DEV ONLY — never shipped. Renders Normal mode through the real {@link Shell}
- * with {@link FixtureBoard} data, one scenario after another, and writes a PNG of
- * each. Lives in the {@code preview} source set, which the application JAR, the
- * jlink image and the installer never include; run it with
- * {@code ./gradlew :cli:renderNormalModePreviews}.
+ * DEV ONLY — never shipped. Renders both modes through the real {@link Shell}
+ * with {@link FixtureBoard} data and the {@link FixturePages} page set, one
+ * scenario after another, and writes a PNG of each. Lives in the
+ * {@code preview} source set, which the application JAR, the jlink image and the
+ * installer never include; run it with {@code ./gradlew :cli:renderPreviews}.
  *
  * <p>Frames are drawn into an offscreen framebuffer before being read back, so a
  * window overlapping the preview cannot bleed into the capture. The real mouse is
  * parked off-screen every frame so hover states do not depend on where it is.</p>
  */
-public final class NormalModePreview extends Application {
+public final class ShellPreview extends Application {
 
-    private static final Logger log = LoggerFactory.getLogger(NormalModePreview.class);
+    private static final Logger log = LoggerFactory.getLogger(ShellPreview.class);
 
     private static final int WIDTH = 1100;
     private static final int HEIGHT = 670;
@@ -73,12 +80,28 @@ public final class NormalModePreview extends Application {
     private static final float OFF_SCREEN = -Float.MAX_VALUE;
     private static final float BG = 0x0d / 255f;
 
-    /** One captured state: which fixtures, and what to do on a given frame to reach it. */
-    private record Scenario(String name, Supplier<FixtureBoard> board,
-                            BiConsumer<Stage, Integer> onFrame) {}
+    /** The store's sidebar line in every scenario that does not set its own. */
+    private static final SecondLine.AccountStatus SIGNED_IN =
+            new SecondLine.AccountStatus("Signed in · 4 scripts", true);
+
+    /**
+     * One captured state: the mode, which fixtures, and what to do on a given
+     * frame to reach it.
+     */
+    private record Scenario(String name, AppMode mode, Supplier<FixtureBoard> board,
+                            SecondLine.AccountStatus store, BiConsumer<Stage, Integer> onFrame) {
+
+        Scenario(String name, Supplier<FixtureBoard> board, BiConsumer<Stage, Integer> onFrame) {
+            this(name, AppMode.NORMAL, board, SIGNED_IN, onFrame);
+        }
+
+        static Scenario advanced(String name, Supplier<FixtureBoard> board, BiConsumer<Stage, Integer> onFrame) {
+            return new Scenario(name, AppMode.ADVANCED, board, SIGNED_IN, onFrame);
+        }
+    }
 
     /** What a scenario's frame hook can reach. */
-    private record Stage(FixtureBoard board, UserModeRenderer page, EventBusImpl bus) {}
+    private record Stage(FixtureBoard board, UserModeRenderer page, EventBusImpl bus, FixturePages.Built pages) {}
 
     private final Path outDir;
     private final List<Scenario> scenarios = scenarios();
@@ -88,20 +111,22 @@ public final class NormalModePreview extends Application {
     private Stage stage;
     private Shell shell;
     private int fbo;
+    /** The interim Console page wants one; nothing is ever submitted to it. */
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    private NormalModePreview(Path outDir) {
+    private ShellPreview(Path outDir) {
         this.outDir = outDir;
     }
 
     public static void main(String[] args) throws IOException {
         Path out = Path.of(args.length > 0 ? args[0] : "build/preview");
         Files.createDirectories(out);
-        launch(new NormalModePreview(out));
+        launch(new ShellPreview(out));
     }
 
     @Override
     protected void configure(Configuration config) {
-        config.setTitle("Normal mode preview (dev only)");
+        config.setTitle("Preview (dev only)");
         config.setWidth(WIDTH);
         config.setHeight(HEIGHT);
     }
@@ -126,16 +151,18 @@ public final class NormalModePreview extends Application {
                 name -> board.clients().stream().filter(c -> c.id().equals(name)).map(ClientView::account)
                         .findFirst().orElse(name));
         toasts.subscribeTo(bus);
-        stage = new Stage(board, page, bus);
-        shell = new Shell(ui, page, toasts);
+        FixturePages.Built pages = FixturePages.build(ui, page, board, s.store(), executor);
+        stage = new Stage(board, page, bus, pages);
+        shell = new Shell(ui, pages.registry(), toasts);
         frame = 0;
     }
 
     @Override
     public void process() {
         ImGui.getIO().setMousePos(OFF_SCREEN, OFF_SCREEN);
-        scenarios.get(scenarioIndex).onFrame().accept(stage, frame);
-        shell.render(AppMode.NORMAL, stage.board(), () -> { }, n -> { });
+        Scenario s = scenarios.get(scenarioIndex);
+        s.onFrame().accept(stage, frame);
+        shell.render(s.mode(), stage.board(), n -> { });
         frame++;
     }
 
@@ -226,14 +253,14 @@ public final class NormalModePreview extends Application {
                         s.page().openPicker(s.board(), IDLE);
                     }
                 }),
-                new Scenario("07-inspector-settings", FixtureBoard::sixClients, NormalModePreview::stagedEdits),
+                new Scenario("07-inspector-settings", FixtureBoard::sixClients, ShellPreview::stagedEdits),
                 new Scenario("08-inspector-script-ui", FixtureBoard::sixClients, (s, f) -> {
                     if (f == 0) {
                         s.page().openInspector(WOODCUTTER, true);
                     }
                 }),
-                new Scenario("09-toasts-failures", FixtureBoard::sixClients, NormalModePreview::failureToasts),
-                new Scenario("10-toasts-reconnect", FixtureBoard::twelveClients, NormalModePreview::reconnectToasts),
+                new Scenario("09-toasts-failures", FixtureBoard::sixClients, ShellPreview::failureToasts),
+                new Scenario("10-toasts-reconnect", FixtureBoard::twelveClients, ShellPreview::reconnectToasts),
                 new Scenario("11-picker-subscriptions-installing", FixtureBoard::subscribed,
                         pickerOnRow(HERBLORE_INSTALLING_ROW)),
                 new Scenario("12-picker-subscriptions-install-failed", FixtureBoard::subscribed,
@@ -244,7 +271,31 @@ public final class NormalModePreview extends Application {
                         pickerOnRow(0)),
                 new Scenario("14-picker-old-launcher-no-group",
                         () -> FixtureBoard.sixClients().withSubscriptions(new SubscriptionGroup.Hidden()),
-                        pickerOnRow(0)));
+                        pickerOnRow(0)),
+                Scenario.advanced("20-advanced-opens-on-clients", FixtureBoard::sixClients, nothing),
+                Scenario.advanced("21-advanced-clients-inspector", FixtureBoard::sixClients, (s, f) -> {
+                    if (f == 0) {
+                        s.page().openInspector(WOODCUTTER, false);
+                    }
+                }),
+                Scenario.advanced("22-advanced-dashboard-interim", FixtureBoard::sixClients,
+                        select(PageId.DASHBOARD)),
+                Scenario.advanced("23-advanced-view-log-opens-logs-tab", FixtureBoard::sixClients, (s, f) -> {
+                    s.pages().registry().select(PageId.DASHBOARD);
+                    s.pages().dashboard().show(s.pages().logs());
+                }),
+                Scenario.advanced("24-advanced-installed-selected", FixtureBoard::twelveClients,
+                        select(PageId.INSTALLED)),
+                Scenario.advanced("25-advanced-groups-interim", FixtureBoard::waiting, select(PageId.GROUPS)),
+                new Scenario("26-advanced-store-signed-out", AppMode.ADVANCED, FixtureBoard::sixClients,
+                        StoreSignInLine.of(Optional.of(new SdnCatalogueResult.NotSignedIn())),
+                        select(PageId.STORE)),
+                Scenario.advanced("27-advanced-settings-selected", FixtureBoard::offline,
+                        select(PageId.SETTINGS)));
+    }
+
+    private static BiConsumer<Stage, Integer> select(PageId id) {
+        return (s, f) -> s.pages().registry().select(id);
     }
 
     /** Row indices in {@link FixtureBoard#subscribed()}'s picker; subscriptions are listed by name, first. */

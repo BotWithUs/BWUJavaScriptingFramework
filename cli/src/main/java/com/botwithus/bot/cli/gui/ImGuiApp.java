@@ -25,8 +25,15 @@ import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.gui.nav.Page;
+import com.botwithus.bot.cli.gui.nav.PageId;
+import com.botwithus.bot.cli.gui.nav.PageRegistry;
+import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.gui.notify.Notification;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
+import com.botwithus.bot.cli.gui.pages.ClientsPage;
+import com.botwithus.bot.cli.gui.pages.LegacyPanelPage;
+import com.botwithus.bot.cli.gui.pages.StoreSignInLine;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
 import com.botwithus.bot.cli.gui.usermode.board.LiveClientBoard;
@@ -40,13 +47,14 @@ import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueSource;
 import com.botwithus.bot.core.sdn.SdnInstaller;
+import com.botwithus.bot.core.runtime.LocalScriptLoader;
+import com.botwithus.bot.core.runtime.ManagementScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 
 import imgui.ImGui;
 import imgui.app.Application;
 import imgui.app.Configuration;
 import imgui.flag.ImGuiConfigFlags;
-import imgui.flag.ImGuiCol;
 
 import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.spi.ILoggingEvent;
@@ -64,12 +72,13 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Main imgui-based application with tabbed GUI panels.
- * Each tab renders via the {@link GuiPanel} interface.
+ * Main imgui-based application. The shell draws Normal mode's Clients page, or
+ * Advanced mode's sidebar and the selected page from the {@link PageRegistry}.
  */
 public class ImGuiApp extends Application {
 
@@ -109,11 +118,11 @@ public class ImGuiApp extends Application {
         return t;
     });
 
-    // Panels
-    private final List<GuiPanel> panels = new ArrayList<>();
+    // Pages. The Dashboard is kept so "View log" can bring its Logs tab forward.
+    private PageRegistry pages;
+    private LegacyPanelPage dashboard;
     private SdnScriptsPanel sdnScriptsPanel;
     private GuiPanel logsPanel;
-    private int selectedPanel = 0;
     private float dpiScale = 1f;
 
 
@@ -305,30 +314,53 @@ public class ImGuiApp extends Application {
         SdnCatalogueRefresher sdnCatalogue = SdnScriptsPanel.catalogueRefresher(new SdnCatalogueSource());
         SdnInstaller sdnInstaller = new SdnInstaller();
         board = new LiveClientBoard(ctx, clientId -> openLogs(), clock, sdnCatalogue, sdnInstaller, executor);
-        shell = new Shell(ui, new UserModeRenderer(ui), notificationOverlay);
+        pages = new PageRegistry(buildPages(sdnCatalogue, sdnInstaller));
+        shell = new Shell(ui, pages, notificationOverlay);
         ctx.setOnConnect(conn -> {
             if (conn.getEventBus() != null) {
                 notificationOverlay.subscribeTo(conn.getEventBus());
             }
         });
+    }
 
-        panels.add(new ConsolePanel(outputBuffer, registry, executor, this::shutdown));
-        panels.add(new ConnectionsPanel(executor, registry));
-        panels.add(new ScriptsPanel(executor));
+    /**
+     * The Advanced pages. Until each redesigned page lands, the pre-redesign
+     * panels are hosted as interim pages so nothing goes missing: Console, Logs
+     * and Diagnostics are the Dashboard's tabs, and Script UI sits beside the
+     * Scripts panel under Installed scripts.
+     */
+    private List<LegacyPanelPage> legacyPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
+        logsPanel = new LogsPanel();
+        dashboard = new LegacyPanelPage(PageId.DASHBOARD, ui, ctx,
+                List.of(new ConsolePanel(outputBuffer, registry, executor, this::shutdown), logsPanel,
+                        new DiagnosticsPanel()), Optional::empty);
         ManagementScriptsPanel mgmtPanel = new ManagementScriptsPanel(executor);
         mgmtPanel.setConfigOpener(runner -> managementConfigPanel.open(runner));
-        panels.add(mgmtPanel);
-        panels.add(new ScriptUIPanel());
-        logsPanel = new LogsPanel();
-        panels.add(logsPanel);
-        panels.add(new GroupsPanel());
-        panels.add(new DiagnosticsPanel());
-        panels.add(new SettingsPanel());
-        // Appended last on purpose: NAV_SECTION_PANELS and NAV_ICONS index into
-        // this list positionally, so inserting anywhere else renumbers every
-        // panel after it.
         sdnScriptsPanel = new SdnScriptsPanel(executor, sdnCatalogue, sdnInstaller);
-        panels.add(sdnScriptsPanel);
+        Path scriptsDir = LocalScriptLoader.scriptsDir();
+        Optional<SecondLine> scriptsLine = Optional.of(folderLine(scriptsDir));
+        Optional<SecondLine> managementLine = Optional.of(folderLine(ManagementScriptLoader.managementDirIn(scriptsDir)));
+        return List.of(
+                dashboard,
+                LegacyPanelPage.of(PageId.CONNECTIONS, ui, ctx, new ConnectionsPanel(executor, registry)),
+                LegacyPanelPage.of(PageId.GROUPS, ui, ctx, new GroupsPanel()),
+                new LegacyPanelPage(PageId.INSTALLED, ui, ctx,
+                        List.of(new ScriptsPanel(executor), new ScriptUIPanel()), () -> scriptsLine),
+                new LegacyPanelPage(PageId.MANAGEMENT, ui, ctx, List.of(mgmtPanel), () -> managementLine),
+                new LegacyPanelPage(PageId.STORE, ui, ctx, List.of(sdnScriptsPanel),
+                        () -> Optional.of(StoreSignInLine.of(sdnCatalogue.shown()))),
+                LegacyPanelPage.of(PageId.SETTINGS, ui, ctx, new SettingsPanel()));
+    }
+
+    private List<Page> buildPages(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
+        List<Page> all = new ArrayList<>(legacyPages(sdnCatalogue, sdnInstaller));
+        all.add(new ClientsPage(new UserModeRenderer(ui), board));
+        return all;
+    }
+
+    /** A folder as the sidebar's second line shows it, relative to where the host runs from. */
+    private static SecondLine folderLine(Path dir) {
+        return SecondLine.FolderPath.of(dir, Path.of(""), Path.of(System.getProperty("user.home")));
     }
 
     /**
@@ -371,8 +403,7 @@ public class ImGuiApp extends Application {
         // openLogs() runs inside render (card "View log", toast actions), so it
         // requests the switch rather than setting currentMode, which the render's
         // own result would overwrite.
-        currentMode = modeRequest.resolve(
-                shell.render(currentMode, board, this::renderDeveloperMode, this::onToastAction));
+        currentMode = modeRequest.resolve(shell.render(currentMode, board, this::onToastAction));
 
         // Render script custom UI as a floating window (outside the main window)
         if (scriptUIWindow != null && scriptUIWindow.isOpen()) {
@@ -391,146 +422,6 @@ public class ImGuiApp extends Application {
 
         // Update window title based on connection state
         updateTitle();
-    }
-
-    /**
-     * Render the full Advanced mode UI with sidebar navigation and panels.
-     */
-    private void renderDeveloperMode() {
-        // Sidebar width: icon + longest label + padding
-        float sidebarWidth = ImGui.getFrameHeight() + ImGui.calcTextSize("Management").x
-                + ImGui.getStyle().getWindowPaddingX() * 2 + 48f;
-        float contentHeight = ImGui.getContentRegionAvailY();
-
-        // --- Sidebar Navigation ---
-        ImGui.pushStyleColor(ImGuiCol.ChildBg,
-                ImGuiTheme.SIDEBAR_BG_R, ImGuiTheme.SIDEBAR_BG_G, ImGuiTheme.SIDEBAR_BG_B, 1f);
-        ImGui.pushStyleColor(ImGuiCol.Border,
-                ImGuiTheme.BORDER_R, ImGuiTheme.BORDER_G, ImGuiTheme.BORDER_B, 0.3f);
-        ImGui.beginChild("##sidebar", sidebarWidth, contentHeight, true);
-        ImGui.popStyleColor(2);
-        renderSidebar();
-        ImGui.endChild();
-
-        ImGui.sameLine(0, 0);
-
-        // --- Content Area ---
-        ImGui.beginChild("##content", 0, contentHeight, false);
-        ImGui.spacing();
-        if (selectedPanel >= 0 && selectedPanel < panels.size()) {
-            panels.get(selectedPanel).render(ctx);
-        }
-        ImGui.endChild();
-    }
-
-    // Sidebar navigation section definitions
-    private static final String[] NAV_SECTION_LABELS = {"CORE", "EXTENSIONS", "SYSTEM"};
-    private static final int[][] NAV_SECTION_PANELS = {
-        {0, 1, 2},      // Console, Connections, Scripts
-        {3, 4, 6, 9},   // Management, Script UI, Groups, Scripts Store
-        {5, 7, 8}       // Logs, Diagnostics, Settings
-    };
-    // Font Awesome icons for each panel (matching panel order in the panels list)
-    private static final String[] NAV_ICONS = {
-        Icons.TERMINAL,     // 0 Console
-        Icons.PLUG,         // 1 Connections
-        Icons.CODE,         // 2 Scripts
-        Icons.ROBOT,        // 3 Management
-        Icons.WINDOW,       // 4 Script UI
-        Icons.LIST,         // 5 Logs
-        Icons.LAYER_GROUP,  // 6 Groups
-        Icons.CHART,        // 7 Diagnostics
-        Icons.GEAR,         // 8 Settings
-        Icons.DOWNLOAD,     // 9 Scripts Store
-    };
-
-    private void renderSidebar() {
-        float fontH = ImGui.getFontSize();
-        float indent = ImGui.getStyle().getWindowPaddingX() * 0.5f;
-
-        // The brand mark lives in the shared top bar now; the sidebar starts
-        // straight at its first section.
-        ImGui.dummy(0f, fontH * 0.4f);
-        renderNavigation(fontH, indent);
-    }
-
-    private void renderNavigation(float fontH, float indent) {
-        for (int s = 0; s < NAV_SECTION_LABELS.length; s++) {
-            ImGui.dummy(0f, fontH * 0.6f);
-            ImGui.setCursorPosX(ImGui.getCursorPosX() + indent);
-            ImGui.textColored(
-                    ImGuiTheme.DIM_TEXT_R, ImGuiTheme.DIM_TEXT_G, ImGuiTheme.DIM_TEXT_B, 0.55f,
-                    NAV_SECTION_LABELS[s]);
-            ImGui.dummy(0f, fontH * 0.15f);
-
-            for (int p : NAV_SECTION_PANELS[s]) {
-                if (p >= panels.size()) {
-                    continue;
-                }
-                renderNavItem(p, fontH, indent);
-            }
-        }
-    }
-
-    private void renderNavItem(int p, float fontH, float indent) {
-        boolean isActive = (p == selectedPanel);
-
-        // Per-item animated hover weight, plus eased "active" animation
-        // for the left accent bar to slide into place.
-        String hoverKey = "nav:h:" + p;
-        String activeKey = "nav:a:" + p;
-
-        // Transparent selectable (we'll draw our own background + accent)
-        ImGui.pushStyleColor(ImGuiCol.Header, 0f, 0f, 0f, 0f);
-        ImGui.pushStyleColor(ImGuiCol.HeaderHovered, 0f, 0f, 0f, 0f);
-        ImGui.pushStyleColor(ImGuiCol.HeaderActive, 0f, 0f, 0f, 0f);
-
-        String icon = p < NAV_ICONS.length ? NAV_ICONS[p] : "";
-        // leading space reserved for the accent bar + icon gutter
-        String label = "    " + icon + "   " + panels.get(p).title() + "##nav" + p;
-
-        if (ImGui.selectable(label, isActive)) {
-            selectedPanel = p;
-        }
-        boolean hovered = ImGui.isItemHovered();
-        float hoverT = Motion.hover(hoverKey, hovered);
-        float activeT = Motion.step(activeKey, isActive ? 1f : 0f, 14f);
-
-        ImGui.popStyleColor(3);
-        drawNavItemAccent(fontH, indent, hoverT, activeT);
-    }
-
-    private static void drawNavItemAccent(float fontH, float indent, float hoverT, float activeT) {
-        var draw = ImGui.getWindowDrawList();
-        // Custom-drawn row background
-        float x0 = ImGui.getItemRectMinX();
-        float y0 = ImGui.getItemRectMinY();
-        float x1 = ImGui.getItemRectMaxX();
-        float y1 = ImGui.getItemRectMaxY();
-        float rowH = y1 - y0;
-        float rounding = fontH * 0.3f;
-
-        // Hover wash (fades in), active tint (stronger)
-        float bgAlpha = 0.05f * hoverT + 0.12f * activeT;
-        if (bgAlpha > 0.001f) {
-            int bg = ImGuiTheme.imCol32(
-                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, bgAlpha);
-            draw.addRectFilled(x0 + indent * 0.25f, y0, x1 - indent * 0.25f, y1,
-                    bg, rounding);
-        }
-
-        // Left accent bar — height animates with activeT (Motion eases it in)
-        if (activeT > 0.02f) {
-            float barPadY = rowH * 0.18f;
-            float fullH = rowH - barPadY * 2f;
-            float h = fullH * Motion.easeOutCubic(activeT);
-            float by0 = y0 + (rowH - h) * 0.5f;
-            float bw = Math.max(2.5f, fontH * 0.2f);
-            int col = ImGuiTheme.imCol32(
-                    ImGuiTheme.ACCENT_R, ImGuiTheme.ACCENT_G, ImGuiTheme.ACCENT_B, activeT);
-            draw.addRectFilled(x0 + indent * 0.25f, by0,
-                    x0 + indent * 0.25f + bw, by0 + h, col, bw * 0.5f);
-        }
     }
 
     private static final String LOG_BUFFER_APPENDER_NAME = "LOG_BUFFER";
@@ -563,10 +454,11 @@ public class ImGuiApp extends Application {
         }
     }
 
-    /** Switches to Advanced, Logs panel, where script and connection logs are shown. */
+    /** Switches to Advanced, Dashboard, Logs tab, where script and connection logs are shown. */
     private void openLogs() {
         modeRequest.request(AppMode.ADVANCED);
-        selectedPanel = panels.indexOf(logsPanel);
+        pages.select(PageId.DASHBOARD);
+        dashboard.show(logsPanel);
     }
 
     private void onToastAction(Notification n) {

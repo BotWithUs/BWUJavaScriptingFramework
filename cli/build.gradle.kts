@@ -123,11 +123,12 @@ tasks.named<JavaExec>("run") {
         ?.let { jvmArgs("-Dbotwithus.gameval=$it") }
 }
 
-// ── Dev-only Normal-mode preview ─────────────────────────────────────────────
-// Renders the Normal-mode UI with fixture data (every card state, 6 and 12
-// clients, empty, host offline, picker, inspector, toasts) and writes one PNG
-// per scenario to build/preview/. It is how a UI change is checked without a
-// game client or a person clicking through it.
+// ── Dev-only UI preview ──────────────────────────────────────────────────────
+// Renders the UI with fixture data and writes one PNG per scenario to
+// build/preview/: Normal mode (every card state, 6 and 12 clients, empty, host
+// offline, picker, inspector, toasts) and Advanced mode (the sidebar and its
+// pages). It is how a UI change is checked without a game client or a person
+// clicking through it.
 //
 // Gated by construction: the code lives in its own `preview` source set, which
 // the `jar` task, the jlink image and the installer never read, so none of it can
@@ -142,16 +143,23 @@ val preview: SourceSet by sourceSets.creating {
 // this it could stop compiling and nobody would notice until the next UI change.
 tasks.named("check") { dependsOn(preview.classesTaskName) }
 
-tasks.register<JavaExec>("renderNormalModePreviews") {
-    description = "Dev only: renders Normal mode from fixtures and writes one PNG per scenario to build/preview"
+val renderPreviews by tasks.registering(JavaExec::class) {
+    description = "Dev only: renders both modes from fixtures and writes one PNG per scenario to build/preview"
     group = "verification"
     dependsOn(extractNatives)
     classpath = preview.runtimeClasspath
-    mainClass = "com.botwithus.bot.cli.gui.preview.NormalModePreview"
+    mainClass = "com.botwithus.bot.cli.gui.preview.ShellPreview"
     val outDir = layout.buildDirectory.dir("preview")
     args(outDir.get().asFile.absolutePath)
     jvmArgs("-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}")
     outputs.upToDateWhen { false }
+}
+
+// The task's name before it drew Advanced mode too; kept so existing habits still work.
+tasks.register("renderNormalModePreviews") {
+    description = "Dev only: alias of renderPreviews"
+    group = "verification"
+    dependsOn(renderPreviews)
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink

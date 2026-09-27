@@ -19,6 +19,11 @@ public final class Icons {
     public static final String LIST        = "\uF03A";  // fa-list
     public static final String GEAR        = "\uF013";  // fa-gear
     public static final String SLIDERS     = "\uF1DE";  // fa-sliders
+    public static final String GAUGE_HIGH  = "\uF625";  // fa-gauge-high
+    public static final String HARD_DRIVE  = "\uF0A0";  // fa-hard-drive
+    public static final String FOLDER_OPEN = "\uF07C";  // fa-folder-open
+    public static final String CLOUD       = "\uF0C2";  // fa-cloud
+    public static final String BAG_SHOPPING = "\uF290"; // fa-bag-shopping
 
     // Actions
     public static final String PLAY        = "\uF04B";  // fa-play

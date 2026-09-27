@@ -54,9 +54,16 @@ public final class ManagementScriptLoader {
      * {@code scripts/management/} directory.
      */
     public static List<ManagementScript> loadScripts() {
-        Path scriptsDir = LocalScriptLoader.resolveScriptsDir();
-        Path managementDir = scriptsDir.resolve(MANAGEMENT_DIR);
-        return loadScripts(managementDir);
+        return loadScripts(managementDirIn(LocalScriptLoader.resolveScriptsDir()));
+    }
+
+    /**
+     * The folder inside {@code scriptsDir} that management scripts load from.
+     * Public so the GUI names the folder this loader reads rather than a copy
+     * of its name.
+     */
+    public static Path managementDirIn(Path scriptsDir) {
+        return scriptsDir.resolve(MANAGEMENT_DIR);
     }
 
     /**
