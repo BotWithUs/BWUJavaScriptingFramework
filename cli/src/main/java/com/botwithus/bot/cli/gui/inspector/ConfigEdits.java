@@ -105,6 +105,11 @@ final class ConfigEdits {
         }
     }
 
+    /** Sets {@code field}'s pending value, as if the user had typed {@code value}. */
+    void set(ConfigField field, String value) {
+        seed(field, value);
+    }
+
     /** Whether every pending value already equals its field's declared default. */
     boolean isAtDefaults() {
         return fields.stream().allMatch(f -> Objects.equals(pending(f), f.defaultAsString()));

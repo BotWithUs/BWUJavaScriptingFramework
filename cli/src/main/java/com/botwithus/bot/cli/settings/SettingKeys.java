@@ -1,5 +1,8 @@
 package com.botwithus.bot.cli.settings;
 
+import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.runtime.ScriptRuntime;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -28,7 +31,7 @@ public final class SettingKeys {
     private static final long DEFAULT_SCAN_INTERVAL_MS = 5 * MS_PER_SECOND;
     private static final long MIN_SCAN_INTERVAL_MS = 500L;
     private static final long MAX_SCAN_INTERVAL_MS = 10 * MS_PER_MINUTE;
-    private static final long DEFAULT_RPC_TIMEOUT_MS = 10 * MS_PER_SECOND;
+    private static final long DEFAULT_RPC_TIMEOUT_MS = RpcClient.DEFAULT_TIMEOUT_MS;
     private static final long MIN_RPC_TIMEOUT_MS = 100L;
     private static final long MAX_RPC_TIMEOUT_MS = 10 * MS_PER_MINUTE;
 
@@ -41,11 +44,12 @@ public final class SettingKeys {
     private static final long DEFAULT_RECONNECT_MAX_DELAY_MS = 15 * MS_PER_SECOND;
     private static final long MAX_RECONNECT_MAX_DELAY_MS = 10 * MS_PER_MINUTE;
 
-    private static final long DEFAULT_STALL_AFTER_MS = 10 * MS_PER_MINUTE;
+    private static final long DEFAULT_STALL_AFTER_MS = ScriptRuntime.DEFAULT_STALL_AFTER_MS;
     private static final long MIN_STALL_AFTER_MS = 10 * MS_PER_SECOND;
     private static final long MAX_STALL_AFTER_MS = 60 * MS_PER_MINUTE;
 
-    private static final long DEFAULT_TOAST_SECONDS = 5L;
+    /** How long the design keeps a pop-up up. */
+    private static final long DEFAULT_TOAST_SECONDS = 6L;
     private static final long MIN_TOAST_SECONDS = 1L;
     private static final long MAX_TOAST_SECONDS = 120L;
 
@@ -227,7 +231,9 @@ public final class SettingKeys {
         for (NotificationKind kind : NotificationKind.values()) {
             keys.add(notifyEnabled(kind));
         }
-        keys.addAll(List.of(NOTIFY_DURATION_S, START_MODE, TEXT_SIZE, REDUCE_MOTION, NATIVE_FRAME,
+        keys.add(NOTIFY_DURATION_S);
+        keys.addAll(AlertSettingKeys.ALL);
+        keys.addAll(List.of(START_MODE, TEXT_SIZE, REDUCE_MOTION, NATIVE_FRAME,
                 WINDOW_X, WINDOW_Y, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_MAXIMISED,
                 COLLECT_RPC_TIMING, COLLECT_LOOP_TIMING));
         return List.copyOf(keys);

@@ -25,6 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -88,6 +89,8 @@ class CliContextReloadTest {
         runtimes.add(runtime);
         Connection conn = mock(Connection.class);
         when(conn.getName()).thenReturn(name);
+        // Tests use the same name for a client's pipe and its account.
+        when(conn.getIdentifiedUuid()).thenReturn(Optional.of(name));
         when(conn.isAlive()).thenReturn(true);
         when(conn.getRuntime()).thenReturn(runtime);
         return conn;
@@ -177,9 +180,9 @@ class CliContextReloadTest {
     void theReloadCommand_restartsPairsAcrossAGroup_andNamesTheMissingOne() {
         settings.set(SettingKeys.RESTART_AFTER_RELOAD, true);
         List<Connection> clients = twoClientsRunningDifferentScripts();
-        ctx.createGroup("farm");
-        ctx.getGroup("farm").add("Bot1");
-        ctx.getGroup("farm").add("Bot2");
+        TestContexts.createGroup(ctx, "farm");
+        TestContexts.addMember(ctx, "farm", "Bot1");
+        TestContexts.addMember(ctx, "farm", "Bot2");
         doReturn(clients).when(ctx).getGroupConnections("farm");
         jarsYield(() -> List.of(new Alpha()));
 
@@ -196,9 +199,9 @@ class CliContextReloadTest {
     @Test
     void reloadStart_startsEveryScriptOnEveryClient_whateverWasRunning() {
         List<Connection> clients = twoClientsRunningDifferentScripts();
-        ctx.createGroup("farm");
-        ctx.getGroup("farm").add("Bot1");
-        ctx.getGroup("farm").add("Bot2");
+        TestContexts.createGroup(ctx, "farm");
+        TestContexts.addMember(ctx, "farm", "Bot1");
+        TestContexts.addMember(ctx, "farm", "Bot2");
         doReturn(clients).when(ctx).getGroupConnections("farm");
         jarsYield(() -> List.of(new Alpha(), new Beta()));
 

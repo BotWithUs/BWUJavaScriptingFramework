@@ -18,6 +18,7 @@ public class ExitCommand implements Command {
         ctx.out().println("Shutting down...");
         ctx.disconnectAll();
         ctx.saveClients();
+        ctx.stopAlerts();
         ctx.closeGamevals();
         System.exit(0);
     }
