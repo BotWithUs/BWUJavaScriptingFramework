@@ -14,9 +14,16 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * Builds the font atlas: the Advanced-mode default font first (so every panel
- * that never pushes a font keeps its size), then the redesign's token fonts.
- * Every font has Font Awesome merged in, so icons and text share a line.
+ * Builds the font atlas: the default font first, then the token fonts
+ * ({@link UiFonts}). Every font has Font Awesome merged in, so icons and text
+ * share a line.
+ *
+ * <p>The host's own pages draw only with the token fonts. The default font is
+ * what imgui uses when nothing is pushed, and two things still rely on it: a
+ * script's own UI ({@code ScriptUI.render()}, drawn in the inspector's Script UI
+ * tab), which the host frames but deliberately does not restyle, so scripts keep
+ * the size they were written against; and imgui's own text outside a pushed
+ * font, such as tooltips.</p>
  */
 public final class FontLoader {
 
@@ -47,9 +54,9 @@ public final class FontLoader {
      * Clears the atlas and loads every font.
      *
      * @param scale         DPI scale; sizes are rounded to whole pixels after scaling
-     * @param advancedPx    size of the Advanced-mode default font at 100%
+     * @param defaultPx     size of the default font at 100%
      */
-    public static UiFonts loadAll(float scale, float advancedPx) {
+    public static UiFonts loadAll(float scale, float defaultPx) {
         ImFontAtlas atlas = ImGui.getIO().getFonts();
         atlas.clear();
         byte[] regular = readFont(INTER_REGULAR);
@@ -59,7 +66,7 @@ public final class FontLoader {
         if (regular == null) {
             regular = loadSystemFont("segoeui.ttf", "arial.ttf", "verdana.ttf");
         }
-        add(atlas, regular, px(advancedPx, scale), icons, DEFAULT_OVERSAMPLE);
+        add(atlas, regular, px(defaultPx, scale), icons, DEFAULT_OVERSAMPLE);
         byte[] mediumOrRegular = medium != null ? medium : regular;
         byte[] monoOrRegular = mono != null ? mono : regular;
         UiFonts fonts = new UiFonts(

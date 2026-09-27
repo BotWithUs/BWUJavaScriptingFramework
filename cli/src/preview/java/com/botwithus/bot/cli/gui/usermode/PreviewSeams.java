@@ -1,11 +1,9 @@
 package com.botwithus.bot.cli.gui.usermode;
 
-import imgui.type.ImInt;
-
 /**
  * The dev preview's reach into package-private Normal-mode state: selecting a
- * view segment and staging an edit in the inspector, which a real user does by
- * clicking. Lives in the preview source set only; nothing here ships.
+ * view segment, highlighting a picker row and searching the picker, which a
+ * real user does by clicking and typing. Lives in the preview source set only; nothing here ships.
  */
 public final class PreviewSeams {
 
@@ -15,25 +13,17 @@ public final class PreviewSeams {
         page.showView(ClientFilter.View.NEEDS_ATTENTION);
     }
 
+    public static void showRunning(UserModeRenderer page) {
+        page.showView(ClientFilter.View.RUNNING);
+    }
+
     /** Highlights row {@code index} of the open picker, as ↑↓ would. */
     public static void highlightPickerRow(UserModeRenderer page, int index) {
         page.highlightPickerRow(index);
     }
 
-    /**
-     * Sets an int-backed field (int, item id, or choice index) in the open
-     * inspector. Returns false until the inspector has drawn its first frame.
-     */
-    public static boolean stageEdit(UserModeRenderer page, String key, int value) {
-        ConfigEdits edits = page.inspector().edits();
-        if (edits == null) {
-            return false;
-        }
-        ImInt field = edits.intOf(key);
-        if (field == null) {
-            return false;
-        }
-        field.set(value);
-        return true;
+    /** Types {@code text} into the picker's search box; call it on the frame the picker opens. */
+    public static void searchPicker(UserModeRenderer page, String text) {
+        page.searchPicker(text);
     }
 }

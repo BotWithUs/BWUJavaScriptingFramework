@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -48,6 +49,7 @@ public final class ConnectionStatusTracker implements AutoCloseable {
 
     private final Executor refreshExecutor;
     private final Duration pollInterval;
+    private final Consumer<Connection> onRefreshed;
     /** Connections with a refresh queued but not yet started, so bursts of events coalesce. */
     private final Set<Connection> queued = ConcurrentHashMap.newKeySet();
     private final Object pollLock = new Object();
@@ -59,8 +61,19 @@ public final class ConnectionStatusTracker implements AutoCloseable {
      * @param pollInterval    how often {@link #startPolling} re-reads connections
      */
     public ConnectionStatusTracker(Executor refreshExecutor, Duration pollInterval) {
+        this(refreshExecutor, pollInterval, conn -> { });
+    }
+
+    /**
+     * @param onRefreshed told after every successful {@link #refresh}, on the
+     *                    thread that ran it, once the connection holds the new
+     *                    account and game status. Must not block; a throw is logged.
+     */
+    public ConnectionStatusTracker(Executor refreshExecutor, Duration pollInterval,
+                                   Consumer<Connection> onRefreshed) {
         this.refreshExecutor = refreshExecutor;
         this.pollInterval = pollInterval;
+        this.onRefreshed = onRefreshed;
     }
 
     /**
@@ -111,6 +124,7 @@ public final class ConnectionStatusTracker implements AutoCloseable {
         OptionalInt world = inGame ? readWorld(rpc, conn.getName()) : OptionalInt.empty();
         GameStatus status = new GameStatus(state, world, inGame && reply.isMember());
         conn.publishGameStatus(ticket, previous -> status);
+        notifyRefreshed(conn);
         return reply;
     }
 
@@ -181,6 +195,14 @@ public final class ConnectionStatusTracker implements AutoCloseable {
             case ReconnectState.Disconnected ignored -> { }
             case ReconnectState.Reconnecting ignored -> { }
             case ReconnectState.GivingUp ignored -> { }
+        }
+    }
+
+    private void notifyRefreshed(Connection conn) {
+        try {
+            onRefreshed.accept(conn);
+        } catch (RuntimeException e) {
+            log.warn("Status refresh listener threw for '{}': {}", conn.getName(), e.toString());
         }
     }
 

@@ -14,7 +14,9 @@ package com.botwithus.bot.api.runtime;
  *       {@link Reconnecting} immediately afterward.</li>
  *   <li>{@link Reconnecting} — a retry attempt is scheduled or in flight.
  *       {@link Reconnecting#attempt()} is 1-indexed.</li>
- *   <li>{@link GivingUp} — the policy's attempt budget was exhausted.</li>
+ *   <li>{@link GivingUp} — nothing is retrying any more: the attempt budget
+ *       ran out, the client's pipe cannot come back, or the user stopped
+ *       retrying. The host may still start a fresh recovery on request.</li>
  * </ul>
  *
  * <p>This type lives in the {@code api} module (not {@code core.rpc}) so that

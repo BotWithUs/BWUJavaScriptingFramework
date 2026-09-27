@@ -1,11 +1,16 @@
 package com.botwithus.bot.core.sdn;
 
+import com.botwithus.bot.api.ScriptCategory;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -14,6 +19,7 @@ import java.util.List;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.locks.ReentrantLock;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -29,6 +35,22 @@ class SdnCatalogueSourceTest {
 
     private static final Duration SHORT = Duration.ofMillis(300);
     private static final long RACE_TIMEOUT_SECONDS = 30;
+
+    /**
+     * The head every launcher-written row shares, as its serializer emits it. The
+     * three tails below are the launcher's output for a paid script, a free one
+     * (the site sent nulls, so the launcher omits the keys) and an older site.
+     */
+    private static final String LAUNCHER_ROW_HEAD = "{\"id\":\"41\",\"name\":\"Gold Farmer\","
+            + "\"author\":\"ada\",\"subscriber\":\"bob\",\"version\":\"3\",\"apiVersion\":\"2\","
+            + "\"tagline\":\"\",\"description\":\"\",\"scriptClass\":\"a.B\","
+            + "\"agentv1Support\":false,\"agentv2Support\":true";
+    private static final String LAUNCHER_PAID_TAIL = ",\"subscribed\":true,\"isFree\":false,"
+            + "\"category\":\"money_making\",\"price\":{\"amount\":\"4.99\",\"duration\":\"monthly\"},"
+            + "\"currentBuild\":7}";
+    private static final String LAUNCHER_FREE_TAIL = ",\"subscribed\":true,\"isFree\":true}";
+    private static final String LAUNCHER_OLD_SERVER_TAIL = "}";
+    private static final int PAID_BUILD = 7;
 
     @TempDir
     Path dir;
@@ -160,6 +182,127 @@ class SdnCatalogueSourceTest {
 
         assertNull(entry.subscribed());
         assertNull(entry.isFree(), "a string is not a JSON boolean");
+    }
+
+    // Store fields: category, price, currentBuild ---------------------------
+
+    @Test
+    void fetch_launcherPaidRow_parsesEveryStoreField() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry(LAUNCHER_ROW_HEAD + LAUNCHER_PAID_TAIL);
+
+        assertAll(
+                () -> assertEquals("money_making", entry.category()),
+                () -> assertEquals(ScriptCategory.MONEYMAKING, entry.scriptCategory()),
+                () -> assertEquals(new SdnPrice(new BigDecimal("4.99"), "monthly"), entry.price()),
+                () -> assertEquals(Integer.valueOf(PAID_BUILD), entry.currentBuild()),
+                () -> assertEquals(SdnCatalogueEntry.Pricing.PAID, entry.pricing()),
+                () -> assertEquals("Gold Farmer", entry.name(), "the rest of the row is unaffected"));
+    }
+
+    @Test
+    void fetch_launcherFreeRow_omittedStoreFieldsReadAsNull() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry(LAUNCHER_ROW_HEAD + LAUNCHER_FREE_TAIL);
+
+        assertAll(
+                () -> assertNull(entry.category()),
+                () -> assertNull(entry.price()),
+                () -> assertNull(entry.currentBuild()),
+                () -> assertEquals(SdnCatalogueEntry.Pricing.FREE, entry.pricing()));
+    }
+
+    @Test
+    void fetch_launcherRowFromAnOlderSite_storeFieldsAndPricingAreUnknown() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry(LAUNCHER_ROW_HEAD + LAUNCHER_OLD_SERVER_TAIL);
+
+        assertAll(
+                () -> assertNull(entry.category()),
+                () -> assertEquals(ScriptCategory.UNCATEGORIZED, entry.scriptCategory()),
+                () -> assertNull(entry.price()),
+                () -> assertNull(entry.currentBuild()),
+                () -> assertEquals(SdnCatalogueEntry.Pricing.UNKNOWN, entry.pricing(),
+                        "no price and no isFree is not proof of free"));
+    }
+
+    @Test
+    void fetch_storeFieldsJsonNull_readAsNull() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","category":null,"price":null,"currentBuild":null}""");
+
+        assertAll(
+                () -> assertNull(entry.category()),
+                () -> assertNull(entry.price()),
+                () -> assertNull(entry.currentBuild()));
+    }
+
+    @Test
+    void fetch_priceKeepsTheAmountExact() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","price":{"amount":"49.10","duration":"yearly"}}""");
+
+        assertEquals("49.10", entry.price().amount().toPlainString(), "a double would lose this");
+        assertEquals("yearly", entry.price().duration());
+    }
+
+    @Test
+    void fetch_unknownCategorySlug_keepsTheSlugButShowsUncategorized() throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("""
+                {"id":"1","name":"A","category":"underwater_basket_weaving"}""");
+
+        assertEquals("underwater_basket_weaving", entry.category());
+        assertEquals(ScriptCategory.UNCATEGORIZED, entry.scriptCategory());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"5", "true", "{}", "[\"combat\"]", "\"\"", "\"  \""})
+    void fetch_categoryNotANonBlankString_readsAsNull(String value) throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("{\"id\":\"1\",\"name\":\"A\",\"category\":" + value + "}");
+
+        assertNull(entry.category());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "\"4.99\"",
+        "4.99",
+        "[]",
+        "{}",
+        "{\"amount\":4.99,\"duration\":\"monthly\"}",
+        "{\"amount\":\"4.99\"}",
+        "{\"duration\":\"monthly\"}",
+        "{\"amount\":\"4.99\",\"duration\":null}",
+        "{\"amount\":\"4.99\",\"duration\":7}",
+        "{\"amount\":\"four\",\"duration\":\"monthly\"}",
+        "{\"amount\":\"-1.00\",\"duration\":\"monthly\"}",
+        "{\"amount\":\"4.99\",\"duration\":\"\"}"
+    })
+    void fetch_priceNotAWholeStringPair_readsAsNull(String value) throws IOException {
+        SdnCatalogueEntry entry = onlyEntry("{\"id\":\"1\",\"name\":\"A\",\"price\":" + value + "}");
+
+        assertNull(entry.price());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"7\"", "7.5", "7.0", "1e3", "true", "{}", "[7]", "99999999999"})
+    void fetch_currentBuildNotAnIntInRange_readsAsNull(String value) throws IOException {
+        SdnCatalogueEntry entry = onlyEntry(
+                "{\"id\":\"1\",\"name\":\"A\",\"currentBuild\":" + value + "}");
+
+        assertNull(entry.currentBuild());
+    }
+
+    /** One malformed row must cost only its own field, never the catalogue or its neighbours. */
+    @Test
+    void fetch_wrongTypedStoreFields_keepTheCatalogueAndTheOtherRows() throws IOException {
+        courierAnswers("{\"status\":\"ok\",\"entries\":["
+                + "{\"id\":\"1\",\"name\":\"Bad\",\"category\":5,\"price\":\"free\",\"currentBuild\":\"x\"},"
+                + LAUNCHER_ROW_HEAD + LAUNCHER_PAID_TAIL + "]}");
+
+        SdnCatalogueResult.Delivered delivered = assertInstanceOf(
+                SdnCatalogueResult.Delivered.class, source.fetch(SHORT));
+
+        assertEquals(2, delivered.entries().size());
+        assertEquals("Bad", delivered.entries().get(0).name());
+        assertEquals(Integer.valueOf(PAID_BUILD), delivered.entries().get(1).currentBuild());
     }
 
     private SdnCatalogueEntry onlyEntry(String entryJson) throws IOException {

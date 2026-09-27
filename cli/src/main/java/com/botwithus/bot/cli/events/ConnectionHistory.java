@@ -4,9 +4,12 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -16,7 +19,12 @@ import java.util.function.Consumer;
  * history, so a noisy client can only ever evict its own past; host-wide events
  * (load failures, management scripts) keep a separate one of the same bound.
  * History outlives the connection it describes, so a closed client's timeline
- * stays readable.</p>
+ * stays readable until the client is forgotten.</p>
+ *
+ * <p>Histories are kept per {@link ClientKey}. A client's events are keyed by
+ * its pipe until it is identified; the {@link HostEvent.ClientIdentified} moves
+ * what the pipe gathered onto the client's settled key, merged in order with
+ * anything already there, as when a client comes back on a new pipe.</p>
  *
  * <p>Thread-safe. Every read returns an immutable snapshot that later events
  * never change, so the render thread can iterate one freely.</p>
@@ -32,7 +40,11 @@ public final class ConnectionHistory implements Consumer<HostEvent> {
     private final int capacity;
     private final Object lock = new Object();
     /** Per client, in the order clients were first seen. Guarded by {@link #lock}. */
-    private final Map<String, Deque<Entry>> byClient = new LinkedHashMap<>();
+    private final Map<ClientKey, Deque<Entry>> byClient = new LinkedHashMap<>();
+    /** The key each pipe's events were last recorded under. Guarded by {@link #lock}. */
+    private final Map<String, ClientKey> keyByPipe = new HashMap<>();
+    /** Every pipe each client's history was recorded on, in first-seen order. Guarded by {@link #lock}. */
+    private final Map<ClientKey, Set<String>> pipesByClient = new HashMap<>();
     /** Guarded by {@link #lock}. */
     private final Deque<Entry> hostWide = new ArrayDeque<>();
     /** Guarded by {@link #lock}. */
@@ -53,28 +65,61 @@ public final class ConnectionHistory implements Consumer<HostEvent> {
         this.capacity = capacity;
     }
 
-    /** Records {@code event}, evicting the oldest event of the same history if it is full. */
+    /**
+     * Records {@code event}, evicting the oldest event of the same history if it
+     * is full. A {@link HostEvent.ClientIdentified} first moves the pipe's history
+     * onto the client's key. A {@link HostEvent.ClientForgotten} drops that
+     * client's history and is itself recorded host-wide, so the forget stays
+     * visible.
+     */
     @Override
     public void accept(HostEvent event) {
         synchronized (lock) {
             Deque<Entry> history = switch (event) {
-                case HostEvent.ClientEvent c -> byClient.computeIfAbsent(
-                        c.client().pipe(), pipe -> new ArrayDeque<>());
+                case HostEvent.ClientForgotten forgotten -> {
+                    forget(forgotten.client().key());
+                    yield hostWide;
+                }
+                case HostEvent.ClientIdentified identified -> {
+                    rekey(identified.client());
+                    yield historyOf(identified.client());
+                }
+                case HostEvent.ClientEvent c -> historyOf(c.client());
                 case HostEvent.ScriptLoadFailed _, HostEvent.ManagementAction _,
                      HostEvent.ManagementScriptCrashed _ -> hostWide;
             };
-            if (history.size() == capacity) {
-                history.removeFirst();
-            }
-            history.addLast(new Entry(nextSeq++, event));
+            append(history, new Entry(nextSeq++, event));
         }
     }
 
     /** A client's recorded events, oldest first. Empty for a client never seen. */
+    public List<HostEvent> forClient(ClientKey key) {
+        synchronized (lock) {
+            Deque<Entry> history = byClient.get(key);
+            return history == null ? List.of() : eventsOf(history);
+        }
+    }
+
+    /**
+     * The recorded events of the client last seen on {@code pipe}, oldest first,
+     * under whatever key that client has now. Empty for a pipe never seen.
+     */
     public List<HostEvent> forClient(String pipe) {
         synchronized (lock) {
-            Deque<Entry> history = byClient.get(pipe);
-            return history == null ? List.of() : eventsOf(history);
+            ClientKey key = keyByPipe.get(pipe);
+            return key == null ? List.of() : forClient(key);
+        }
+    }
+
+    /**
+     * Every pipe the client under {@code key} has been on while the host recorded
+     * its events, oldest first: its earlier pipes too, such as the one it was on
+     * before its game was restarted. Empty for a client never seen.
+     */
+    public List<String> pipesOf(ClientKey key) {
+        synchronized (lock) {
+            Set<String> pipes = pipesByClient.get(key);
+            return pipes == null ? List.of() : List.copyOf(pipes);
         }
     }
 
@@ -101,10 +146,56 @@ public final class ConnectionHistory implements Consumer<HostEvent> {
     }
 
     /** Every client with a history, in the order each was first seen. */
-    public List<String> clients() {
+    public List<ClientKey> clients() {
         synchronized (lock) {
             return List.copyOf(byClient.keySet());
         }
+    }
+
+    private Deque<Entry> historyOf(ClientRef client) {
+        if (client.hasPipe()) {
+            keyByPipe.put(client.pipe(), client.key());
+            pipesByClient.computeIfAbsent(client.key(), key -> new LinkedHashSet<>()).add(client.pipe());
+        }
+        return byClient.computeIfAbsent(client.key(), key -> new ArrayDeque<>());
+    }
+
+    /** Moves the history the client's pipe was recorded under onto its settled key. */
+    private void rekey(ClientRef client) {
+        ClientKey previous = keyByPipe.get(client.pipe());
+        if (previous == null || previous.equals(client.key())) {
+            return;
+        }
+        Set<String> movedPipes = pipesByClient.remove(previous);
+        if (movedPipes != null) {
+            pipesByClient.computeIfAbsent(client.key(), key -> new LinkedHashSet<>()).addAll(movedPipes);
+        }
+        Deque<Entry> moved = byClient.remove(previous);
+        if (moved == null) {
+            return;
+        }
+        Deque<Entry> target = byClient.get(client.key());
+        byClient.put(client.key(), target == null ? moved : mergeInOrder(target, moved));
+    }
+
+    private Deque<Entry> mergeInOrder(Deque<Entry> first, Deque<Entry> second) {
+        List<Entry> all = new ArrayList<>(first);
+        all.addAll(second);
+        all.sort(Comparator.comparingLong(Entry::seq));
+        return new ArrayDeque<>(all.subList(Math.max(0, all.size() - capacity), all.size()));
+    }
+
+    private void forget(ClientKey key) {
+        byClient.remove(key);
+        pipesByClient.remove(key);
+        keyByPipe.values().removeIf(key::equals);
+    }
+
+    private void append(Deque<Entry> history, Entry entry) {
+        if (history.size() == capacity) {
+            history.removeFirst();
+        }
+        history.addLast(entry);
     }
 
     private static List<HostEvent> eventsOf(Deque<Entry> history) {

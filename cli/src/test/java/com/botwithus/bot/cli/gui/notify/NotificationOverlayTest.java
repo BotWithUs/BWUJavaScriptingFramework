@@ -1,201 +1,145 @@
 package com.botwithus.bot.cli.gui.notify;
 
-import com.botwithus.bot.api.event.ConnectionLostEvent;
-import com.botwithus.bot.api.event.EventBus;
-import com.botwithus.bot.api.event.GameEvent;
-import com.botwithus.bot.api.event.ReconnectStateChangedEvent;
-import com.botwithus.bot.api.event.ScriptCrashedEvent;
-import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
-import com.botwithus.bot.api.runtime.LastCrash;
-import com.botwithus.bot.api.runtime.Phase;
-import com.botwithus.bot.api.runtime.ReconnectState;
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.gui.notify.Notification.Kind;
 import org.junit.jupiter.api.Test;
 
-import java.nio.file.Path;
-import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Consumer;
+import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * The overlay's own rules, headless: posts wait for the render thread, a
+ * client has one connection toast, errors stay, at most three show.
+ */
 class NotificationOverlayTest {
 
-    /** Minimal EventBus that records subscriptions; tests publish manually. */
-    private static final class StubBus implements EventBus {
-        final Map<Class<? extends GameEvent>, List<Consumer<? extends GameEvent>>> listeners = new HashMap<>();
+    private static final Duration LIFETIME = Duration.ofSeconds(6);
+    private static final Duration PAST_SLIDE = Duration.ofSeconds(1);
+    private static final ClientKey OAK = ClientKey.pipe("BotWithUs_1");
+    private static final ClientKey FERN = ClientKey.pipe("BotWithUs_2");
 
-        @Override
-        public <T extends GameEvent> void subscribe(Class<T> eventType, Consumer<T> listener) {
-            listeners.computeIfAbsent(eventType, k -> new CopyOnWriteArrayList<>()).add(listener);
-        }
-
-        @Override
-        public <T extends GameEvent> void unsubscribe(Class<T> eventType, Consumer<T> listener) {
-            List<Consumer<? extends GameEvent>> l = listeners.get(eventType);
-            if (l != null) {
-                l.remove(listener);
-            }
-        }
-
-        @Override
-        @SuppressWarnings("unchecked")
-        public void publish(GameEvent event) {
-            List<Consumer<? extends GameEvent>> l = listeners.get(event.getClass());
-            if (l != null) {
-                for (Consumer<? extends GameEvent> c : l) {
-                    // rule-exception: {rule:no-casts} — stub heterogeneous typed-key bag;
-                    // same pattern as core's EventBusImpl. Single dispatch site.
-                    ((Consumer<GameEvent>) c).accept(event);
-                }
-            }
-        }
-    }
-
-    /** Clock whose instant() returns a mutable Instant for time-travel tests. */
-    private static final class FakeClock extends Clock {
-        Instant now;
-
-        FakeClock(Instant start) {
-            this.now = start;
-        }
-
-        @Override public ZoneId getZone() { return ZoneId.systemDefault(); }
-        @Override public Clock withZone(ZoneId zone) { return this; }
-        @Override public Instant instant() { return now; }
-    }
+    private final MutableClock clock = new MutableClock();
+    private final NotificationOverlay overlay = new NotificationOverlay(clock);
 
     @Test
-    void subscribesToAllFourEventTypes() {
-        StubBus bus = new StubBus();
-        NotificationOverlay overlay = new NotificationOverlay();
-        overlay.subscribeTo(bus);
-        assertEquals(1, bus.listeners.get(ConnectionLostEvent.class).size());
-        assertEquals(1, bus.listeners.get(ReconnectStateChangedEvent.class).size());
-        assertEquals(1, bus.listeners.get(ScriptCrashedEvent.class).size());
-        assertEquals(1, bus.listeners.get(ScriptLoadFailedEvent.class).size());
-    }
+    void post_isShownOnlyOnceTheRenderThreadUpdates() {
+        overlay.post(timed(Kind.CONNECTION_LOST, OAK, "lost"));
 
-    @Test
-    void connectionLostPushesErrorNotification() {
-        StubBus bus = new StubBus();
-        FakeClock clock = new FakeClock(Instant.parse("2025-01-01T00:00:00Z"));
-        NotificationOverlay overlay = new NotificationOverlay(clock);
-        overlay.subscribeTo(bus);
-
-        bus.publish(new ConnectionLostEvent("test", new RuntimeException("pipe gone")));
-
+        assertTrue(overlay.active().isEmpty(), "a post from the event thread must wait for the render thread");
+        overlay.update();
         assertEquals(1, overlay.active().size());
-        Notification n = overlay.active().iterator().next();
-        assertEquals(Notification.Severity.ERROR, n.severity());
-        assertTrue(n.message().contains("test"));
     }
 
     @Test
-    void expiredNotificationsAreCulled() {
-        StubBus bus = new StubBus();
-        FakeClock clock = new FakeClock(Instant.parse("2025-01-01T00:00:00Z"));
-        NotificationOverlay overlay = new NotificationOverlay(clock);
-        overlay.subscribeTo(bus);
+    void timedToast_goesAfterItsLifetime() {
+        overlay.post(timed(Kind.RECONNECTED, OAK, "back"));
+        overlay.update();
 
-        bus.publish(new ConnectionLostEvent("test", new RuntimeException()));
-        assertEquals(1, overlay.active().size());
+        clock.advance(LIFETIME.plus(PAST_SLIDE));
+        overlay.update();
 
-        // Advance past TTL — the cull pass should drop it.
-        clock.now = clock.now.plus(NotificationOverlay.DEFAULT_TTL).plus(Duration.ofSeconds(1));
-        assertTrue(overlay.active().iterator().next().isExpired(clock.instant()));
-        // cull() is the headless half of render(); render() calls it first.
-        overlay.cull();
         assertTrue(overlay.active().isEmpty(), "an expired toast must be culled");
     }
 
     @Test
-    void reconnectingStateProducesWarnNotification() {
-        StubBus bus = new StubBus();
-        NotificationOverlay overlay = new NotificationOverlay();
-        overlay.subscribeTo(bus);
+    void errorToast_staysUntilClosed() {
+        overlay.post(sticky(Kind.SCRIPT_CRASHED, OAK, "crashed"));
+        overlay.update();
 
-        bus.publish(new ReconnectStateChangedEvent("test",
-                new ReconnectState.Reconnecting(0L, 2, 500L)));
+        clock.advance(Duration.ofHours(1));
+        overlay.update();
 
         assertEquals(1, overlay.active().size());
-        Notification n = overlay.active().iterator().next();
-        assertEquals(Notification.Severity.WARN, n.severity());
-        assertTrue(n.message().contains("attempt 2"));
+        assertEquals(Optional.empty(), overlay.active().getFirst().expiresAt());
     }
 
     @Test
-    void disconnectedStateIsSwallowedToAvoidDoubleNotify() {
-        StubBus bus = new StubBus();
-        NotificationOverlay overlay = new NotificationOverlay();
-        overlay.subscribeTo(bus);
+    void retry_updatesTheLostToastInPlace() {
+        overlay.post(timed(Kind.CONNECTION_LOST, OAK, "lost"));
+        overlay.update();
+        Notification lost = overlay.active().getFirst();
+        clock.advance(PAST_SLIDE);
 
-        bus.publish(new ReconnectStateChangedEvent("test",
-                new ReconnectState.Disconnected(0L, new RuntimeException())));
+        overlay.post(timed(Kind.RECONNECTING, OAK, "attempt 2").updateOnly());
+        overlay.update();
 
-        // ConnectionLostEvent is the user-facing one for disconnects.
-        assertEquals(0, overlay.active().size());
+        Notification now = overlay.active().getFirst();
+        assertAll(
+                () -> assertEquals(1, overlay.active().size()),
+                () -> assertEquals(Kind.RECONNECTING, now.kind()),
+                () -> assertEquals("attempt 2", now.message()),
+                () -> assertEquals(lost.id(), now.id(), "updated in place, not a new toast"),
+                () -> assertEquals(lost.createdAt(), now.createdAt(), "no second slide-in"));
     }
 
     @Test
-    void connectedStateProducesInfoNotification() {
-        StubBus bus = new StubBus();
-        NotificationOverlay overlay = new NotificationOverlay();
-        overlay.subscribeTo(bus);
+    void recovery_replacesTheOutageToast() {
+        overlay.post(timed(Kind.RECONNECTING, OAK, "attempt 1"));
+        overlay.update();
 
-        bus.publish(new ReconnectStateChangedEvent("test", new ReconnectState.Connected(0L)));
+        overlay.post(timed(Kind.RECONNECTED, OAK, "back"));
+        overlay.update();
 
-        assertEquals(1, overlay.active().size());
-        assertEquals(Notification.Severity.INFO, overlay.active().iterator().next().severity());
+        assertEquals(List.of(Kind.RECONNECTED), kinds());
     }
 
     @Test
-    void givingUpProducesErrorNotification() {
-        StubBus bus = new StubBus();
-        NotificationOverlay overlay = new NotificationOverlay();
-        overlay.subscribeTo(bus);
+    void connectionToasts_areOnePerClient_notOneOverall() {
+        overlay.post(timed(Kind.CONNECTION_LOST, OAK, "oak lost"));
+        overlay.post(timed(Kind.CONNECTION_LOST, FERN, "fern lost"));
+        overlay.update();
 
-        bus.publish(new ReconnectStateChangedEvent("test",
-                new ReconnectState.GivingUp(0L, 5, new RuntimeException("last"))));
-
-        assertEquals(1, overlay.active().size());
-        assertEquals(Notification.Severity.ERROR, overlay.active().iterator().next().severity());
+        assertEquals(2, overlay.active().size());
     }
 
     @Test
-    void scriptCrashedProducesErrorNotification() {
-        StubBus bus = new StubBus();
-        NotificationOverlay overlay = new NotificationOverlay();
-        overlay.subscribeTo(bus);
+    void updateOnly_withNothingToUpdate_isDropped() {
+        overlay.post(timed(Kind.RECONNECTING, OAK, "attempt 7").updateOnly());
+        overlay.update();
 
-        LastCrash crash = new LastCrash(Phase.ON_LOOP, 7L, Instant.now(),
-                new IllegalStateException("boom"));
-        bus.publish(new ScriptCrashedEvent("ChopperScript", "conn1", crash));
-
-        assertEquals(1, overlay.active().size());
-        Notification n = overlay.active().iterator().next();
-        assertEquals(Notification.Severity.ERROR, n.severity());
-        assertTrue(n.title().contains("ChopperScript"));
+        assertTrue(overlay.active().isEmpty());
     }
 
     @Test
-    void scriptLoadFailedProducesWarnNotification() {
-        StubBus bus = new StubBus();
-        NotificationOverlay overlay = new NotificationOverlay();
-        overlay.subscribeTo(bus);
+    void withdraw_slidesTheClientsConnectionToastOut() {
+        overlay.post(sticky(Kind.GAVE_UP, OAK, "gave up"));
+        overlay.post(sticky(Kind.SCRIPT_CRASHED, OAK, "crashed"));
+        overlay.update();
 
-        bus.publish(new ScriptLoadFailedEvent(Path.of("broken.jar"),
-                new IllegalStateException("missing module-info")));
+        overlay.withdraw(OAK);
+        overlay.update();
+        clock.advance(PAST_SLIDE);
+        overlay.update();
 
-        assertEquals(1, overlay.active().size());
-        Notification n = overlay.active().iterator().next();
-        assertEquals(Notification.Severity.WARN, n.severity());
-        assertTrue(n.message().contains("broken.jar"));
+        assertEquals(List.of(Kind.SCRIPT_CRASHED), kinds(), "only the connection toast is withdrawn");
+    }
+
+    @Test
+    void aFourthToast_pushesTheOldestOut() {
+        overlay.post(sticky(Kind.SCRIPT_CRASHED, OAK, "first"));
+        overlay.post(sticky(Kind.SCRIPT_CRASHED, OAK, "second"));
+        overlay.post(sticky(Kind.SCRIPT_CRASHED, OAK, "third"));
+        overlay.post(sticky(Kind.SCRIPT_CRASHED, OAK, "fourth"));
+        overlay.update();
+
+        assertEquals(List.of("second", "third", "fourth"),
+                overlay.active().stream().map(Notification::message).toList());
+    }
+
+    private List<Kind> kinds() {
+        return overlay.active().stream().map(Notification::kind).toList();
+    }
+
+    private static Toast timed(Kind kind, ClientKey client, String message) {
+        return new Toast(kind, "title", message, Optional.of(client), Optional.of(LIFETIME), true);
+    }
+
+    private static Toast sticky(Kind kind, ClientKey client, String message) {
+        return new Toast(kind, "title", message, Optional.of(client), Optional.empty(), true);
     }
 }
