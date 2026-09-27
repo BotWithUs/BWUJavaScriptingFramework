@@ -49,6 +49,8 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             new AtomicReference<>(ScriptHealth.HEALTHY);
     private final RunnerLiveness livenessState = new RunnerLiveness();
     private final AtomicLong loopCount = new AtomicLong();
+    private final ScriptProfiler profiler = new ScriptProfiler();
+    private volatile Instant lastStartedAt;
     private volatile Runnable watchdogArmer;
 
     /**
@@ -99,6 +101,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             // Reset the previous run's stop bookkeeping, or the watchdog would
             // see a stop from minutes ago and quarantine the fresh thread.
             livenessState.resetForRestart();
+            lastStartedAt = Instant.now();
             stopLatch = new CountDownLatch(1);
             String name = getScriptName();
             // rule-exception: {rule:prefer-virtual-threads} — same reasoning as
@@ -207,6 +210,16 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         return running.get();
     }
 
+    /** How long each {@code onLoop()} took, over every run of this runner. */
+    public ScriptProfiler getProfiler() {
+        return profiler;
+    }
+
+    /** When the current or last run was started; {@code null} if it never was. */
+    public Instant lastStartedAt() {
+        return lastStartedAt;
+    }
+
     public ManagementScript getScript() {
         return script;
     }
@@ -298,6 +311,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
 
     private void runLoop() throws InterruptedException {
         while (running.get() && !Thread.currentThread().isInterrupted()) {
+            long loopStart = System.nanoTime();
             livenessState.enterLoop();
             int delay;
             try {
@@ -306,6 +320,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
                 // Also clears an advisory stall; terminal states stick.
                 livenessState.exitLoop();
             }
+            profiler.recordLoop(System.nanoTime() - loopStart);
             loopCount.incrementAndGet();
             if (delay < 0) {
                 break;

@@ -399,4 +399,31 @@ class ManagementScriptRunnerTest {
             assertSame(config, captured.get());
         }
     }
+
+    @Nested
+    class Profiling {
+
+        private static final int LOOPS = 3;
+        private static final long AWAIT_MS = 2000;
+
+        @Test
+        void everyLoop_isRecordedInTheProfiler_andTheStartIsTimed() {
+            AtomicInteger loops = new AtomicInteger();
+            ManagementScript script = new ManagementScript() {
+                @Override public void onStart(ManagementContext ctx) {}
+                @Override public int onLoop() { return loops.incrementAndGet() < LOOPS ? 1 : -1; }
+                @Override public void onStop() {}
+            };
+            ManagementScriptRunner runner = new ManagementScriptRunner(script, mock(ManagementContext.class));
+            assertNull(runner.lastStartedAt(), "never started");
+
+            runner.start();
+            assertTrue(runner.awaitStop(AWAIT_MS));
+
+            assertAll(
+                    () -> assertEquals(LOOPS, runner.getProfiler().getLoopCount()),
+                    () -> assertTrue(runner.getProfiler().avgLoopMs() >= 0),
+                    () -> assertNotNull(runner.lastStartedAt()));
+        }
+    }
 }
