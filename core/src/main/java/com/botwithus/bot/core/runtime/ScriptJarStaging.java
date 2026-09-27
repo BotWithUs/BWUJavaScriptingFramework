@@ -95,6 +95,14 @@ final class ScriptJarStaging {
         Path sourceOf(Path staged) {
             return sourceByFileName.getOrDefault(staged.getFileName().toString(), staged);
         }
+
+        /**
+         * Where {@code source} was copied to — the inverse of
+         * {@link #sourceOf}. The source itself when loading in place.
+         */
+        Path copyOf(Path source) {
+            return dir.resolve(source.getFileName().toString());
+        }
     }
 
     /**

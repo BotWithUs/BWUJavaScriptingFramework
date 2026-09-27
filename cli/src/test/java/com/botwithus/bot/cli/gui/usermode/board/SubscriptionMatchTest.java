@@ -10,7 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SubscriptionMatchTest {
 
     private static SdnCatalogueEntry entry(String name, String scriptClass) {
-        return new SdnCatalogueEntry("1", name, "a", "b", "1", "2", "", "", scriptClass, false, true, true, false);
+        return new SdnCatalogueEntry("1", name, "a", "b", "1", "2", "", "", scriptClass, false, true, true, false,
+                null, null, null);
     }
 
     // ── Already-loaded scripts: class only ─────────────────────────────────

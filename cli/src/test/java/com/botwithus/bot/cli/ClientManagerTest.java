@@ -2,22 +2,27 @@ package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.script.ClientOrchestrator.OpResult;
 import com.botwithus.bot.api.script.ClientOrchestrator.ScriptStatusEntry;
-import com.botwithus.bot.cli.log.LogBuffer;
-import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.groups.ClientGroup;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ClientManagerTest {
+
+    @TempDir
+    Path tempDir;
 
     private CliContext ctx;
     private ClientManager mgr;
@@ -26,9 +31,7 @@ class ClientManagerTest {
     void setUp() {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(out);
-        LogBuffer logBuffer = new LogBuffer();
-        LogCapture logCapture = new LogCapture(logBuffer, ps, ps);
-        ctx = spy(new CliContext(logBuffer, logCapture));
+        ctx = spy(TestContexts.inDir(tempDir, ps));
         // Create a ClientManager that references the spy, not the real object
         mgr = new ClientManager(ctx);
         doReturn(mgr).when(ctx).getClientManager();
@@ -39,6 +42,8 @@ class ClientManagerTest {
     private Connection mockConnection(String name) {
         Connection conn = mock(Connection.class);
         when(conn.getName()).thenReturn(name);
+        // Tests use the same name for a client's pipe and its account.
+        when(conn.getIdentifiedUuid()).thenReturn(Optional.of(name));
         when(conn.isAlive()).thenReturn(true);
         ScriptRuntime runtime = mock(ScriptRuntime.class);
         when(runtime.getRunners()).thenReturn(List.of());
@@ -140,18 +145,18 @@ class ClientManagerTest {
         @Test
         void createGroupWithDescription() {
             assertTrue(mgr.createGroup("skillers", "Skilling accounts"));
-            ConnectionGroup group = mgr.getGroup("skillers");
-            assertNotNull(group);
-            assertEquals("skillers", group.getName());
-            assertEquals("Skilling accounts", group.getDescription());
+            ClientGroup group = mgr.getGroup("skillers").orElseThrow();
+            assertEquals("skillers", group.name());
+            assertEquals(Optional.of("Skilling accounts"), group.description());
+            assertEquals("Skilling accounts", mgr.getGroupDescription("skillers"));
         }
 
         @Test
         void createGroupWithoutDescription() {
             assertTrue(mgr.createGroup("combat"));
-            ConnectionGroup group = mgr.getGroup("combat");
-            assertNotNull(group);
-            assertNull(group.getDescription());
+            ClientGroup group = mgr.getGroup("combat").orElseThrow();
+            assertEquals(Optional.empty(), group.description());
+            assertNull(mgr.getGroupDescription("combat"));
         }
 
         @Test
@@ -159,14 +164,14 @@ class ClientManagerTest {
             assertTrue(mgr.createGroup("skillers", "desc1"));
             assertFalse(mgr.createGroup("skillers", "desc2"));
             // Should not overwrite description
-            assertEquals("desc1", mgr.getGroup("skillers").getDescription());
+            assertEquals("desc1", mgr.getGroupDescription("skillers"));
         }
 
         @Test
         void deleteGroup() {
             mgr.createGroup("skillers");
             assertTrue(mgr.deleteGroup("skillers"));
-            assertNull(mgr.getGroup("skillers"));
+            assertTrue(mgr.getGroup("skillers").isEmpty());
         }
 
         @Test
@@ -176,7 +181,7 @@ class ClientManagerTest {
 
         @Test
         void getGroupReturnsNull() {
-            assertNull(mgr.getGroup("nope"));
+            assertTrue(mgr.getGroup("nope").isEmpty());
         }
 
         @Test
@@ -191,8 +196,7 @@ class ClientManagerTest {
             mgr.createGroup("skillers");
             assertTrue(mgr.addToGroup("skillers", "Bot1"));
 
-            ConnectionGroup group = mgr.getGroup("skillers");
-            assertTrue(group.contains("Bot1"));
+            assertTrue(mgr.getGroup("skillers").orElseThrow().contains("Bot1"));
         }
 
         @Test
@@ -205,7 +209,7 @@ class ClientManagerTest {
             mgr.createGroup("skillers");
             mgr.addToGroup("skillers", "Bot1");
             assertTrue(mgr.removeFromGroup("skillers", "Bot1"));
-            assertFalse(mgr.getGroup("skillers").contains("Bot1"));
+            assertFalse(mgr.getGroup("skillers").orElseThrow().contains("Bot1"));
         }
 
         @Test

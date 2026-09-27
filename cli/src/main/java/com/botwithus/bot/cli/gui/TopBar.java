@@ -12,9 +12,10 @@ import imgui.flag.ImGuiWindowFlags;
 import java.util.List;
 
 /**
- * The top bar both modes share: the one logo mark, the product name, and the
- * Normal / Advanced switch with its F12 hint. Session status lives in the status
- * bar now, not here.
+ * The top bar both modes share: the one logo mark, the product name, the
+ * Normal / Advanced switch with its F12 hint and, when the window is frameless,
+ * the window buttons, with the rest of the bar moving the window. Session
+ * status lives in the status bar now, not here.
  */
 public class TopBar {
 
@@ -29,9 +30,11 @@ public class TopBar {
     private static final float LOGO_BAR_BOTTOM_EM = 0.267f;
 
     private final Controls ui;
+    private final WindowChrome chrome;
 
-    public TopBar(Controls ui) {
+    public TopBar(Controls ui, WindowChrome chrome) {
         this.ui = ui;
+        this.chrome = chrome;
     }
 
     public float height() {
@@ -60,9 +63,23 @@ public class TopBar {
         ImFont brand = ui.fonts().bodyMedium();
         ui.textCentredY(draw, brand, left + logo + m.u(3), y, h, ImGuiTheme.COL_FG, "BotWithUs");
 
-        AppMode clicked = renderModeSwitch(current, x + w - m.u(4), y, h);
+        AppMode clicked = renderModeSwitch(current, renderWindowControls(x + w, y, h), y, h);
+        // Last, so the switch and the buttons keep the mouse and the bar's gaps move the window.
+        chrome.renderDragRegion(x, y, w, h - m.hairline());
         ImGui.endChild();
         return clicked;
+    }
+
+    /** Draws the window buttons, if any, flush with {@code right}; returns where the mode switch ends. */
+    private float renderWindowControls(float right, float y, float h) {
+        ImGuiTheme.Metrics m = ui.m();
+        float controlsW = chrome.controlsWidth();
+        if (controlsW <= 0f) {
+            return right - m.u(4);
+        }
+        float end = right - m.u(2);
+        chrome.renderControls(end, y, h);
+        return end - controlsW - m.u(4);
     }
 
     private AppMode renderModeSwitch(AppMode current, float right, float y, float h) {

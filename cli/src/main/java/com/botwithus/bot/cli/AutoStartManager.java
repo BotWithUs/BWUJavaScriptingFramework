@@ -2,6 +2,9 @@ package com.botwithus.bot.cli;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.SettingKeys;
+import com.botwithus.bot.cli.settings.Subscription;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -12,51 +15,108 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.PrintStream;
-import java.util.ArrayList;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 /**
  * Orchestrates pipe detection, account identification, and script auto-starting.
- * When enabled, scans for pipes on startup, probes account info, and starts
- * the scripts that were previously running for each account.
+ * While the {@code autoConnect} setting is on it scans for pipes in the background,
+ * probes account info, and starts the scripts that were previously running for
+ * each account. Turning the setting off or on stops or starts the scanner at once.
  */
 public class AutoStartManager {
 
     private static final Logger log = LoggerFactory.getLogger(AutoStartManager.class);
 
+    /** Pause before the first scan, so a host started alongside a client does not race its pipe. */
+    private static final Duration INITIAL_SCAN_DELAY = Duration.ofSeconds(1);
+
     private final CliContext ctx;
     private final ScriptProfileStore profileStore;
+    private final HostSettings settings;
+    private final Function<String, List<String>> pipeScanner;
+    private final Duration initialScanDelay;
     private final AtomicBoolean lobbyStubWarned = new AtomicBoolean(false);
-    private volatile boolean running;
-    private Thread scanThread;
+    private final Object scanLock = new Object();
+    // Guarded by scanLock.
+    private Subscription autoConnectSubscription;
+    private volatile Thread scanThread;
 
-    public AutoStartManager(CliContext ctx, ScriptProfileStore profileStore) {
+    public AutoStartManager(CliContext ctx, ScriptProfileStore profileStore, HostSettings settings) {
+        this(ctx, profileStore, settings, PipeClient::scanPipes, INITIAL_SCAN_DELAY);
+    }
+
+    /** Test seam: {@code AutoStartManagerTest} swaps the OS pipe listing and the start-up pause. */
+    AutoStartManager(CliContext ctx, ScriptProfileStore profileStore, HostSettings settings,
+                     Function<String, List<String>> pipeScanner, Duration initialScanDelay) {
         this.ctx = ctx;
         this.profileStore = profileStore;
+        this.settings = settings;
+        this.pipeScanner = pipeScanner;
+        this.initialScanDelay = initialScanDelay;
     }
 
     /**
-     * Begins background pipe scanning if auto-connect is enabled.
+     * Starts following the {@code autoConnect} setting: scans in the background
+     * now if it is on, and starts or stops the scanner whenever it changes.
+     * Idempotent.
      */
     public void start() {
-        if (running) {
-            return;
+        synchronized (scanLock) {
+            if (autoConnectSubscription != null) {
+                return;
+            }
+            autoConnectSubscription = settings.onChange(SettingKeys.AUTO_CONNECT, this::applyAutoConnect);
         }
-        if (!profileStore.isAutoConnect()) {
-            return;
+        applyAutoConnect(settings.get(SettingKeys.AUTO_CONNECT));
+    }
+
+    /** Stops following the setting and stops the scanner. Used on shutdown. */
+    public void stop() {
+        synchronized (scanLock) {
+            if (autoConnectSubscription != null) {
+                autoConnectSubscription.close();
+                autoConnectSubscription = null;
+            }
         }
-        running = true;
-        scanThread = Thread.ofVirtual().name("autostart-scan").start(this::scanLoop);
+        stopScanner();
+    }
+
+    /** {@code true} while the background pipe scanner is running. */
+    public boolean isScanning() {
+        return scanThread != null;
+    }
+
+    private void applyAutoConnect(boolean enabled) {
+        if (enabled) {
+            startScanner();
+        } else {
+            stopScanner();
+        }
+    }
+
+    private void startScanner() {
+        synchronized (scanLock) {
+            if (scanThread != null) {
+                return;
+            }
+            scanThread = Thread.ofVirtual().name("autostart-scan").start(this::scanLoop);
+        }
         out().println("[AutoStart] Background pipe scanning started.");
     }
 
-    public void stop() {
-        running = false;
-        if (scanThread != null) {
-            scanThread.interrupt();
+    private void stopScanner() {
+        Thread stopped;
+        synchronized (scanLock) {
+            stopped = scanThread;
             scanThread = null;
+        }
+        if (stopped != null) {
+            stopped.interrupt();
+            out().println("[AutoStart] Background pipe scanning stopped.");
         }
     }
 
@@ -71,16 +131,14 @@ public class AutoStartManager {
 
         conn.setAccountName(displayName);
 
-        String uuid = conn.getAccountUuid();
-        if (uuid == null || uuid.isBlank()) {
-            out().println("[AutoStart] No accountUuid for " + displayName
-                    + " — agent reply missing the field; auto-start skipped.");
+        // The runtime is already bound to the uuid: Connection.setAccountInfo does
+        // that as soon as a reply identifies the account.
+        String uuid = conn.getIdentifiedUuid().orElse(null);
+        if (uuid == null) {
+            out().println("[AutoStart] No account UUID for " + displayName
+                    + " — agent reply missing it, or a development launch; auto-start skipped.");
             return;
         }
-
-        // Push the uuid into the runtime so any scripts registered against this
-        // connection persist their config under the right per-account bucket.
-        conn.getRuntime().setAccountUuid(uuid);
 
         // Wire state change callback to auto-save
         conn.getRuntime().setOnStateChange(() -> saveState(conn));
@@ -163,34 +221,31 @@ public class AutoStartManager {
         }
     }
 
-    private static final long INITIAL_SCAN_DELAY_MS = 1000L;
-
+    /**
+     * Scans until this thread stops being {@link #scanThread}. Prefix and
+     * interval are read from the settings on every pass, so a change applies
+     * from the next scan without restarting the scanner.
+     */
     private void scanLoop() {
-        String prefix = profileStore.getPipePrefix();
-        long interval = profileStore.getScanIntervalMs();
-
+        Thread self = Thread.currentThread();
         try {
-            Thread.sleep(INITIAL_SCAN_DELAY_MS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return;
-        }
-
-        while (running) {
-            try {
-                connectNewPipes(prefix);
+            Thread.sleep(initialScanDelay);
+            while (scanThread == self) {
+                connectNewPipes(settings.get(SettingKeys.PIPE_PREFIX));
                 reprobeUnidentifiedConnections();
-                Thread.sleep(interval);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
+                Thread.sleep(Duration.ofMillis(settings.get(SettingKeys.SCAN_INTERVAL_MS)));
             }
+        } catch (InterruptedException e) {
+            self.interrupt();
         }
     }
 
     private void connectNewPipes(String prefix) {
-        List<String> pipes = PipeClient.scanPipes(prefix);
+        List<String> pipes = pipeScanner.apply(prefix);
         for (String pipeName : pipes) {
+            if (scanThread != Thread.currentThread()) {
+                return;
+            }
             boolean alreadyConnected = ctx.getConnections().stream()
                     .anyMatch(c -> c.getName().equals(pipeName));
             if (alreadyConnected) {
@@ -229,15 +284,15 @@ public class AutoStartManager {
         }
     }
 
-    private void probeAndAutoStart(Connection conn) {
+    /**
+     * Reads the account (storing it, UUID included, whether or not it has a name
+     * yet) and auto-starts once it has a name; otherwise nudges the client toward
+     * the lobby. Package-private for {@code AutoStartManagerProbeTest}.
+     */
+    void probeAndAutoStart(Connection conn) {
         try {
-            Map<String, Object> info = conn.getRpc().callSync("get_account_info", Map.of());
-            String displayName = getString(info, "display_name");
-            if (displayName == null || displayName.isEmpty()) {
-                displayName = getString(info, "jx_display_name");
-            }
-            if (displayName != null && !displayName.isEmpty()) {
-                conn.setAccountInfo(info);
+            String displayName = ctx.getStatusTracker().refresh(conn).characterName().orElse(null);
+            if (displayName != null) {
                 // Load and register scripts before auto-starting
                 List<BotScript> scripts = ctx.loadScripts();
                 for (BotScript script : scripts) {
@@ -305,11 +360,6 @@ public class AutoStartManager {
             }
         }
         return null;
-    }
-
-    private static String getString(Map<String, Object> map, String key) {
-        Object v = map.get(key);
-        return v != null ? v.toString() : null;
     }
 
     private PrintStream out() {

@@ -3,11 +3,13 @@ package com.botwithus.bot.cli.gui.usermode.board;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.runtime.ScriptRunner;
+import com.botwithus.bot.core.sdn.InstalledSdnScript;
 import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
 import com.botwithus.bot.core.sdn.SdnInstaller;
+import com.botwithus.bot.core.sdn.SdnUpdateStatus;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,7 +49,8 @@ final class LiveSubscriptions {
 
     private final Supplier<? extends Collection<Connection>> connections;
     private final SdnCatalogueRefresher refresher;
-    private final Function<List<String>, SdnInstallResult> installer;
+    private final Function<List<SdnCatalogueEntry>, SdnInstallResult> installer;
+    private final Function<String, Optional<InstalledSdnScript>> storeInstalls;
     private final Supplier<List<LocalScript>> localScripts;
     private final Executor installExecutor;
     /** Only in-flight and failed installs live here; an absent id is decided from the runtime. */
@@ -55,16 +58,20 @@ final class LiveSubscriptions {
     private boolean reportedOldLauncher;
 
     /**
-     * @param connections  the host's connections, read fresh on every call
-     * @param installer    asks the launcher for scripts by catalogue id and loads them; blocks
-     * @param localScripts the picker's local catalogue, as last loaded
+     * @param connections   the host's connections, read fresh on every call
+     * @param installer     asks the launcher for catalogue scripts and loads them; blocks
+     * @param storeInstalls what the host recorded when it installed a script class from
+     *                      the Store, which says whether a newer build is out
+     * @param localScripts  the picker's local catalogue, as last loaded
      */
     LiveSubscriptions(Supplier<? extends Collection<Connection>> connections, SdnCatalogueRefresher refresher,
-                      Function<List<String>, SdnInstallResult> installer, Supplier<List<LocalScript>> localScripts,
-                      Executor installExecutor) {
+                      Function<List<SdnCatalogueEntry>, SdnInstallResult> installer,
+                      Function<String, Optional<InstalledSdnScript>> storeInstalls,
+                      Supplier<List<LocalScript>> localScripts, Executor installExecutor) {
         this.connections = connections;
         this.refresher = refresher;
         this.installer = installer;
+        this.storeInstalls = storeInstalls;
         this.localScripts = localScripts;
         this.installExecutor = installExecutor;
     }
@@ -120,10 +127,31 @@ final class LiveSubscriptions {
         if (tracked != null && !tracked.isChoosable()) {
             return tracked;
         }
-        if (hasLocalCopy || runnerFor(conn, e).isPresent()) {
+        if (hasLocalCopy) {
             return new SubscriptionState.Installed();
         }
+        if (runnerFor(conn, e).isPresent()) {
+            return storeCopyState(e);
+        }
         return tracked != null ? tracked : new SubscriptionState.NotInstalled();
+    }
+
+    /**
+     * A loaded copy the Store installed is out of date when the catalogue has a newer
+     * build than the one recorded at install. A copy with no record, or a build either
+     * side does not know, gets no badge. A local copy never reaches here: the Store's
+     * record says nothing about a build the user made.
+     */
+    private SubscriptionState storeCopyState(SdnCatalogueEntry e) {
+        SdnUpdateStatus update = storeInstalls.apply(e.scriptClass())
+                .map(installed -> installed.updateAgainst(e))
+                .orElseGet(SdnUpdateStatus.Unknown::new);
+        return switch (update) {
+            case SdnUpdateStatus.Available available ->
+                    new SubscriptionState.UpdateAvailable(available.installedBuild(), available.currentBuild());
+            case SdnUpdateStatus.UpToDate ignored -> new SubscriptionState.Installed();
+            case SdnUpdateStatus.Unknown ignored -> new SubscriptionState.Installed();
+        };
     }
 
     private Optional<LocalScript> localCopy(SdnCatalogueEntry e) {
@@ -154,7 +182,7 @@ final class LiveSubscriptions {
      */
     private void install(String clientId, SdnCatalogueEntry entry) {
         try {
-            settle(clientId, entry, installer.apply(List.of(entry.id())));
+            settle(clientId, entry, installer.apply(List.of(entry)));
         } catch (RuntimeException e) {
             log.warn("SDN: installing {} threw", entry.name(), e);
             fail(entry, "Something went wrong while installing: " + e.getMessage());
