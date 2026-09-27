@@ -9,6 +9,16 @@ public sealed interface SubscriptionState {
     /** A copy is already on this client; choosing it starts that copy. */
     record Installed() implements SubscriptionState {}
 
+    /**
+     * A Store copy is on this client, but the Store now has a newer build than the
+     * one this host installed. Choosing it still starts the installed copy: an
+     * update is a separate, explicit install.
+     *
+     * @param from the build this host installed
+     * @param to   the build the Store offers now
+     */
+    record UpdateAvailable(int from, int to) implements SubscriptionState {}
+
     /** An install is in flight; the script starts on the client when it lands. */
     record Installing() implements SubscriptionState {}
 
@@ -21,6 +31,7 @@ public sealed interface SubscriptionState {
             case Installing ignored -> false;
             case NotInstalled ignored -> true;
             case Installed ignored -> true;
+            case UpdateAvailable ignored -> true;
             case Failed ignored -> true;
         };
     }
@@ -31,6 +42,7 @@ public sealed interface SubscriptionState {
             case NotInstalled ignored -> true;
             case Failed ignored -> true;
             case Installed ignored -> false;
+            case UpdateAvailable ignored -> false;
             case Installing ignored -> false;
         };
     }

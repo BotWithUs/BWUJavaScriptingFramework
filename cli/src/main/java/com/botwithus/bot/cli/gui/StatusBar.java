@@ -2,7 +2,7 @@ package com.botwithus.bot.cli.gui;
 
 import com.botwithus.bot.cli.gui.usermode.board.BoardStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
-import com.botwithus.bot.cli.gui.usermode.board.ClientStatus;
+import com.botwithus.bot.cli.gui.usermode.board.ClientState;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
 
 import imgui.ImDrawList;
@@ -14,6 +14,7 @@ import imgui.flag.ImGuiWindowFlags;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * The one status bar, shown in both modes along the bottom of the window.
@@ -80,12 +81,16 @@ public class StatusBar {
         List<List<Run>> out = new ArrayList<>();
         out.add(connectionSegment(clients, status));
         out.add(List.of(Run.plain(clients.size() + (clients.size() == 1 ? " client" : " clients"))));
-        long running = clients.stream().filter(c -> c.status().isRunning()).count();
+        long running = clients.stream().filter(ClientView::isRunning).count();
         out.add(List.of(Run.plain(running + " running")));
-        long attention = clients.stream().filter(c -> c.status().needsAttention()).count();
+        long attention = clients.stream().filter(ClientView::needsAttention).count();
         if (attention > 0) {
             out.add(List.of(new Run(attention + (attention == 1 ? " needs" : " need") + " attention",
-                    ImGuiTheme.COL_DANGER, null)));
+                    ImGuiTheme.COL_WARN, null)));
+        }
+        long waiting = clients.stream().filter(ClientView::isClosed).count();
+        if (waiting > 0) {
+            out.add(List.of(Run.plain(waiting + " waiting to resume")));
         }
         return out;
     }
@@ -98,18 +103,22 @@ public class StatusBar {
             return List.of(new Run("No connection", ImGuiTheme.COL_FG2, ImGuiTheme.COL_DANGER));
         }
         String name = status.activeClient();
-        ClientStatus active = clients.stream().filter(c -> c.id().equals(name)).findFirst()
-                .map(ClientView::status).orElse(new ClientStatus.Idle());
-        return switch (active) {
-            case ClientStatus.Reconnecting r -> List.of(
+        Optional<ClientState> active = clients.stream()
+                .filter(c -> c.pipe().filter(name::equals).isPresent())
+                .findFirst()
+                .map(ClientView::state);
+        if (active.isEmpty()) {
+            return activeRuns(name);
+        }
+        return switch (active.get()) {
+            case ClientState.NotResponding r -> List.of(
                     new Run("Reconnecting ", ImGuiTheme.COL_FG2, ImGuiTheme.COL_WARN), Run.strong(name),
                     Run.plain(" · attempt " + r.attempt()));
-            case ClientStatus.Lost ignored -> List.of(
+            case ClientState.Closed ignored -> List.of(
                     new Run("Lost ", ImGuiTheme.COL_FG2, ImGuiTheme.COL_DANGER), Run.strong(name));
-            case ClientStatus.Running ignored -> activeRuns(name);
-            case ClientStatus.Idle ignored -> activeRuns(name);
-            case ClientStatus.Loading ignored -> activeRuns(name);
-            case ClientStatus.Crashed ignored -> activeRuns(name);
+            case ClientState.Connected ignored -> activeRuns(name);
+            case ClientState.Identifying ignored -> activeRuns(name);
+            case ClientState.Resuming ignored -> activeRuns(name);
         };
     }
 

@@ -31,6 +31,23 @@ public enum ScriptCategory {
     NECROMANCY("Necromancy"),
     SUMMONING("Summoning"),
     DUNGEONEERING("Dungeoneering"),
+    /**
+     * Firemaking training.
+     *
+     * <p>Added in a later {@code bot-api} release than most categories. A host
+     * built before it existed cannot read a manifest that declares it, so a
+     * script that does needs a host at least as new as the API it compiled against.
+     */
+    FIREMAKING("Firemaking"),
+    /**
+     * Magic training: alching, enchanting and other spell-based skilling.
+     * Making runes stays under {@link #RUNECRAFTING}.
+     *
+     * <p>Added in a later {@code bot-api} release than most categories, with the
+     * same caveat as {@link #FIREMAKING}: a host built before it existed cannot
+     * read a manifest that declares it.
+     */
+    MAGIC("Magic"),
     MINIGAME("Minigame"),
     MONEYMAKING("Moneymaking"),
     QUESTING("Questing"),

@@ -43,6 +43,8 @@ public final class CategoryStyle {
         put(ScriptCategory.NECROMANCY,     Icons.GHOST,       0.40f, 0.90f, 0.80f); // spectral teal
         put(ScriptCategory.SUMMONING,      Icons.PAW,         0.30f, 0.55f, 0.90f); // cobalt
         put(ScriptCategory.DUNGEONEERING,  Icons.DUNGEON,     0.60f, 0.40f, 0.30f); // dark brown
+        put(ScriptCategory.FIREMAKING,     Icons.FIRE_CURVED, 0.93f, 0.40f, 0.16f); // ember
+        put(ScriptCategory.MAGIC,          Icons.MAGIC_WAND,  0.78f, 0.42f, 0.98f); // arcane violet
         put(ScriptCategory.MINIGAME,       Icons.GAMEPAD,     0.95f, 0.45f, 0.70f); // hot pink
         put(ScriptCategory.MONEYMAKING,    Icons.COINS,       0.98f, 0.84f, 0.28f); // gold
         put(ScriptCategory.QUESTING,       Icons.MAP,         0.60f, 0.75f, 0.95f); // periwinkle

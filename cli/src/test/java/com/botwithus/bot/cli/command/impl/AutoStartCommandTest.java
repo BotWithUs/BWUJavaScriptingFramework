@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.command.impl;
 import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.TestContexts;
 import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.log.LogBuffer;
@@ -52,7 +53,7 @@ class AutoStartCommandTest {
         PrintStream ps = new PrintStream(output);
         LogBuffer logBuffer = new LogBuffer();
         LogCapture logCapture = new LogCapture(logBuffer, ps, ps);
-        ctx = new CliContext(logBuffer, logCapture);
+        ctx = TestContexts.inDir(tempDir, ps);
 
         profileStore = new ScriptProfileStore(tempDir.resolve(".botwithus"));
         settings = HostSettings.open(tempDir.resolve(".botwithus"));
@@ -90,7 +91,7 @@ class AutoStartCommandTest {
         output.reset();
         LogBuffer logBuffer = new LogBuffer();
         LogCapture logCapture = new LogCapture(logBuffer, new PrintStream(output), new PrintStream(output));
-        CliContext spyCtx = spy(new CliContext(logBuffer, logCapture));
+        CliContext spyCtx = spy(TestContexts.inDir(tempDir, new PrintStream(output)));
         spyCtx.setProfileStore(profileStore);
         spyCtx.setAutoStartManager(autoStartManager);
 

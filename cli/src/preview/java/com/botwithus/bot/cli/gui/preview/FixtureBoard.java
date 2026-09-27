@@ -3,18 +3,25 @@ package com.botwithus.bot.cli.gui.preview;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.gui.inspector.InspectorSource;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
+import com.botwithus.bot.cli.gui.inspector.InspectorTarget;
+import com.botwithus.bot.cli.gui.inspector.LiveInspectorSource;
 import com.botwithus.bot.cli.gui.usermode.board.BoardStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientActions;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
-import com.botwithus.bot.cli.gui.usermode.board.ClientStatus;
 import com.botwithus.bot.cli.gui.usermode.board.ClientView;
-import com.botwithus.bot.cli.gui.usermode.board.InspectorTarget;
 import com.botwithus.bot.cli.gui.usermode.board.PriceBadge;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptEntry;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionEntry;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionState;
+import com.botwithus.bot.cli.management.Target;
+import com.botwithus.bot.cli.management.TargetLabels;
 
 import imgui.ImGui;
 
@@ -23,21 +30,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.Random;
 
 /**
  * Fixture data for the dev preview: the prototype's sample fleet, its script
- * catalogue, and a Woodcutting config to inspect. Account names and timings are
- * made-up sample data; none of it reaches the shipped app.
+ * catalogue, a Woodcutting config to inspect, and two management scripts. Account
+ * names, script names and timings are made-up sample data; none of it reaches
+ * the shipped app.
  */
-final class FixtureBoard implements ClientBoard {
-
-    private static final long MS = 1_000_000L;
-    private static final int LANE = 24;
-    private static final long SEED = 7L;
-    private static final double JITTER_LOW = 0.8;
-    private static final double JITTER_SPAN = 0.4;
-    private static final double SPIKE = 2.6;
+final class FixtureBoard implements ClientBoard, InspectorSource {
 
     static final ScriptInfo WOODCUTTING = new ScriptInfo("Woodcutting", "BotWithUs", "2.0",
             ScriptCategory.WOODCUTTING,
@@ -64,10 +64,42 @@ final class FixtureBoard implements ClientBoard {
             List.of(WOODCUTTING, FLETCHER, DIVINATION, COOKS, GHOST, WITCH, FLAG, PROBE, EXAMPLE);
     /** DIVINATION's index in {@link #CATALOG}, which is its picker key. */
     private static final int DIVINATION_KEY = CATALOG.indexOf(DIVINATION);
+    private static final int DIVINATION_INSTALLED_BUILD = 6;
+    private static final int DIVINATION_STORE_BUILD = 7;
 
+    /** Item gamevals, as {@code GamevalIndex.gameval(ITEM, id)} answers them. */
     private static final Map<Integer, String> ITEMS = Map.of(
-            1511, "Logs", 1521, "Oak logs", 1519, "Willow logs", 1517, "Maple logs",
-            1515, "Yew logs", 1513, "Magic logs");
+            1511, "LOGS", 1521, "OAK_LOGS", 1519, "WILLOW_LOGS", 1517, "MAPLE_LOGS",
+            1515, "YEW_LOGS", 1513, "MAGIC_LOGS", 995, "COINS");
+
+    /** A management script with one field of every type, and no UI of its own. */
+    static final ScriptInfo BREAK_SCHEDULER = new ScriptInfo("Break Scheduler", "BotWithUs", "1.2",
+            ScriptCategory.UTILITY, "Takes every client off for a break on a schedule.", 6, false);
+    /** A management script that draws its own UI and declares no fields. */
+    static final ScriptInfo FLEET_MONITOR = new ScriptInfo("Fleet Monitor", "BotWithUs", "0.4",
+            ScriptCategory.UTILITY, "Shows every client's progress in one table.", 0, true);
+
+    /** A management script with two fields, so the whole form and its footer fit on screen. */
+    static final ScriptInfo LOGIN_WATCHER = new ScriptInfo("Login Watcher", "BotWithUs", "1.0",
+            ScriptCategory.UTILITY, "Logs a client back in when it drops to the lobby.", 2, false);
+
+    /** Break Scheduler manages Woodcutters and two client scripts; see {@link FixtureManagementSettings}. */
+    private static final String BREAK_SCHEDULER_CONTEXT = LiveInspectorSource.managementContext(
+            List.of("Woodcutters", "Fernmoss · Divination", "Kestrel Moor · Walk to Flag"));
+    private static final String WHOLE_HOST_CONTEXT = LiveInspectorSource.managementContext(
+            List.of(TargetLabels.WHOLE_HOST));
+
+    private static final List<ConfigField> LOGIN_FIELDS = List.of(
+            ConfigField.boolField("relog", "Log back in", true),
+            ConfigField.intField("delay", "Wait before logging in (s)", 30));
+
+    private static final List<ConfigField> BREAK_FIELDS = List.of(
+            ConfigField.intField("breakEvery", "Break every (min)", 90),
+            ConfigField.intField("breakLength", "Break length (min)", 15),
+            ConfigField.boolField("logOut", "Log out during breaks", true),
+            ConfigField.choiceField("jitter", "Jitter", List.of("None", "Light", "Heavy"), "Light"),
+            ConfigField.stringField("quietHours", "Quiet hours", "23:00-07:00"),
+            ConfigField.itemIdField("bankItem", "Keep in bank", 995));
 
     private static final List<ConfigField> WOODCUTTING_FIELDS = List.of(
             ConfigField.choiceField("tree", "Tree",
@@ -102,19 +134,31 @@ final class FixtureBoard implements ClientBoard {
     }
 
     /**
-     * Six clients and four subscriptions: paid and free, one installed (which also
+     * The every-state fleet and four subscriptions: paid and free, one installed (which also
      * has a local copy, so the local Divination row folds into it), one installing
      * and one whose install failed.
      */
     static FixtureBoard subscribed() {
+        return subscribedWithDivination(new SubscriptionState.Installed(), OptionalInt.of(DIVINATION_KEY));
+    }
+
+    /**
+     * {@link #subscribed()}, but Divination is a Store copy a build behind the Store.
+     * A Store copy has no local row to fold in: a local copy is never badged.
+     */
+    static FixtureBoard subscribedWithUpdate() {
+        return subscribedWithDivination(new SubscriptionState.UpdateAvailable(DIVINATION_INSTALLED_BUILD,
+                DIVINATION_STORE_BUILD), OptionalInt.empty());
+    }
+
+    private static FixtureBoard subscribedWithDivination(SubscriptionState divination, OptionalInt localKey) {
         String failure = "The launcher did not deliver the script. Check it is still running, then try again.";
-        return sixClients().withSubscriptions(new SubscriptionGroup.Listed(List.of(
+        return everyState().withSubscriptions(new SubscriptionGroup.Listed(List.of(
                 subscription("41", "Arch-Glacor Helper", "Veyra", "1.3",
                         "Handles the mechanics and loots the chest.", true, new SubscriptionState.NotInstalled(),
                         OptionalInt.empty()),
                 subscription("7", "Divination", "BotWithUs", "1.0",
-                        "Harvests wisps and converts memories.", false, new SubscriptionState.Installed(),
-                        OptionalInt.of(DIVINATION_KEY)),
+                        "Harvests wisps and converts memories.", false, divination, localKey),
                 subscription("58", "Herblore Pro", "mortar", "2.1",
                         "Cleans herbs and mixes potions at any bank.", true, new SubscriptionState.Installing(),
                         OptionalInt.empty()),
@@ -131,58 +175,34 @@ final class FixtureBoard implements ClientBoard {
                 paid ? PriceBadge.PAID : PriceBadge.FREE, state, localKey);
     }
 
-    static FixtureBoard sixClients() {
-        return new FixtureBoard(baseFleet(), status(false, "BotWithUs_14208"));
+    /** Seven clients, one in each client state and each script state of the prototype. */
+    static FixtureBoard everyState() {
+        return new FixtureBoard(FixtureFleet.everyState(), status(FixtureFleet.OAKHEART_PIPE));
     }
 
-    static FixtureBoard twelveClients() {
-        List<ClientView> all = new ArrayList<>(baseFleet());
-        Random rng = new Random(SEED + 1);
-        all.add(running("Wrenfield", 16640, 58, FLETCHER, 118, rng, -1));
-        all.add(running("Ashgrove", 17012, 84, GHOST, 211, rng, 19));
-        all.add(new ClientView("BotWithUs_17388", "Mirelock", 102, new ClientStatus.Reconnecting(2, 5, 4000)));
-        all.add(new ClientView("BotWithUs_17720", "Sableton", 44, new ClientStatus.Idle()));
-        all.add(running("Kestrel Moor", 18104, 2, FLAG, 74, rng, -1));
-        all.add(running("Duskwater", 18466, 117, WOODCUTTING, 156, rng, -1));
-        return new FixtureBoard(List.copyOf(all), status(false, "BotWithUs_14208"));
+    /** The prototype's thirteen clients: enough for the filter box, two scripts on one card, a cut-off script. */
+    static FixtureBoard thirteenClients() {
+        return new FixtureBoard(FixtureFleet.thirteen(), status(FixtureFleet.OAKHEART_PIPE));
+    }
+
+    /** A development client with no account UUID to resume by. */
+    static FixtureBoard devClient() {
+        return new FixtureBoard(FixtureFleet.devClient(), status(FixtureFleet.OAKHEART_PIPE));
+    }
+
+    /** One still of a game client restarting and coming back on a new pipe. */
+    static FixtureBoard restart(FixtureFleet.RestartStep step) {
+        return new FixtureBoard(FixtureFleet.restart(step), status(FixtureFleet.OAKHEART_PIPE));
     }
 
     static FixtureBoard waiting() {
-        return new FixtureBoard(List.of(), status(false, null));
+        return new FixtureBoard(List.of(), status(null));
     }
 
-    static FixtureBoard offline() {
-        return new FixtureBoard(List.of(), status(true, null));
+    private static BoardStatus status(String active) {
+        return new BoardStatus(false, 0, active, true, "\\\\.\\pipe\\BotWithUs_*", null, false);
     }
 
-    private static BoardStatus status(boolean offline, String active) {
-        return new BoardStatus(offline, offline ? 5 : 0, active, true, "\\\\.\\pipe\\BotWithUs_*", null, false);
-    }
-
-    private static List<ClientView> baseFleet() {
-        Random rng = new Random(SEED);
-        return List.of(
-                running("Oakheart", 14208, 84, WOODCUTTING, 142, rng, -1),
-                running("Fernmoss", 9932, 2, DIVINATION, 96, rng, -1),
-                new ClientView("BotWithUs_11820", "Quillon", 117, new ClientStatus.Idle()),
-                new ClientView("BotWithUs_7716", "BotWithUs_7716", 44, new ClientStatus.Loading()),
-                new ClientView("BotWithUs_10344", "Hollowmere", 84, new ClientStatus.Lost(42_000, WOODCUTTING)),
-                new ClientView("BotWithUs_15002", "Tamsin Vale", 31,
-                        new ClientStatus.Crashed(COOKS, "NullPointerException in onLoop()")));
-    }
-
-    /** A running client whose last 24 loops jitter ±20% round {@code avgMs}; one spike at {@code spikeAt}. */
-    private static ClientView running(String account, int pid, int world, ScriptInfo script, double avgMs,
-                                      Random rng, int spikeAt) {
-        long[] lane = new long[LANE];
-        for (int i = 0; i < LANE; i++) {
-            lane[i] = Math.round(avgMs * (JITTER_LOW + rng.nextDouble() * JITTER_SPAN) * MS);
-        }
-        if (spikeAt >= 0) {
-            lane[spikeAt] = Math.round(avgMs * SPIKE * MS);
-        }
-        return new ClientView("BotWithUs_" + pid, account, world, new ClientStatus.Running(script, avgMs, lane));
-    }
 
     @Override
     public List<ClientView> clients() {
@@ -204,26 +224,62 @@ final class FixtureBoard implements ClientBoard {
     }
 
     @Override
-    public SubscriptionGroup subscriptions(String clientId) {
+    public SubscriptionGroup subscriptions(ClientKey client) {
         return subscriptions;
     }
 
     @Override
-    public Optional<InspectorTarget> inspect(String clientId) {
-        return clients.stream()
-                .filter(c -> c.id().equals(clientId) && c.status().isRunning())
-                .findFirst()
-                .map(this::target);
+    public Optional<InspectorTarget> resolve(InspectorSubject subject) {
+        return switch (subject) {
+            case ClientScript s -> clients.stream()
+                    .filter(c -> c.pipe().filter(s.clientId()::equals).isPresent())
+                    .findFirst()
+                    .flatMap(c -> c.script(s.scriptName()).map(row -> clientTarget(s, c, row.script())));
+            case ManagementScript s -> managementTarget(s);
+        };
     }
 
-    private InspectorTarget target(ClientView c) {
-        boolean woodcutting = c.scriptOrNull() == WOODCUTTING;
-        return new InspectorTarget(c.id(), c.account(), c.scriptOrNull(),
+    private InspectorTarget clientTarget(ClientScript subject, ClientView c, ScriptInfo script) {
+        boolean woodcutting = script == WOODCUTTING;
+        return new InspectorTarget(subject, "on " + c.account().orElse(subject.clientId()) + " · " + subject.clientId(),
+                script,
                 woodcutting ? WOODCUTTING_FIELDS : List.of(),
                 () -> applied, cfg -> { },
                 woodcutting ? FixtureBoard::sampleScriptUi : null,
                 id -> Optional.ofNullable(ITEMS.get(id)),
                 () -> false);
+    }
+
+    private Optional<InspectorTarget> managementTarget(ManagementScript subject) {
+        if (subject.scriptName().equals(BREAK_SCHEDULER.name())) {
+            FixtureManagementSettings targets = new FixtureManagementSettings(BREAK_FIELDS);
+            Optional<Target> picked = targets.picked(subject.settingsFor());
+            ScriptConfig current = targets.current(picked);
+            return Optional.of(new InspectorTarget(subject.withSettingsFor(picked),
+                    BREAK_SCHEDULER_CONTEXT, BREAK_SCHEDULER, BREAK_FIELDS, () -> current, cfg -> { },
+                    null, id -> Optional.ofNullable(ITEMS.get(id)), () -> false, targets.picker(picked)));
+        }
+        if (subject.scriptName().equals(LOGIN_WATCHER.name())) {
+            return Optional.of(new InspectorTarget(subject, WHOLE_HOST_CONTEXT, LOGIN_WATCHER,
+                    LOGIN_FIELDS, () -> applied, cfg -> { }, null, id -> Optional.empty(), () -> false));
+        }
+        if (subject.scriptName().equals(FLEET_MONITOR.name())) {
+            return Optional.of(new InspectorTarget(subject, WHOLE_HOST_CONTEXT, FLEET_MONITOR,
+                    List.of(), () -> applied, cfg -> { }, FixtureBoard::sampleFleetUi, id -> Optional.empty(),
+                    () -> false));
+        }
+        return Optional.empty();
+    }
+
+    /** Stands in for a management script's own ImGui. */
+    private static void sampleFleetUi() {
+        ImGui.text("Clients:  7 connected, 5 running");
+        ImGui.text("Oakheart     Woodcutting   84 lvl");
+        ImGui.text("Fernmoss     Divination    71 lvl");
+        ImGui.text("Kestrel Moor Walk to Flag  --");
+        ImGui.button("Pause all");
+        ImGui.sameLine();
+        ImGui.button("Resume all");
     }
 
     /** Stands in for a script's own ImGui: plain widgets in the default font, unstyled by the host. */
@@ -249,13 +305,15 @@ final class FixtureBoard implements ClientBoard {
 
     /** The preview only draws; every action is a no-op. */
     private static final class NoActions implements ClientActions {
-        @Override public void startScript(String clientId, ScriptEntry script) { }
-        @Override public void startSubscription(String clientId, String scriptId) { }
-        @Override public void stopScript(String clientId) { }
-        @Override public void restartScript(String clientId) { }
-        @Override public void reconnect(String clientId) { }
-        @Override public void cancelReconnect(String clientId) { }
-        @Override public void viewLog(String clientId) { }
-        @Override public void retryHost() { }
+        @Override public void startScript(ClientKey client, ScriptEntry script) { }
+        @Override public void startSubscription(ClientKey client, String scriptId) { }
+        @Override public void stopScript(ClientKey client, String scriptName) { }
+        @Override public void runScript(ClientKey client, String scriptName) { }
+        @Override public void reconnect(ClientKey client) { }
+        @Override public void retryNow(ClientKey client) { }
+        @Override public void stopRetrying(ClientKey client) { }
+        @Override public void forget(ClientKey client) { }
+        @Override public void viewLog(ClientKey client) { }
+        @Override public void setResumeAfterRestart(ClientKey client, boolean isOn) { }
     }
 }

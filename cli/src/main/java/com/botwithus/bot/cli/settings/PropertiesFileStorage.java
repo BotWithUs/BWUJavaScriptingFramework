@@ -1,12 +1,12 @@
 package com.botwithus.bot.cli.settings;
 
+import com.botwithus.bot.core.config.AtomicFiles;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -15,11 +15,14 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * A {@code .properties} file written atomically: the new content goes to a
- * sibling {@code .tmp} file that is then moved over the target, so a crash
- * mid-write leaves either the old file or the new one, never a truncated one.
+ * A {@code .properties} file written atomically through {@link AtomicFiles}: the
+ * new content goes to a uniquely named sibling file, is flushed to disk and is
+ * then renamed over the target, so a crash mid-write leaves either the old file
+ * or the new one, never a truncated one. A rename refused because another
+ * process has the file open for a moment is retried; one that still cannot be
+ * made fails the save and leaves no temporary file behind.
  *
- * <p>Writes use {@link Properties#store(OutputStream, String)}, which escapes
+ * <p>Writes use {@link Properties#store(java.io.OutputStream, String)}, which escapes
  * anything outside ISO-8859-1, so the file stays plain ASCII. Reads decode as
  * UTF-8, which reads that ASCII back and also accepts a file hand-edited in UTF-8.</p>
  *
@@ -30,7 +33,6 @@ final class PropertiesFileStorage implements SettingsStorage {
 
     private static final String HEADER =
             "BotWithUs host settings. Changes made in the app or with 'config set' save automatically.";
-    private static final String TEMP_SUFFIX = ".tmp";
     private static final String UNREADABLE_SUFFIX = ".unreadable";
 
     private final Path file;
@@ -62,19 +64,7 @@ final class PropertiesFileStorage implements SettingsStorage {
     public void save(Map<String, String> entries) throws IOException {
         Properties props = new Properties();
         props.putAll(entries);
-        Path parent = file.toAbsolutePath().getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
-        Path temp = file.resolveSibling(file.getFileName() + TEMP_SUFFIX);
-        try (OutputStream out = Files.newOutputStream(temp)) {
-            props.store(out, HEADER);
-        }
-        try {
-            Files.move(temp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException e) {
-            Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
-        }
+        AtomicFiles.write(file, out -> props.store(out, HEADER));
     }
 
     @Override

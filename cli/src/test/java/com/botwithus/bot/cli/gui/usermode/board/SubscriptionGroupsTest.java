@@ -25,7 +25,7 @@ class SubscriptionGroupsTest {
 
     private static SdnCatalogueEntry entry(String name, Boolean subscribed, Boolean isFree, boolean v2) {
         return new SdnCatalogueEntry("id-" + name, name, "author", "me", "1.0", "2", "tagline", "",
-                "com.example." + name, !v2, v2, subscribed, isFree);
+                "com.example." + name, !v2, v2, subscribed, isFree, null, null, null);
     }
 
     private static List<String> names(SubscriptionGroup group) {
@@ -94,7 +94,7 @@ class SubscriptionGroupsTest {
     void of_everyEntryMissingSubscribed_neverGuessesFromAuthorOrSubscriber() {
         // author == subscriber would read as "owned" under the old heuristic; it must not surface.
         SdnCatalogueEntry own = new SdnCatalogueEntry("1", "Mine", "me", "me", "1.0", "2", "", "", "a.B",
-                false, true, null, null);
+                false, true, null, null, null, null, null);
 
         assertTrue(delivered(own).isHidden());
     }
