@@ -115,6 +115,8 @@ final class SubscriptionRows {
             case SubscriptionState.Failed ignored -> new MetaLine("Could not install. Select for details.",
                     ImGuiTheme.COL_WARN);
             case SubscriptionState.Installed ignored -> new MetaLine(byline(s), ImGuiTheme.COL_FG2);
+            case SubscriptionState.UpdateAvailable update -> new MetaLine(
+                    "Update available · build " + update.from() + " → " + update.to(), ImGuiTheme.COL_ACCENT);
             case SubscriptionState.NotInstalled ignored -> new MetaLine(byline(s), ImGuiTheme.COL_FG2);
         };
     }
@@ -171,6 +173,7 @@ final class SubscriptionRows {
     private static String statusLabel(SubscriptionState state) {
         return switch (state) {
             case SubscriptionState.Installed ignored -> "installed";
+            case SubscriptionState.UpdateAvailable ignored -> "update available";
             case SubscriptionState.NotInstalled ignored -> "not installed";
             case SubscriptionState.Installing ignored -> "installing";
             case SubscriptionState.Failed ignored -> "install failed";
@@ -182,6 +185,10 @@ final class SubscriptionRows {
                              float w) {
         return switch (state) {
             case SubscriptionState.Installed ignored -> y;
+            case SubscriptionState.UpdateAvailable update -> paragraph(draw,
+                    "The Store has build " + update.to() + "; this host installed build " + update.from()
+                            + ". Starting runs the installed build. Update it from the Script Store.",
+                    ImGuiTheme.COL_FG3, x, y, w);
             case SubscriptionState.NotInstalled ignored -> paragraph(draw,
                     "Starting installs it through the launcher, then runs it on " + account + ".",
                     ImGuiTheme.COL_FG3, x, y, w);

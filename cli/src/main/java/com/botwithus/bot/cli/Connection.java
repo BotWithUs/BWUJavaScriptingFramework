@@ -16,9 +16,14 @@ import com.botwithus.bot.core.shm.SharedRegionEventPump;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.UnaryOperator;
 
 public class Connection {
 
@@ -40,13 +45,31 @@ public class Connection {
     private volatile String accountUuid;
     private volatile Map<String, Object> accountInfo;
     private volatile boolean lobbyLoginAttempted;
+    // Lifecycle and game state: written by the status tracker and the reconnect
+    // listener, read every frame by the GUI. Each is one immutable value behind a
+    // volatile reference, so a reader never sees half of an update.
+    private final Instant connectedAt;
+    private volatile Instant lastReconnectedAt;
+    private volatile GameStatus gameStatus = GameStatus.UNKNOWN;
+    /** Orders status reads, so an older reading never overwrites a newer one. */
+    private final AtomicLong statusReadCounter = new AtomicLong();
+    private final Object statusLock = new Object();
+    // Guarded by statusLock: the read that produced the current gameStatus.
+    private long publishedStatusRead;
 
     public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime, ScriptManagerImpl scriptManager) {
+        this(name, pipe, rpc, runtime, scriptManager, Instant.now());
+    }
+
+    /** @param connectedAt when the host connected to this client's pipe */
+    public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime,
+                      ScriptManagerImpl scriptManager, Instant connectedAt) {
         this.name = name;
         this.pipe = pipe;
         this.rpc = rpc;
         this.runtime = runtime;
         this.scriptManager = scriptManager;
+        this.connectedAt = connectedAt;
     }
 
     public String getName() { return name; }
@@ -88,8 +111,30 @@ public class Connection {
     public String getAccountUuid() { return accountUuid; }
 
     /**
+     * The account UUID when it identifies a real account: empty when the agent
+     * sent none, or sent the placeholder a development launch produces (see
+     * {@link AccountReply#identifiedUuid()}). This is the one to key anything by.
+     */
+    public Optional<String> getIdentifiedUuid() {
+        return AccountReply.identified(accountUuid);
+    }
+
+    /**
+     * The best name to show for this client from the last account reply, which a
+     * newer agent can supply before the client logs in. Empty until one is known.
+     * {@link #getAccountName()} is different: auto-start sets it once it has
+     * identified the client.
+     */
+    public Optional<String> getDisplayName() {
+        Map<String, Object> info = accountInfo;
+        return info != null ? new AccountReply(info).displayName() : Optional.empty();
+    }
+
+    /**
      * Stores an unmodifiable copy of the agent's {@code get_account_info} reply, so
-     * a reader on another thread never sees the map change underneath it.
+     * a reader on another thread never sees the map change underneath it. When the
+     * reply identifies the account, the script runtime is bound to it too, so
+     * per-script config persists under that account however the host connected.
      */
     public void setAccountInfo(Map<String, Object> accountInfo) {
         if (accountInfo == null) {
@@ -102,10 +147,75 @@ public class Connection {
             this.accountUuid = uuid.toString();
         }
         this.accountInfo = copy;
+        getIdentifiedUuid().ifPresent(this::bindRuntimeTo);
+    }
+
+    private void bindRuntimeTo(String uuid) {
+        if (!uuid.equals(runtime.getAccountUuid())) {
+            runtime.setAccountUuid(uuid);
+        }
     }
 
     /** The last {@code get_account_info} reply, unmodifiable; {@code null} until the account is probed. */
     public Map<String, Object> getAccountInfo() { return accountInfo; }
+
+    /** When the host connected to this client. A reconnect of the same pipe keeps it. */
+    public Instant getConnectedAt() { return connectedAt; }
+
+    /** When the pipe last came back after a drop; empty if it never dropped. */
+    public Optional<Instant> getLastReconnectedAt() { return Optional.ofNullable(lastReconnectedAt); }
+
+    /**
+     * Records a reconnect-state change. Only a return to {@code Connected} is kept:
+     * the controller publishes nothing until the first drop, so every
+     * {@code Connected} it reports is a reconnect.
+     */
+    void onReconnectState(ReconnectState state) {
+        switch (state) {
+            case ReconnectState.Connected connected ->
+                    lastReconnectedAt = Instant.ofEpochMilli(connected.timestamp());
+            case ReconnectState.Disconnected ignored -> { }
+            case ReconnectState.Reconnecting ignored -> { }
+            case ReconnectState.GivingUp ignored -> { }
+        }
+    }
+
+    /** Game state, world and membership, as last refreshed. */
+    public GameStatus getGameStatus() { return gameStatus; }
+
+    public GameState getGameState() { return gameStatus.state(); }
+
+    /** The world the client is in; empty unless it is in a world. */
+    public OptionalInt getWorldId() { return gameStatus.world(); }
+
+    /** Whether the account is a member; {@code false} until the client is in a world. */
+    public boolean isMember() { return gameStatus.isMember(); }
+
+    /**
+     * Starts a reading of the game status. Take the ticket <em>before</em> asking
+     * the agent, and hand it to {@link #publishGameStatus}: two readings can finish
+     * out of order, and the ticket is how the later-started one wins.
+     */
+    long beginStatusRead() {
+        return statusReadCounter.incrementAndGet();
+    }
+
+    /**
+     * Applies {@code update} unless a reading that started after {@code ticket}
+     * has already been published.
+     *
+     * @return whether the update was applied
+     */
+    boolean publishGameStatus(long ticket, UnaryOperator<GameStatus> update) {
+        synchronized (statusLock) {
+            if (ticket < publishedStatusRead) {
+                return false;
+            }
+            publishedStatusRead = ticket;
+            gameStatus = update.apply(gameStatus);
+            return true;
+        }
+    }
 
     /**
      * Whether the auto-discovery loop has already dispatched a

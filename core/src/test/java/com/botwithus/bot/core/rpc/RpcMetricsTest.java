@@ -2,9 +2,17 @@ package com.botwithus.bot.core.rpc;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class RpcMetricsTest {
+
+    private static final long NANOS_PER_MS = 1_000_000L;
+    private static final long SUB_MS_NANOS = 900_000L;
 
     @Test
     void recordCallAndSnapshot() {
@@ -81,5 +89,65 @@ class RpcMetricsTest {
         metrics.recordCall("perf.method", 1_000_000L, false);
         RpcMetrics.MethodStats stats = metrics.snapshot().get("perf.method");
         assertEquals(0L, stats.percentileMs(75));
+    }
+
+    @Test
+    void pooled_takesPercentilesOverTheUnionOfEverySourcesSamples() {
+        RpcMetrics fast = new RpcMetrics();
+        RpcMetrics slow = new RpcMetrics();
+        // 1..50 ms on one client, 51..100 ms on the other: neither alone has the
+        // pooled p95, and averaging the two p95s (47.5 and 97.5 ms) gives 72.5 ms.
+        for (int i = 1; i <= 50; i++) {
+            fast.recordCall("query_entities", i * NANOS_PER_MS, false);
+            slow.recordCall("query_entities", (50 + i) * NANOS_PER_MS, i == 1);
+        }
+
+        RpcMetrics.MethodStats pooled = RpcMetrics.pooled(List.of(fast, slow)).get("query_entities");
+
+        assertAll(
+                () -> assertEquals(100, pooled.callCount()),
+                () -> assertEquals(1, pooled.errorCount()),
+                () -> assertEquals(50.5, pooled.avgLatencyMs(), 1e-9),
+                () -> assertEquals(50 * NANOS_PER_MS, pooled.percentileNanos(50)),
+                () -> assertEquals(95 * NANOS_PER_MS, pooled.percentileNanos(95)),
+                () -> assertEquals(99 * NANOS_PER_MS, pooled.percentileNanos(99)));
+    }
+
+    @Test
+    void pooled_keepsAMethodOnlyOneSourceCalled() {
+        RpcMetrics a = new RpcMetrics();
+        RpcMetrics b = new RpcMetrics();
+        a.recordCall("get_varp", NANOS_PER_MS, false);
+        b.recordCall("walk_status", 2 * NANOS_PER_MS, false);
+
+        Map<String, RpcMetrics.MethodStats> pooled = RpcMetrics.pooled(List.of(a, b));
+
+        assertEquals(Set.of("get_varp", "walk_status"), pooled.keySet());
+        assertEquals(2 * NANOS_PER_MS, pooled.get("walk_status").percentileNanos(99));
+    }
+
+    @Test
+    void percentileNanos_keepsTheFractionThatPercentileMsDrops() {
+        RpcMetrics metrics = new RpcMetrics();
+        metrics.recordCall("get_varp", SUB_MS_NANOS, false);
+
+        RpcMetrics.MethodStats stats = metrics.snapshot().get("get_varp");
+
+        assertEquals(0L, stats.percentileMs(50));
+        assertEquals(SUB_MS_NANOS, stats.percentileNanos(50));
+    }
+
+    @Test
+    void recordCall_whileNotCollecting_recordsNothing_andResumesWhenCollectingAgain() {
+        RpcMetrics metrics = new RpcMetrics();
+        AtomicBoolean collecting = new AtomicBoolean(false);
+        metrics.setCollecting(collecting::get);
+
+        metrics.recordCall("get_varp", NANOS_PER_MS, true);
+        assertTrue(metrics.snapshot().isEmpty());
+
+        collecting.set(true);
+        metrics.recordCall("get_varp", NANOS_PER_MS, false);
+        assertEquals(1, metrics.snapshot().get("get_varp").callCount());
     }
 }

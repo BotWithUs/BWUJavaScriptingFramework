@@ -106,7 +106,8 @@ class ReconnectRecoveryPathTest {
         AtomicInteger resolveCalls = new AtomicInteger();
         ReconnectController.PipeResolver resolver = attempt -> {
             resolveCalls.incrementAndGet();
-            return new PipeResolution.Gone("game process 4242 has exited");
+            return new PipeResolution.Gone(PipeResolution.Gone.Reason.PROCESS_EXITED,
+                    "game process 4242 has exited");
         };
 
         controller(r, resolver, states, LARGE_ATTEMPT_BUDGET)

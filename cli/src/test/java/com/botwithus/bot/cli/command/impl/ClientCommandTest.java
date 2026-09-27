@@ -2,24 +2,29 @@ package com.botwithus.bot.cli.command.impl;
 
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.TestContexts;
 import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.ParsedCommand;
-import com.botwithus.bot.cli.log.LogBuffer;
-import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class ClientCommandTest {
+
+    @TempDir
+    Path tempDir;
 
     private ClientCommand command;
     private CliContext ctx;
@@ -30,9 +35,7 @@ class ClientCommandTest {
         command = new ClientCommand();
         outputStream = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(outputStream);
-        LogBuffer logBuffer = new LogBuffer();
-        LogCapture logCapture = new LogCapture(logBuffer, ps, ps);
-        ctx = spy(new CliContext(logBuffer, logCapture));
+        ctx = spy(TestContexts.inDir(tempDir, ps));
         // Create a ClientManager that references the spy, not the unwrapped object
         var mgr = new com.botwithus.bot.cli.ClientManager(ctx);
         doReturn(mgr).when(ctx).getClientManager();
@@ -49,6 +52,8 @@ class ClientCommandTest {
     private Connection mockConnection(String name) {
         Connection conn = mock(Connection.class);
         when(conn.getName()).thenReturn(name);
+        // Tests use the same name for a client's pipe and its account.
+        when(conn.getIdentifiedUuid()).thenReturn(Optional.of(name));
         when(conn.isAlive()).thenReturn(true);
         ScriptRuntime runtime = mock(ScriptRuntime.class);
         when(runtime.getRunners()).thenReturn(List.of());
@@ -141,8 +146,8 @@ class ClientCommandTest {
 
         @Test
         void statusWithGroupFlag() {
-            ctx.createGroup("skillers");
-            ctx.getGroup("skillers").add("Bot1");
+            TestContexts.createGroup(ctx, "skillers");
+            TestContexts.addMember(ctx, "skillers", "Bot1");
 
             Connection c1 = mockConnection("Bot1");
             ScriptRunner r1 = mockRunner("Woodcutter", true);
@@ -174,21 +179,21 @@ class ClientCommandTest {
             command.execute(parse("client group create skillers Skilling accounts"), ctx);
             String out = output();
             assertTrue(out.contains("created"));
-            assertNotNull(ctx.getGroup("skillers"));
-            assertEquals("Skilling accounts", ctx.getGroup("skillers").getDescription());
+            assertTrue(ctx.findGroup("skillers").isPresent());
+            assertEquals("Skilling accounts", ctx.findGroup("skillers").orElseThrow().description().orElse(null));
         }
 
         @Test
         void groupCreateWithoutDescription() {
             command.execute(parse("client group create combat"), ctx);
             assertTrue(output().contains("created"));
-            assertNotNull(ctx.getGroup("combat"));
-            assertNull(ctx.getGroup("combat").getDescription());
+            assertTrue(ctx.findGroup("combat").isPresent());
+            assertNull(ctx.findGroup("combat").orElseThrow().description().orElse(null));
         }
 
         @Test
         void groupCreateAlreadyExists() {
-            ctx.createGroup("skillers");
+            TestContexts.createGroup(ctx, "skillers");
             command.execute(parse("client group create skillers"), ctx);
             assertTrue(output().contains("already exists"));
         }
@@ -201,10 +206,10 @@ class ClientCommandTest {
 
         @Test
         void groupDelete() {
-            ctx.createGroup("skillers");
+            TestContexts.createGroup(ctx, "skillers");
             command.execute(parse("client group delete skillers"), ctx);
             assertTrue(output().contains("deleted"));
-            assertNull(ctx.getGroup("skillers"));
+            assertTrue(ctx.findGroup("skillers").isEmpty());
         }
 
         @Test
@@ -221,10 +226,10 @@ class ClientCommandTest {
 
         @Test
         void groupAdd() {
-            ctx.createGroup("skillers");
+            TestContexts.createGroup(ctx, "skillers");
             command.execute(parse("client group add skillers Bot1"), ctx);
             assertTrue(output().contains("Added"));
-            assertTrue(ctx.getGroup("skillers").contains("Bot1"));
+            assertTrue(ctx.findGroup("skillers").orElseThrow().contains("Bot1"));
         }
 
         @Test
@@ -241,11 +246,11 @@ class ClientCommandTest {
 
         @Test
         void groupRemove() {
-            ctx.createGroup("skillers");
-            ctx.getGroup("skillers").add("Bot1");
+            TestContexts.createGroup(ctx, "skillers");
+            TestContexts.addMember(ctx, "skillers", "Bot1");
             command.execute(parse("client group remove skillers Bot1"), ctx);
             assertTrue(output().contains("Removed"));
-            assertFalse(ctx.getGroup("skillers").contains("Bot1"));
+            assertFalse(ctx.findGroup("skillers").orElseThrow().contains("Bot1"));
         }
 
         @Test
@@ -262,9 +267,9 @@ class ClientCommandTest {
 
         @Test
         void groupListShowsGroups() {
-            ctx.createGroup("skillers");
-            ctx.getGroup("skillers").setDescription("Skilling bots");
-            ctx.getGroup("skillers").add("Bot1");
+            TestContexts.createGroup(ctx, "skillers");
+            ctx.getClientManager().setGroupDescription("skillers", "Skilling bots");
+            TestContexts.addMember(ctx, "skillers", "Bot1");
 
             command.execute(parse("client group list"), ctx);
             String out = output();
@@ -275,9 +280,9 @@ class ClientCommandTest {
 
         @Test
         void groupInfo() {
-            ctx.createGroup("combat");
-            ctx.getGroup("combat").setDescription("Combat bots");
-            ctx.getGroup("combat").add("Bot1");
+            TestContexts.createGroup(ctx, "combat");
+            ctx.getClientManager().setGroupDescription("combat", "Combat bots");
+            TestContexts.addMember(ctx, "combat", "Bot1");
 
             Connection c1 = mockConnection("Bot1");
             doReturn(List.of(c1)).when(ctx).getConnections();
@@ -304,16 +309,16 @@ class ClientCommandTest {
 
         @Test
         void groupInfoEmptyMembers() {
-            ctx.createGroup("empty");
+            TestContexts.createGroup(ctx, "empty");
             command.execute(parse("client group info empty"), ctx);
             assertTrue(output().contains("no members"));
         }
 
         @Test
         void groupDescribe() {
-            ctx.createGroup("skillers");
+            TestContexts.createGroup(ctx, "skillers");
             command.execute(parse("client group describe skillers Best skilling group"), ctx);
-            assertEquals("Best skilling group", ctx.getGroup("skillers").getDescription());
+            assertEquals("Best skilling group", ctx.findGroup("skillers").orElseThrow().description().orElse(null));
             assertTrue(output().contains("description set"));
         }
 
@@ -325,7 +330,7 @@ class ClientCommandTest {
 
         @Test
         void groupDescribeMissingDesc() {
-            ctx.createGroup("skillers");
+            TestContexts.createGroup(ctx, "skillers");
             command.execute(parse("client group describe skillers"), ctx);
             assertTrue(output().contains("Usage:"));
         }
@@ -367,8 +372,8 @@ class ClientCommandTest {
 
         @Test
         void startOnGroup() {
-            ctx.createGroup("skillers");
-            ctx.getGroup("skillers").add("Bot1");
+            TestContexts.createGroup(ctx, "skillers");
+            TestContexts.addMember(ctx, "skillers", "Bot1");
 
             Connection c1 = mockConnection("Bot1");
             doReturn(List.of(c1)).when(ctx).getConnections();
@@ -455,8 +460,8 @@ class ClientCommandTest {
 
         @Test
         void stopallOnGroup() {
-            ctx.createGroup("farm");
-            ctx.getGroup("farm").add("Bot1");
+            TestContexts.createGroup(ctx, "farm");
+            TestContexts.addMember(ctx, "farm", "Bot1");
 
             Connection c1 = mockConnection("Bot1");
             doReturn(List.of(c1)).when(ctx).getGroupConnections("farm");

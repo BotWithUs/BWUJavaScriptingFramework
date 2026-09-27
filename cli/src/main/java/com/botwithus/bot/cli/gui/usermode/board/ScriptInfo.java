@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli.gui.usermode.board;
 
 import com.botwithus.bot.api.ScriptCategory;
+import com.botwithus.bot.api.ScriptManifest;
 
 import java.util.Locale;
 
@@ -20,6 +21,19 @@ public record ScriptInfo(
         String description,
         int settingsCount,
         boolean hasCustomUi) {
+
+    /**
+     * A script's details from its manifest, or blank ones when it has none.
+     *
+     * @param name the name the runtime registers the script under
+     */
+    public static ScriptInfo of(ScriptManifest manifest, String name, int settingsCount, boolean hasCustomUi) {
+        if (manifest == null) {
+            return new ScriptInfo(name, "", "", ScriptCategory.UNCATEGORIZED, "", settingsCount, hasCustomUi);
+        }
+        return new ScriptInfo(name, manifest.author(), manifest.version(), manifest.category(),
+                manifest.description(), settingsCount, hasCustomUi);
+    }
 
     /** "by Author · v1.0", skipping whichever half is blank. */
     public String byline() {
