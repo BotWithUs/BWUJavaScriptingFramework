@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.LongSupplier;
 import java.util.stream.Stream;
 
 /**
@@ -25,8 +26,9 @@ public class ManagementScriptRuntime {
     private final List<ManagementScriptRunner> runners = new CopyOnWriteArrayList<>();
     /** Runners whose threads refused to drain; kept visible rather than dropped. */
     private final List<ManagementScriptRunner> quarantined = new CopyOnWriteArrayList<>();
-    private final LivenessWatchdog watchdog =
-            new LivenessWatchdog(() -> "mgmt-script-watchdog", this::watchdogSubjects);
+    private volatile LongSupplier stallAfterMs = () -> ScriptRuntime.DEFAULT_STALL_AFTER_MS;
+    private final LivenessWatchdog watchdog = new LivenessWatchdog(
+            () -> "mgmt-script-watchdog", this::watchdogSubjects, () -> stallAfterMs.getAsLong());
     private final RunnerListener runnerListener;
     private Runnable onStateChange;
 
@@ -41,6 +43,16 @@ public class ManagementScriptRuntime {
     public ManagementScriptRuntime(ManagementContext context, RunnerListener runnerListener) {
         this.context = context;
         this.runnerListener = runnerListener != null ? runnerListener : RunnerListener.NONE;
+    }
+
+    /** Same as {@link ScriptRuntime#setStallThreshold}, for management scripts. */
+    public void setStallThreshold(LongSupplier stallAfterMs) {
+        this.stallAfterMs = stallAfterMs;
+    }
+
+    /** The stall threshold in milliseconds as it stands now. */
+    public long stallThresholdMs() {
+        return stallAfterMs.getAsLong();
     }
 
     public void setOnStateChange(Runnable callback) {

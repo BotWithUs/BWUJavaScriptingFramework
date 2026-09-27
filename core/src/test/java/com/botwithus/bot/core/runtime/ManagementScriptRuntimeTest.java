@@ -2,6 +2,7 @@ package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
+import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
@@ -10,7 +11,10 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -211,6 +215,56 @@ class ManagementScriptRuntimeTest {
 
             runtime.stopAll();
             Thread.sleep(100);
+        }
+    }
+
+    @Nested
+    class StallThreshold {
+
+        private static final long SHORT_STALL_MS = 20_000L;
+        private static final long PAST_MS = 500L;
+        private static final long WAIT_S = 5L;
+
+        /** Parks inside one onLoop until the test releases it. */
+        @ScriptManifest(name = "Parked", version = "1.0", author = "test")
+        final class Parked implements ManagementScript {
+            private final CountDownLatch inLoop = new CountDownLatch(1);
+            private final CountDownLatch release = new CountDownLatch(1);
+
+            @Override public void onStart(ManagementContext ctx) {}
+            @Override public int onLoop() {
+                inLoop.countDown();
+                try {
+                    release.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return -1;
+            }
+            @Override public void onStop() {}
+        }
+
+        @Test
+        void configuredThresholdFlagsALongLoop() throws Exception {
+            AtomicLong threshold = new AtomicLong(SHORT_STALL_MS * 3);
+            runtime.setStallThreshold(threshold::get);
+            Parked script = new Parked();
+            runtime.startScript(script);
+            try {
+                assertTrue(script.inLoop.await(WAIT_S, TimeUnit.SECONDS));
+                ManagementScriptRunner runner = runtime.findRunner("Parked");
+                long looping = System.nanoTime();
+
+                runtime.sweep(looping + TimeUnit.MILLISECONDS.toNanos(SHORT_STALL_MS + PAST_MS));
+                assertEquals(Liveness.LIVE, runner.liveness());
+
+                threshold.set(SHORT_STALL_MS);
+                runtime.sweep(looping + TimeUnit.MILLISECONDS.toNanos(SHORT_STALL_MS + PAST_MS));
+                assertEquals(Liveness.STALLED, runner.liveness());
+            } finally {
+                script.release.countDown();
+                runtime.stopAll();
+            }
         }
     }
 }

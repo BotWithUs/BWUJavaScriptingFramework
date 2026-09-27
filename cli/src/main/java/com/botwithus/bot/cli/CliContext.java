@@ -85,6 +85,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.function.Consumer;
@@ -152,7 +153,8 @@ public class CliContext {
     private final StartWhenBackDrain startWhenBackDrain;
     /** Runs saves and other work that must not hold up the thread that asked for it. */
     private final Executor background;
-    private HostSettings settings;
+    // Volatile: connections and runtimes read it from their own threads.
+    private volatile HostSettings settings;
     /** Host-level events; unlike a connection's bus it exists with no client connected. */
     private final HostEventBus hostEvents = new HostEventBus();
     private final ConnectionHistory connectionHistory = new ConnectionHistory();
@@ -285,7 +287,30 @@ public class CliContext {
         this.settings = settings;
         if (settings != null) {
             watchControl.bind(settings);
+            settings.onChange(SettingKeys.RPC_TIMEOUT_MS, this::applyRpcTimeout);
         }
+    }
+
+    /** Gives every open connection's RPC client the new per-call timeout; calls already waiting keep theirs. */
+    private void applyRpcTimeout(long timeoutMs) {
+        for (Connection conn : connections.values()) {
+            RpcClient rpc = conn.getRpc();
+            if (rpc != null) {
+                rpc.setTimeout(timeoutMs);
+            }
+        }
+    }
+
+    /** {@code defaultTimeout} now, or the RPC client's own default when no settings are set. */
+    private OptionalLong rpcTimeoutMs() {
+        HostSettings current = settings;
+        return current != null ? OptionalLong.of(current.get(SettingKeys.RPC_TIMEOUT_MS)) : OptionalLong.empty();
+    }
+
+    /** {@code scripts.stallAfterMs} now, read on every watchdog sweep so a change applies at once. */
+    private long stallAfterMs() {
+        HostSettings current = settings;
+        return current != null ? current.get(SettingKeys.STALL_AFTER_MS) : ScriptRuntime.DEFAULT_STALL_AFTER_MS;
     }
     public HostSettings getSettings() { return settings; }
 
@@ -393,6 +418,7 @@ public class CliContext {
         var mgmtContext = new ManagementContextImpl(
                 clientManager, clientProvider, messageBus, sharedState);
         managementRuntime = new ManagementScriptRuntime(mgmtContext, runnerEvents);
+        managementRuntime.setStallThreshold(this::stallAfterMs);
     }
 
     /**
@@ -550,8 +576,22 @@ public class CliContext {
             // Published under the lock, so a close of this connection can only queue after it.
             clientKeys.opened(conn.getName(), clock.instant());
         }
+        applySettings(conn);
         reportToHostEvents(conn);
         return true;
+    }
+
+    /** The host settings that shape a connection: its RPC timeout and its runtime's stall threshold. */
+    private void applySettings(Connection conn) {
+        RpcClient rpc = conn.getRpc();
+        OptionalLong timeout = rpcTimeoutMs();
+        if (rpc != null && timeout.isPresent()) {
+            rpc.setTimeout(timeout.getAsLong());
+        }
+        ScriptRuntime runtime = conn.getRuntime();
+        if (runtime != null) {
+            runtime.setStallThreshold(this::stallAfterMs);
+        }
     }
 
     /** Feeds the connection's script lifecycle and game-side signals into the host bus. */

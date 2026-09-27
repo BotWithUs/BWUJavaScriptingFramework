@@ -1,5 +1,8 @@
 package com.botwithus.bot.cli.settings;
 
+import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.runtime.ScriptRuntime;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -28,7 +31,7 @@ public final class SettingKeys {
     private static final long DEFAULT_SCAN_INTERVAL_MS = 5 * MS_PER_SECOND;
     private static final long MIN_SCAN_INTERVAL_MS = 500L;
     private static final long MAX_SCAN_INTERVAL_MS = 10 * MS_PER_MINUTE;
-    private static final long DEFAULT_RPC_TIMEOUT_MS = 10 * MS_PER_SECOND;
+    private static final long DEFAULT_RPC_TIMEOUT_MS = RpcClient.DEFAULT_TIMEOUT_MS;
     private static final long MIN_RPC_TIMEOUT_MS = 100L;
     private static final long MAX_RPC_TIMEOUT_MS = 10 * MS_PER_MINUTE;
 
@@ -41,7 +44,7 @@ public final class SettingKeys {
     private static final long DEFAULT_RECONNECT_MAX_DELAY_MS = 15 * MS_PER_SECOND;
     private static final long MAX_RECONNECT_MAX_DELAY_MS = 10 * MS_PER_MINUTE;
 
-    private static final long DEFAULT_STALL_AFTER_MS = 10 * MS_PER_MINUTE;
+    private static final long DEFAULT_STALL_AFTER_MS = ScriptRuntime.DEFAULT_STALL_AFTER_MS;
     private static final long MIN_STALL_AFTER_MS = 10 * MS_PER_SECOND;
     private static final long MAX_STALL_AFTER_MS = 60 * MS_PER_MINUTE;
 
