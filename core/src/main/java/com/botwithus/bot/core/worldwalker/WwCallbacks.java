@@ -192,6 +192,10 @@ public interface WwCallbacks {
      *       sub)}, {@code e..h=backpack(iface,comp,opt,sub)}, {@code i=backpack
      *       _special}; check whether the teleport item is worn or carried and
      *       dispatch the matching variant.</li>
+     *   <li>{@link ChainStepKind#CLICK_NPC} — {@code a=option (0-based), b..d=
+     *       search centre x,y,plane, e=radius, f..g=NPC type id range
+     *       (inclusive)}; click the nearest matching live NPC, or do nothing
+     *       when none is found (the chain's next WaitInterface notices).</li>
      * </ul>
      *
      * @param kind the {@link ChainStepKind} wire value

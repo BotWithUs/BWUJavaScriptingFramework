@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.model.VarKind;
 import com.botwithus.bot.api.model.VarpState;
 import com.botwithus.bot.api.model.VarpRead;
 import com.botwithus.bot.api.model.VarbitRead;
@@ -17,6 +18,7 @@ import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
@@ -31,6 +33,7 @@ import org.mockito.ArgumentCaptor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
@@ -51,6 +54,7 @@ class WorldWalkerCallbackBridgeTest {
     private GameAPI api;
     private GameSnapshot snapshot;
     private GameSnapshot.Locations locationsTable;
+    private GameSnapshot.Npcs npcsTable;
     private AtomicBoolean cancel;
     private List<WwEvent> events;
     private WorldWalkerCallbackBridge bridge;
@@ -62,6 +66,9 @@ class WorldWalkerCallbackBridgeTest {
         locationsTable = mock(GameSnapshot.Locations.class);
         when(snapshot.locations()).thenReturn(locationsTable);
         when(locationsTable.stream()).thenReturn(Stream.empty());
+        npcsTable = mock(GameSnapshot.Npcs.class);
+        when(snapshot.npcs()).thenReturn(npcsTable);
+        when(npcsTable.stream()).thenReturn(Stream.empty());
         cancel = new AtomicBoolean(false);
         events = new ArrayList<>();
         bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL);
@@ -201,6 +208,93 @@ class WorldWalkerCallbackBridgeTest {
         CapabilitySnapshot caps = bridge.readCapability();
 
         assertEquals(70, caps.skills().get(MAGIC_SKILL_TYPE));
+    }
+
+    private static VarpRead setVarp(int id, int value) {
+        return new VarpRead(id, VarpState.SET, value, value, VarKind.INT, true);
+    }
+
+    private static List<VarpRead> setVarps(List<Integer> ids, List<Integer> values) {
+        List<VarpRead> reads = new ArrayList<>();
+        for (int i = 0; i < ids.size(); i++) {
+            reads.add(setVarp(ids.get(i), values.get(i)));
+        }
+        return reads;
+    }
+
+    // The executor learns varps only from this snapshot, so a varp_at_least gate
+    // (Tree Gnome Village's spirit trees) is denied unless the host puts it here.
+    @Test
+    void readCapabilityCarriesRequirementVarpsInOneBatchedRead() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(WorldWalkerCallbackBridge.REQUIREMENT_VARPS)).thenReturn(setVarps(
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, List.of(9, 160, 140, 15)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(9, caps.varps().get(2661));
+        assertEquals(160, caps.varps().get(2740));
+        assertEquals(140, caps.varps().get(2326));
+        assertEquals(15, caps.varps().get(2102));
+        verify(api, times(1)).readVarps(anyList());
+        verify(api, never()).readVarp(anyInt());
+        verify(api, never()).getVarp(anyInt());
+    }
+
+    @Test
+    void readCapabilityReadsTheVarpsItIsGiven() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                List.of(7, 8));
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(List.of(7, 8))).thenReturn(setVarps(List.of(7, 8), List.of(1, 2)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(Map.of(7, 1, 8, 2), caps.varps());
+    }
+
+    // The walker's ABI reads 0 as "not present"; a varp with no value is left out
+    // rather than handed over as the host's -1 sentinel. A varp at its default
+    // has a value, and is carried.
+    @Test
+    void readCapabilityLeavesOutVarpsWithNoValue() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                List.of(7, 8, 9));
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(List.of(7, 8, 9))).thenReturn(List.of(
+                new VarpRead(7, VarpState.UNAVAILABLE, VarpRead.NO_VALUE, VarpRead.NO_VALUE,
+                        VarKind.UNKNOWN, true),
+                new VarpRead(8, VarpState.DEFAULT_NOT_SET_CLIENTSIDE, 0, 0, VarKind.UNKNOWN, true),
+                new VarpRead(9, VarpState.NO_SUCH_VARP, VarpRead.NO_VALUE, VarpRead.NO_VALUE,
+                        VarKind.UNKNOWN, true)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(Map.of(8, 0), caps.varps());
+    }
+
+    // A mis-sized reply cannot be paired with its ids, so it adds no varp at
+    // all: every varp gate stays denied rather than admitting on another's value.
+    @Test
+    void readCapabilityAddsNoVarpsWhenBatchIsMisSized() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(anyList())).thenReturn(List.of(setVarp(2661, 9)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertTrue(caps.varps().isEmpty());
+        assertEquals(73, caps.skills().get(MAGIC_SKILL_TYPE));
+    }
+
+    @Test
+    void readCapabilityKeepsSkillsWhenVarpReadFails() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(anyList())).thenThrow(new RuntimeException("rpc down"));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertTrue(caps.varps().isEmpty());
+        assertEquals(73, caps.skills().get(MAGIC_SKILL_TYPE));
     }
 
     private LocalPlayer playerWithSkill(int typeId, int actualLevel, int boostedLevel) {
@@ -605,6 +699,90 @@ class WorldWalkerCallbackBridgeTest {
         GameAction action = captor.getValue();
         assertEquals(ActionTypes.DIALOGUE, action.actionId());
         assertEquals((720 << 16) | 20, action.param3(), "option component 20 for index 1");
+    }
+
+    // ---- CLICK_NPC: the origin of a transition with no loc ----
+
+    // Charter-ship crewmembers: Trader Crewmember type ids 4650..4656.
+    private static final int CREW_FIRST_ID = 4650;
+    private static final int CREW_LAST_ID  = 4656;
+    private static final int CREW_RADIUS   = 8;
+
+    private static Npc npc(int serverIndex, int typeId, int x, int y, int plane) {
+        return new Npc(serverIndex, typeId, x, y, plane, 0, -1, -1, -1, 0, 0, -1);
+    }
+
+    private void runClickNpc(int option, int x, int y, int plane) {
+        bridge.runChainStep(ChainStepKind.CLICK_NPC.wire(),
+                option, x, y, plane, CREW_RADIUS, CREW_FIRST_ID, CREW_LAST_ID, 0, 0);
+    }
+
+    @Test
+    void runChainStepClickNpcQueuesNpcOptionOnServerIndex() {
+        when(npcsTable.stream()).thenReturn(Stream.of(npc(321, 4652, 2800, 3414, 0)));
+
+        runClickNpc(0, 2801, 3414, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.NPC1, action.actionId(), "0-based option 0 is NPC_OPTIONS[1]");
+        assertEquals(321, action.param1(), "server index in param1");
+        assertEquals(0, action.param2());
+        assertEquals(0, action.param3());
+    }
+
+    @Test
+    void runChainStepClickNpcOptionIndexIsZeroBased() {
+        when(npcsTable.stream()).thenReturn(Stream.of(npc(5, CREW_FIRST_ID, 100, 200, 0)));
+
+        runClickNpc(2, 100, 200, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(ActionTypes.NPC3, captor.getValue().actionId());
+    }
+
+    @Test
+    void runChainStepClickNpcPicksNearestInRange() {
+        when(npcsTable.stream()).thenReturn(Stream.of(
+                npc(1, CREW_LAST_ID, 106, 200, 0),
+                npc(2, CREW_FIRST_ID, 102, 201, 0)));
+
+        runClickNpc(0, 100, 200, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(2, captor.getValue().param1());
+    }
+
+    @Test
+    void runChainStepClickNpcIgnoresWrongTypePlaneAndDistance() {
+        when(npcsTable.stream()).thenReturn(Stream.of(
+                npc(1, CREW_FIRST_ID - 1, 100, 200, 0),               // type below range
+                npc(2, CREW_LAST_ID + 1, 100, 200, 0),                // type above range
+                npc(3, CREW_FIRST_ID, 100, 200, 1),                   // other plane
+                npc(4, CREW_FIRST_ID, 100 + CREW_RADIUS + 1, 200, 0))); // beyond radius
+
+        runClickNpc(0, 100, 200, 0);
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepClickNpcDoesNothingWhenNoNpc() {
+        runClickNpc(0, 100, 200, 0);
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepClickNpcDoesNothingForOutOfRangeOption() {
+        when(npcsTable.stream()).thenReturn(Stream.of(npc(5, CREW_FIRST_ID, 100, 200, 0)));
+
+        runClickNpc(ActionTypes.NPC_OPTIONS.length - 1, 100, 200, 0);
+
+        verify(api, never()).queueAction(any());
     }
 
     @Test

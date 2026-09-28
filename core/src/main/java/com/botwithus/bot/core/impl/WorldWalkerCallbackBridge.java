@@ -7,12 +7,14 @@ import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.VarbitRead;
+import com.botwithus.bot.api.model.VarpRead;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.api.util.Interfaces;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
@@ -58,11 +60,29 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     // at the same offset structure.
     private static final int[] ACTION_BAR_IFACES = { 1670, 1430 };
 
+    // Varps the walker's transitions gate on through `varp` / `varp_at_least`.
+    // STAND-IN: the executor batches every varbit and item id its artifact's
+    // requirements reference, but it has no way to name varps to the host --
+    // it learns them only from readCapability, and an absent varp reads 0, so
+    // every varp gate is denied. Until the walker exports the artifact's
+    // requirement varp ids (see the WorldWalker datasets README, "A varp gate
+    // is denied by the live bot today"), the host supplies the ones the
+    // shipped dataset uses. Replace this list with the artifact's own once
+    // that export exists; a varp gate added to the dataset without a matching
+    // id here stays denied, which is the safe direction.
+    private static final int VARP_TREE_GNOME_VILLAGE = 2661;  // spirit trees, complete at 9
+    private static final int VARP_THE_GRAND_TREE     = 2740;  // Gnome Stronghold tree, 160
+    private static final int VARP_CABIN_FEVER        = 2326;  // Mos Le'Harmless charter, 140
+    private static final int VARP_REGICIDE           = 2102;  // Port Tyras charter, 15
+    static final List<Integer> REQUIREMENT_VARPS = List.of(
+            VARP_TREE_GNOME_VILLAGE, VARP_THE_GRAND_TREE, VARP_CABIN_FEVER, VARP_REGICIDE);
+
     private final GameAPI api;
     private final Supplier<GameSnapshot> snapshotSource;
     private final AtomicBoolean cancel;
     private final Consumer<WwEvent> eventSink;
     private final WwGoal goal;
+    private final List<Integer> requirementVarps;
 
     // Surge slot cache: resolved once per run on the first eligible walkTo, then
     // reused. -1 in surgeIface means "not yet attempted"; SURGE_DISABLED in it
@@ -78,11 +98,22 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                               AtomicBoolean cancel,
                               Consumer<WwEvent> eventSink,
                               WwGoal goal) {
+        this(api, snapshotSource, cancel, eventSink, goal, REQUIREMENT_VARPS);
+    }
+
+    /** As above, reading {@code requirementVarps} into every capability snapshot. */
+    WorldWalkerCallbackBridge(GameAPI api,
+                              Supplier<GameSnapshot> snapshotSource,
+                              AtomicBoolean cancel,
+                              Consumer<WwEvent> eventSink,
+                              WwGoal goal,
+                              List<Integer> requirementVarps) {
         this.api = Objects.requireNonNull(api, "api");
         this.snapshotSource = Objects.requireNonNull(snapshotSource, "snapshotSource");
         this.cancel = Objects.requireNonNull(cancel, "cancel");
         this.eventSink = Objects.requireNonNull(eventSink, "eventSink");
         this.goal = goal;
+        this.requirementVarps = List.copyOf(requirementVarps);
     }
 
     @Override
@@ -101,6 +132,10 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
      * outright and the transitions behind it are never planned. Base rather than boosted level, so
      * a route is not planned through a gate whose boost has lapsed by the time the player gets
      * there.
+     *
+     * <p>Varps are the other class the executor cannot request, so the snapshot also carries
+     * {@link #REQUIREMENT_VARPS}, read in one batched call per (re-)plan. Not cached across
+     * plans: a re-plan must see a quest completed mid-walk.</p>
      */
     @Override
     public CapabilitySnapshot readCapability() {
@@ -112,7 +147,37 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         for (Skill s : lp.skills()) {
             caps.skill(s.typeId(), s.actualLevel());
         }
+        readRequirementVarps(caps);
         return caps.build();
+    }
+
+    // One readVarps round-trip for every requirement varp. A varp with no value
+    // (no such varp, or the read could not be made) is left out, so the walker
+    // reads it as 0 ("not present") rather than the host's -1 sentinel, as
+    // readVarbit does. A failed or mis-sized read adds none of them, so each
+    // varp gate is denied -- never a partial write that pairs an id with
+    // another's value.
+    private void readRequirementVarps(CapabilitySnapshot.Builder caps) {
+        if (requirementVarps.isEmpty()) {
+            return;
+        }
+        try {
+            List<VarpRead> reads = api.readVarps(requirementVarps);
+            if (reads == null || reads.size() != requirementVarps.size()) {
+                log.warn("ww readCapability: readVarps returned {} reads for {} varps",
+                        reads == null ? 0 : reads.size(), requirementVarps.size());
+                return;
+            }
+            for (int i = 0; i < reads.size(); i++) {
+                VarpRead read = reads.get(i);
+                if (read.hasValue()) {
+                    caps.varp(requirementVarps.get(i), read.value());
+                }
+            }
+        } catch (RuntimeException e) {
+            log.debug("ww readCapability: readVarps({} varps) failed: {}",
+                    requirementVarps.size(), e.toString());
+        }
     }
 
     /**
@@ -536,6 +601,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                 api.queueAction(new GameAction(actionId, c, subComponent, hash));
             }
             case DIALOGUE_SELECT -> dispatchDialogueSelect(a, b, c, d);
+            case CLICK_NPC -> clickNpc(a, new WwTile(b, c, d), e, f, g);
             default ->
                 // Wait / WaitInterface are handled executor-side and never sent
                 // here; a stray one is a producer/consumer drift — log, ignore.
@@ -564,6 +630,31 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         log.info("ww runChainStep DIALOGUE_SELECT: iface={} index={} -> page={} comp={} hash={}",
                 iface, index, targetPage, comp, (iface << 16) | comp);
         api.queueAction(new GameAction(ActionTypes.DIALOGUE, 0, -1, (iface << 16) | comp));
+    }
+
+    // The origin of a transition with no loc (a charter ship's crewmember). An
+    // NPC action targets a live server index, so it can't be baked into a CLICK;
+    // resolve the nearest NPC with typeId in [firstTypeId, lastTypeId] on the
+    // centre's plane within Chebyshev `radius`. No NPC (or a bad option) is a
+    // no-op: the executor's next WaitInterface times out and the transition is
+    // reported as a missing origin and routed around, like an absent loc.
+    private void clickNpc(int optionIndex, WwTile centre, int radius,
+                          int firstTypeId, int lastTypeId) {
+        if (optionIndex < 0 || optionIndex + 1 >= ActionTypes.NPC_OPTIONS.length) {
+            log.warn("ww runChainStep CLICK_NPC: option index {} out of range for npc {}..{}",
+                    optionIndex, firstTypeId, lastTypeId);
+            return;
+        }
+        Npc npc = resolveNpc(centre, radius, firstTypeId, lastTypeId);
+        if (npc == null) {
+            log.info("ww runChainStep CLICK_NPC: no npc {}..{} within {} of ({},{},{}), nothing clicked",
+                    firstTypeId, lastTypeId, radius, centre.x(), centre.y(), centre.plane());
+            return;
+        }
+        log.info("ww runChainStep CLICK_NPC: npc {} (index {}) at {},{} op {}",
+                npc.typeId(), npc.serverIndex(), npc.tileX(), npc.tileY(), optionIndex);
+        api.queueAction(new GameAction(
+                ActionTypes.NPC_OPTIONS[optionIndex + 1], npc.serverIndex(), 0, 0));
     }
 
     @Override
@@ -623,6 +714,24 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                         && !loc.isDeleted())
                 .min(Comparator.comparingInt(loc -> chebyshev(loc, tile)))
                 .map(loc -> new WwTile(loc.tileX(), loc.tileY(), loc.plane()))
+                .orElse(null);
+    }
+
+    private static int chebyshev(Npc npc, WwTile tile) {
+        return Math.max(Math.abs(npc.tileX() - tile.x()), Math.abs(npc.tileY() - tile.y()));
+    }
+
+    private Npc resolveNpc(WwTile centre, int radius, int firstTypeId, int lastTypeId) {
+        GameSnapshot snap = snapshotSource.get();
+        if (snap == null) {
+            return null;
+        }
+        return snap.npcs().stream()
+                .filter(npc -> npc.typeId() >= firstTypeId
+                        && npc.typeId() <= lastTypeId
+                        && npc.plane() == centre.plane()
+                        && chebyshev(npc, centre) <= radius)
+                .min(Comparator.comparingInt(npc -> chebyshev(npc, centre)))
                 .orElse(null);
     }
 }
