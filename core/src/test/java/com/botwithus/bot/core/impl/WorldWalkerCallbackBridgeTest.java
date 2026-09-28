@@ -233,20 +233,27 @@ class WorldWalkerCallbackBridgeTest {
         return reads;
     }
 
+    // Every varp the shipped WorldWalker dataset gates on, with the value its
+    // gate needs: the spirit trees (2661), The Grand Tree (2740), the Mos
+    // Le'Harmless (2326) and Port Tyras (2102) charters, and the Feldip Hills
+    // glider (2671, One Small Favour). A gate on a varp missing here is denied.
+    private static final Map<Integer, Integer> DATASET_VARP_GATES =
+            Map.of(2661, 9, 2740, 160, 2326, 140, 2102, 15, 2671, 200);
+
     // The executor learns varps only from this snapshot, so a varp_at_least gate
     // (Tree Gnome Village's spirit trees) is denied unless the host puts it here.
     @Test
     void readCapabilityCarriesRequirementVarpsInOneBatchedRead() {
         when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
-        when(api.readVarps(WorldWalkerCallbackBridge.REQUIREMENT_VARPS)).thenReturn(setVarps(
-                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, List.of(9, 160, 140, 15)));
+        when(api.readVarps(anyList())).thenAnswer(invocation -> {
+            List<Integer> ids = invocation.getArgument(0);
+            return setVarps(ids, ids.stream().map(id -> DATASET_VARP_GATES.getOrDefault(id, 0))
+                    .toList());
+        });
 
         CapabilitySnapshot caps = bridge.readCapability();
 
-        assertEquals(9, caps.varps().get(2661));
-        assertEquals(160, caps.varps().get(2740));
-        assertEquals(140, caps.varps().get(2326));
-        assertEquals(15, caps.varps().get(2102));
+        assertEquals(DATASET_VARP_GATES, caps.varps());
         verify(api, times(1)).readVarps(anyList());
         verify(api, never()).readVarp(anyInt());
         verify(api, never()).getVarp(anyInt());
