@@ -314,8 +314,10 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     /**
      * Returns one of the local player's skill stats by skill type id.
      * {@code null} when not in-game or the skill isn't in the published
-     * skills array. Ids match the in-game {@code StatType.id} (e.g. 26
-     * for Divination, 6 for Magic).
+     * skills array. Ids match the in-game {@code StatType.id} (e.g. 25
+     * for Divination, 26 for Invention, 6 for Magic); take them from
+     * {@link com.botwithus.bot.api.util.Skills} rather than writing the
+     * number.
      *
      * <p>Read out of the snapshot — no RPC round-trip.</p>
      */

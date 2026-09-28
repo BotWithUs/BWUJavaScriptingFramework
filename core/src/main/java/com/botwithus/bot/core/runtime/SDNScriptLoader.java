@@ -170,7 +170,7 @@ public final class SDNScriptLoader {
             }
         } catch (Exception | ServiceConfigurationError e) {
             log.warn("SDN: a delivered bundle yielded no usable providers, skipping it: {}",
-                    e.getMessage());
+                    e.getMessage(), e);
         }
         return found;
     }
