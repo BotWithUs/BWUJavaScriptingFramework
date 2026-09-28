@@ -86,8 +86,10 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final int VARP_THE_GRAND_TREE     = 2740;  // Gnome Stronghold tree, 160
     private static final int VARP_CABIN_FEVER        = 2326;  // Mos Le'Harmless charter, 140
     private static final int VARP_REGICIDE           = 2102;  // Port Tyras charter, 15
+    private static final int VARP_ONE_SMALL_FAVOUR   = 2671;  // Feldip Hills glider, 200
     static final List<Integer> REQUIREMENT_VARPS = List.of(
-            VARP_TREE_GNOME_VILLAGE, VARP_THE_GRAND_TREE, VARP_CABIN_FEVER, VARP_REGICIDE);
+            VARP_TREE_GNOME_VILLAGE, VARP_THE_GRAND_TREE, VARP_CABIN_FEVER, VARP_REGICIDE,
+            VARP_ONE_SMALL_FAVOUR);
 
     private final GameAPI api;
     private final Supplier<GameSnapshot> snapshotSource;
