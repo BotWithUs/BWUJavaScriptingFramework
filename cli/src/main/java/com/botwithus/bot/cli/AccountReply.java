@@ -46,6 +46,18 @@ public record AccountReply(Map<String, Object> raw) {
     }
 
     /**
+     * The name of the character the client is logged in as, read from the game
+     * itself ({@code display_name}). The agent sends it empty outside a world, so
+     * this is empty at the login screen and in the lobby. Unlike
+     * {@link #characterName()} it never falls back to {@code jx_display_name}:
+     * that is what the Jagex launcher passed in when the process started, which
+     * says who the client was launched for, not who is logged in now.
+     */
+    public Optional<String> inGameName() {
+        return firstKnown(DISPLAY_NAME);
+    }
+
+    /**
      * The best name to show for the client: {@link #characterName()}, else the
      * account name the loader was given. Empty when none is set.
      */

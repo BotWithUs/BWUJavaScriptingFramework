@@ -56,6 +56,9 @@ public class Connection {
     private final Object statusLock = new Object();
     // Guarded by statusLock: the read that produced the current gameStatus.
     private long publishedStatusRead;
+    // Written under statusLock alongside gameStatus, read lock-free by script
+    // threads; null while no in-world reading newer than the last state change exists.
+    private volatile String characterName;
 
     public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime, ScriptManagerImpl scriptManager) {
         this(name, pipe, rpc, runtime, scriptManager, Instant.now());
@@ -128,6 +131,17 @@ public class Connection {
     public Optional<String> getDisplayName() {
         Map<String, Object> info = accountInfo;
         return info != null ? new AccountReply(info).displayName() : Optional.empty();
+    }
+
+    /**
+     * The character this client is logged in as ({@link AccountReply#inGameName()}),
+     * from the newest status reading taken in a world. Empty until such a reading
+     * has been published, and dropped whenever the game state changes, so neither
+     * a logout nor a relog as someone else leaves the previous character's name
+     * behind while the follow-up read is in flight. Never touches the pipe.
+     */
+    public Optional<String> getCharacterName() {
+        return Optional.ofNullable(characterName);
     }
 
     /**
@@ -212,7 +226,29 @@ public class Connection {
                 return false;
             }
             publishedStatusRead = ticket;
-            gameStatus = update.apply(gameStatus);
+            GameStatus next = update.apply(gameStatus);
+            if (next.state() != gameStatus.state()) {
+                characterName = null;
+            }
+            gameStatus = next;
+            return true;
+        }
+    }
+
+    /**
+     * Publishes a full reading: its game status, as {@link #publishGameStatus}
+     * would, and the character name read with it. Both land under one ticket, so
+     * the name can never be older than the state it is shown alongside.
+     *
+     * @param characterName the in-game name the reading saw; empty outside a world
+     * @return whether the reading was applied
+     */
+    boolean publishReading(long ticket, GameStatus status, Optional<String> characterName) {
+        synchronized (statusLock) {
+            if (!publishGameStatus(ticket, previous -> status)) {
+                return false;
+            }
+            this.characterName = characterName.orElse(null);
             return true;
         }
     }

@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -123,7 +124,7 @@ public final class ConnectionStatusTracker implements AutoCloseable {
         boolean inGame = state == GameState.IN_GAME;
         OptionalInt world = inGame ? readWorld(rpc, conn.getName()) : OptionalInt.empty();
         GameStatus status = new GameStatus(state, world, inGame && reply.isMember());
-        conn.publishGameStatus(ticket, previous -> status);
+        conn.publishReading(ticket, status, inGame ? reply.inGameName() : Optional.empty());
         notifyRefreshed(conn);
         return reply;
     }
