@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.botwithus.bot.cli.FakeAgent.GET_ACCOUNT_INFO;
@@ -22,6 +23,8 @@ class CharacterNameSourceTest {
     private static final String PIPE = "BotWithUs_4242";
     private static final String UUID = "0123456789abcdef0123456789abcdef";
     private static final String NAME = "Zezima";
+    private static final String LAUNCHED = "Diamondpoint";
+    private static final int LOGIN_SCREEN = 10;
     private static final int LOBBY = 20;
     private static final int IN_GAME = 30;
     private static final int WORLD = 301;
@@ -33,7 +36,13 @@ class CharacterNameSourceTest {
     private final CharacterNameSource source = new CharacterNameSource(refreshRequests::add, () -> now);
 
     private Connection connectionReading(String displayName, int gameState) {
-        agent.reply(GET_ACCOUNT_INFO, accountInfo(displayName, "", UUID, gameState, false)).world(WORLD);
+        return connectionReading(displayName, "", gameState);
+    }
+
+    private Connection connectionReading(String displayName, String launchedFor, int gameState) {
+        Map<String, Object> reply = accountInfo(displayName, "", UUID, gameState, false);
+        reply.put("jx_display_name", launchedFor);
+        agent.reply(GET_ACCOUNT_INFO, reply).world(WORLD);
         Connection conn = agent.connection(PIPE);
         new ConnectionStatusTracker(Runnable::run, Duration.ofDays(1)).refresh(conn);
         source.bind(conn);
@@ -73,5 +82,39 @@ class CharacterNameSourceTest {
 
         assertEquals(Optional.empty(), source.get(), "a lobby reply carries no in-game name");
         assertTrue(refreshRequests.isEmpty(), "the next login state change brings a read anyway");
+    }
+
+    @Test
+    void get_atTheLoginScreen_reportsTheLaunchedCharacterWithoutAsking() {
+        connectionReading("", LAUNCHED, LOGIN_SCREEN);
+
+        assertEquals(Optional.of(LAUNCHED), source.get());
+        assertTrue(refreshRequests.isEmpty());
+    }
+
+    @Test
+    void get_inWorldWithOnlyTheLaunchedName_reportsItAndStillAsksForTheLoggedInOne() {
+        Connection conn = connectionReading("", LAUNCHED, IN_GAME);
+
+        assertEquals(Optional.of(LAUNCHED), source.get());
+        assertEquals(List.of(conn), refreshRequests);
+    }
+
+    @Test
+    void get_inWorldUnderAnotherName_reportsTheLoggedInName() {
+        connectionReading(NAME, LAUNCHED, IN_GAME);
+
+        assertEquals(Optional.of(NAME), source.get());
+        assertTrue(refreshRequests.isEmpty());
+    }
+
+    @Test
+    void get_beforeAnyReadingLanded_asksForOne() {
+        Connection conn = agent.connection(PIPE);
+        conn.publishGameStatus(conn.beginStatusRead(), previous -> previous.withState(GameState.LOGIN_SCREEN));
+        source.bind(conn);
+
+        assertEquals(Optional.empty(), source.get());
+        assertEquals(List.of(conn), refreshRequests, "the read after attach may have failed");
     }
 }

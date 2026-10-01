@@ -129,8 +129,9 @@ public final class MockScriptContext implements ScriptContext {
 
         /**
          * Makes {@link MockScriptContext#getDisplayName()} report {@code name},
-         * as a context on a client logged in as that character would. Without
-         * this the context reports no name, as at the login screen.
+         * as a context on a client logged in or launched as that character would.
+         * Without this the context reports no name, as on a client at the login
+         * screen that was not launched for a known Jagex character.
          */
         public Builder withDisplayName(String name) {
             if (name == null || name.isBlank()) {

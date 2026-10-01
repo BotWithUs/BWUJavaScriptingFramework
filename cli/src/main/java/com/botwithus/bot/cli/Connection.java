@@ -58,7 +58,13 @@ public class Connection {
     private long publishedStatusRead;
     // Written under statusLock alongside gameStatus, read lock-free by script
     // threads; null while no in-world reading newer than the last state change exists.
-    private volatile String characterName;
+    private volatile String inGameName;
+    // Written under statusLock by an accepted reading, read lock-free. The Jagex
+    // character the process was launched for: fixed for the process, so it is
+    // kept across state changes. Null until a reading carries it.
+    private volatile String launchedName;
+    // Guarded by statusLock: whether the launched/logged-in mismatch was logged.
+    private boolean loggedNameMismatch;
 
     public Connection(String name, PipeClient pipe, RpcClient rpc, ScriptRuntime runtime, ScriptManagerImpl scriptManager) {
         this(name, pipe, rpc, runtime, scriptManager, Instant.now());
@@ -134,14 +140,28 @@ public class Connection {
     }
 
     /**
+     * The character this client is logged in as, else the one it was launched for.
+     *
+     * <p>The logged-in name ({@link #getInGameName()}) wins whenever it is known.
+     * Without it, this is the Jagex character the process was launched for
+     * ({@link AccountReply#launchedName()}), which is known from the login screen
+     * on. Empty when neither is known: before the first reading, and outside a
+     * world for a client the Jagex launcher did not start. Never touches the pipe.</p>
+     */
+    public Optional<String> getCharacterName() {
+        String loggedIn = inGameName;
+        return Optional.ofNullable(loggedIn != null ? loggedIn : launchedName);
+    }
+
+    /**
      * The character this client is logged in as ({@link AccountReply#inGameName()}),
      * from the newest status reading taken in a world. Empty until such a reading
      * has been published, and dropped whenever the game state changes, so neither
      * a logout nor a relog as someone else leaves the previous character's name
      * behind while the follow-up read is in flight. Never touches the pipe.
      */
-    public Optional<String> getCharacterName() {
-        return Optional.ofNullable(characterName);
+    Optional<String> getInGameName() {
+        return Optional.ofNullable(inGameName);
     }
 
     /**
@@ -228,7 +248,7 @@ public class Connection {
             publishedStatusRead = ticket;
             GameStatus next = update.apply(gameStatus);
             if (next.state() != gameStatus.state()) {
-                characterName = null;
+                inGameName = null;
             }
             gameStatus = next;
             return true;
@@ -237,20 +257,37 @@ public class Connection {
 
     /**
      * Publishes a full reading: its game status, as {@link #publishGameStatus}
-     * would, and the character name read with it. Both land under one ticket, so
-     * the name can never be older than the state it is shown alongside.
+     * would, and the names read with it. All land under one ticket, so a name can
+     * never be older than the state it is shown alongside.
      *
-     * @param characterName the in-game name the reading saw; empty outside a world
+     * @param inGameName   the in-game name the reading saw; empty outside a world
+     * @param launchedName the character the process was launched for, if the
+     *                     reading carried one; an empty one keeps what is known
      * @return whether the reading was applied
      */
-    boolean publishReading(long ticket, GameStatus status, Optional<String> characterName) {
+    boolean publishReading(long ticket, GameStatus status, Optional<String> inGameName,
+                           Optional<String> launchedName) {
         synchronized (statusLock) {
             if (!publishGameStatus(ticket, previous -> status)) {
                 return false;
             }
-            this.characterName = characterName.orElse(null);
+            this.inGameName = inGameName.orElse(null);
+            launchedName.ifPresent(launched -> this.launchedName = launched);
+            logNameMismatchOnce();
             return true;
         }
+    }
+
+    /** Notes once per connection that the client was relogged as someone else. Holds statusLock. */
+    private void logNameMismatchOnce() {
+        String loggedIn = inGameName;
+        String launched = launchedName;
+        if (loggedNameMismatch || loggedIn == null || launched == null || loggedIn.equals(launched)) {
+            return;
+        }
+        loggedNameMismatch = true;
+        log.info("'{}' was launched for {} but is logged in as {}; reporting {}",
+                name, launched, loggedIn, loggedIn);
     }
 
     /**

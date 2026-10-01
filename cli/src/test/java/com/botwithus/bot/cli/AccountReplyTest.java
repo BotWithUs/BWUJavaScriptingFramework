@@ -38,6 +38,15 @@ class AccountReplyTest {
     }
 
     @Test
+    void launchedName_isTheJagexLaunchCharacter_neverTheGameOrLoaderName() {
+        Map<String, Object> reply = accountInfo("InGame", "FromLoader", UUID, 30, false);
+        assertEquals(Optional.empty(), new AccountReply(reply).launchedName());
+
+        reply.put("jx_display_name", "FromJagex");
+        assertEquals("FromJagex", new AccountReply(reply).launchedName().orElseThrow());
+    }
+
+    @Test
     void characterName_leavesOutTheLoadersAccountName() {
         AccountReply reply = new AccountReply(accountInfo("", "FromLoader", UUID, 10, false));
         assertEquals(Optional.empty(), reply.characterName());

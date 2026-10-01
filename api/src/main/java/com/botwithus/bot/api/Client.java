@@ -50,12 +50,16 @@ public interface Client {
     GameSnapshot snapshot();
 
     /**
-     * The display name of the character logged in on this client, once the host knows it.
+     * The display name of the character on this client, once the host knows it.
      *
-     * <p>This is the in-game character name the client reports for the logged-in player,
-     * never the launcher's name for the account. It is empty at the login screen and in
-     * the lobby, empty for a short while after entering a world until the host has read
-     * the name, and empty again after a logout. A later login, including as a different
+     * <p>When the client was launched for a known Jagex character, this is that
+     * character's name from the login screen on, and through the lobby. Once in a world
+     * it is the name the client reports for the logged-in player; if that differs from
+     * the launched character (the client was relogged as someone else), the logged-in
+     * name wins. Otherwise, for a client not launched for a known Jagex character, it is
+     * empty until the client is in a world and the host has read the name, and empty
+     * again after a logout. Either way it can be briefly empty right after a login state
+     * change while the host re-reads it. A later login, including as a different
      * character, is picked up without reconnecting. Cheap to call: it never blocks on the
      * client.</p>
      *

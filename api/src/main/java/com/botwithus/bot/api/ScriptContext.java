@@ -131,12 +131,14 @@ public interface ScriptContext {
     }
 
     /**
-     * The display name of the character logged in on this script's client, once the host knows it.
+     * The display name of the character on this script's client, once the host knows it.
      *
-     * <p>Same value as {@link Client#getDisplayName()} for the client this script runs on:
-     * the in-game character name, empty at the login screen, in the lobby and briefly after
-     * entering a world, and refreshed after a later login. Cheap to call from {@code onLoop}:
-     * it never blocks on the client.</p>
+     * <p>Same value as {@link Client#getDisplayName()} for the client this script runs on.
+     * When the client was launched for a known Jagex character, the name is available from
+     * the login screen on; otherwise it is empty until the client is in a world. In a
+     * world the logged-in character's name wins over the launched one, and it is
+     * refreshed after a later login. Cheap to call from {@code onLoop}: it never blocks on
+     * the client.</p>
      *
      * <p>The default returns empty, for contexts that are not bound to a live game client
      * (test mocks).</p>

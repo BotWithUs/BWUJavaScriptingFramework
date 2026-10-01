@@ -124,7 +124,8 @@ public final class ConnectionStatusTracker implements AutoCloseable {
         boolean inGame = state == GameState.IN_GAME;
         OptionalInt world = inGame ? readWorld(rpc, conn.getName()) : OptionalInt.empty();
         GameStatus status = new GameStatus(state, world, inGame && reply.isMember());
-        conn.publishReading(ticket, status, inGame ? reply.inGameName() : Optional.empty());
+        conn.publishReading(ticket, status, inGame ? reply.inGameName() : Optional.empty(),
+                reply.launchedName());
         notifyRefreshed(conn);
         return reply;
     }

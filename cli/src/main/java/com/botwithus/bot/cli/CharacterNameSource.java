@@ -11,13 +11,19 @@ import java.util.function.Supplier;
  * The character name one connection's scripts and management view read: what the
  * {@link Connection} last published, with a cheap nudge when it is missing.
  *
- * <p>The name normally arrives without help, because the status tracker re-reads
- * the account whenever the login state changes. But the client can announce the
- * world before it has resolved the player's name, and a reading taken in that gap
- * stores none. So when a reader finds the name empty while the client is, or may
- * be, in a world, this asks the tracker for another read, at most once per
- * {@link #RETRY_INTERVAL}. The ask only queues work on the tracker's executor:
- * a read never blocks the calling script thread.</p>
+ * <p>The name is {@link Connection#getCharacterName()}: the logged-in character
+ * when known, else the Jagex character the client was launched for, so a client
+ * at the login screen is named as soon as its first reading lands.</p>
+ *
+ * <p>The name normally arrives without help, because the status tracker reads the
+ * account on attach and re-reads it whenever the login state changes. But the
+ * client can announce the world before it has resolved the player's name, and a
+ * reading taken in that gap stores no logged-in name; and a first read can fail.
+ * So when a reader finds no logged-in name while the client is, or may be, in a
+ * world, or finds that no reading has landed yet, this asks the tracker for
+ * another read, at most once per {@link #RETRY_INTERVAL}. That holds even while
+ * the launched name stands in. The ask only queues work on the tracker's
+ * executor: a read never blocks the calling script thread.</p>
  *
  * <p>Built before its connection, because the script context and client view
  * that hold it are needed to build the connection; {@link #bind} closes the loop.
@@ -53,20 +59,25 @@ final class CharacterNameSource implements Supplier<Optional<String>> {
         if (conn == null) {
             return Optional.empty();
         }
-        Optional<String> name = conn.getCharacterName();
-        if (name.isEmpty() && canBeInWorld(conn) && claimRetry()) {
+        if (couldLearnMore(conn) && claimRetry()) {
             requestRefresh.accept(conn);
         }
-        return name;
+        return conn.getCharacterName();
     }
 
     /**
-     * Whether a re-read could find a name. At the login screen or in the lobby it
-     * cannot, and the next login state change triggers a read anyway.
+     * Whether a re-read could tell more than is known. Before any reading it
+     * could. After one, only a logged-in name can still arrive, and at the login
+     * screen or in the lobby it cannot: the next login state change triggers a
+     * read anyway.
      */
-    private static boolean canBeInWorld(Connection conn) {
+    private static boolean couldLearnMore(Connection conn) {
+        if (!conn.isAlive() || conn.getInGameName().isPresent()) {
+            return false;
+        }
         GameState state = conn.getGameState();
-        return conn.isAlive() && (state == GameState.IN_GAME || state == GameState.UNKNOWN);
+        boolean canBeInWorld = state == GameState.IN_GAME || state == GameState.UNKNOWN;
+        return canBeInWorld || conn.getAccountInfo() == null;
     }
 
     /** Takes the retry slot if the interval has passed; one caller wins a race. */
