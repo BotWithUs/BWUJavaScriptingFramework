@@ -735,7 +735,9 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void diveClicksTheBarThenPicksTheWalkTarget() {
+    void diveSelectsTheBarSlotThenUsesItOnTheWalkTargetATickLater() {
+        // Option 1 on a Dive slot is answered with Bladed Dive's melee-weapon
+        // refusal; Dive is cast by selecting the slot and using it on a tile.
         when(snapshot.self()).thenReturn(player(3000, 3000, 0));
         stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
         stubSpriteOnBar(1430, DIVE_SPRITE, 12);
@@ -744,13 +746,34 @@ class WorldWalkerCallbackBridgeTest {
 
         List<GameAction> actions = queuedActions(4);
         assertEquals(ActionTypes.WALK, actions.get(0).actionId());
-        assertEquals(ActionTypes.COMPONENT, actions.get(1).actionId());
-        assertEquals((1430 << 16) | 12, actions.get(1).param3());
+        GameAction select = actions.get(1);
+        assertEquals(ActionTypes.SELECT_COMPONENT, select.actionId());
+        assertEquals(0, select.param1());
+        assertEquals(-1, select.param2());
+        assertEquals((1430 << 16) | 12, select.param3());
         GameAction pick = actions.get(2);
         assertEquals(ActionTypes.SELECT_TILE, pick.actionId());
         assertEquals(0, pick.param1());
         assertEquals(3007, pick.param2());
         assertEquals(3003, pick.param3());
+        assertEquals(ONE_TICK_MS, sleeps.get(0));
+        assertTrue(actions.stream().noneMatch(a -> a.actionId() == ActionTypes.COMPONENT));
+    }
+
+    @Test
+    void diveUsesNoTileWhenTheRunIsCancelledWhileTheSelectSettles() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS,
+                new WorldWalkerCallbackBridge.Pacing(ALWAYS_FIRE, clock::get,
+                        ms -> cancel.set(true)));
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        List<GameAction> actions = queuedActions(2);
+        assertEquals(ActionTypes.SELECT_COMPONENT, actions.get(1).actionId());
     }
 
     @Test
@@ -839,7 +862,8 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(ActionTypes.WALK, rewalk.actionId());
         assertEquals(3007, rewalk.param2());
         assertEquals(3003, rewalk.param3());
-        assertEquals(List.of(2 * ONE_TICK_MS), sleeps);
+        // One tick for the select to settle, then the re-walk pause.
+        assertEquals(List.of(ONE_TICK_MS, 2 * ONE_TICK_MS), sleeps);
     }
 
     @Test

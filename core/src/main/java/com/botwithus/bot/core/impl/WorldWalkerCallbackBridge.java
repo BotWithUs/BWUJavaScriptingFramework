@@ -68,8 +68,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     //    axis of one of the 8 directions (see isNearStraight). The executor's
     //    randomized long clicks are rarely exactly 8-way, so an exact test
     //    would all but stop Surge firing.
-    //  - Dive (or Bladed Dive, which replaces it on the bar) jumps onto a
-    //    chosen tile up to 10 away. The walk target is a planner path tile, so
+    //  - Dive (or Bladed Dive, a separate ability sharing its cooldown) jumps
+    //    onto a chosen tile up to 10 away. The walk target is a planner path tile, so
     //    it is standable; Dive fires on a 6..10-tile hop and is preferred over
     //    Surge when both qualify.
     // Neither fires within ABILITY_GOAL_GUARD of the final goal, and each
@@ -113,6 +113,10 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     // Bar-slot click shape: right-click option 1, no sub-slot.
     private static final int  ABILITY_CLICK_OPTION = 1;
     private static final int  NO_SUB_SLOT = -1;
+    // Target-mode select of a bar slot, then the tile use one tick later: the
+    // shape a tile-targeted ability is cast with (see fireAbility).
+    private static final int  SELECT_COMPONENT_PARAM = 0;
+    private static final int  SELECT_SETTLE_TICKS = 1;
     private static final int  SELECT_TILE_PARAM = 0;
     // Ticks to wait after an ability before re-queueing the walk it cancelled.
     private static final int  RESUME_WALK_MIN_TICKS = 1;
@@ -652,15 +656,29 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         return bar;
     }
 
-    // Queues the bar click, plus the tile pick for a targeted ability. The
-    // click lands on the icon component itself, the same component and shape
-    // ComponentNode.interact(1) sends for an action-bar slot.
+    // Casts the ability from its bar slot. Both shapes land on the icon
+    // component itself:
+    //  - An untargeted ability (Surge) takes the slot's option 1, the same
+    //    click and shape ComponentNode.interact(1) sends for a bar slot.
+    //  - A tile-targeted ability (Dive) is selected into target mode and,
+    //    a tick later, used on the tile. Option 1 on a Dive slot does not
+    //    cast Dive: the game answers it with Bladed Dive's "This ability
+    //    requires a melee weapon in your main hand." and nothing moves, even
+    //    though the slot holds plain Dive. Select-then-use on the very same
+    //    slot dives.
     private void fireAbility(AbilitySlot slot, BarSlot bar, WwTile target, long now) {
-        api.queueAction(new GameAction(ActionTypes.COMPONENT, ABILITY_CLICK_OPTION, NO_SUB_SLOT,
-                Interfaces.componentHash(bar.iface(), bar.comp())));
+        int hash = Interfaces.componentHash(bar.iface(), bar.comp());
         if (slot.family().isTileTargeted()) {
-            api.queueAction(new GameAction(ActionTypes.SELECT_TILE, SELECT_TILE_PARAM,
-                    target.x(), target.y()));
+            api.queueAction(new GameAction(ActionTypes.SELECT_COMPONENT, SELECT_COMPONENT_PARAM,
+                    NO_SUB_SLOT, hash));
+            sleepTicks(SELECT_SETTLE_TICKS);
+            if (!cancel.get()) {
+                api.queueAction(new GameAction(ActionTypes.SELECT_TILE, SELECT_TILE_PARAM,
+                        target.x(), target.y()));
+            }
+        } else {
+            api.queueAction(new GameAction(ActionTypes.COMPONENT, ABILITY_CLICK_OPTION,
+                    NO_SUB_SLOT, hash));
         }
         slot.markFired(now);
         log.info("ww {} fired toward ({},{}) via iface={} comp={}",
