@@ -7,6 +7,7 @@ import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitRead;
@@ -68,10 +69,13 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     //    axis of one of the 8 directions (see isNearStraight). The executor's
     //    randomized long clicks are rarely exactly 8-way, so an exact test
     //    would all but stop Surge firing.
-    //  - Dive (or Bladed Dive, a separate ability sharing its cooldown) jumps
-    //    onto a chosen tile up to 10 away. The walk target is a planner path tile, so
-    //    it is standable; Dive fires on a 6..10-tile hop and is preferred over
-    //    Surge when both qualify.
+    //  - Dive jumps onto a chosen tile up to 10 away. The walk target is a
+    //    planner path tile, so it is standable; Dive fires on a 6..10-tile hop
+    //    and is preferred over Surge when both qualify. Bladed Dive is a
+    //    separate ability with the same reach and a shared cooldown, but the
+    //    game refuses it without a melee loadout, so plain Dive (any weapon)
+    //    is preferred and Bladed Dive is only a fallback that fires when the
+    //    worn loadout allows it (see hasBladedDiveLoadout).
     // Neither fires within ABILITY_GOAL_GUARD of the final goal, and each
     // eligible walk only rolls a chance to fire so the pattern isn't
     // mechanical. The bar slot is found by scanning the action bars for the
@@ -104,9 +108,10 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     static final int    VARC_SURGE_COOLDOWN_END       = 2194;
     static final int    VARC_BLADED_DIVE_COOLDOWN_END = 6038;
     // Wall-clock floor between two fires of one ability, so a bad varc read
-    // can't spam clicks. Plain Dive has no cooldown varc of its own that we
-    // know of, so it borrows Bladed Dive's and keeps the full cache cooldown
-    // (34 ticks, the same for all three) as its floor.
+    // can't spam clicks. Dive and Bladed Dive share one cooldown and one
+    // cooldown-end varc (the client's cooldown script maps both structs to
+    // it); Dive also keeps the full cache cooldown (34 ticks, the same for
+    // all three) as its floor.
     private static final long ABILITY_REFIRE_FLOOR_MS = 6_000L;
     private static final int  ABILITY_CACHE_COOLDOWN_TICKS = 34;
     private static final long DIVE_REFIRE_FLOOR_MS = ABILITY_CACHE_COOLDOWN_TICKS * TICK_MS;
@@ -127,18 +132,32 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final int  NO_SPRITE = -1;
     // Sentinel for "never happened" on a slot's scan / fire timestamps.
     private static final long NEVER_MS = Long.MIN_VALUE;
+    // Item params the game checks before it lets Bladed Dive cast, mirrored
+    // from the client's own Bladed Dive gate (clientscript 16325 / 273):
+    // either a melee item in both hands, or the special-effect boots
+    // (laceration boots) with a melee main hand.
+    static final String ITEM_PARAM_MELEE_WEAPON           = "2825"; // COMBATV2_MELEE_WEAPON
+    static final String ITEM_PARAM_HELD_ALLOW_BLADED_DIVE = "8569"; // COMBATV2_HELD_ALLOW_BLADED_DIVE
+    static final String ITEM_PARAM_SPECIAL_EFFECT         = "2881"; // COMBATV2_HAS_SPECIAL_EFFECT
+    static final int    SPECIAL_EFFECT_BLADED_DIVE_BOOTS  = 2;      // laceration boots' value
+    // Item-param value meaning "not set".
+    private static final int NO_PARAM = 0;
+    // Item id of an empty equipment slot.
+    private static final int NO_ITEM = -1;
 
     static final AbilitySpec SURGE_SPEC = new AbilitySpec(
-            "Surge", STRUCT_SURGE, VARC_SURGE_COOLDOWN_END, ABILITY_REFIRE_FLOOR_MS);
+            "Surge", STRUCT_SURGE, VARC_SURGE_COOLDOWN_END, ABILITY_REFIRE_FLOOR_MS, false);
     static final AbilitySpec BLADED_DIVE_SPEC = new AbilitySpec(
             "Bladed Dive", STRUCT_BLADED_DIVE, VARC_BLADED_DIVE_COOLDOWN_END,
-            ABILITY_REFIRE_FLOOR_MS);
+            ABILITY_REFIRE_FLOOR_MS, true);
     static final AbilitySpec DIVE_SPEC = new AbilitySpec(
-            "Dive", STRUCT_DIVE, VARC_BLADED_DIVE_COOLDOWN_END, DIVE_REFIRE_FLOOR_MS);
+            "Dive", STRUCT_DIVE, VARC_BLADED_DIVE_COOLDOWN_END, DIVE_REFIRE_FLOOR_MS, false);
     private static final AbilityFamily SURGE = new AbilityFamily(
             "surge", List.of(SURGE_SPEC), SURGE_FIRE_CHANCE, false);
+    // Dive first: it casts with any weapon, so it is the safe pick whenever it
+    // is bound. Bladed Dive is a fallback for a bar that only carries it.
     private static final AbilityFamily DIVE = new AbilityFamily(
-            "dive", List.of(BLADED_DIVE_SPEC, DIVE_SPEC), DIVE_FIRE_CHANCE, true);
+            "dive", List.of(DIVE_SPEC, BLADED_DIVE_SPEC), DIVE_FIRE_CHANCE, true);
 
     // Varps the walker's transitions gate on through `varp` / `varp_at_least`.
     // STAND-IN: the executor batches every varbit and item id its artifact's
@@ -647,13 +666,87 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         return isNearCardinal || isNearDiagonal;
     }
 
-    // The ability's bar slot when it is bound and off cooldown, else empty.
+    // The ability's bar slot when it is bound, castable with what is worn, and
+    // off cooldown, else empty. The loadout is checked on every fire, not at
+    // scan time: a bound slot stands for SLOT_RESCAN_MS, and a weapon swap in
+    // that window must not leave a melee-only ability armed.
     private Optional<BarSlot> readySlot(AbilitySlot slot, long now) {
         Optional<BarSlot> bar = resolveSlot(slot, now);
-        if (bar.isEmpty() || !isOffCooldown(slot, bar.get().spec(), now)) {
+        if (bar.isEmpty() || !isCastableWithLoadout(bar.get().spec())) {
+            return Optional.empty();
+        }
+        if (!isOffCooldown(slot, bar.get().spec(), now)) {
             return Optional.empty();
         }
         return bar;
+    }
+
+    private boolean isCastableWithLoadout(AbilitySpec spec) {
+        if (!spec.isMeleeOnly() || hasBladedDiveLoadout()) {
+            return true;
+        }
+        log.debug("ww {} bound but skipped: the worn loadout cannot cast it", spec.name());
+        return false;
+    }
+
+    // The game's Bladed Dive gate: a melee (or Bladed-Dive-allowing) item in
+    // the main hand, plus either another in the off hand or the special-effect
+    // boots. The client's own check also lets a lone melee off-hand pass with
+    // those boots; the game then refuses for want of a melee main hand, so the
+    // main hand is required here. Anything unreadable counts as "cannot cast".
+    private boolean hasBladedDiveLoadout() {
+        if (!allowsBladedDive(wornItem(Equipment.Slot.WEAPON))) {
+            return false;
+        }
+        if (allowsBladedDive(wornItem(Equipment.Slot.SHIELD))) {
+            return true;
+        }
+        return itemParam(wornItem(Equipment.Slot.FEET), ITEM_PARAM_SPECIAL_EFFECT)
+                == SPECIAL_EFFECT_BLADED_DIVE_BOOTS;
+    }
+
+    private boolean allowsBladedDive(int itemId) {
+        return itemParam(itemId, ITEM_PARAM_MELEE_WEAPON) != NO_PARAM
+                || itemParam(itemId, ITEM_PARAM_HELD_ALLOW_BLADED_DIVE) != NO_PARAM;
+    }
+
+    // The item id worn in one equipment slot, or NO_ITEM when the slot is
+    // empty or the equipment inventory isn't published.
+    private int wornItem(Equipment.Slot slot) {
+        GameSnapshot snap = snapshotSource.get();
+        if (snap == null) {
+            return NO_ITEM;
+        }
+        try {
+            return snap.inventories().byInvId(Equipment.INVENTORY_ID)
+                    .flatMap(inv -> inv.items().stream()
+                            .filter(it -> it.slot() == slot.index)
+                            .findFirst())
+                    .map(InventoryItem::itemId)
+                    .orElse(NO_ITEM);
+        } catch (RuntimeException e) {
+            log.debug("ww equipment slot {} unreadable: {}", slot, e.toString());
+            return NO_ITEM;
+        }
+    }
+
+    // One int param of an item's cache definition, NO_PARAM when the item,
+    // the definition, or the param is absent.
+    private int itemParam(int itemId, String param) {
+        if (itemId == NO_ITEM) {
+            return NO_PARAM;
+        }
+        ItemType type;
+        try {
+            type = api.getItemType(itemId);
+        } catch (RuntimeException e) {
+            log.debug("ww item {} unreadable: {}", itemId, e.toString());
+            return NO_PARAM;
+        }
+        if (type == null || type.params() == null) {
+            return NO_PARAM;
+        }
+        return MapHelper.getIntOr(type.params(), param, NO_PARAM);
     }
 
     // Casts the ability from its bar slot. Both shapes land on the icon
@@ -1080,8 +1173,10 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
      * @param structId        the ability's cache struct, whose icon param names its bar sprite
      * @param cooldownEndVarc varc holding the game cycle its cooldown ends on
      * @param refireFloorMs   least wall-clock time between two fires, whatever the varc says
+     * @param isMeleeOnly     true when the game refuses it without a melee loadout
      */
-    record AbilitySpec(String name, int structId, int cooldownEndVarc, long refireFloorMs) {
+    record AbilitySpec(String name, int structId, int cooldownEndVarc, long refireFloorMs,
+                       boolean isMeleeOnly) {
     }
 
     /**

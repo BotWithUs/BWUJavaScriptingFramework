@@ -12,9 +12,11 @@ import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.dialog.Dialog;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
+import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
@@ -85,6 +87,15 @@ class WorldWalkerCallbackBridgeTest {
     private static final int SURGE_SPRITE       = 14233;
     private static final int DIVE_SPRITE        = 23714;
     private static final int BLADED_DIVE_SPRITE = 30331;
+
+    // Worn items for the Bladed Dive loadout gate. The staff and the boots are
+    // real ids (Camel staff, laceration boots); the melee pieces are stand-ins.
+    private static final int CAMEL_STAFF      = 36021;
+    private static final int MELEE_MAIN_HAND  = 900_001;
+    private static final int MELEE_OFF_HAND   = 900_002;
+    private static final int LACERATION_BOOTS = 48081;
+    private static final int PARAM_SET        = 1;
+    private static final int EQUIPMENT_SLOTS  = 19;
 
     private GameAPI api;
     private AtomicLong clock;
@@ -435,6 +446,34 @@ class WorldWalkerCallbackBridgeTest {
                 Map.of(WorldWalkerCallbackBridge.STRUCT_PARAM_ICON_SPRITE, spriteId)));
     }
 
+    /** Bladed Dive bound on bar 1673, component 3. */
+    private void stubBladedDiveOnBar() {
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_BLADED_DIVE, BLADED_DIVE_SPRITE);
+        stubSpriteOnBar(1673, BLADED_DIVE_SPRITE, 3);
+    }
+
+    /**
+     * Publishes the equipment inventory holding exactly {@code worn}, and gives the stand-in
+     * melee items and the boots their cache params.
+     */
+    private void wear(Map<Equipment.Slot, Integer> worn) {
+        GameSnapshot.Inventories invs = mock(GameSnapshot.Inventories.class);
+        when(snapshot.inventories()).thenReturn(invs);
+        List<InventoryItem> items = new ArrayList<>();
+        worn.forEach((slot, itemId) -> items.add(new InventoryItem(slot.index, itemId, 1)));
+        when(invs.byInvId(Equipment.INVENTORY_ID))
+                .thenReturn(Optional.of(new Inventory(Equipment.INVENTORY_ID, EQUIPMENT_SLOTS, items)));
+        stubItemParams(MELEE_MAIN_HAND, Map.of(WorldWalkerCallbackBridge.ITEM_PARAM_MELEE_WEAPON, PARAM_SET));
+        stubItemParams(MELEE_OFF_HAND, Map.of(WorldWalkerCallbackBridge.ITEM_PARAM_MELEE_WEAPON, PARAM_SET));
+        stubItemParams(LACERATION_BOOTS, Map.of(WorldWalkerCallbackBridge.ITEM_PARAM_SPECIAL_EFFECT,
+                WorldWalkerCallbackBridge.SPECIAL_EFFECT_BLADED_DIVE_BOOTS));
+    }
+
+    private void stubItemParams(int itemId, Map<String, Object> params) {
+        when(api.getItemType(itemId)).thenReturn(new ItemType(itemId, "item " + itemId, false, false,
+                0, 0, 0, -1, -1, false, List.of(), List.of(), params));
+    }
+
     /** The components facade, created on first use; every bar starts out empty. */
     private Components components() {
         if (componentsFacade == null) {
@@ -777,16 +816,97 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void bladedDiveIsPreferredOverDiveWhenBothAreBound() {
+    void diveIsPreferredOverBladedDiveWhenBothAreBound() {
+        // Even with a loadout that could cast Bladed Dive, Dive wins: it needs
+        // no weapon, so it can never be refused.
         when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
         stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
-        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_BLADED_DIVE, BLADED_DIVE_SPRITE);
         stubSpriteOnBar(1430, DIVE_SPRITE, 12);
-        stubSpriteOnBar(1673, BLADED_DIVE_SPRITE, 3);
+        wear(Map.of(Equipment.Slot.WEAPON, MELEE_MAIN_HAND, Equipment.Slot.SHIELD, MELEE_OFF_HAND));
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        assertEquals((1430 << 16) | 12, queuedActions(4).get(1).param3());
+    }
+
+    @Test
+    void bladedDiveNeverFiresWithAMagicWeapon() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, CAMEL_STAFF));
+        stubItemParams(CAMEL_STAFF, Map.of());
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void bladedDiveNeverFiresWhenEquipmentIsUnpublished() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        GameSnapshot.Inventories invs = mock(GameSnapshot.Inventories.class);
+        when(snapshot.inventories()).thenReturn(invs);
+        when(invs.byInvId(Equipment.INVENTORY_ID)).thenReturn(Optional.empty());
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void bladedDiveFiresWithAMeleeItemInEachHand() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, MELEE_MAIN_HAND, Equipment.Slot.SHIELD, MELEE_OFF_HAND));
 
         bridge.walkTo(new WwTile(3008, 3000, 0));
 
         assertEquals((1673 << 16) | 3, queuedActions(4).get(1).param3());
+    }
+
+    @Test
+    void bladedDiveFiresWithLacerationBootsAndAMeleeMainHand() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, MELEE_MAIN_HAND, Equipment.Slot.FEET, LACERATION_BOOTS));
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        assertEquals((1673 << 16) | 3, queuedActions(4).get(1).param3());
+    }
+
+    @Test
+    void bladedDiveNeedsTheMeleeItemInTheMainHand() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, CAMEL_STAFF, Equipment.Slot.SHIELD, MELEE_OFF_HAND,
+                Equipment.Slot.FEET, LACERATION_BOOTS));
+        stubItemParams(CAMEL_STAFF, Map.of());
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void aWeaponSwapDisarmsAnAlreadyBoundBladedDive() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, MELEE_MAIN_HAND, Equipment.Slot.SHIELD, MELEE_OFF_HAND));
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+        verify(api, times(4)).queueAction(any(GameAction.class));
+
+        // Past the cooldown floor but inside the rescan window: the slot is
+        // still bound, and the staff now in hand must keep it from firing.
+        clock.addAndGet(RESCAN_MS / 2);
+        when(snapshot.self()).thenReturn(player(3008, 3000, 0));
+        wear(Map.of(Equipment.Slot.WEAPON, CAMEL_STAFF));
+        stubItemParams(CAMEL_STAFF, Map.of());
+        bridge.walkTo(new WwTile(3016, 3000, 0));
+
+        verify(api, times(5)).queueAction(any(GameAction.class));
     }
 
     @Test
