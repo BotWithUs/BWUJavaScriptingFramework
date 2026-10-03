@@ -76,7 +76,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     //    game refuses it without a melee loadout, so plain Dive (any weapon)
     //    is preferred and Bladed Dive is only a fallback that fires when the
     //    worn loadout allows it (see hasBladedDiveLoadout).
-    // Neither fires within ABILITY_GOAL_GUARD of the final goal, and each
+    // Neither fires within ABILITY_GOAL_GUARD of the final goal, Dive never
+    // fires within DIVE_MIN_GOAL_DISTANCE of it on any plane, and each
     // eligible walk only rolls a chance to fire so the pattern isn't
     // mechanical. The bar slot is found by scanning the action bars for the
     // ability's icon, read from its cache struct, and cooldown comes from the
@@ -87,6 +88,13 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final int  DIVE_MIN_TILES     = 6;     // shorter hops aren't worth a cooldown
     private static final int  DIVE_MAX_TILES     = 10;    // Dive's reach
     private static final int  ABILITY_GOAL_GUARD = 12;    // skip if close enough to overshoot
+    // Dive's own floor on the distance left to the walk's final goal tile
+    // (not the next waypoint): under this, walk instead of diving. Requested
+    // by the user on 2026-10-03 ("never Dive when the destination is less
+    // than 10 tiles away"). Unlike ABILITY_GOAL_GUARD it holds whatever plane
+    // the goal is on, so a goal up or down a staircase a few tiles away
+    // still suppresses Dive.
+    static final int          DIVE_MIN_GOAL_DISTANCE = 10;
     // Near-straight tolerance as a divisor of the major axis: the off-line
     // error may be at most major / 5 (a 0.2 tolerance, kept integral so a
     // boundary case can't flip on floating-point rounding).
@@ -626,13 +634,38 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     // short hop it can reach, then Surge for a long near-straight one.
     private List<AbilitySlot> candidates(int dx, int dy, LocalPlayer lp) {
         List<AbilitySlot> out = new ArrayList<>(2);
-        if (isDiveHop(dx, dy)) {
+        if (isDiveHop(dx, dy) && isFarEnoughFromGoalToDive(lp)) {
             out.add(diveSlot);
         }
         if (isSurgeHop(dx, dy) && magicLevel(lp) >= SURGE_MIN_MAGIC) {
             out.add(surgeSlot);
         }
         return out;
+    }
+
+    // False when the player is within DIVE_MIN_GOAL_DISTANCE of the walk's
+    // final goal tile, on any plane. With no goal there is nothing to measure,
+    // so the other guards decide alone.
+    private boolean isFarEnoughFromGoalToDive(LocalPlayer lp) {
+        if (goal == null) {
+            return true;
+        }
+        int distToGoal = Math.max(Math.abs(goal.x() - lp.tileX()),
+                                  Math.abs(goal.y() - lp.tileY()));
+        if (isDiveDistanceToGoal(distToGoal)) {
+            return true;
+        }
+        log.debug("ww dive suppressed: {} tiles to the goal ({},{},p{}), walking instead",
+                distToGoal, goal.x(), goal.y(), goal.plane());
+        return false;
+    }
+
+    /**
+     * True when {@code distToGoal} (Chebyshev tiles from the player to the walk's final goal
+     * tile) leaves enough of the walk for a Dive: at least {@link #DIVE_MIN_GOAL_DISTANCE}.
+     */
+    static boolean isDiveDistanceToGoal(int distToGoal) {
+        return distToGoal >= DIVE_MIN_GOAL_DISTANCE;
     }
 
     /** True when {@code (dx, dy)} is a hop Dive can land: 6..10 tiles, Chebyshev. */

@@ -1032,6 +1032,28 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
+    void diveNeedsTenTilesLeftToTheGoal() {
+        assertFalse(WorldWalkerCallbackBridge.isDiveDistanceToGoal(9));
+        assertTrue(WorldWalkerCallbackBridge.isDiveDistanceToGoal(10));
+    }
+
+    @Test
+    void diveIsSuppressedNearAGoalOnAnotherPlane() {
+        // The same-plane goal guard does not see a goal upstairs; Dive's own
+        // distance floor still does.
+        WwGoal upstairs = new WwGoal(3008, 3000, 1, 1);
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, upstairs,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(ALWAYS_FIRE));
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
     void interactResolvesLocAndQueuesObjectAction() {
         // The engine's object DoAction is (locTypeId, worldX, worldY) — the same
         // shape a manual click emits — not a scene handle in param1.
