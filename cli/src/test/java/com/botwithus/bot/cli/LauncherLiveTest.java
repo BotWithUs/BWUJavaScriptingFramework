@@ -179,8 +179,8 @@ class LauncherLiveTest {
                 () -> assertTrue(seenClients.stream().noneMatch(c -> c.accountId().equals(y)), "Y's client is visible"),
                 () -> assertEquals(LauncherException.NOT_PERMITTED, launch.code()),
                 () -> assertEquals(LauncherException.NOT_PERMITTED, stop.code()),
-                () -> assertEquals(List.of("launcher.accounts", "launcher.clients", "launcher.launch",
-                        "launcher.stop"), audit),
+                () -> assertEquals(List.of("launcher.onEvent", "launcher.accounts", "launcher.clients",
+                        "launcher.launch", "launcher.stop"), audit),
                 () -> assertTrue(ProcessHandle.of(yClient.pid()).map(ProcessHandle::isAlive).orElse(false),
                         "Y's client was stopped"));
     }
