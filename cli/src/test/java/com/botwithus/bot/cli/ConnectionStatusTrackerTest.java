@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Queue;
 import java.util.concurrent.Executor;
@@ -34,6 +36,7 @@ class ConnectionStatusTrackerTest {
     private static final String PIPE = "BotWithUs_4242";
     private static final String UUID = "0123456789abcdef0123456789abcdef";
     private static final String NAME = "Zezima";
+    private static final String OTHER_NAME = "Lynx Titan";
     private static final int LOGIN_SCREEN = 10;
     private static final int LOBBY = 20;
     private static final int IN_GAME = 30;
@@ -143,6 +146,115 @@ class ConnectionStatusTrackerTest {
     }
 
     @Test
+    void characterName_isTheInGameNameOnly_andWaitsForTheClientToResolveIt() {
+        agent.reply(GET_ACCOUNT_INFO, accountInfo("", NAME, UUID, IN_GAME, false)).world(WORLD);
+        Connection conn = agent.connection(PIPE);
+        ConnectionStatusTracker tracker = tracker(Runnable::run);
+
+        tracker.refresh(conn);
+        assertTrue(conn.getCharacterName().isEmpty(), "the launcher's account name is not the character");
+
+        agent.reply(GET_ACCOUNT_INFO, accountInfo(NAME, "", UUID, IN_GAME, false));
+        tracker.refresh(conn);
+        assertEquals(NAME, conn.getCharacterName().orElseThrow());
+    }
+
+    @Test
+    void characterName_atTheLoginScreen_isTheLaunchedCharacterFromTheReadAfterAttach() {
+        agent.reply(GET_ACCOUNT_INFO, launchedFor(NAME, "", LOGIN_SCREEN));
+        Connection conn = agent.connection(PIPE);
+
+        tracker(queued).attach(conn);
+        assertTrue(conn.getCharacterName().isEmpty(), "nothing is known before the first read");
+        drain();
+
+        assertAll(
+                () -> assertEquals(GameState.LOGIN_SCREEN, conn.getGameState()),
+                () -> assertEquals(NAME, conn.getCharacterName().orElseThrow(),
+                        "no state change is needed to learn the launched character"));
+    }
+
+    @Test
+    void characterName_logoutDropsIt_andARelogNeverShowsThePreviousCharacter() {
+        agent.reply(GET_ACCOUNT_INFO, accountInfo(NAME, "", UUID, IN_GAME, false)).world(WORLD);
+        Connection conn = agent.connection(PIPE);
+        tracker(queued).attach(conn);
+        drain();
+        assertEquals(NAME, conn.getCharacterName().orElseThrow());
+
+        agent.reply(GET_ACCOUNT_INFO, accountInfo("", "", UUID, LOBBY, false));
+        conn.getEventBus().publish(new LoginStateChangeEvent(IN_GAME, LOBBY));
+        assertTrue(conn.getCharacterName().isEmpty(), "dropped before the follow-up read runs");
+        drain();
+
+        agent.reply(GET_ACCOUNT_INFO, accountInfo(OTHER_NAME, "", UUID, IN_GAME, false));
+        conn.getEventBus().publish(new LoginStateChangeEvent(LOBBY, IN_GAME));
+        assertTrue(conn.getCharacterName().isEmpty(), "back in a world, but not yet read");
+        drain();
+        assertEquals(OTHER_NAME, conn.getCharacterName().orElseThrow());
+    }
+
+    @Test
+    void characterName_aReadingOvertakenByAStateChange_doesNotRestoreTheOldName() {
+        agent.reply(GET_ACCOUNT_INFO, accountInfo(NAME, "", UUID, IN_GAME, false)).world(WORLD);
+        Connection conn = agent.connection(PIPE);
+        long staleTicket = conn.beginStatusRead();
+
+        conn.publishGameStatus(conn.beginStatusRead(), previous -> previous.withState(GameState.LOBBY));
+        conn.publishReading(staleTicket, new GameStatus(GameState.IN_GAME, OptionalInt.of(WORLD), false),
+                Optional.of(NAME), Optional.empty());
+
+        assertEquals(GameState.LOBBY, conn.getGameState());
+        assertTrue(conn.getCharacterName().isEmpty());
+    }
+
+    @Test
+    void characterName_inAWorld_theLoggedInNameWinsOverTheLaunchedOne() {
+        agent.reply(GET_ACCOUNT_INFO, launchedFor(NAME, "", IN_GAME)).world(WORLD);
+        Connection conn = agent.connection(PIPE);
+        ConnectionStatusTracker tracker = tracker(Runnable::run);
+
+        tracker.refresh(conn);
+        assertEquals(NAME, conn.getCharacterName().orElseThrow(), "launched name stands in until read");
+        assertTrue(conn.getInGameName().isEmpty());
+
+        agent.reply(GET_ACCOUNT_INFO, launchedFor(NAME, OTHER_NAME, IN_GAME));
+        tracker.refresh(conn);
+        assertEquals(OTHER_NAME, conn.getCharacterName().orElseThrow(), "relogged as someone else");
+    }
+
+    @Test
+    void characterName_onLogout_fallsBackToTheLaunchedCharacterAtOnce() {
+        agent.reply(GET_ACCOUNT_INFO, launchedFor(NAME, OTHER_NAME, IN_GAME)).world(WORLD);
+        Connection conn = agent.connection(PIPE);
+        tracker(queued).attach(conn);
+        drain();
+        assertEquals(OTHER_NAME, conn.getCharacterName().orElseThrow());
+
+        agent.reply(GET_ACCOUNT_INFO, launchedFor(NAME, "", LOGIN_SCREEN));
+        conn.getEventBus().publish(new LoginStateChangeEvent(IN_GAME, LOGIN_SCREEN));
+        assertEquals(NAME, conn.getCharacterName().orElseThrow(),
+                "the logged-in name is dropped; the launched one is fixed for the process");
+        drain();
+        assertEquals(NAME, conn.getCharacterName().orElseThrow());
+    }
+
+    @Test
+    void characterName_aStaleReadingWithALaunchedName_doesNotRestoreTheOldLoggedInName() {
+        Connection conn = agent.connection(PIPE);
+        long staleTicket = conn.beginStatusRead();
+
+        conn.publishGameStatus(conn.beginStatusRead(), previous -> previous.withState(GameState.LOBBY));
+        conn.publishReading(staleTicket, new GameStatus(GameState.IN_GAME, OptionalInt.of(WORLD), false),
+                Optional.of(OTHER_NAME), Optional.of(NAME));
+
+        assertAll(
+                () -> assertEquals(GameState.LOBBY, conn.getGameState()),
+                () -> assertTrue(conn.getCharacterName().isEmpty(),
+                        "a rejected reading publishes neither name"));
+    }
+
+    @Test
     void loginStateChange_appliesTheStateAtOnceAndLeavesTheAgentToTheExecutor() {
         agent.reply(GET_ACCOUNT_INFO, accountInfo(NAME, NAME, UUID, IN_GAME, true)).world(WORLD);
         Connection conn = agent.connection(PIPE);
@@ -189,6 +301,13 @@ class ConnectionStatusTrackerTest {
         assertEquals(0, lobby.callsTo(GET_ACCOUNT_INFO));
         assertEquals(1, inGame.callsTo(GET_ACCOUNT_INFO));
         assertEquals(1, unknown.callsTo(GET_ACCOUNT_INFO));
+    }
+
+    /** An account reply from a client the Jagex launcher started for {@code launched}. */
+    private static Map<String, Object> launchedFor(String launched, String displayName, int gameState) {
+        Map<String, Object> reply = accountInfo(displayName, "", UUID, gameState, false);
+        reply.put("jx_display_name", launched);
+        return reply;
     }
 
     private void drain() {

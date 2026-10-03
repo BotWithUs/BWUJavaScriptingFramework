@@ -10,6 +10,7 @@ import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -37,10 +38,13 @@ public final class MockScriptContext implements ScriptContext {
 
     private final GameAPI gameAPI;
     private final InMemoryEventBus eventBus;
+    /** What {@link #getDisplayName()} reports; null for no name. */
+    private final String displayName;
 
-    private MockScriptContext(GameAPI gameAPI, InMemoryEventBus eventBus) {
+    private MockScriptContext(GameAPI gameAPI, InMemoryEventBus eventBus, String displayName) {
         this.gameAPI = gameAPI;
         this.eventBus = eventBus;
+        this.displayName = displayName;
     }
 
     public static Builder builder() {
@@ -72,6 +76,11 @@ public final class MockScriptContext implements ScriptContext {
         return null;
     }
 
+    @Override
+    public Optional<String> getDisplayName() {
+        return Optional.ofNullable(displayName);
+    }
+
     /** Returns the {@link InMemoryEventBus} so tests can publish into it. */
     public InMemoryEventBus eventBus() {
         return eventBus;
@@ -86,6 +95,7 @@ public final class MockScriptContext implements ScriptContext {
 
         private Supplier<GameSnapshot> snapshotSource = CannedSnapshot::empty;
         private List<String> actionSink;
+        private String displayName;
 
         private Builder() {}
 
@@ -117,12 +127,26 @@ public final class MockScriptContext implements ScriptContext {
             return this;
         }
 
+        /**
+         * Makes {@link MockScriptContext#getDisplayName()} report {@code name},
+         * as a context on a client logged in or launched as that character would.
+         * Without this the context reports no name, as on a client at the login
+         * screen that was not launched for a known Jagex character.
+         */
+        public Builder withDisplayName(String name) {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("name");
+            }
+            this.displayName = name;
+            return this;
+        }
+
         public MockScriptContext build() {
             List<String> sink = actionSink;
             GameAPI api = new MockGameAPI(
                     snapshotSource,
                     sink == null ? action -> {} : action -> sink.add(formatAction(action)));
-            return new MockScriptContext(api, new InMemoryEventBus());
+            return new MockScriptContext(api, new InMemoryEventBus(), displayName);
         }
 
         private static String formatAction(GameAction action) {
