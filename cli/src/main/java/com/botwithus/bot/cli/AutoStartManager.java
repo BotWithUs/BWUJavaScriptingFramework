@@ -10,6 +10,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.runtime.ScriptRunner;
+import com.botwithus.bot.core.shm.SharedRegion;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -248,7 +249,7 @@ public class AutoStartManager {
             }
             boolean alreadyConnected = ctx.getConnections().stream()
                     .anyMatch(c -> c.getName().equals(pipeName));
-            if (alreadyConnected) {
+            if (alreadyConnected || isBeingConnected(pipeName)) {
                 continue;
             }
 
@@ -263,6 +264,16 @@ public class AutoStartManager {
                 out().println("[AutoStart] Failed to connect to " + pipeName + ": " + e.getMessage());
             }
         }
+    }
+
+    /**
+     * Whether another thread is connecting to this pipe's game right now, the
+     * launcher's attach after a launch most often. The scanner leaves it alone
+     * rather than open a second pipe client to the same agent; if that connect
+     * fails, the pipe is still there on the next scan.
+     */
+    private boolean isBeingConnected(String pipeName) {
+        return SharedRegion.parsePid(pipeName).stream().anyMatch(ctx::isConnecting);
     }
 
     /**

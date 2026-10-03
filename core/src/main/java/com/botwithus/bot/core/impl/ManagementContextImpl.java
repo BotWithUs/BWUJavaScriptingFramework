@@ -4,6 +4,7 @@ import com.botwithus.bot.api.ClientProvider;
 import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
+import com.botwithus.bot.api.script.ClientLauncher;
 import com.botwithus.bot.api.script.ClientOrchestrator;
 import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementTarget;
@@ -47,6 +48,7 @@ public class ManagementContextImpl implements ManagementContext {
     private final SharedState sharedState;
     private final Supplier<Set<ManagementTarget>> targets;
     private final ConfigLookup configs;
+    private final ClientLauncher clientLauncher;
 
     /** A context whose script manages the whole host. */
     public ManagementContextImpl(
@@ -88,6 +90,25 @@ public class ManagementContextImpl implements ManagementContext {
             Supplier<Set<ManagementTarget>> targets,
             ConfigLookup configs
     ) {
+        this(orchestrator, clientProvider, messageBus, sharedState, targets, configs, ClientLauncher.unavailable());
+    }
+
+    /**
+     * @param targets        read on every {@link #targets()} call; see the constructor above
+     * @param configs        asked on every {@link #configFor(String)} call
+     * @param clientLauncher what {@link #clientLauncher()} returns; it should be
+     *                       limited to the same targets
+     */
+    public ManagementContextImpl(
+            ClientOrchestrator orchestrator,
+            ClientProvider clientProvider,
+            MessageBus messageBus,
+            SharedState sharedState,
+            Supplier<Set<ManagementTarget>> targets,
+            ConfigLookup configs,
+            ClientLauncher clientLauncher
+    ) {
+        this.clientLauncher = Objects.requireNonNull(clientLauncher, "clientLauncher");
         this.orchestrator = orchestrator;
         this.clientProvider = clientProvider;
         this.messageBus = messageBus;
@@ -107,6 +128,11 @@ public class ManagementContextImpl implements ManagementContext {
 
     @Override
     public SharedState getSharedState() { return sharedState; }
+
+    @Override
+    public ClientLauncher clientLauncher() {
+        return clientLauncher;
+    }
 
     @Override
     public Set<ManagementTarget> targets() {

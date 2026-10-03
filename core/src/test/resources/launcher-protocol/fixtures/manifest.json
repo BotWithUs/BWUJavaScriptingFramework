@@ -1,0 +1,1698 @@
+{
+  "protocolVersion": 1,
+  "fixtures": [
+    {
+      "name": "hello.req",
+      "file": "hello.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 1,
+        "kind": "req",
+        "method": "hello",
+        "body": {
+          "protocolMin": 1,
+          "protocolMax": 1,
+          "clientKind": "gui",
+          "clientVersion": "2.1.4"
+        }
+      },
+      "binFields": [],
+      "builder": "HelloRequest"
+    },
+    {
+      "name": "hello.resp",
+      "file": "hello.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 1,
+        "kind": "resp",
+        "method": "hello",
+        "ok": true,
+        "body": {
+          "protocolVersion": 1,
+          "serviceVersion": "2.1.4",
+          "surface": "full",
+          "methods": [
+            "service.status",
+            "auth.state",
+            "client.launch",
+            "client.list"
+          ],
+          "events": [
+            "client.started",
+            "client.state",
+            "client.exited"
+          ],
+          "connectionId": 3
+        }
+      },
+      "binFields": [],
+      "builder": "HelloResponse"
+    },
+    {
+      "name": "hello.req.host",
+      "file": "hello.req.host.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 2,
+        "kind": "req",
+        "method": "hello",
+        "body": {
+          "protocolMin": 1,
+          "protocolMax": 1,
+          "clientKind": "host",
+          "clientVersion": "0.9.0",
+          "hostKind": "java",
+          "hostPid": 4321,
+          "hostLabel": "Main profile"
+        }
+      },
+      "binFields": [],
+      "builder": "HelloRequest"
+    },
+    {
+      "name": "service.status.req",
+      "file": "service.status.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 3,
+        "kind": "req",
+        "method": "service.status",
+        "body": {}
+      },
+      "binFields": [],
+      "builder": "Empty"
+    },
+    {
+      "name": "service.status.resp",
+      "file": "service.status.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 3,
+        "kind": "resp",
+        "method": "service.status",
+        "ok": true,
+        "body": {
+          "serviceVersion": "2.1.4",
+          "protocolVersion": 1,
+          "startedAtMs": 1790000000000,
+          "isSignedIn": true,
+          "clientCount": 2,
+          "isShuttingDown": false
+        }
+      },
+      "binFields": [],
+      "builder": "ServiceStatus"
+    },
+    {
+      "name": "auth.state.req",
+      "file": "auth.state.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 5,
+        "kind": "req",
+        "method": "auth.state",
+        "body": {}
+      },
+      "binFields": [],
+      "builder": "Empty"
+    },
+    {
+      "name": "auth.state.resp.automation",
+      "file": "auth.state.resp.automation.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 5,
+        "kind": "resp",
+        "method": "auth.state",
+        "ok": true,
+        "body": {
+          "isSignedIn": true,
+          "sessionLimit": 5
+        }
+      },
+      "binFields": [],
+      "builder": "AuthStateAutomation"
+    },
+    {
+      "name": "accounts.list.req",
+      "file": "accounts.list.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 10,
+        "kind": "req",
+        "method": "accounts.list",
+        "body": {}
+      },
+      "binFields": [],
+      "builder": "Empty"
+    },
+    {
+      "name": "accounts.list.resp.automation",
+      "file": "accounts.list.resp.automation.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 10,
+        "kind": "resp",
+        "method": "accounts.list",
+        "ok": true,
+        "body": {
+          "accounts": [
+            {
+              "id": "4f1c0b8e9a7d6c5b4a3928170615f4e3",
+              "name": "Main"
+            }
+          ]
+        }
+      },
+      "binFields": [],
+      "builder": "AccountsListAutomation"
+    },
+    {
+      "name": "client.launch.req",
+      "file": "client.launch.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 15,
+        "kind": "req",
+        "method": "client.launch",
+        "body": {
+          "accountId": "4f1c0b8e9a7d6c5b4a3928170615f4e3",
+          "characterIndex": -1
+        }
+      },
+      "binFields": [],
+      "builder": "ClientLaunchRequest"
+    },
+    {
+      "name": "client.launch.resp",
+      "file": "client.launch.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 15,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": true,
+        "body": {
+          "clientId": "c7"
+        }
+      },
+      "binFields": [],
+      "builder": "ClientIdBody"
+    },
+    {
+      "name": "client.stop.req",
+      "file": "client.stop.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 16,
+        "kind": "req",
+        "method": "client.stop",
+        "body": {
+          "clientId": "c7",
+          "mode": "kill"
+        }
+      },
+      "binFields": [],
+      "builder": "ClientStopRequest"
+    },
+    {
+      "name": "client.stop.resp",
+      "file": "client.stop.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 16,
+        "kind": "resp",
+        "method": "client.stop",
+        "ok": true,
+        "body": {}
+      },
+      "binFields": [],
+      "builder": "Empty"
+    },
+    {
+      "name": "client.list.req",
+      "file": "client.list.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 17,
+        "kind": "req",
+        "method": "client.list",
+        "body": {}
+      },
+      "binFields": [],
+      "builder": "Empty"
+    },
+    {
+      "name": "client.list.resp",
+      "file": "client.list.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 17,
+        "kind": "resp",
+        "method": "client.list",
+        "ok": true,
+        "body": {
+          "clients": [
+            {
+              "clientId": "c7",
+              "pid": 12345,
+              "accountId": "4f1c0b8e9a7d6c5b4a3928170615f4e3",
+              "accountName": "Main",
+              "characterIndex": -1,
+              "kind": "jagex",
+              "origin": "ui",
+              "state": "injected",
+              "startedAtMs": 1790000000000,
+              "agentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+              "isAgentStale": false,
+              "licence": {
+                "state": "ok",
+                "failures": 0
+              }
+            },
+            {
+              "clientId": "c8",
+              "pid": 70001,
+              "accountId": "4f1c0b8e9a7d6c5b4a3928170615f4e3",
+              "accountName": "Main",
+              "characterIndex": -1,
+              "kind": "jagex",
+              "origin": "ui",
+              "state": "injecting",
+              "startedAtMs": 1790000000000,
+              "agentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+              "isAgentStale": false,
+              "licence": {
+                "state": "untracked",
+                "failures": 0
+              }
+            }
+          ]
+        }
+      },
+      "binFields": [],
+      "builder": "ClientList"
+    },
+    {
+      "name": "client.status.req",
+      "file": "client.status.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 18,
+        "kind": "req",
+        "method": "client.status",
+        "body": {
+          "clientId": "c7"
+        }
+      },
+      "binFields": [],
+      "builder": "ClientIdBody"
+    },
+    {
+      "name": "client.status.resp",
+      "file": "client.status.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 18,
+        "kind": "resp",
+        "method": "client.status",
+        "ok": true,
+        "body": {
+          "clientId": "c7",
+          "pid": 12345,
+          "accountId": "4f1c0b8e9a7d6c5b4a3928170615f4e3",
+          "accountName": "Main",
+          "characterIndex": -1,
+          "kind": "jagex",
+          "origin": "ui",
+          "state": "injected",
+          "startedAtMs": 1790000000000,
+          "agentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+          "isAgentStale": false,
+          "licence": {
+            "state": "retrying",
+            "failures": 3,
+            "lastError": "agent pipe busy"
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "ClientRecord"
+    },
+    {
+      "name": "updates.status.req",
+      "file": "updates.status.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 19,
+        "kind": "req",
+        "method": "updates.status",
+        "body": {}
+      },
+      "binFields": [],
+      "builder": "Empty"
+    },
+    {
+      "name": "updates.status.resp",
+      "file": "updates.status.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 19,
+        "kind": "resp",
+        "method": "updates.status",
+        "ok": true,
+        "body": {
+          "agent": {
+            "sha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12"
+          },
+          "data": {
+            "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+            "phase": "current",
+            "blockedBy": [],
+            "applyWhenHostsClose": true
+          },
+          "runtimeCheck": {
+            "serial": 1,
+            "note": "Host runtime is up to date."
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "UpdatesStatus"
+    },
+    {
+      "name": "host.ack_close.req",
+      "file": "host.ack_close.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 24,
+        "kind": "req",
+        "method": "host.ack_close",
+        "body": {
+          "requestId": 17,
+          "decision": "closing"
+        }
+      },
+      "binFields": [],
+      "builder": "HostAckCloseRequest"
+    },
+    {
+      "name": "host.ack_close.resp",
+      "file": "host.ack_close.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 24,
+        "kind": "resp",
+        "method": "host.ack_close",
+        "ok": true,
+        "body": {}
+      },
+      "binFields": [],
+      "builder": "Empty"
+    },
+    {
+      "name": "events.subscribe.req",
+      "file": "events.subscribe.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 27,
+        "kind": "req",
+        "method": "events.subscribe",
+        "body": {
+          "topics": [
+            "clients",
+            "licence",
+            "agent"
+          ]
+        }
+      },
+      "binFields": [],
+      "builder": "SubscribeRequest"
+    },
+    {
+      "name": "events.subscribe.resp",
+      "file": "events.subscribe.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 27,
+        "kind": "resp",
+        "method": "events.subscribe",
+        "ok": true,
+        "body": {
+          "snapshot": {
+            "clients": [
+              {
+                "clientId": "c7",
+                "pid": 12345,
+                "accountId": "4f1c0b8e9a7d6c5b4a3928170615f4e3",
+                "accountName": "Main",
+                "characterIndex": -1,
+                "kind": "jagex",
+                "origin": "ui",
+                "state": "injected",
+                "startedAtMs": 1790000000000,
+                "agentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+                "isAgentStale": false,
+                "licence": {
+                  "state": "ok",
+                  "failures": 0
+                }
+              }
+            ],
+            "licence": {
+              "link": "live"
+            },
+            "agent": {
+              "sha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778"
+            }
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "SubscribeResponse"
+    },
+    {
+      "name": "client.started.event",
+      "file": "client.started.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "client.started",
+        "body": {
+          "clientId": "c7",
+          "pid": 12346,
+          "accountId": "4f1c0b8e9a7d6c5b4a3928170615f4e3",
+          "accountName": "Main",
+          "characterIndex": -1,
+          "kind": "jagex",
+          "origin": "automation",
+          "launchedBy": {
+            "pid": 4321,
+            "hostKind": "java",
+            "label": "Main profile"
+          },
+          "restartOf": 12345,
+          "state": "injected",
+          "startedAtMs": 1790000000000,
+          "agentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+          "isAgentStale": false,
+          "licence": {
+            "state": "ok",
+            "failures": 0
+          }
+        },
+        "seq": 1
+      },
+      "binFields": [],
+      "builder": "ClientRecord"
+    },
+    {
+      "name": "client.state.event",
+      "file": "client.state.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "client.state",
+        "body": {
+          "clientId": "c7",
+          "state": "spawning",
+          "detail": {
+            "stage": "window",
+            "message": "Spawned pid 12346, waiting for the game window (up to 90s)"
+          }
+        },
+        "seq": 2
+      },
+      "binFields": [],
+      "builder": "ClientStateEvent"
+    },
+    {
+      "name": "client.state.event.failed",
+      "file": "client.state.event.failed.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "client.state",
+        "body": {
+          "clientId": "c7",
+          "state": "failed",
+          "detail": {
+            "stage": "inject",
+            "code": "launch_failed",
+            "message": "Inject failed: agent pipe did not open"
+          }
+        },
+        "seq": 3
+      },
+      "binFields": [],
+      "builder": "ClientStateEvent"
+    },
+    {
+      "name": "client.exited.event",
+      "file": "client.exited.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "client.exited",
+        "body": {
+          "clientId": "c7",
+          "exitCode": 88,
+          "reason": "licence"
+        },
+        "seq": 4
+      },
+      "binFields": [],
+      "builder": "ClientExitedEvent"
+    },
+    {
+      "name": "agent.updated.event",
+      "file": "agent.updated.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "agent.updated",
+        "body": {
+          "sha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12"
+        },
+        "seq": 5
+      },
+      "binFields": [],
+      "builder": "ShaBody"
+    },
+    {
+      "name": "data.update_available.event",
+      "file": "data.update_available.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "data.update_available",
+        "body": {
+          "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+          "stagedSha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12",
+          "phase": "staged",
+          "blockedBy": [
+            {
+              "pid": 4321,
+              "kind": "java",
+              "label": "Main profile",
+              "isRegistered": true
+            },
+            {
+              "pid": 5555,
+              "kind": "unknown",
+              "isRegistered": false
+            }
+          ],
+          "applyWhenHostsClose": true
+        },
+        "seq": 6
+      },
+      "binFields": [],
+      "builder": "DataState"
+    },
+    {
+      "name": "data.update_applied.event",
+      "file": "data.update_applied.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "data.update_applied",
+        "body": {
+          "sha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12"
+        },
+        "seq": 7
+      },
+      "binFields": [],
+      "builder": "ShaBody"
+    },
+    {
+      "name": "host.close_requested.event",
+      "file": "host.close_requested.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "host.close_requested",
+        "body": {
+          "requestId": 17,
+          "reason": "data_update",
+          "hostsBlocking": 2
+        },
+        "seq": 10
+      },
+      "binFields": [],
+      "builder": "CloseRequestedEvent"
+    },
+    {
+      "name": "licence.state.event",
+      "file": "licence.state.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "licence.state",
+        "body": {
+          "link": "live",
+          "clientId": "c7",
+          "state": "retrying",
+          "failures": 2
+        },
+        "seq": 11
+      },
+      "binFields": [],
+      "builder": "LicenceStateEvent"
+    },
+    {
+      "name": "licence.state.event.link",
+      "file": "licence.state.event.link.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "licence.state",
+        "body": {
+          "link": "reconnecting"
+        },
+        "seq": 12
+      },
+      "binFields": [],
+      "builder": "LicenceStateEvent"
+    },
+    {
+      "name": "service.shutting_down.event",
+      "file": "service.shutting_down.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "service.shutting_down",
+        "body": {
+          "closeClients": false
+        },
+        "seq": 13
+      },
+      "binFields": []
+    },
+    {
+      "name": "error.bad_frame",
+      "file": "error.bad_frame.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "resp",
+        "method": "",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "bad_frame",
+          "message": "The frame body did not decode as one msgpack map.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.frame_too_large",
+      "file": "error.frame_too_large.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "resp",
+        "method": "",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "frame_too_large",
+          "message": "The frame length 2097152 is above the 1 MiB cap.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.bad_envelope",
+      "file": "error.bad_envelope.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "resp",
+        "method": "",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "bad_envelope",
+          "message": "v is missing or is not 1",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.hello_required",
+      "file": "error.hello_required.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 2,
+        "kind": "resp",
+        "method": "client.list",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "hello_required",
+          "message": "Send hello first.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.protocol_mismatch",
+      "file": "error.protocol_mismatch.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 1,
+        "kind": "resp",
+        "method": "hello",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "protocol_mismatch",
+          "message": "No common protocol version.",
+          "retryable": false,
+          "detail": {
+            "serviceMin": 1,
+            "serviceMax": 1
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.unknown_method",
+      "file": "error.unknown_method.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 4,
+        "kind": "resp",
+        "method": "client.teleport",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "unknown_method",
+          "message": "No method named client.teleport.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.not_permitted",
+      "file": "error.not_permitted.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 5,
+        "kind": "resp",
+        "method": "auth.logout",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "not_permitted",
+          "message": "auth.logout is not available on this surface.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.caller_rejected",
+      "file": "error.caller_rejected.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 1,
+        "kind": "resp",
+        "method": "hello",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "caller_rejected",
+          "message": "This program is not allowed to manage clients.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.host_already_connected",
+      "file": "error.host_already_connected.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 1,
+        "kind": "resp",
+        "method": "hello",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "host_already_connected",
+          "message": "This process already holds an automation connection.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.bad_request",
+      "file": "error.bad_request.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 6,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "bad_request",
+          "message": "accountId is missing or of the wrong type",
+          "retryable": false,
+          "detail": {
+            "field": "accountId"
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.not_signed_in",
+      "file": "error.not_signed_in.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 7,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "not_signed_in",
+          "message": "Sign in to BotWithUs first.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.session_limit",
+      "file": "error.session_limit.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 9,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "session_limit",
+          "message": "You already have 5 clients running.",
+          "retryable": true
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.concurrency_cap",
+      "file": "error.concurrency_cap.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 10,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "concurrency_cap",
+          "message": "Two launches are already in progress.",
+          "retryable": true
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.rate_limited",
+      "file": "error.rate_limited.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 11,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "rate_limited",
+          "message": "Too many launches; try again shortly.",
+          "retryable": true,
+          "detail": {
+            "retryAfterMs": 20000
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.account_not_found",
+      "file": "error.account_not_found.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 12,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "account_not_found",
+          "message": "No account has that id.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.client_not_found",
+      "file": "error.client_not_found.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 13,
+        "kind": "resp",
+        "method": "client.stop",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "client_not_found",
+          "message": "No client has that id.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.agent_unavailable",
+      "file": "error.agent_unavailable.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 14,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "agent_unavailable",
+          "message": "The agent could not be checked.",
+          "retryable": true,
+          "detail": {
+            "cause": "hash endpoint returned 503"
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.licence_unavailable",
+      "file": "error.licence_unavailable.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 15,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "licence_unavailable",
+          "message": "The heartbeat link is not connected.",
+          "retryable": true
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.shutting_down",
+      "file": "error.shutting_down.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 19,
+        "kind": "resp",
+        "method": "client.list",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "shutting_down",
+          "message": "The service is shutting down.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "error.internal",
+      "file": "error.internal.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 20,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "internal",
+          "message": "Unexpected state in the launch queue.",
+          "retryable": false,
+          "detail": {
+            "win32": 1450,
+            "hr": -2147024891
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "updates.status.resp.a4",
+      "file": "updates.status.resp.a4.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 40,
+        "kind": "resp",
+        "method": "updates.status",
+        "ok": true,
+        "body": {
+          "agent": {
+            "sha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12",
+            "checkedAtMs": 1790000000000,
+            "lastError": "agent hash endpoint rejected request"
+          },
+          "data": {
+            "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+            "stagedSha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12",
+            "phase": "staged",
+            "blockedBy": [
+              {
+                "pid": 4321,
+                "kind": "java",
+                "label": "Main profile",
+                "isRegistered": true,
+                "closeDecision": "later"
+              },
+              {
+                "pid": 5555,
+                "kind": "native",
+                "isRegistered": false
+              }
+            ],
+            "applyWhenHostsClose": true,
+            "checkedAtMs": 1790000060000
+          },
+          "runtimeCheck": {
+            "serial": 3,
+            "note": ""
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "UpdatesStatus"
+    },
+    {
+      "name": "host.ack_close.req.later",
+      "file": "host.ack_close.req.later.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 43,
+        "kind": "req",
+        "method": "host.ack_close",
+        "body": {
+          "requestId": 17,
+          "decision": "later"
+        }
+      },
+      "binFields": [],
+      "builder": "HostAckCloseRequest"
+    },
+    {
+      "name": "events.subscribe.resp.data",
+      "file": "events.subscribe.resp.data.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 44,
+        "kind": "resp",
+        "method": "events.subscribe",
+        "ok": true,
+        "body": {
+          "snapshot": {
+            "data": {
+              "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+              "stagedSha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12",
+              "phase": "staged",
+              "blockedBy": [
+                {
+                  "pid": 4321,
+                  "kind": "java",
+                  "label": "Main profile",
+                  "isRegistered": true,
+                  "closeDecision": "later"
+                },
+                {
+                  "pid": 5555,
+                  "kind": "native",
+                  "isRegistered": false
+                }
+              ],
+              "applyWhenHostsClose": true,
+              "checkedAtMs": 1790000060000
+            }
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "SubscribeResponse"
+    },
+    {
+      "name": "data.update_available.event.checked",
+      "file": "data.update_available.event.checked.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "data.update_available",
+        "body": {
+          "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+          "stagedSha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12",
+          "phase": "staged",
+          "blockedBy": [
+            {
+              "pid": 4321,
+              "kind": "java",
+              "label": "Main profile",
+              "isRegistered": true,
+              "closeDecision": "later"
+            },
+            {
+              "pid": 5555,
+              "kind": "native",
+              "isRegistered": false
+            }
+          ],
+          "applyWhenHostsClose": true,
+          "checkedAtMs": 1790000060000
+        },
+        "seq": 11
+      },
+      "binFields": [],
+      "builder": "DataState"
+    },
+    {
+      "name": "data.update_available.event.error",
+      "file": "data.update_available.event.error.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "data.update_available",
+        "body": {
+          "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+          "stagedSha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12",
+          "phase": "staged",
+          "blockedBy": [],
+          "applyWhenHostsClose": true,
+          "lastError": "Could not list processes to find hosts: access denied",
+          "checkedAtMs": 1790000060000
+        },
+        "seq": 12
+      },
+      "binFields": [],
+      "builder": "DataState"
+    },
+    {
+      "name": "hello.resp.automation",
+      "file": "hello.resp.automation.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 1,
+        "kind": "resp",
+        "method": "hello",
+        "ok": true,
+        "body": {
+          "protocolVersion": 1,
+          "serviceVersion": "2.1.4",
+          "surface": "automation",
+          "methods": [
+            "service.status",
+            "auth.state",
+            "accounts.list",
+            "client.launch",
+            "client.stop",
+            "client.list",
+            "client.status",
+            "updates.status",
+            "events.subscribe",
+            "host.ack_close"
+          ],
+          "events": [
+            "client.started",
+            "client.state",
+            "client.exited",
+            "agent.updated",
+            "data.update_available",
+            "data.update_applied",
+            "licence.state",
+            "service.shutting_down"
+          ],
+          "connectionId": 9
+        }
+      },
+      "binFields": [],
+      "builder": "HelloResponse"
+    },
+    {
+      "name": "service.status.resp.automation",
+      "file": "service.status.resp.automation.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 3,
+        "kind": "resp",
+        "method": "service.status",
+        "ok": true,
+        "body": {
+          "serviceVersion": "2.1.4",
+          "protocolVersion": 1,
+          "startedAtMs": 1790000000000,
+          "isSignedIn": true,
+          "clientCount": 2,
+          "isShuttingDown": false
+        }
+      },
+      "binFields": [],
+      "builder": "ServiceStatusAutomation"
+    },
+    {
+      "name": "client.status.resp.automation",
+      "file": "client.status.resp.automation.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 14,
+        "kind": "resp",
+        "method": "client.status",
+        "ok": true,
+        "body": {
+          "clientId": "c42",
+          "pid": 12345,
+          "accountId": "4f1c0b8e9a7d6c5b4a3928170615f4e3",
+          "accountName": "Main",
+          "characterIndex": -1,
+          "kind": "jagex",
+          "origin": "automation",
+          "launchedBy": {
+            "pid": 4321,
+            "hostKind": "java",
+            "label": "Main profile"
+          },
+          "state": "queued",
+          "startedAtMs": 1790000000000,
+          "agentSha": "",
+          "isAgentStale": false,
+          "licence": {
+            "state": "untracked",
+            "failures": 0
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "ClientRecord"
+    },
+    {
+      "name": "events.subscribe.error.hosts_topic",
+      "file": "events.subscribe.error.hosts_topic.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 30,
+        "kind": "resp",
+        "method": "events.subscribe",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "not_permitted",
+          "message": "The hosts topic is not available on the automation surface.",
+          "retryable": false
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "client.launch.error.session_limit",
+      "file": "client.launch.error.session_limit.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 12,
+        "kind": "resp",
+        "method": "client.launch",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "session_limit",
+          "message": "You already have 2 clients running (limit 2).",
+          "retryable": true
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    }
+  ]
+}
