@@ -152,6 +152,45 @@ tasks.named<Test>("test") {
         testHome.deleteRecursively()
         testHome.mkdirs()
     }
+    // Needs a running launcher service; it runs only in launcherLiveTest below.
+    filter {
+        excludeTestsMatching(LAUNCHER_LIVE_TEST)
+    }
+}
+
+// ── Launcher service acceptance (launcher ADR 0007, A6) ────────────────────
+// Runs the Java host's launcher acceptance checks against a running Debug
+// bwu_service. The host's stores live in a throwaway user.home, as for `test`.
+// Forwards: botwithus.live.account, botwithus.live.serviceExe, and the dev gate
+// (botwithus.dev.serviceScope) for a sandboxed service. Pick a case with --tests.
+//   ./gradlew :cli:launcherLiveTest -Dbotwithus.live.account=<uuid> --tests "*managerScript*"
+val LAUNCHER_LIVE_TEST = "com.botwithus.bot.cli.LauncherLiveTest"
+tasks.register<Test>("launcherLiveTest") {
+    description = "Launcher service acceptance checks against a running Debug service"
+    group = "verification"
+    useJUnitPlatform()
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    val liveHome = layout.buildDirectory.dir("live-home").get().asFile
+    systemProperty("user.home", liveHome.absolutePath)
+    systemProperty("botwithus.live.launcher", "true")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    listOf("botwithus.live.account", "botwithus.live.serviceExe", "botwithus.dev.serviceScope").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    project.localProperty("nxtcache.dll", "NXTCACHE_DLL")?.let { systemProperty("nxtcache.dll", it) }
+    doFirst {
+        liveHome.deleteRecursively()
+        liveHome.mkdirs()
+    }
+    outputs.upToDateWhen { false }
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    filter {
+        includeTestsMatching(LAUNCHER_LIVE_TEST)
+    }
 }
 
 // ── Dev-only UI preview ──────────────────────────────────────────────────────

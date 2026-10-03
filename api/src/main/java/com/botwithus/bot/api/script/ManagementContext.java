@@ -115,4 +115,19 @@ public interface ManagementContext {
     default ScriptConfig configFor(String accountUuid, String scriptName) {
         return configFor(accountUuid);
     }
+
+    /**
+     * Returns the launcher for starting, stopping and watching clients through
+     * the BotWithUs launcher service, limited to this script's
+     * {@linkplain #targets() targets}.
+     *
+     * <p>A host that does not talk to the launcher service returns
+     * {@link ClientLauncher#unavailable()}, which is what this default does: every
+     * call throws {@link LauncherException#SERVICE_UNAVAILABLE}.</p>
+     *
+     * @return the launcher; never {@code null}
+     */
+    default ClientLauncher clientLauncher() {
+        return ClientLauncher.unavailable();
+    }
 }

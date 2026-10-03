@@ -26,14 +26,23 @@ import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.launcher.LauncherHost;
+import com.botwithus.bot.core.launcher.DevGate;
+import com.botwithus.bot.core.launcher.CloseRequest;
 import com.botwithus.bot.core.pipe.PipeException;
 import com.botwithus.bot.core.rpc.RpcException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.Scanner;
 
 public final class JBotCli {
+
+    private static final Logger log = LoggerFactory.getLogger(JBotCli.class);
 
     private JBotCli() {}
 
@@ -69,6 +78,8 @@ public final class JBotCli {
         ctx.loadClients();
         ctx.setSettings(HostSettings.openForHost(HostSettings.defaultBaseDir()));
         ctx.startAlerts();
+        Optional<LauncherHost> launcherHost = LauncherHost.register(ctx, LauncherHost.CLI_LABEL,
+                DevGate.fromSystemProperties(), JBotCli::onCloseRequested);
         new MetricsCollection(ctx.getSettings()).bind(ctx);
         CommandRegistry registry = new CommandRegistry();
 
@@ -139,5 +150,17 @@ public final class JBotCli {
                 out.println("Error: " + e.getMessage());
             }
         }
+        launcherHost.ifPresent(LauncherHost::close);
+    }
+
+    /**
+     * The headless host has no window to ask the user in, and stdin belongs to
+     * the command prompt, so a close request is one log line and no answer
+     * (launcher ADR 0007, section 6.3, as the native host does). The update
+     * applies once this host exits.
+     */
+    private static void onCloseRequested(CloseRequest request) {
+        log.info("BotWithUs: a data update is waiting for this host to close (request {})",
+                request.requestId());
     }
 }

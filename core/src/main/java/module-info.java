@@ -38,6 +38,7 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.gameval;
     exports com.botwithus.bot.core.impl;
     exports com.botwithus.bot.core.impl.snapshot;
+    exports com.botwithus.bot.core.launcher;
     exports com.botwithus.bot.core.msgpack;
     exports com.botwithus.bot.core.pipe;
     exports com.botwithus.bot.core.rpc;

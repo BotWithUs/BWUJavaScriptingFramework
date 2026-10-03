@@ -46,6 +46,12 @@ tasks.named<Test>("test") {
     // sqlite-jdbc System.load()s its native lib when the gameval tests open an
     // index; without this the JVM prints a restricted-method warning per fork.
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // The launcher protocol's opt-in checks (tasks below) need a launcher
+    // checkout or Windows; they never run here, so they never count as skipped.
+    filter {
+        excludeTestsMatching(LAUNCHER_DRIFT_TEST)
+        excludeTestsMatching(LAUNCHER_SCOPE_LIVE_TEST)
+    }
 }
 
 tasks.register<JavaExec>("benchmark") {
@@ -314,4 +320,64 @@ tasks.register<Test>("sdnValidationTest") {
     filter {
         includeTestsMatching("com.botwithus.bot.core.crypto.SdnForgedEnvelopeTest")
     }
+}
+
+// ── Launcher protocol (launcher ADR 0007, A6) ──────────────────────────────
+
+val LAUNCHER_DRIFT_TEST = "com.botwithus.bot.core.launcher.LauncherFixtureDriftTest"
+val LAUNCHER_SCOPE_LIVE_TEST = "com.botwithus.bot.core.launcher.LauncherScopeLiveTest"
+val DEV_SCOPE_PROPERTY = "botwithus.dev.serviceScope"
+
+// The vendored fixtures (src/test/resources/launcher-protocol) against the
+// launcher repository at the sha VENDOR.md names. Needs a launcher checkout:
+//   ./gradlew :core:launcherFixtureDriftTest [-Pbotwithus.launcher.repo=<path>]
+// It defaults to the sibling ../BotWithUs-Launcher and reports skipped (not
+// run) when there is none.
+tasks.register<Test>("launcherFixtureDriftTest") {
+    description = "Compare the vendored launcher protocol fixtures with the launcher repo"
+    group = "verification"
+    useJUnitPlatform()
+    val repo = (project.findProperty("botwithus.launcher.repo") as String?)
+        ?: rootProject.projectDir.resolve("../BotWithUs-Launcher").absolutePath
+    systemProperty("botwithus.launcher.repo", repo)
+    testLogging {
+        events("passed", "failed", "skipped")
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching(LAUNCHER_DRIFT_TEST)
+    }
+}
+
+// The service scope read through Panama, against whoami and tasklist and any
+// visible real-scope service pipe. Windows only:
+//   ./gradlew :core:launcherLiveTest
+tasks.register<Test>("launcherLiveTest") {
+    description = "Check the launcher service scope on this Windows session"
+    group = "verification"
+    useJUnitPlatform()
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out")
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching(LAUNCHER_SCOPE_LIVE_TEST)
+    }
+}
+
+// A development tool for the launcher acceptance runs (FullPipeDriver): drives
+// the service's full pipe for the few calls a host test cannot make itself.
+//   ./gradlew :core:launcherFullPipe --args="hosts"
+// Add -Dbotwithus.dev.serviceScope=true to the JVM (and BWU_DEV_SVC_SCOPE to the
+// environment) to reach a sandboxed Debug service.
+tasks.register<JavaExec>("launcherFullPipe") {
+    description = "Drive the launcher service's full pipe (development tool)"
+    group = "verification"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass = "com.botwithus.bot.core.launcher.FullPipeDriver"
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    System.getProperty(DEV_SCOPE_PROPERTY)?.let { systemProperty(DEV_SCOPE_PROPERTY, it) }
 }

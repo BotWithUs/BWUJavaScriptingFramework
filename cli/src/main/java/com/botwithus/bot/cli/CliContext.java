@@ -38,6 +38,7 @@ import com.botwithus.bot.cli.management.ManagementStartup;
 import com.botwithus.bot.cli.management.ManagementTargets;
 import com.botwithus.bot.cli.management.OrchestratorAuditLog;
 import com.botwithus.bot.cli.management.Scope;
+import com.botwithus.bot.cli.management.ScopedClientLauncher;
 import com.botwithus.bot.cli.management.ScopedClientOrchestrator;
 import com.botwithus.bot.cli.management.ScopedClientProvider;
 import com.botwithus.bot.cli.log.LogCapture;
@@ -50,6 +51,9 @@ import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.ReconnectPolicySettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.stream.StreamManager;
+import com.botwithus.bot.core.launcher.AttachResult;
+import com.botwithus.bot.core.launcher.HostClientLauncher;
+import com.botwithus.bot.core.launcher.UnavailableHostClientLauncher;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
@@ -116,6 +120,8 @@ public class CliContext {
 
     /** How long forgetting a client, or saving the clients at shutdown, waits for queued host events. */
     private static final Duration HOST_EVENT_FLUSH = Duration.ofSeconds(2);
+    /** How often an attach retries an agent pipe or mapping that is not up yet. */
+    private static final Duration ATTACH_RETRY_INTERVAL = Duration.ofMillis(250);
 
     @FunctionalInterface
     public interface ImageDisplay {
@@ -197,6 +203,9 @@ public class CliContext {
     /** Management scripts' defaults and per-target settings, shared with their runners. */
     private final ManagementSettingsStore managementSettingsStore;
     private final ManagementSettings managementSettings;
+
+    private final PidClaims pidClaims = new PidClaims();
+    private volatile HostClientLauncher clientLauncher = new UnavailableHostClientLauncher();
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
         this(logBuffer, logCapture, DEFAULT_GROUPS_FILE);
@@ -511,7 +520,23 @@ public class CliContext {
                 new ScopedClientOrchestrator(script, clientManager, scope, this::accountOfClient, orchestratorAudit),
                 new ScopedClientProvider(clientProvider, scope, this::accountOfClient),
                 messageBus, sharedState, () -> managementTargets.apiTargetsOf(script),
-                managementConfigs(script));
+                managementConfigs(script),
+                new ScopedClientLauncher(script, this::getClientLauncher, scope, orchestratorAudit));
+    }
+
+    /**
+     * Gives management scripts the launcher service's client launcher. The
+     * composition root calls this once it has registered with the service;
+     * until then, and in a host that never does, every launcher call fails with
+     * {@code service_unavailable}.
+     */
+    public void setClientLauncher(HostClientLauncher launcher) {
+        this.clientLauncher = Objects.requireNonNull(launcher, "launcher");
+    }
+
+    /** @return the host's client launcher; never {@code null} */
+    public HostClientLauncher getClientLauncher() {
+        return clientLauncher;
     }
 
     /** Answers a management script's {@code configFor} from its settings and declared fields. */
@@ -601,21 +626,119 @@ public class CliContext {
         }
         long pid = SharedRegion.parsePid(resolvedName).orElseThrow(() ->
                 new IllegalStateException("Pipe '" + resolvedName + "' has no embedded pid"));
+        if (!pidClaims.tryClaim(pid)) {
+            out().println("Already connecting to '" + resolvedName + "'.");
+            return;
+        }
         try {
             OpenedConnection opened = openConnection(resolvedName, pid);
             publishConnection(opened.conn(), opened.client());
         } catch (Exception e) {
             out().println("Connection failed: " + e.getMessage());
+        } finally {
+            pidClaims.release(pid);
+        }
+    }
+
+    /**
+     * Whether a connect to {@code pid} is under way on some thread. The pipe
+     * scanner skips such a pid rather than racing it for one of the agent's
+     * four pipe slots.
+     */
+    public boolean isConnecting(long pid) {
+        return pidClaims.isClaimed(pid);
+    }
+
+    /** The claims every connect path takes. Package-private for CliContextAttachTest, which holds one. */
+    PidClaims pidClaims() {
+        return pidClaims;
+    }
+
+    /**
+     * Attaches the host to a client the launcher service just reported
+     * injected: the {@code ClientLauncher}'s attach callback. Unlike
+     * {@link #connect(String)}, it reports what happened instead of printing it.
+     *
+     * <p>It claims the pid first, waiting for a connect already under way (the
+     * pipe scanner's, say) to finish; if that connect succeeded, the client is
+     * attached and no second pipe is opened. Otherwise it opens the pipe and
+     * the shared memory, retrying until {@code timeout}: the agent creates its
+     * mapping before its pipe, but a failed mapping is only logged on the agent
+     * side, and an attach must report that rather than hang.</p>
+     *
+     * @param pid     the game process id
+     * @param timeout how long to keep trying
+     * @return attached under the connection's name, or failed with the last error
+     */
+    public AttachResult attachLaunchedClient(long pid, Duration timeout) {
+        String name = PipeClient.NAME_PREFIX + pid;
+        long deadline = System.nanoTime() + timeout.toNanos();
+        if (!pidClaims.claimWithinUninterruptibly(pid, timeout)) {
+            return new AttachResult.Failed("another connect to pid " + pid + " did not finish within "
+                    + timeout.toSeconds() + " s");
+        }
+        try {
+            if (connections.containsKey(name)) {
+                return new AttachResult.Attached(name);
+            }
+            return openUntil(name, pid, deadline);
+        } finally {
+            pidClaims.release(pid);
+        }
+    }
+
+    /** Opens {@code name} until it works or {@code deadline} passes. Caller holds the pid's claim. */
+    private AttachResult openUntil(String name, long pid, long deadline) {
+        RuntimeException last;
+        do {
+            try {
+                OpenedConnection opened = openConnection(name, pid);
+                publishConnection(opened.conn(), opened.client());
+                return new AttachResult.Attached(name);
+            } catch (RuntimeException e) {
+                last = e;
+                log.debug("Attach to {} not ready yet: {}", name, e.getMessage());
+            }
+            if (!sleepQuietly(ATTACH_RETRY_INTERVAL)) {
+                break;
+            }
+        } while (System.nanoTime() < deadline);
+        return new AttachResult.Failed("could not attach to pid " + pid + ": " + last.getMessage());
+    }
+
+    private static boolean sleepQuietly(Duration duration) {
+        try {
+            Thread.sleep(duration);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
     /** A connection built over a live pipe, with the client view scripts see of it. */
     private record OpenedConnection(Connection conn, ClientImpl client) {}
 
+    /**
+     * Opens the agent's pipe and builds a connection over it. If anything after
+     * the pipe fails (most often the shared memory, which an attach can reach
+     * before the agent has mapped it), the pipe is closed before the failure is
+     * thrown, so a failed connect never keeps one of the agent's pipe slots.
+     */
     private OpenedConnection openConnection(String name, long pid) {
         Instant connectedAt = Instant.now();
         PipeClient pipe = new PipeClient(name);
         RpcClient rpc = new RpcClient(pipe);
+        try {
+            return buildConnection(name, pid, pipe, rpc, connectedAt);
+        } catch (RuntimeException e) {
+            rpc.close();
+            throw e;
+        }
+    }
+
+    private OpenedConnection buildConnection(String name, long pid, PipeClient pipe, RpcClient rpc,
+                                             Instant connectedAt) {
         rpc.setConnectionName(name);
         EventBusImpl eventBus = new EventBusImpl();
 
@@ -623,6 +746,26 @@ public class CliContext {
         // GameAPIImpl so the entity facades (snapshot reads) can read from
         // the same region. ClientImpl borrows the same region.
         SharedRegionEventPump pump = new SharedRegionEventPump(pid, eventBus::publish);
+        try {
+            return buildOverRegion(new Opening(name, pid, pipe, rpc, connectedAt, eventBus, pump));
+        } catch (RuntimeException e) {
+            pump.close();
+            throw e;
+        }
+    }
+
+    /** What {@link #buildOverRegion} builds on: the pipe, its RPC client and the mapped region. */
+    private record Opening(String name, long pid, PipeClient pipe, RpcClient rpc, Instant connectedAt,
+                           EventBusImpl eventBus, SharedRegionEventPump pump) {}
+
+    private OpenedConnection buildOverRegion(Opening o) {
+        String name = o.name();
+        long pid = o.pid();
+        PipeClient pipe = o.pipe();
+        RpcClient rpc = o.rpc();
+        Instant connectedAt = o.connectedAt();
+        EventBusImpl eventBus = o.eventBus();
+        SharedRegionEventPump pump = o.pump();
         GameAPIImpl gameAPI = new GameAPIImpl(rpc, getOrInitNxtCache(pid),
                 () -> new GameSnapshotImpl(pump.region().snapshot()),
                 new StubGuard(),

@@ -66,6 +66,10 @@ import com.botwithus.bot.cli.sdn.FavouritesStore;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.stream.StreamManager;
+import com.botwithus.bot.cli.launcher.CloseRequestPrompt;
+import com.botwithus.bot.cli.launcher.LauncherHost;
+import com.botwithus.bot.core.launcher.DevGate;
+import com.botwithus.bot.core.launcher.CloseDecision;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueSource;
@@ -139,6 +143,10 @@ public class ImGuiApp extends Application {
     private TextureManager textureManager;
     private AnsiOutputBuffer outputBuffer;
     private CliContext ctx;
+    /** This host's registration with the launcher service; empty when its pipe could not be named. */
+    private Optional<LauncherHost> launcherHost = Optional.empty();
+    private CloseRequestPrompt closeRequestPrompt;
+    private CloseRequestModal closeRequestModal;
     private CommandRegistry registry;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
@@ -226,6 +234,7 @@ public class ImGuiApp extends Application {
         wireDisplayHooks();
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
 
+        registerWithLauncher();
         ctx.initManagementRuntime();
         // The first management load pass, which also starts the scripts that were
         // running when the host last stopped. Loading JARs blocks, so off the render thread.
@@ -234,6 +243,24 @@ public class ImGuiApp extends Application {
 
         buildPanels();
         captureGlfwHandle();
+    }
+
+    /**
+     * Registers this host with the launcher service before any script runs
+     * (launcher ADR 0007, section 6.1), so a data update waits while it is
+     * open, and routes the service's close requests to the modal.
+     */
+    private void registerWithLauncher() {
+        DevGate gate = DevGate.fromSystemProperties();
+        closeRequestPrompt = new CloseRequestPrompt(this::acknowledgeClose,
+                task -> Thread.ofVirtual().name("launcher-close-ack").start(task),
+                gate.closeRequestAnswer(System::getProperty));
+        closeRequestModal = new CloseRequestModal(ui, closeRequestPrompt);
+        launcherHost = LauncherHost.register(ctx, LauncherHost.GUI_LABEL, gate, closeRequestPrompt::offer);
+    }
+
+    private void acknowledgeClose(long requestId, CloseDecision decision) {
+        launcherHost.ifPresent(host -> host.service().ackClose(requestId, decision));
     }
 
     private static void redirectImGuiIniToConfigDir() {
@@ -522,6 +549,10 @@ public class ImGuiApp extends Application {
         // requests the switch rather than setting currentMode, which the render's
         // own result would overwrite.
         currentMode = modeRequest.resolve(shell.render(currentMode, board, toastRoutes));
+        closeRequestModal.render();
+        if (closeRequestPrompt.takeShutdownRequest()) {
+            shutdown();
+        }
 
         hostWindow.endFrame();
     }
@@ -592,6 +623,7 @@ public class ImGuiApp extends Application {
             ctx.getManagementRuntime().stopAll();
         }
         ctx.disconnectAll();
+        launcherHost.ifPresent(LauncherHost::close);
         ctx.saveClients();
         ctx.stopAlerts();
         ctx.closeGamevals();
