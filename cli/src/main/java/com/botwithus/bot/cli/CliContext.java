@@ -664,7 +664,11 @@ public class CliContext {
      * attached and no second pipe is opened. Otherwise it opens the pipe and
      * the shared memory, retrying until {@code timeout}: the agent creates its
      * mapping before its pipe, but a failed mapping is only logged on the agent
-     * side, and an attach must report that rather than hang.</p>
+     * side, and an attach must report that rather than hang. The agent pipe can
+     * also be briefly absent right after injection, which the retry covers.</p>
+     *
+     * <p>A failed attempt on a process that is no longer running ends the attach
+     * at once rather than retrying until {@code timeout}.</p>
      *
      * @param pid     the game process id
      * @param timeout how long to keep trying
@@ -687,7 +691,10 @@ public class CliContext {
         }
     }
 
-    /** Opens {@code name} until it works or {@code deadline} passes. Caller holds the pid's claim. */
+    /**
+     * Opens {@code name} until it works, {@code deadline} passes, or the process
+     * is found not running after a failed attempt. Caller holds the pid's claim.
+     */
     private AttachResult openUntil(String name, long pid, long deadline) {
         RuntimeException last;
         do {
@@ -699,11 +706,19 @@ public class CliContext {
                 last = e;
                 log.debug("Attach to {} not ready yet: {}", name, e.getMessage());
             }
+            if (!isProcessAlive(pid)) {
+                return new AttachResult.Failed("could not attach to pid " + pid
+                        + ": the process is not running (" + last.getMessage() + ")");
+            }
             if (!sleepQuietly(ATTACH_RETRY_INTERVAL)) {
                 break;
             }
         } while (System.nanoTime() < deadline);
         return new AttachResult.Failed("could not attach to pid " + pid + ": " + last.getMessage());
+    }
+
+    private static boolean isProcessAlive(long pid) {
+        return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
     }
 
     private static boolean sleepQuietly(Duration duration) {

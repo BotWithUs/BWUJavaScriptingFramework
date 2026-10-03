@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -39,6 +40,14 @@ class CliContextAttachTest {
     private static final String NAME = PipeClient.NAME_PREFIX + PID;
     private static final Duration SHORT = Duration.ofMillis(600);
     private static final Duration HELD = Duration.ofMillis(300);
+    /** This test's own process: alive, with no agent and no mapping. */
+    private static final long LIVE_PID = ProcessHandle.current().pid();
+    private static final String LIVE_NAME = PipeClient.NAME_PREFIX + LIVE_PID;
+    /** How long after the attach starts the late pipe is created. */
+    private static final Duration LATE = Duration.ofMillis(300);
+    private static final Duration LATE_ATTACH_TIMEOUT = Duration.ofMillis(1500);
+    private static final Duration LONG = Duration.ofSeconds(5);
+    private static final Duration DEAD_PID_LIMIT = Duration.ofMillis(100);
 
     @TempDir
     Path tempDir;
@@ -112,6 +121,59 @@ class CliContextAttachTest {
         AttachResult result = ctx.attachLaunchedClient(PID, SHORT);
         assertEquals(AttachResult.Failed.class, result.getClass());
         assertTrue(ctx.getConnections().isEmpty());
+    }
+
+    /**
+     * The agent pipe can be briefly absent right after injection. An attach to a
+     * running process keeps retrying, so a pipe that appears after the attach
+     * started is still opened. The attach then fails on the missing mapping,
+     * which is expected for this pid; the pipe's server end is what shows the
+     * open happened.
+     */
+    @Test
+    void livePid_pipeAppearsLate_isOpenedOnceItAppears() throws Throwable {
+        CompletableFuture<AttachResult> attach = CompletableFuture.supplyAsync(
+                () -> ctx.attachLaunchedClient(LIVE_PID, LATE_ATTACH_TIMEOUT));
+        Thread.sleep(LATE);
+        try (TestPipeServer server = new TestPipeServer(LIVE_NAME)) {
+            long waitMs = LATE_ATTACH_TIMEOUT.multipliedBy(2).toMillis();
+            AttachResult result = attach.get(waitMs, TimeUnit.MILLISECONDS);
+            assertAll(() -> assertEquals(TestPipeServer.ClientState.CLOSED, server.clientState(),
+                            "the attach did not open the pipe after it appeared"),
+                    () -> assertEquals(AttachResult.Failed.class, result.getClass(), result::toString));
+        }
+    }
+
+    @Test
+    void livePid_pipeNeverAppears_failsAtTheTimeoutAndNotBefore() {
+        long start = System.nanoTime();
+        AttachResult result = assertTimeoutPreemptively(SHORT.multipliedBy(4),
+                () -> ctx.attachLaunchedClient(LIVE_PID, SHORT));
+        Duration took = Duration.ofNanos(System.nanoTime() - start);
+        assertAll(() -> assertEquals(AttachResult.Failed.class, result.getClass()),
+                () -> assertTrue(took.compareTo(SHORT) >= 0, "gave up early, after " + took),
+                () -> assertTrue(ctx.getConnections().isEmpty()));
+    }
+
+    @Test
+    void exitedProcess_failsAtOnce_insteadOfWaitingOutTheTimeout() throws Exception {
+        Process child = new ProcessBuilder("cmd.exe", "/c", "exit", "0").start();
+        child.waitFor();
+        assertFailsWithin(child.pid(), DEAD_PID_LIMIT);
+    }
+
+    @Test
+    void pidThatNeverExisted_failsAtOnce_insteadOfWaitingOutTheTimeout() {
+        assertFailsWithin(PID, DEAD_PID_LIMIT);
+    }
+
+    private void assertFailsWithin(long pid, Duration limit) {
+        long start = System.nanoTime();
+        AttachResult result = ctx.attachLaunchedClient(pid, LONG);
+        Duration took = Duration.ofNanos(System.nanoTime() - start);
+        assertAll(() -> assertEquals(AttachResult.Failed.class, result.getClass()),
+                () -> assertTrue(result.toString().contains("not running"), result::toString),
+                () -> assertTrue(took.compareTo(limit) <= 0, "took " + took));
     }
 
     private static Connection connection(String name) {
