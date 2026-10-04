@@ -7,7 +7,9 @@ import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
+import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.VarpRead;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
@@ -37,9 +39,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import java.util.random.RandomGenerator;
 
 final class WorldWalkerCallbackBridge implements WwCallbacks {
 
@@ -56,21 +61,111 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
      */
     private static final int LOC_FALLBACK_REACH = 4;
 
-    // Opportunistic Surge config. Surge launches the avatar 10 tiles forward in
-    // its current facing; we piggy-back it onto walkTo when the next chunk is a
-    // straight ≥8-tile run and we're not within overshoot range of the final
-    // goal. Detection is by sprite scan over the active action-bar interface —
-    // sprite 14659 is Surge's canonical icon and is unique across slots.
-    private static final int  SURGE_SPRITE_ID    = 14659;
+    // Opportunistic movement abilities, piggy-backed onto walkTo. We only see
+    // the click target, never the path, so every rule is judged on the
+    // player->target vector:
+    //  - Surge launches the avatar 10 tiles forward in its current facing. It
+    //    fires on a >=8-tile hop that is near-straight: within 1/5 of the major
+    //    axis of one of the 8 directions (see isNearStraight). The executor's
+    //    randomized long clicks are rarely exactly 8-way, so an exact test
+    //    would all but stop Surge firing.
+    //  - Dive jumps onto a chosen tile up to 10 away. The walk target is a
+    //    planner path tile, so it is standable; Dive fires on a 6..10-tile hop
+    //    and is preferred over Surge when both qualify. Bladed Dive is a
+    //    separate ability with the same reach and a shared cooldown, but the
+    //    game refuses it without a melee loadout, so plain Dive (any weapon)
+    //    is preferred and Bladed Dive is only a fallback that fires when the
+    //    worn loadout allows it (see hasBladedDiveLoadout).
+    // Neither fires within ABILITY_GOAL_GUARD of the final goal, Dive never
+    // fires within DIVE_MIN_GOAL_DISTANCE of it on any plane, and each
+    // eligible walk only rolls a chance to fire so the pattern isn't
+    // mechanical. The bar slot is found by scanning the action bars for the
+    // ability's icon, read from its cache struct, and cooldown comes from the
+    // ability's cooldown-end varc against the client game cycle.
     private static final int  MAGIC_SKILL_TYPE   = 6;     // StatType.id for Magic
     private static final int  SURGE_MIN_MAGIC    = 24;    // ability unlock level
-    private static final long SURGE_COOLDOWN_MS  = 17_000L;
     private static final int  SURGE_MIN_TILES    = 8;     // don't burn cooldown on short hops
-    private static final int  SURGE_GOAL_GUARD   = 12;    // skip if close enough to overshoot
-    // Candidate action-bar interfaces, scanned in priority order. 1670 is the
-    // NIS modern bar; 1430 is the legacy one. Both expose ability slot sprites
-    // at the same offset structure.
-    private static final int[] ACTION_BAR_IFACES = { 1670, 1430 };
+    private static final int  DIVE_MIN_TILES     = 6;     // shorter hops aren't worth a cooldown
+    private static final int  DIVE_MAX_TILES     = 10;    // Dive's reach
+    private static final int  ABILITY_GOAL_GUARD = 12;    // skip if close enough to overshoot
+    // Dive's own floor on the distance left to the walk's final goal tile
+    // (not the next waypoint): under this, walk instead of diving. Requested
+    // by the user on 2026-10-03 ("never Dive when the destination is less
+    // than 10 tiles away"). Unlike ABILITY_GOAL_GUARD it holds whatever plane
+    // the goal is on, so a goal up or down a staircase a few tiles away
+    // still suppresses Dive.
+    static final int          DIVE_MIN_GOAL_DISTANCE = 10;
+    // Near-straight tolerance as a divisor of the major axis: the off-line
+    // error may be at most major / 5 (a 0.2 tolerance, kept integral so a
+    // boundary case can't flip on floating-point rounding).
+    private static final int  SURGE_STRAIGHT_TOLERANCE_DIVISOR = 5;
+    // Chance an eligible walk actually fires the ability.
+    private static final double SURGE_FIRE_CHANCE = 0.70;
+    private static final double DIVE_FIRE_CHANCE  = 0.60;
+    // Every action bar an ability can sit on, scanned in this order.
+    static final List<Integer> ACTION_BAR_IFACES = List.of(1430, 1670, 1671, 1672, 1673);
+    // How long a scan result (hit or miss) stands before the bars are scanned
+    // again: bars and presets change mid-run, so neither outcome is final.
+    private static final long SLOT_RESCAN_MS = 60_000L;
+    // Cache struct ids and the param holding each ability's bar icon sprite.
+    static final String STRUCT_PARAM_ICON_SPRITE = "2802";
+    static final int    STRUCT_SURGE       = 14726;   // COMBATV2_ABILITY_MAGIC_SURGE
+    static final int    STRUCT_DIVE        = 47129;   // COMBATV2_ABILITY_ATTACK_DIVE
+    static final int    STRUCT_BLADED_DIVE = 1488;    // COMBATV2_ABILITY_ATTACK_BLADED_DIVE
+    // Cooldown-end varcs, in client game cycles.
+    static final int    VARC_SURGE_COOLDOWN_END       = 2194;
+    static final int    VARC_BLADED_DIVE_COOLDOWN_END = 6038;
+    // Wall-clock floor between two fires of one ability, so a bad varc read
+    // can't spam clicks. Dive and Bladed Dive share one cooldown and one
+    // cooldown-end varc (the client's cooldown script maps both structs to
+    // it); Dive also keeps the full cache cooldown (34 ticks, the same for
+    // all three) as its floor.
+    private static final long ABILITY_REFIRE_FLOOR_MS = 6_000L;
+    private static final int  ABILITY_CACHE_COOLDOWN_TICKS = 34;
+    private static final long DIVE_REFIRE_FLOOR_MS = ABILITY_CACHE_COOLDOWN_TICKS * TICK_MS;
+    // Bar-slot click shape: right-click option 1, no sub-slot.
+    private static final int  ABILITY_CLICK_OPTION = 1;
+    private static final int  NO_SUB_SLOT = -1;
+    // Target-mode select of a bar slot, then the tile use one tick later: the
+    // shape a tile-targeted ability is cast with (see fireAbility).
+    private static final int  SELECT_COMPONENT_PARAM = 0;
+    private static final int  SELECT_SETTLE_TICKS = 1;
+    private static final int  SELECT_TILE_PARAM = 0;
+    // Ticks to wait after an ability before re-queueing the walk it cancelled.
+    private static final int  RESUME_WALK_MIN_TICKS = 1;
+    private static final int  RESUME_WALK_MAX_TICKS = 2;
+    // LocalPlayer.animationId() when the player is idle.
+    private static final int  NO_ANIMATION = -1;
+    // Sentinel for "no icon sprite": sprite ids are never negative.
+    private static final int  NO_SPRITE = -1;
+    // Sentinel for "never happened" on a slot's scan / fire timestamps.
+    private static final long NEVER_MS = Long.MIN_VALUE;
+    // Item params the game checks before it lets Bladed Dive cast, mirrored
+    // from the client's own Bladed Dive gate (clientscript 16325 / 273):
+    // either a melee item in both hands, or the special-effect boots
+    // (laceration boots) with a melee main hand.
+    static final String ITEM_PARAM_MELEE_WEAPON           = "2825"; // COMBATV2_MELEE_WEAPON
+    static final String ITEM_PARAM_HELD_ALLOW_BLADED_DIVE = "8569"; // COMBATV2_HELD_ALLOW_BLADED_DIVE
+    static final String ITEM_PARAM_SPECIAL_EFFECT         = "2881"; // COMBATV2_HAS_SPECIAL_EFFECT
+    static final int    SPECIAL_EFFECT_BLADED_DIVE_BOOTS  = 2;      // laceration boots' value
+    // Item-param value meaning "not set".
+    private static final int NO_PARAM = 0;
+    // Item id of an empty equipment slot.
+    private static final int NO_ITEM = -1;
+
+    static final AbilitySpec SURGE_SPEC = new AbilitySpec(
+            "Surge", STRUCT_SURGE, VARC_SURGE_COOLDOWN_END, ABILITY_REFIRE_FLOOR_MS, false);
+    static final AbilitySpec BLADED_DIVE_SPEC = new AbilitySpec(
+            "Bladed Dive", STRUCT_BLADED_DIVE, VARC_BLADED_DIVE_COOLDOWN_END,
+            ABILITY_REFIRE_FLOOR_MS, true);
+    static final AbilitySpec DIVE_SPEC = new AbilitySpec(
+            "Dive", STRUCT_DIVE, VARC_BLADED_DIVE_COOLDOWN_END, DIVE_REFIRE_FLOOR_MS, false);
+    private static final AbilityFamily SURGE = new AbilityFamily(
+            "surge", List.of(SURGE_SPEC), SURGE_FIRE_CHANCE, false);
+    // Dive first: it casts with any weapon, so it is the safe pick whenever it
+    // is bound. Bladed Dive is a fallback for a bar that only carries it.
+    private static final AbilityFamily DIVE = new AbilityFamily(
+            "dive", List.of(DIVE_SPEC, BLADED_DIVE_SPEC), DIVE_FIRE_CHANCE, true);
 
     // Varps the walker's transitions gate on through `varp` / `varp_at_least`.
     // STAND-IN: the executor batches every varbit and item id its artifact's
@@ -97,15 +192,16 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private final Consumer<WwEvent> eventSink;
     private final WwGoal goal;
     private final List<Integer> requirementVarps;
+    private final RandomGenerator rng;
+    private final LongSupplier clockMs;
+    private final Sleeper sleeper;
 
-    // Surge slot cache: resolved once per run on the first eligible walkTo, then
-    // reused. -1 in surgeIface means "not yet attempted"; SURGE_DISABLED in it
-    // means "we looked, didn't find the icon — give up for this run".
-    private static final int SURGE_NOT_RESOLVED = -1;
-    private static final int SURGE_DISABLED     = -2;
-    private int  surgeIface  = SURGE_NOT_RESOLVED;
-    private int  surgeComp   = SURGE_NOT_RESOLVED;
-    private long lastSurgeMs = 0L;
+    // Per-run movement-ability state. Callbacks arrive on the executor thread
+    // only, so none of this is shared.
+    private final AbilitySlot surgeSlot = new AbilitySlot(SURGE);
+    private final AbilitySlot diveSlot  = new AbilitySlot(DIVE);
+    // Icon sprite per struct id; only successful reads are memoised.
+    private final Map<Integer, Integer> iconSpriteByStruct = new HashMap<>();
 
     WorldWalkerCallbackBridge(GameAPI api,
                               Supplier<GameSnapshot> snapshotSource,
@@ -122,6 +218,21 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                               Consumer<WwEvent> eventSink,
                               WwGoal goal,
                               List<Integer> requirementVarps) {
+        this(api, snapshotSource, cancel, eventSink, goal, requirementVarps, Pacing.system());
+    }
+
+    /** As above, taking randomness, time and sleeping from {@code pacing}. */
+    WorldWalkerCallbackBridge(GameAPI api,
+                              Supplier<GameSnapshot> snapshotSource,
+                              AtomicBoolean cancel,
+                              Consumer<WwEvent> eventSink,
+                              WwGoal goal,
+                              List<Integer> requirementVarps,
+                              Pacing pacing) {
+        Objects.requireNonNull(pacing, "pacing");
+        this.rng = pacing.rng();
+        this.clockMs = pacing.clockMs();
+        this.sleeper = pacing.sleeper();
         this.api = Objects.requireNonNull(api, "api");
         this.snapshotSource = Objects.requireNonNull(snapshotSource, "snapshotSource");
         this.cancel = Objects.requireNonNull(cancel, "cancel");
@@ -443,94 +554,362 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     @Override
     public void walkTo(WwTile target) {
         log.info("ww walkTo ({},{},p{})", target.x(), target.y(), target.plane());
-        api.queueAction(new GameAction(ActionTypes.WALK, 1, target.x(), target.y()));
-        // Walk queued first so the engine starts the move + orients the avatar
-        // along the path BEFORE surge drains off the queue next tick — surge
-        // dashes in current facing, so the order matters.
-        maybeFireSurge(target);
+        queueWalk(target);
+        // Walk queued first, for both abilities. Surge dashes in current
+        // facing, so the engine must start the move and orient the avatar
+        // along the path BEFORE surge drains off the queue next tick. Dive
+        // lands on the walk's own target tile, so a dive that goes off leaves
+        // the walk nothing to do, and one that doesn't (cooldown drift, no
+        // line of sight) still has the walk to carry the player.
+        maybeFireMovementAbility(target);
     }
 
-    // Best-effort opportunistic Surge. Every gate is conservative — anything
-    // wrong → silent fall-through so the plain walk we just queued still runs.
-    private void maybeFireSurge(WwTile target) {
-        long now = System.currentTimeMillis();
-        if (now - lastSurgeMs < SURGE_COOLDOWN_MS) {
-            return;
-        }
+    // Best-effort opportunistic Surge / Dive. Every gate is conservative --
+    // anything wrong means a silent fall-through, so the plain walk we just
+    // queued still runs. Candidates are tried in preference order; the first
+    // that is on a bar and off cooldown gets one chance roll, and a failed
+    // roll fires nothing rather than falling through to the next ability.
+    private void maybeFireMovementAbility(WwTile target) {
         LocalPlayer lp = currentPlayer();
-        if (lp == null || lp.plane() != target.plane()) {
+        if (lp == null || lp.plane() != target.plane() || isWithinGoalGuard(lp)) {
             return;
         }
-        if (magicLevel(lp) < SURGE_MIN_MAGIC) {
+        // An ability clicked mid-animation (a lodestone arrival, say) is
+        // accepted by the client but never casts, and still costs us the
+        // re-fire floor. Only fire from idle.
+        if (lp.animationId() != NO_ANIMATION) {
             return;
         }
-        int dx   = target.x() - lp.tileX();
-        int dy   = target.y() - lp.tileY();
-        int adx  = Math.abs(dx);
-        int ady  = Math.abs(dy);
-        int dist = Math.max(adx, ady);
-        if (dist < SURGE_MIN_TILES) {
-            return;
-        }
-        // 8-way straight: pure cardinal (one axis is 0) OR pure diagonal (axes equal).
-        // Surge fires 10 tiles in one direction, so any path bend wastes the cooldown.
-        boolean straight = (dx == 0) || (dy == 0) || (adx == ady);
-        if (!straight) {
-            return;
-        }
-        if (goal != null && goal.plane() == lp.plane()) {
-            int distToGoal = Math.max(Math.abs(goal.x() - lp.tileX()),
-                                      Math.abs(goal.y() - lp.tileY()));
-            // Surge moves 10 tiles. If we're already within ~12 of the goal,
-            // skip — overshooting forces a re-plan that costs more than the
-            // walk would have.
-            if (distToGoal < SURGE_GOAL_GUARD) {
-                return;
-            }
-        }
-        if (!resolveSurgeSlot()) {
-            return;
-        }
-        api.queueAction(new GameAction(
-                ActionTypes.COMPONENT,
-                /* option= */ 1,
-                /* sub= */    -1,
-                Interfaces.componentHash(surgeIface, surgeComp)));
-        lastSurgeMs = now;
-        log.info("ww surge fired toward ({},{}) dist={} via iface={} comp={}",
-                target.x(), target.y(), dist, surgeIface, surgeComp);
-    }
-
-    // True when Surge's click target is known. Scans candidate bars on first
-    // call; latches to disabled if Surge isn't bound on the active bar so the
-    // next walkTo doesn't pay the RPC again.
-    private boolean resolveSurgeSlot() {
-        if (surgeIface == SURGE_DISABLED) {
-            return false;
-        }
-        if (surgeIface != SURGE_NOT_RESOLVED) {
-            return true;
-        }
-        for (int iface : ACTION_BAR_IFACES) {
-            ComponentNode sprite;
-            try {
-                sprite = api.components().in(iface).withSpriteId(SURGE_SPRITE_ID).first();
-            } catch (RuntimeException e) {
-                log.debug("ww surge slot scan failed on iface={}: {}", iface, e.toString());
+        int dx = target.x() - lp.tileX();
+        int dy = target.y() - lp.tileY();
+        long now = clockMs.getAsLong();
+        for (AbilitySlot slot : candidates(dx, dy, lp)) {
+            Optional<BarSlot> bar = readySlot(slot, now);
+            if (bar.isEmpty()) {
                 continue;
             }
-            if (sprite != null) {
-                // Slot layout: ability sprite at comp N, click-target Box at comp N+1.
-                surgeIface = iface;
-                surgeComp  = sprite.componentId() + 1;
-                log.info("ww surge slot resolved: iface={} sprite_comp={} click_comp={}",
-                        iface, sprite.componentId(), surgeComp);
-                return true;
+            if (rng.nextDouble() >= slot.family().fireChance()) {
+                log.debug("ww {} eligible toward ({},{}) but skipped by chance roll",
+                        slot.family().name(), target.x(), target.y());
+                return;
+            }
+            fireAbility(slot, bar.get(), target, now);
+            resumeWalkAfterAbility(target);
+            return;
+        }
+    }
+
+    // Surge (and Dive) cancel the walk in progress: the avatar arrives and
+    // then stands still until the executor's stall re-click, seconds later.
+    // Wait a random 1-2 ticks for the ability to go off, then re-queue the
+    // same walk so movement carries on. Sleeping through sleepTicks keeps it
+    // cancellable; a run cancelled meanwhile queues nothing more.
+    private void resumeWalkAfterAbility(WwTile target) {
+        sleepTicks(rng.nextInt(RESUME_WALK_MIN_TICKS, RESUME_WALK_MAX_TICKS + 1));
+        if (cancel.get()) {
+            return;
+        }
+        log.info("ww walkTo ({},{},p{}) re-queued after ability",
+                target.x(), target.y(), target.plane());
+        queueWalk(target);
+    }
+
+    private void queueWalk(WwTile target) {
+        api.queueAction(new GameAction(ActionTypes.WALK, 1, target.x(), target.y()));
+    }
+
+    // Surge moves 10 tiles and Dive moves the avatar off the walk the
+    // executor is timing. Within ~12 of the goal, skip: overshooting forces a
+    // re-plan that costs more than the walk would have.
+    private boolean isWithinGoalGuard(LocalPlayer lp) {
+        if (goal == null || goal.plane() != lp.plane()) {
+            return false;
+        }
+        int distToGoal = Math.max(Math.abs(goal.x() - lp.tileX()),
+                                  Math.abs(goal.y() - lp.tileY()));
+        return distToGoal < ABILITY_GOAL_GUARD;
+    }
+
+    // The abilities this hop qualifies for, most preferred first: Dive for a
+    // short hop it can reach, then Surge for a long near-straight one.
+    private List<AbilitySlot> candidates(int dx, int dy, LocalPlayer lp) {
+        List<AbilitySlot> out = new ArrayList<>(2);
+        if (isDiveHop(dx, dy) && isFarEnoughFromGoalToDive(lp)) {
+            out.add(diveSlot);
+        }
+        if (isSurgeHop(dx, dy) && magicLevel(lp) >= SURGE_MIN_MAGIC) {
+            out.add(surgeSlot);
+        }
+        return out;
+    }
+
+    // False when the player is within DIVE_MIN_GOAL_DISTANCE of the walk's
+    // final goal tile, on any plane. With no goal there is nothing to measure,
+    // so the other guards decide alone.
+    private boolean isFarEnoughFromGoalToDive(LocalPlayer lp) {
+        if (goal == null) {
+            return true;
+        }
+        int distToGoal = Math.max(Math.abs(goal.x() - lp.tileX()),
+                                  Math.abs(goal.y() - lp.tileY()));
+        if (isDiveDistanceToGoal(distToGoal)) {
+            return true;
+        }
+        log.debug("ww dive suppressed: {} tiles to the goal ({},{},p{}), walking instead",
+                distToGoal, goal.x(), goal.y(), goal.plane());
+        return false;
+    }
+
+    /**
+     * True when {@code distToGoal} (Chebyshev tiles from the player to the walk's final goal
+     * tile) leaves enough of the walk for a Dive: at least {@link #DIVE_MIN_GOAL_DISTANCE}.
+     */
+    static boolean isDiveDistanceToGoal(int distToGoal) {
+        return distToGoal >= DIVE_MIN_GOAL_DISTANCE;
+    }
+
+    /** True when {@code (dx, dy)} is a hop Dive can land: 6..10 tiles, Chebyshev. */
+    static boolean isDiveHop(int dx, int dy) {
+        int dist = Math.max(Math.abs(dx), Math.abs(dy));
+        return dist >= DIVE_MIN_TILES && dist <= DIVE_MAX_TILES;
+    }
+
+    /**
+     * True when {@code (dx, dy)} is worth a Surge: at least 8 tiles, Chebyshev, and near-straight
+     * so the fixed-direction dash stays on the path.
+     */
+    static boolean isSurgeHop(int dx, int dy) {
+        int dist = Math.max(Math.abs(dx), Math.abs(dy));
+        return dist >= SURGE_MIN_TILES && isNearStraight(dx, dy);
+    }
+
+    /**
+     * True when the vector {@code (dx, dy)} lies close to one of the 8 compass directions:
+     * near-cardinal when the minor axis is within {@code major / SURGE_STRAIGHT_TOLERANCE_DIVISOR},
+     * near-diagonal when the two axes differ by no more than that. Exact cardinals and exact
+     * diagonals always pass.
+     */
+    static boolean isNearStraight(int dx, int dy) {
+        int adx = Math.abs(dx);
+        int ady = Math.abs(dy);
+        int major = Math.max(adx, ady);
+        int minor = Math.min(adx, ady);
+        boolean isNearCardinal = minor * SURGE_STRAIGHT_TOLERANCE_DIVISOR <= major;
+        boolean isNearDiagonal = (major - minor) * SURGE_STRAIGHT_TOLERANCE_DIVISOR <= major;
+        return isNearCardinal || isNearDiagonal;
+    }
+
+    // The ability's bar slot when it is bound, castable with what is worn, and
+    // off cooldown, else empty. The loadout is checked on every fire, not at
+    // scan time: a bound slot stands for SLOT_RESCAN_MS, and a weapon swap in
+    // that window must not leave a melee-only ability armed.
+    private Optional<BarSlot> readySlot(AbilitySlot slot, long now) {
+        Optional<BarSlot> bar = resolveSlot(slot, now);
+        if (bar.isEmpty() || !isCastableWithLoadout(bar.get().spec())) {
+            return Optional.empty();
+        }
+        if (!isOffCooldown(slot, bar.get().spec(), now)) {
+            return Optional.empty();
+        }
+        return bar;
+    }
+
+    private boolean isCastableWithLoadout(AbilitySpec spec) {
+        if (!spec.isMeleeOnly() || hasBladedDiveLoadout()) {
+            return true;
+        }
+        log.debug("ww {} bound but skipped: the worn loadout cannot cast it", spec.name());
+        return false;
+    }
+
+    // The game's Bladed Dive gate: a melee (or Bladed-Dive-allowing) item in
+    // the main hand, plus either another in the off hand or the special-effect
+    // boots. The client's own check also lets a lone melee off-hand pass with
+    // those boots; the game then refuses for want of a melee main hand, so the
+    // main hand is required here. Anything unreadable counts as "cannot cast".
+    private boolean hasBladedDiveLoadout() {
+        if (!allowsBladedDive(wornItem(Equipment.Slot.WEAPON))) {
+            return false;
+        }
+        if (allowsBladedDive(wornItem(Equipment.Slot.SHIELD))) {
+            return true;
+        }
+        return itemParam(wornItem(Equipment.Slot.FEET), ITEM_PARAM_SPECIAL_EFFECT)
+                == SPECIAL_EFFECT_BLADED_DIVE_BOOTS;
+    }
+
+    private boolean allowsBladedDive(int itemId) {
+        return itemParam(itemId, ITEM_PARAM_MELEE_WEAPON) != NO_PARAM
+                || itemParam(itemId, ITEM_PARAM_HELD_ALLOW_BLADED_DIVE) != NO_PARAM;
+    }
+
+    // The item id worn in one equipment slot, or NO_ITEM when the slot is
+    // empty or the equipment inventory isn't published.
+    private int wornItem(Equipment.Slot slot) {
+        GameSnapshot snap = snapshotSource.get();
+        if (snap == null) {
+            return NO_ITEM;
+        }
+        try {
+            return snap.inventories().byInvId(Equipment.INVENTORY_ID)
+                    .flatMap(inv -> inv.items().stream()
+                            .filter(it -> it.slot() == slot.index)
+                            .findFirst())
+                    .map(InventoryItem::itemId)
+                    .orElse(NO_ITEM);
+        } catch (RuntimeException e) {
+            log.debug("ww equipment slot {} unreadable: {}", slot, e.toString());
+            return NO_ITEM;
+        }
+    }
+
+    // One int param of an item's cache definition, NO_PARAM when the item,
+    // the definition, or the param is absent.
+    private int itemParam(int itemId, String param) {
+        if (itemId == NO_ITEM) {
+            return NO_PARAM;
+        }
+        ItemType type;
+        try {
+            type = api.getItemType(itemId);
+        } catch (RuntimeException e) {
+            log.debug("ww item {} unreadable: {}", itemId, e.toString());
+            return NO_PARAM;
+        }
+        if (type == null || type.params() == null) {
+            return NO_PARAM;
+        }
+        return MapHelper.getIntOr(type.params(), param, NO_PARAM);
+    }
+
+    // Casts the ability from its bar slot. Both shapes land on the icon
+    // component itself:
+    //  - An untargeted ability (Surge) takes the slot's option 1, the same
+    //    click and shape ComponentNode.interact(1) sends for a bar slot.
+    //  - A tile-targeted ability (Dive) is selected into target mode and,
+    //    a tick later, used on the tile. Option 1 on a Dive slot does not
+    //    cast Dive: the game answers it with Bladed Dive's "This ability
+    //    requires a melee weapon in your main hand." and nothing moves, even
+    //    though the slot holds plain Dive. Select-then-use on the very same
+    //    slot dives.
+    private void fireAbility(AbilitySlot slot, BarSlot bar, WwTile target, long now) {
+        int hash = Interfaces.componentHash(bar.iface(), bar.comp());
+        if (slot.family().isTileTargeted()) {
+            api.queueAction(new GameAction(ActionTypes.SELECT_COMPONENT, SELECT_COMPONENT_PARAM,
+                    NO_SUB_SLOT, hash));
+            sleepTicks(SELECT_SETTLE_TICKS);
+            if (!cancel.get()) {
+                api.queueAction(new GameAction(ActionTypes.SELECT_TILE, SELECT_TILE_PARAM,
+                        target.x(), target.y()));
+            }
+        } else {
+            api.queueAction(new GameAction(ActionTypes.COMPONENT, ABILITY_CLICK_OPTION,
+                    NO_SUB_SLOT, hash));
+        }
+        slot.markFired(now);
+        log.info("ww {} fired toward ({},{}) via iface={} comp={}",
+                bar.spec().name(), target.x(), target.y(), bar.iface(), bar.comp());
+    }
+
+    // The ability's bar slot, re-scanning the bars once SLOT_RESCAN_MS has
+    // passed since the last scan. A miss is retried after the same backoff
+    // rather than latched, and a hit is re-checked on the same schedule:
+    // bars and presets change mid-run.
+    private Optional<BarSlot> resolveSlot(AbilitySlot slot, long now) {
+        if (!slot.isScanDue(now, SLOT_RESCAN_MS)) {
+            return slot.bound();
+        }
+        Optional<BarSlot> found = scanBars(slot.family().variants());
+        if (slot.recordScan(now, found)) {
+            logScanOutcome(slot.family(), found);
+        }
+        return found;
+    }
+
+    // Logs a scan whose outcome differs from the previous one, so a steady
+    // hit or miss is reported once rather than every minute.
+    private static void logScanOutcome(AbilityFamily family, Optional<BarSlot> found) {
+        if (found.isPresent()) {
+            BarSlot bar = found.get();
+            log.info("ww {} slot resolved: {} on iface={} comp={}",
+                    family.name(), bar.spec().name(), bar.iface(), bar.comp());
+        } else {
+            log.info("ww {} slot not found on any action bar; re-scanning every {} ms",
+                    family.name(), SLOT_RESCAN_MS);
+        }
+    }
+
+    // First bar slot showing any variant's icon, variants in preference order.
+    private Optional<BarSlot> scanBars(List<AbilitySpec> variants) {
+        for (AbilitySpec spec : variants) {
+            OptionalInt sprite = iconSprite(spec.structId());
+            if (sprite.isEmpty()) {
+                continue;
+            }
+            for (int iface : ACTION_BAR_IFACES) {
+                ComponentNode node = findSprite(iface, sprite.getAsInt());
+                if (node != null) {
+                    return Optional.of(new BarSlot(spec, node.interfaceId(), node.componentId()));
+                }
             }
         }
-        log.info("ww surge slot not found on any candidate bar; disabling for this run");
-        surgeIface = SURGE_DISABLED;
-        return false;
+        return Optional.empty();
+    }
+
+    private ComponentNode findSprite(int iface, int spriteId) {
+        try {
+            return api.components().in(iface).withSpriteId(spriteId).first();
+        } catch (RuntimeException e) {
+            log.debug("ww ability slot scan failed on iface={}: {}", iface, e.toString());
+            return null;
+        }
+    }
+
+    // The bar icon sprite named by a struct's icon param, or empty when the
+    // cache can't answer (no cache attached, unknown struct, no such param).
+    private OptionalInt iconSprite(int structId) {
+        Integer cached = iconSpriteByStruct.get(structId);
+        if (cached != null) {
+            return OptionalInt.of(cached);
+        }
+        StructType struct;
+        try {
+            struct = api.getStructType(structId);
+        } catch (RuntimeException e) {
+            log.debug("ww struct {} unreadable: {}", structId, e.toString());
+            return OptionalInt.empty();
+        }
+        if (struct == null || struct.params() == null) {
+            return OptionalInt.empty();
+        }
+        int sprite = MapHelper.getIntOr(struct.params(), STRUCT_PARAM_ICON_SPRITE, NO_SPRITE);
+        if (sprite == NO_SPRITE) {
+            return OptionalInt.empty();
+        }
+        iconSpriteByStruct.put(structId, sprite);
+        return OptionalInt.of(sprite);
+    }
+
+    // Off cooldown when past the wall-clock re-fire floor AND the ability's
+    // cooldown-end varc is at or behind the client game cycle (the snapshot's
+    // gameCycle, the same counter the get_game_cycle RPC reads). An unset
+    // varc reads -1, so an ability never used this session reads ready. A
+    // failed read counts as "on cooldown".
+    private boolean isOffCooldown(AbilitySlot slot, AbilitySpec spec, long now) {
+        if (slot.isWithinRefireFloor(now, spec.refireFloorMs())) {
+            return false;
+        }
+        GameSnapshot snap = snapshotSource.get();
+        if (snap == null) {
+            return false;
+        }
+        try {
+            return api.getVarcInt(spec.cooldownEndVarc()) <= snap.gameCycle();
+        } catch (RuntimeException e) {
+            log.debug("ww {} cooldown varc {} unreadable: {}",
+                    spec.name(), spec.cooldownEndVarc(), e.toString());
+            return false;
+        }
     }
 
     private static int magicLevel(LocalPlayer lp) {
@@ -698,7 +1077,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
             return;
         }
         try {
-            Thread.sleep(ticks * TICK_MS);
+            sleeper.sleep(ticks * TICK_MS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             cancel.set(true);
@@ -791,6 +1170,98 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                         + " {} tile(s) away ({} reach)",
                 objectId, loc.tileX(), loc.tileY(), loc.plane(), tile.x(), tile.y(), tile.plane(),
                 fp.width(), fp.depth(), match.footprintDistance(), reach);
+    }
+
+    /** Blocks the calling thread for a number of milliseconds. */
+    @FunctionalInterface
+    interface Sleeper {
+        void sleep(long millis) throws InterruptedException;
+    }
+
+    /**
+     * The bridge's sources of randomness, time and sleep, injectable so tests can fix them.
+     *
+     * @param rng     movement-ability chance rolls and post-ability pauses
+     * @param clockMs epoch milliseconds, for cooldown floors and bar re-scans
+     * @param sleeper what {@link #sleepTicks} blocks on
+     */
+    record Pacing(RandomGenerator rng, LongSupplier clockMs, Sleeper sleeper) {
+        Pacing {
+            Objects.requireNonNull(rng, "rng");
+            Objects.requireNonNull(clockMs, "clockMs");
+            Objects.requireNonNull(sleeper, "sleeper");
+        }
+
+        /** A fresh default generator, the system clock and {@link Thread#sleep(long)}. */
+        static Pacing system() {
+            return new Pacing(RandomGenerator.getDefault(), System::currentTimeMillis,
+                    Thread::sleep);
+        }
+    }
+
+    /**
+     * One movement-ability variant.
+     *
+     * @param name            display name, for logs
+     * @param structId        the ability's cache struct, whose icon param names its bar sprite
+     * @param cooldownEndVarc varc holding the game cycle its cooldown ends on
+     * @param refireFloorMs   least wall-clock time between two fires, whatever the varc says
+     * @param isMeleeOnly     true when the game refuses it without a melee loadout
+     */
+    record AbilitySpec(String name, int structId, int cooldownEndVarc, long refireFloorMs,
+                       boolean isMeleeOnly) {
+    }
+
+    /**
+     * A movement ability as the walker uses it: its variants in bar-scan preference order, the
+     * chance an eligible walk fires it, and whether firing it needs a tile picked afterwards.
+     */
+    private record AbilityFamily(String name, List<AbilitySpec> variants, double fireChance,
+                                 boolean isTileTargeted) {
+    }
+
+    /** Where a variant's icon sits: the component to click. */
+    private record BarSlot(AbilitySpec spec, int iface, int comp) {
+    }
+
+    /** Per-run bar-slot and fire state for one {@link AbilityFamily}. */
+    private static final class AbilitySlot {
+        private final AbilityFamily family;
+        private Optional<BarSlot> bound = Optional.empty();
+        private long lastScanMs = NEVER_MS;
+        private long lastFireMs = NEVER_MS;
+
+        AbilitySlot(AbilityFamily family) {
+            this.family = family;
+        }
+
+        AbilityFamily family() {
+            return family;
+        }
+
+        Optional<BarSlot> bound() {
+            return bound;
+        }
+
+        boolean isScanDue(long now, long rescanMs) {
+            return lastScanMs == NEVER_MS || now - lastScanMs >= rescanMs;
+        }
+
+        /** Stores a scan result; true when it differs from the last one (or is the first). */
+        boolean recordScan(long now, Optional<BarSlot> found) {
+            boolean isChanged = lastScanMs == NEVER_MS || !bound.equals(found);
+            lastScanMs = now;
+            bound = found;
+            return isChanged;
+        }
+
+        boolean isWithinRefireFloor(long now, long floorMs) {
+            return lastFireMs != NEVER_MS && now - lastFireMs < floorMs;
+        }
+
+        void markFired(long now) {
+            lastFireMs = now;
+        }
     }
 
     /** A loc type's cache dimensions, before rotation. */
