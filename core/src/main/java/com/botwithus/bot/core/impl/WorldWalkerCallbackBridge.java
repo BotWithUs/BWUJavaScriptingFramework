@@ -167,7 +167,9 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final AbilityFamily DIVE = new AbilityFamily(
             "dive", List.of(DIVE_SPEC, BLADED_DIVE_SPEC), DIVE_FIRE_CHANCE, true);
 
-    // Varps the walker's transitions gate on through `varp` / `varp_at_least`.
+    // Varps the walker's transitions gate on through `varp` / `varp_at_least` /
+    // `varp_bit`. A `varp_bit` gate tests one bit of the value, so each varp is
+    // handed over whole: all 32 bits, never narrowed or masked.
     // STAND-IN: the executor batches every varbit and item id its artifact's
     // requirements reference, but it has no way to name varps to the host --
     // it learns them only from readCapability, and an absent varp reads 0, so
@@ -182,9 +184,12 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final int VARP_CABIN_FEVER        = 2326;  // Mos Le'Harmless charter, 140
     private static final int VARP_REGICIDE           = 2102;  // Port Tyras charter, 15
     private static final int VARP_ONE_SMALL_FAVOUR   = 2671;  // Feldip Hills glider, 200
+    private static final int VARP_QUEST_POINTS       = 1297;  // Champions' Guild door, 33
+    private static final int VARP_HEROES_QUEST       = 2618;  // Heroes' Guild doors, 15
+    private static final int VARP_KEY_RING           = 2673;  // stored keys, bit n = slot n
     static final List<Integer> REQUIREMENT_VARPS = List.of(
             VARP_TREE_GNOME_VILLAGE, VARP_THE_GRAND_TREE, VARP_CABIN_FEVER, VARP_REGICIDE,
-            VARP_ONE_SMALL_FAVOUR);
+            VARP_ONE_SMALL_FAVOUR, VARP_QUEST_POINTS, VARP_HEROES_QUEST, VARP_KEY_RING);
 
     private final GameAPI api;
     private final Supplier<GameSnapshot> snapshotSource;

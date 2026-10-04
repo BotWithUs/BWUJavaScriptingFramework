@@ -285,12 +285,20 @@ class WorldWalkerCallbackBridgeTest {
         return reads;
     }
 
+    // The key-ring varp with bit 0 (the Brass key) and bit 31 both set. The top
+    // bit makes the int negative, so a bridge that narrowed, masked or dropped a
+    // negative value would fail the map equality below.
+    private static final int KEY_RING_BRASS_AND_TOP_BIT = Integer.MIN_VALUE | 1;
+
     // Every varp the shipped WorldWalker dataset gates on, with the value its
     // gate needs: the spirit trees (2661), The Grand Tree (2740), the Mos
-    // Le'Harmless (2326) and Port Tyras (2102) charters, and the Feldip Hills
-    // glider (2671, One Small Favour). A gate on a varp missing here is denied.
-    private static final Map<Integer, Integer> DATASET_VARP_GATES =
-            Map.of(2661, 9, 2740, 160, 2326, 140, 2102, 15, 2671, 200);
+    // Le'Harmless (2326) and Port Tyras (2102) charters, the Feldip Hills
+    // glider (2671, One Small Favour), the Champions' Guild door (1297, quest
+    // points), the Heroes' Guild doors (2618, Heroes' Quest) and the key ring's
+    // stored keys (2673, bit-tested). A gate on a varp missing here is denied.
+    private static final Map<Integer, Integer> DATASET_VARP_GATES = Map.of(
+            2661, 9, 2740, 160, 2326, 140, 2102, 15, 2671, 200,
+            1297, 33, 2618, 15, 2673, KEY_RING_BRASS_AND_TOP_BIT);
 
     // The executor learns varps only from this snapshot, so a varp_at_least gate
     // (Tree Gnome Village's spirit trees) is denied unless the host puts it here.
