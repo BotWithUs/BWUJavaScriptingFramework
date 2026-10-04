@@ -116,8 +116,10 @@ public final class ImGuiTheme {
         private static final float CONTROL_SMALL = 1.733f;
         private static final float TOP_BAR = 2.933f;
         private static final float STATUS_BAR = 1.733f;
-        private static final float DRAWER = 23.5f;
-        private static final float DRAWER_MAX_FRACTION = 0.6f;
+        private static final float DRAWER = 34f;
+        private static final float DRAWER_MIN = 20f;
+        private static final float DRAWER_MAX_FRACTION = 0.75f;
+        private static final float DRAWER_GRIP = 0.4f;
         private static final float CARD_MIN = 19.33f;
         private static final float LANE = 1.467f;
         private static final float BAR = 0.2f;
@@ -142,9 +144,20 @@ public final class ImGuiTheme {
         public float controlSmallHeight() { return fontSize * CONTROL_SMALL; }
         public float topBarHeight() { return fontSize * TOP_BAR; }
         public float statusBarHeight() { return fontSize * STATUS_BAR; }
-        public float drawerWidth(float available) {
-            return Math.min(fontSize * DRAWER, available * DRAWER_MAX_FRACTION);
+        /**
+         * The inspector drawer's width: {@code preferred} when the user has dragged
+         * it, else the default, kept between a readable minimum and a share of
+         * {@code available} that leaves the page beside it usable.
+         *
+         * @param preferred the width the user dragged to, or {@code 0} for the default
+         * @param available the width the page and drawer share
+         */
+        public float drawerWidth(float preferred, float available) {
+            float wanted = preferred > 0f ? preferred : fontSize * DRAWER;
+            float max = available * DRAWER_MAX_FRACTION;
+            return Math.min(Math.max(wanted, Math.min(fontSize * DRAWER_MIN, max)), max);
         }
+        public float drawerGrip() { return Math.max(HAIRLINE, fontSize * DRAWER_GRIP); }
         public float cardMinWidth() { return fontSize * CARD_MIN; }
         public float laneHeight() { return fontSize * LANE; }
         public float barWidth() { return Math.max(HAIRLINE, fontSize * BAR); }
