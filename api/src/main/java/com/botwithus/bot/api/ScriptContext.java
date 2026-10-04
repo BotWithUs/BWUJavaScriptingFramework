@@ -5,6 +5,8 @@ import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
 
+import java.util.Optional;
+
 /**
  * Context object passed to {@link BotScript#onStart} providing access to
  * the game API and the event bus.
@@ -126,5 +128,24 @@ public interface ScriptContext {
      * runtime overrides this.</p>
      */
     default void stopSelf() {
+    }
+
+    /**
+     * The display name of the character on this script's client, once the host knows it.
+     *
+     * <p>Same value as {@link Client#getDisplayName()} for the client this script runs on.
+     * When the client was launched for a known Jagex character, the name is available from
+     * the login screen on; otherwise it is empty until the client is in a world. In a
+     * world the logged-in character's name wins over the launched one, and it is
+     * refreshed after a later login. Cheap to call from {@code onLoop}: it never blocks on
+     * the client.</p>
+     *
+     * <p>The default returns empty, for contexts that are not bound to a live game client
+     * (test mocks).</p>
+     *
+     * @return the character's display name, or empty while it is not known
+     */
+    default Optional<String> getDisplayName() {
+        return Optional.empty();
     }
 }

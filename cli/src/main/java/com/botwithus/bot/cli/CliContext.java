@@ -786,12 +786,16 @@ public class CliContext {
                 new StubGuard(),
                 eventBus::publish,
                 getOrInitGamevals());
-        ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, new MessageBusImpl());
+        CharacterNameSource characterName =
+                new CharacterNameSource(statusTracker::requestRefresh, clock::instant);
+        ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, new MessageBusImpl())
+                .withDisplayName(characterName);
 
         rpc.start();
 
         ScriptContextChannel scriptCtxChannel = new ScriptContextChannel(rpc, name);
-        ClientImpl client = new ClientImpl(name, gameAPI, eventBus, pipe::isOpen, pump.region());
+        ClientImpl client = new ClientImpl(name, gameAPI, eventBus, pipe::isOpen, pump.region(),
+                characterName);
         ScriptRuntime runtime = newRuntime(context, name, scriptCtxChannel, eventBus);
         wireScriptGate(runtime, rpc, gameAPI);
 
@@ -800,6 +804,7 @@ public class CliContext {
         conn.setEventPump(pump);
         conn.setGameAPI(gameAPI);
         conn.setScriptContextChannel(scriptCtxChannel);
+        characterName.bind(conn);
         armReconnect(conn);
         return new OpenedConnection(conn, client);
     }
