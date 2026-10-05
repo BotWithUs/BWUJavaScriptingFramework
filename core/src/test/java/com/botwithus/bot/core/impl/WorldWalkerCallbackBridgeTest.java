@@ -1599,4 +1599,40 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(1, events.size());
         assertSame(event, events.get(0));
     }
+    // ============================== Click sink ==============================
+
+    @Test
+    void walkToAndInteract_reportTheTileTheyClickToTheClickSink() {
+        List<WwTile> clicks = new ArrayList<>();
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(NEVER_FIRE), clicks::add);
+        Location adjacent = new Location(1234, 0xBEEF, -1, 3222, 3219, 0, 0, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(adjacent));
+
+        bridge.walkTo(new WwTile(3221, 3219, 0));
+        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        // The interact reports the loc's own tile, the one the action targets.
+        assertEquals(List.of(new WwTile(3221, 3219, 0), new WwTile(3222, 3219, 0)), clicks);
+    }
+
+    @Test
+    void anInteractThatClicksNothing_reportsNothingToTheClickSink() {
+        List<WwTile> clicks = new ArrayList<>();
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(NEVER_FIRE), clicks::add);
+        when(locationsTable.stream()).thenReturn(Stream.empty());
+
+        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertTrue(clicks.isEmpty());
+    }
+
+    @Test
+    void theOlderConstructors_keepANoOpClickSink_soWalkingIsUnchanged() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> null, cancel, events::add, NO_GOAL);
+
+        assertDoesNotThrow(() -> bridge.walkTo(new WwTile(3221, 3219, 0)));
+        verify(api).queueAction(any(GameAction.class));
+    }
 }

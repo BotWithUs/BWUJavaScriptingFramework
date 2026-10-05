@@ -203,6 +203,12 @@ public final class SettingKeys {
             "Per-script loop times and the last 24 for the pulse lane.",
             FLAG, Boolean.TRUE);
 
+    public static final SettingKey<Boolean> DRAW_WALKER_PATH = new SettingKey<>(
+            "overlay.drawWalkerPath", "Draw WorldWalker path",
+            "While a world walk runs, draw its planned route, its next click and its doors, "
+                    + "stairs and teleports over the game. Debug aid; costs a few calls a step.",
+            FLAG, Boolean.FALSE);
+
     /** Every known key, in settings-page order. Immutable. */
     public static final List<SettingKey<?>> ALL = catalogue();
 
@@ -235,7 +241,7 @@ public final class SettingKeys {
         keys.addAll(AlertSettingKeys.ALL);
         keys.addAll(List.of(START_MODE, TEXT_SIZE, REDUCE_MOTION, NATIVE_FRAME,
                 WINDOW_X, WINDOW_Y, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_MAXIMISED,
-                COLLECT_RPC_TIMING, COLLECT_LOOP_TIMING));
+                COLLECT_RPC_TIMING, COLLECT_LOOP_TIMING, DRAW_WALKER_PATH));
         return List.copyOf(keys);
     }
 }

@@ -66,6 +66,7 @@ import com.botwithus.bot.core.rpc.RpcRemoteException;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
+import com.botwithus.bot.core.worldwalker.WwEvent;
 import com.botwithus.bot.core.worldwalker.WwGoal;
 import com.botwithus.bot.core.worldwalker.WwPathResult;
 import com.botwithus.bot.core.worldwalker.WwStatus;
@@ -80,7 +81,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -241,6 +246,16 @@ public class GameAPIImpl implements GameAPI {
     private final Map<String, AtomicLong> walkRefusals = new ConcurrentHashMap<>();
 
     private volatile ScriptGate scriptGate;
+
+    /** Whether walks draw their route; see {@link #setDrawWalkerPath(boolean)}. */
+    private volatile boolean isDrawingWalkerPath;
+
+    /**
+     * The path overlay of every walk whose executor has not finished, so a
+     * change of the setting reaches a walk already in progress. Usually one;
+     * briefly two while a preempted executor drains.
+     */
+    private final Set<WalkPathOverlay> liveOverlays = ConcurrentHashMap.newKeySet();
 
     /**
      * Installs the per-connection gate used to attribute walks to the script
@@ -853,20 +868,141 @@ public class GameAPIImpl implements GameAPI {
             throw e;
         }
         WwGoal goal = new WwGoal(x, y, plane, exactDestTile ? 0 : 1);
-        Consumer<? super GameEvent> publisher = eventPublisher;
         Supplier<GameSnapshot> snapSrc = snapshotSource != null ? snapshotSource : () -> null;
-        WorldWalkerCallbackBridge bridge = new WorldWalkerCallbackBridge(
-                this, snapSrc, lease.cancel(), e -> log.info("ww-event: {}", e), goal);
+        Optional<WalkPathOverlay> built = Optional.empty();
+        Thread worker;
+        try {
+            WalkPathOverlay overlay = newWalkOverlay(w, goal, snapSrc, lease);
+            built = Optional.of(overlay);
+            worker = newWalkWorker(w, goal, snapSrc, lease, overlay, x, y);
+        } catch (RuntimeException e) {
+            // Nothing was started: shut the overlay's worker and hand the lease back.
+            built.ifPresent(WalkPathOverlay::close);
+            releaseWalkLease(lease, WalkState.FAILED);
+            throw e;
+        }
+        // Registered only once nothing between here and the start can throw.
+        WalkPathOverlay overlay = built.orElseThrow();
+        liveOverlays.add(overlay);
+        if (!startWalkWorker(lease, worker)) {
+            closeWalkOverlay(overlay);
+        }
+    }
+
+    /** The walk's executor thread, built but not started; it closes {@code overlay} on exit. */
+    private Thread newWalkWorker(WorldWalker w, WwGoal goal, Supplier<GameSnapshot> snapSrc,
+                                 WalkLease lease, WalkPathOverlay overlay, int x, int y) {
+        Consumer<? super GameEvent> publisher = eventPublisher;
+        WorldWalkerCallbackBridge bridge = newWalkBridge(goal, snapSrc, lease, overlay);
         // rule-exception: platform thread rather than virtual — see CLAUDE.md,
         // "Script runner threads are platform threads". This executor is
         // spawned from a script's own thread and inherits its gate tag, which
         // is what keeps its RPC calls attributable to the script that started
         // it.
-        Thread worker = Thread.ofPlatform()
+        return Thread.ofPlatform()
                 .name("ww-executor-" + System.nanoTime())
                 .daemon(true)
-                .unstarted(() -> runWalk(w, goal, bridge, lease, publisher, x, y));
-        startWalkWorker(lease, worker);
+                .unstarted(() -> runWalkThenCloseOverlay(
+                        () -> runWalk(w, goal, bridge, lease, publisher, x, y), overlay));
+    }
+
+    /** The executor's callbacks, reporting progress to the log and to {@code overlay}. */
+    private WorldWalkerCallbackBridge newWalkBridge(WwGoal goal, Supplier<GameSnapshot> snapSrc,
+                                                    WalkLease lease, WalkPathOverlay overlay) {
+        Consumer<WwEvent> events = e -> {
+            log.info("ww-event: {}", e);
+            overlay.onEvent(e);
+        };
+        return new WorldWalkerCallbackBridge(this, snapSrc, lease.cancel(), events, goal,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS,
+                WorldWalkerCallbackBridge.Pacing.system(), overlay::onClick);
+    }
+
+    /** Runs {@code walk}, and closes {@code overlay} however it ends: the lease is gone. */
+    private void runWalkThenCloseOverlay(Runnable walk, WalkPathOverlay overlay) {
+        try {
+            walk.run();
+        } finally {
+            closeWalkOverlay(overlay);
+        }
+    }
+
+    /**
+     * Switches the WorldWalker path overlay on or off for every walk on this
+     * connection, including one already running: on draws its route at once,
+     * off clears whatever is drawn. Set by the host from its
+     * {@code overlay.drawWalkerPath} setting; off until then.
+     */
+    public void setDrawWalkerPath(boolean isOn) {
+        isDrawingWalkerPath = isOn;
+        liveOverlays.forEach(WalkPathOverlay::refresh);
+    }
+
+    /**
+     * The path overlay for one walk. Built for every walk, whatever the setting
+     * says, so that turning the setting on mid-walk draws the walk in progress;
+     * while it is off the overlay only records progress.
+     *
+     * <p>The plan comes from a second query, because the executor never returns
+     * its own. A second bridge serves as that query's input reader: it is used
+     * only for {@code readCapability} and {@code readInstance}, so the overlay
+     * plans with exactly the capability snapshot (skills plus requirement varps)
+     * and instance grid the executor plans with, rather than {@code null}
+     * capabilities, which would admit every gated transition. Its event sink is a
+     * no-op and none of its clicking methods is ever called.</p>
+     *
+     * <p>The worker thread does not inherit the starting script's gate tag, so
+     * the overlay's draw calls are the host's: a script revoked mid-walk must not
+     * strand its walk's path on screen because the clear was refused.</p>
+     *
+     * <p>Not registered in {@link #liveOverlays} here; the caller registers it
+     * once the walk's executor thread exists.</p>
+     */
+    private WalkPathOverlay newWalkOverlay(WorldWalker w, WwGoal goal,
+                                           Supplier<GameSnapshot> snapSrc, WalkLease lease) {
+        WorldWalkerCallbackBridge inputs = new WorldWalkerCallbackBridge(
+                this, snapSrc, lease.cancel(), e -> { }, goal);
+        return new WalkPathOverlay(
+                new WalkPathLayout(lease.seq()),
+                start -> w.query(start, goal, inputs.readCapability(), inputs.readInstance()),
+                new WalkPathOverlay.DrawSink(drawFacade),
+                this::currentTile,
+                () -> isDrawingWalkerPath,
+                newOverlayWorker(lease.seq()),
+                WalkPathLayout.TTL_MS / 2);
+    }
+
+    /**
+     * The overlay's single worker thread.
+     *
+     * <p>rule-exception: platform thread rather than virtual - see CLAUDE.md,
+     * "Script runner threads are platform threads". The worker makes the
+     * planner's Panama downcall, which pins a virtual thread's carrier for the
+     * length of a route search. It does not inherit the script's gate tag (see
+     * {@link #newWalkOverlay}), and delayed keep-alive redraws are dropped at
+     * shutdown so a closed walk's worker exits at once.</p>
+     */
+    private static ScheduledExecutorService newOverlayWorker(long walkSeq) {
+        ScheduledThreadPoolExecutor worker = new ScheduledThreadPoolExecutor(1, Thread.ofPlatform()
+                .name("ww-overlay-" + walkSeq)
+                .daemon(true)
+                .inheritInheritableThreadLocals(false)
+                .factory());
+        worker.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        worker.setRemoveOnCancelPolicy(true);
+        return worker;
+    }
+
+    private void closeWalkOverlay(WalkPathOverlay overlay) {
+        liveOverlays.remove(overlay);
+        overlay.close();
+    }
+
+    private Optional<WwTile> currentTile() {
+        LocalPlayer lp = currentLocalPlayer();
+        return lp == null
+                ? Optional.empty()
+                : Optional.of(new WwTile(lp.tileX(), lp.tileY(), lp.plane()));
     }
 
     /**

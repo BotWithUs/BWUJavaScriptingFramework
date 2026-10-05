@@ -24,7 +24,8 @@ public enum SettingsSection {
                     + "while you’re away."),
     INTERFACE("Interface", "Interface", Icons.DISPLAY, ""),
     DIAGNOSTICS("Diagnostics", "Diagnostics", Icons.GAUGE_HIGH,
-            "Numbers behind the Dashboard. Collecting them costs very little."),
+            "Numbers behind the Dashboard, and debug drawing over the game. "
+                    + "Collecting the numbers costs very little."),
     ALL_KEYS("All config keys", "All config keys", Icons.CODE,
             "Everything in config.properties, for keys that don't have a control above. "
                     + "Same as config show / config set in the console."),

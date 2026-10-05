@@ -26,6 +26,7 @@ import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
 import com.botwithus.bot.cli.diag.MetricsCollection;
+import com.botwithus.bot.cli.diag.WalkerPathOverlay;
 import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.inspector.InspectorDock;
 import com.botwithus.bot.cli.gui.inspector.InspectorState;
@@ -412,10 +413,12 @@ public class ImGuiApp extends Application {
 
     /**
      * The Dashboard over the live host. Also puts every client under the
-     * Diagnostics collection switches, which the Dashboard's tables report on.
+     * Diagnostics collection switches, which the Dashboard's tables report on,
+     * and under the Diagnostics walker-path drawing switch.
      */
     private DashboardPage dashboardPage() {
         new MetricsCollection(ctx.getSettings()).bind(ctx);
+        new WalkerPathOverlay(ctx.getSettings()).bind(ctx);
         Clock clock = Clock.systemDefaultZone();
         CommandConsole console = new CommandConsole(outputBuffer, registry, executor, ctx, this::shutdown);
         String scriptsFolder = folderLine(LocalScriptLoader.scriptsDir()).text();

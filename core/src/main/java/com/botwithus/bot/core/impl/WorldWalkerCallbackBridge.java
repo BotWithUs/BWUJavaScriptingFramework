@@ -195,6 +195,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private final Supplier<GameSnapshot> snapshotSource;
     private final AtomicBoolean cancel;
     private final Consumer<WwEvent> eventSink;
+    private final Consumer<WwTile> clickSink;
     private final WwGoal goal;
     private final List<Integer> requirementVarps;
     private final RandomGenerator rng;
@@ -234,7 +235,25 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                               WwGoal goal,
                               List<Integer> requirementVarps,
                               Pacing pacing) {
+        this(api, snapshotSource, cancel, eventSink, goal, requirementVarps, pacing, tile -> { });
+    }
+
+    /**
+     * As above, also telling {@code clickSink} each tile the executor sends the player to:
+     * every {@link #walkTo} target, and the resolved loc tile of every {@link #interact}
+     * that queues a click. It runs on the executor thread, ahead of the click, so it must be
+     * cheap and must not throw - a throw from any callback cancels the walk.
+     */
+    WorldWalkerCallbackBridge(GameAPI api,
+                              Supplier<GameSnapshot> snapshotSource,
+                              AtomicBoolean cancel,
+                              Consumer<WwEvent> eventSink,
+                              WwGoal goal,
+                              List<Integer> requirementVarps,
+                              Pacing pacing,
+                              Consumer<WwTile> clickSink) {
         Objects.requireNonNull(pacing, "pacing");
+        this.clickSink = Objects.requireNonNull(clickSink, "clickSink");
         this.rng = pacing.rng();
         this.clockMs = pacing.clockMs();
         this.sleeper = pacing.sleeper();
@@ -559,6 +578,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     @Override
     public void walkTo(WwTile target) {
         log.info("ww walkTo ({},{},p{})", target.x(), target.y(), target.plane());
+        clickSink.accept(target);
         queueWalk(target);
         // Walk queued first, for both abilities. Surge dashes in current
         // facing, so the engine must start the move and orient the avatar
@@ -957,6 +977,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
             return 0;
         }
         int actionId = ActionTypes.OBJECT_OPTIONS[optionIndex + 1];
+        clickSink.accept(locTile);
         api.queueAction(new GameAction(actionId, objectId, locTile.x(), locTile.y()));
         return 1;
     }
