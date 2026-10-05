@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.diag;
 
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
-import com.botwithus.bot.cli.events.HostEvent;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 
@@ -43,7 +42,7 @@ public final class MetricsCollection {
      */
     public void bind(CliContext ctx) {
         ctx.getHostEvents().subscribe(event -> {
-            if (opened(event)) {
+            if (ClientOpenings.isClientOpened(event)) {
                 ctx.getConnections().forEach(this::attach);
             }
         });
@@ -54,12 +53,5 @@ public final class MetricsCollection {
     public void attach(Connection conn) {
         conn.getRpc().getMetrics().setCollecting(rpcGate);
         conn.getRuntime().setLoopTimingGate(loopGate);
-    }
-
-    private static boolean opened(HostEvent event) {
-        return switch (event) {
-            case HostEvent.ClientOpened _ -> true;
-            default -> false;
-        };
     }
 }

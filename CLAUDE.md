@@ -343,4 +343,6 @@ Script runners are also the wrong *shape* for virtual threads: virtual threads p
 
 Threads created *by* a script's thread (notably `ww-executor-<nanos>` in `GameAPIImpl.walkWorldPathAsync`) inherit its `InheritableThreadLocal`s, which is what lets the runtime attribute their RPC calls back to the owning script. Don't convert these back to virtual threads without re-checking that attribution.
 
+The WorldWalker path overlay's worker (`ww-overlay-<walkSeq>`, `GameAPIImpl.newOverlayWorker`) is platform for a different reason: it makes the planner's Panama downcall (`WorldWalker.query`), which pins a virtual thread's carrier for the length of a route search. It deliberately does **not** inherit the script's tag, so its draw calls are the host's and its cleanup is not refused when the script that started the walk is revoked.
+
 Everything else in the host — `ScriptContextChannel`'s worker, `ReconnectController`, `MessageBusImpl` dispatch, the CLI's scan loops — stays virtual. Only the untrusted-code threads and the one RPC thread they could starve are platform.
