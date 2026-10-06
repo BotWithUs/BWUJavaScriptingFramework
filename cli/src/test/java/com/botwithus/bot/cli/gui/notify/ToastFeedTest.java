@@ -17,6 +17,7 @@ import com.botwithus.bot.cli.events.HostEvent.ScriptLoadFailed;
 import com.botwithus.bot.cli.events.HostEvent.ScriptStalled;
 import com.botwithus.bot.cli.gui.notify.Notification.Action;
 import com.botwithus.bot.cli.gui.notify.Notification.Kind;
+import com.botwithus.bot.cli.report.ReportSubject;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.NotificationKind;
 import com.botwithus.bot.cli.settings.SettingKeys;
@@ -152,6 +153,25 @@ class ToastFeedTest {
         overlay.update();
 
         assertEquals(Optional.empty(), overlay.active().getFirst().expiresAt());
+    }
+
+    @Test
+    void aCrash_offersAReportOfThatScriptOnThatPipe_andNothingElseDoes() {
+        feed.accept(crash());
+        feed.accept(new ScriptStalled(OAK, "Divination", AT));
+        overlay.update();
+
+        assertEquals(List.of(Optional.of(new ReportSubject(PIPE, "Cook's Assistant")), Optional.empty()),
+                overlay.active().stream().map(Notification::report).toList());
+    }
+
+    @Test
+    void aCrashOnAClientWithNoPipe_offersNoReport() {
+        feed.accept(new ScriptCrashed(new ClientRef(OAK.key(), ClientRef.NO_PIPE), "Cook's Assistant",
+                new LastCrash(Phase.ON_LOOP, 0L, AT, new NullPointerException()), AT));
+        overlay.update();
+
+        assertEquals(Optional.empty(), overlay.active().getFirst().report());
     }
 
     // ── Connection ──────────────────────────────────────────────────────────

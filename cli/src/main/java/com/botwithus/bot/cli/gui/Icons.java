@@ -79,6 +79,8 @@ public final class Icons {
     public static final String NETWORK     = "\uF6FF";  // fa-network-wired
     public static final String PLUG        = "\uF1E6";  // fa-plug
     public static final String ROBOT       = "\uF544";  // fa-robot
+    public static final String FLAG        = "\uF024";  // fa-flag
+    public static final String PAPER_PLANE = "\uF1D8";  // fa-paper-plane
     public static final String SCROLL      = "\uF70E";  // fa-scroll
     public static final String LAYER_GROUP = "\uF5FD";  // fa-layer-group
     public static final String DIAGRAM     = "\uE4A6";  // fa-diagram-project

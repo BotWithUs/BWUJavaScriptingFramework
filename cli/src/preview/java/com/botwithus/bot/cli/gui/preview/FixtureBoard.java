@@ -314,6 +314,7 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
         @Override public void stopRetrying(ClientKey client) { }
         @Override public void forget(ClientKey client) { }
         @Override public void viewLog(ClientKey client) { }
+        @Override public void reportProblem(ClientKey client, String scriptName) { }
         @Override public void setResumeAfterRestart(ClientKey client, boolean isOn) { }
     }
 }

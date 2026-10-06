@@ -33,10 +33,14 @@ final class ScriptRowView {
     private static final float LANE_EM = 1.2f;
 
     /** What a row button does. */
-    private enum Kind { SETTINGS, STOP, RUN, RESTART, LOG }
+    private enum Kind { REPORT, SETTINGS, STOP, RUN, RESTART, LOG }
 
     /** One action button on a row. */
     private record Action(Kind kind, String icon, IconTint tint, String tooltip, boolean enabled) { }
+
+    /** "Report a problem": on every row of a connected client, crashed or not. */
+    private static final Action REPORT = new Action(Kind.REPORT, Icons.FLAG, IconTint.PLAIN, "Report a problem",
+            true);
 
     private final Controls ui;
     private final CardWidgets widgets;
@@ -227,6 +231,7 @@ final class ScriptRowView {
             case STOP -> actions.stopScript(client, scriptName);
             case RUN, RESTART -> actions.runScript(client, scriptName);
             case LOG -> actions.viewLog(client);
+            case REPORT -> actions.reportProblem(client, scriptName);
         }
         return false;
     }
@@ -238,15 +243,15 @@ final class ScriptRowView {
         }
         String name = row.name();
         return switch (row.state()) {
-            case ScriptState.Running _, ScriptState.Stalled _ -> List.of(settings(row),
+            case ScriptState.Running _, ScriptState.Stalled _ -> List.of(REPORT, settings(row),
                     new Action(Kind.STOP, Icons.STOP, IconTint.STOP, "Stop " + name, true));
-            case ScriptState.Stopped _ -> List.of(settings(row),
+            case ScriptState.Stopped _ -> List.of(REPORT, settings(row),
                     new Action(Kind.RUN, Icons.PLAY, IconTint.RUN, "Run " + name, true));
-            case ScriptState.Crashed _ -> List.of(
+            case ScriptState.Crashed _ -> List.of(REPORT,
                     new Action(Kind.LOG, Icons.FILE_LINES, IconTint.PLAIN, "View crash log", true),
                     new Action(Kind.RESTART, Icons.REDO, IconTint.RUN, "Restart " + name, true));
-            case ScriptState.CutOff _ ->
-                    List.of(new Action(Kind.LOG, Icons.FILE_LINES, IconTint.PLAIN, "View thread dump", true));
+            case ScriptState.CutOff _ -> List.of(REPORT,
+                    new Action(Kind.LOG, Icons.FILE_LINES, IconTint.PLAIN, "View thread dump", true));
             case ScriptState.Waiting _ -> List.of();
         };
     }

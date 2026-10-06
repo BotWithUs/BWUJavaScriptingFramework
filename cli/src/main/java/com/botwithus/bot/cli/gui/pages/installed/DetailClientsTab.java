@@ -78,7 +78,7 @@ final class DetailClientsTab {
         ImGuiTheme.Metrics m = w.m();
         Controls ui = w.ui();
         ImDrawList draw = ImGui.getWindowDrawList();
-        float buttons = m.controlSmallHeight() * 2f + m.u(0.5f) + m.u(1);
+        float buttons = m.controlSmallHeight() * 3f + m.u(0.5f) * 2f + m.u(1);
         float textW = width - m.u(3) - buttons;
         ImFont name = ui.fonts().small();
         ImFont detail = ui.fonts().caption();
@@ -99,6 +99,17 @@ final class DetailClientsTab {
         }
         ImGui.setCursorScreenPos(bx, by);
         runAction(s, run, state, id);
+        if (run.state() == RunnerState.OFFLINE) {
+            return;
+        }
+        if (run.state() != RunnerState.CUT_OFF) {
+            bx -= m.controlSmallHeight() + m.u(0.5f);
+        }
+        ImGui.setCursorScreenPos(bx, by);
+        if (w.iconButton(id + ":report", Icons.FLAG, ImGuiTheme.COL_FG2, ImGuiTheme.COL_ELEVATED,
+                "Report a problem")) {
+            state.model().reportProblem(s.key(), run.clientId());
+        }
     }
 
     /** Stop while it runs, Run once stopped, Restart after a crash; nothing it cannot act on. */

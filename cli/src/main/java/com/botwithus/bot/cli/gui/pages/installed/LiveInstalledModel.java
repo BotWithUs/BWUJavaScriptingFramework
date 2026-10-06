@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.gui.pages.installed;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.report.ReportSubject;
 import com.botwithus.bot.cli.clients.ClientLifecycle;
 import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.events.ClientKey;
@@ -82,6 +83,8 @@ public final class LiveInstalledModel implements InstalledModel {
     private volatile boolean isStale = true;
     private InstalledView cached;
     private Instant cachedAt = Instant.MIN;
+    /** Opens the report dialog; a no-op until {@link #setReportOpener} is called. */
+    private Consumer<ReportSubject> reportOpener = subject -> { };
 
     public LiveInstalledModel(Deps deps) {
         this.deps = deps;
@@ -331,6 +334,16 @@ public final class LiveInstalledModel implements InstalledModel {
                 .findFirst()
                 .ifPresentOrElse(conn.getRuntime()::startScript, () -> log.info(
                         "Not starting {} on {}: no JAR in the scripts folder declares it", key, conn.getName()));
+    }
+
+    @Override
+    public void reportProblem(String key, String clientId) {
+        reportOpener.accept(new ReportSubject(clientId, key));
+    }
+
+    /** Has "Report a problem" open the report dialog through {@code opener}. Render thread. */
+    public void setReportOpener(Consumer<ReportSubject> opener) {
+        this.reportOpener = opener;
     }
 
     private Optional<Connection> find(String clientId) {

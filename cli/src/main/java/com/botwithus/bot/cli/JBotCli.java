@@ -18,6 +18,7 @@ import com.botwithus.bot.cli.command.impl.PingCommand;
 import com.botwithus.bot.cli.command.impl.PlayerCommand;
 import com.botwithus.bot.cli.command.impl.ProfileCommand;
 import com.botwithus.bot.cli.command.impl.ReloadCommand;
+import com.botwithus.bot.cli.command.impl.ReportCommand;
 import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
@@ -27,6 +28,7 @@ import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.log.RunLogBootstrap;
 import com.botwithus.bot.cli.output.AnsiCodes;
+import com.botwithus.bot.cli.report.ScriptReports;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.launcher.LauncherHost;
 import com.botwithus.bot.core.launcher.DevGate;
@@ -34,6 +36,7 @@ import com.botwithus.bot.core.launcher.CloseRequest;
 import com.botwithus.bot.core.pipe.PipeException;
 import com.botwithus.bot.core.rpc.RpcException;
 import com.botwithus.bot.core.runlog.RunLogs;
+import com.botwithus.bot.core.sdn.InstalledScriptsLedger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -105,6 +108,8 @@ public final class JBotCli {
         registry.register(new ActionsCommand());
         registry.register(new EventsCommand());
         registry.register(new PlayerCommand());
+        registry.register(new ReportCommand(
+                ScriptReports.forHost(ctx, InstalledScriptsLedger.inUserHome()::find)));
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
 
