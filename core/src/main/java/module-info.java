@@ -41,6 +41,7 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.launcher;
     exports com.botwithus.bot.core.msgpack;
     exports com.botwithus.bot.core.pipe;
+    exports com.botwithus.bot.core.report;
     exports com.botwithus.bot.core.rpc;
     exports com.botwithus.bot.core.runlog;
     exports com.botwithus.bot.core.runtime;

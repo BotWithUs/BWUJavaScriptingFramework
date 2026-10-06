@@ -7,6 +7,7 @@ import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.notify.Notification.Action;
 import com.botwithus.bot.cli.gui.notify.Notification.Kind;
+import com.botwithus.bot.cli.report.ReportSubject;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -57,6 +58,7 @@ public final class NotificationOverlay implements ToastSink {
     private static final long MILLIS_PER_SECOND = 1000L;
     private static final float SECONDS_PER_MILLI = 0.001f;
     private static final float SPINNER_TRACK_ALPHA = 0.2f;
+    private static final String REPORT_LABEL = "Send report to script author";
 
     /** A post or a withdrawal, waiting for the render thread. */
     private sealed interface Inbox {
@@ -68,9 +70,19 @@ public final class NotificationOverlay implements ToastSink {
     /** On screen, oldest first. Touched on the render thread only, via {@link #update}. */
     private final List<Notification> active = new ArrayList<>();
     private final Clock clock;
+    /** Opens the report dialog; until set, no toast shows "Send report to script author". */
+    private Consumer<ReportSubject> reportHandler;
 
     public NotificationOverlay(Clock clock) {
         this.clock = clock;
+    }
+
+    /**
+     * Shows "Send report to script author" on the toasts that carry a script,
+     * and has it open the report dialog through {@code handler}. Render thread.
+     */
+    public void setReportHandler(Consumer<ReportSubject> handler) {
+        this.reportHandler = handler;
     }
 
     @Override
@@ -161,7 +173,7 @@ public final class NotificationOverlay implements ToastSink {
         Notification old = active.get(at);
         if (old.kind().isOutage() && toast.kind().isOutage()) {
             active.set(at, new Notification(old.id(), toast.kind(), toast.title(), toast.message(),
-                    toast.client(), old.createdAt(), old.expiresAt()));
+                    toast.client(), old.createdAt(), old.expiresAt(), toast.report()));
         } else {
             active.remove(at);
             add(fresh(toast));
@@ -171,7 +183,7 @@ public final class NotificationOverlay implements ToastSink {
     private Notification fresh(Toast toast) {
         Instant now = clock.instant();
         return new Notification(UUID.randomUUID(), toast.kind(), toast.title(), toast.message(), toast.client(),
-                now, toast.lifetime().map(now::plus));
+                now, toast.lifetime().map(now::plus), toast.report());
     }
 
     /** Adds {@code n} as the newest toast, pushing the oldest out past {@link #MAX_VISIBLE}. */
@@ -218,10 +230,7 @@ public final class NotificationOverlay implements ToastSink {
         ImFont body = bodyFont(ui, n);
         int lines = ui.wrap(body, n.message(), bodyWidth(ui, width)).size();
         float h = m.u(3) * 2f + ui.fonts().small().getFontSize() * LINE + lines * body.getFontSize() * LINE;
-        if (n.kind().action() != Action.NONE) {
-            h += m.u(1.5f) + m.controlSmallHeight();
-        }
-        return h;
+        return h + actionRows(ui, n, width) * (m.u(1.5f) + m.controlSmallHeight());
     }
 
     private float drawToast(Controls ui, Notification n, float x0, float y, float width,
@@ -283,15 +292,49 @@ public final class NotificationOverlay implements ToastSink {
         if (ui.button("##toast-x-" + n.id(), Icons.XMARK, "", Tone.ICON, true, closeW)) {
             dismiss(n);
         }
-        String action = n.kind().action().label();
+        float tx = x + pad + ui.fonts().body().getFontSize() * ICON_COL_EM + m.u(2);
+        float rowH = m.controlSmallHeight();
+        float lastRowY = y + h - pad - rowH;
+        boolean isStacked = actionRows(ui, n, width) > 1;
+        float actionX = tx;
+        Optional<ReportSubject> report = offeredReport(n);
+        if (report.isPresent()) {
+            ImGui.setCursorScreenPos(tx, isStacked ? lastRowY - rowH - m.u(1.5f) : lastRowY);
+            if (ui.button("##toast-r-" + n.id(), null, REPORT_LABEL, Tone.SOFT, true, rowH)) {
+                reportHandler.accept(report.get());
+            }
+            actionX = isStacked ? tx : tx + ui.buttonWidth(null, REPORT_LABEL, Tone.SOFT) + m.u(2);
+        }
         if (n.kind().action() != Action.NONE) {
-            float tx = x + pad + ui.fonts().body().getFontSize() * ICON_COL_EM + m.u(2);
-            ImGui.setCursorScreenPos(tx, y + h - pad - m.controlSmallHeight());
-            if (ui.button("##toast-a-" + n.id(), null, action, Tone.GHOST, true, m.controlSmallHeight())) {
+            ImGui.setCursorScreenPos(actionX, lastRowY);
+            if (ui.button("##toast-a-" + n.id(), null, n.kind().action().label(), Tone.GHOST, true, rowH)) {
                 onAction.accept(n);
                 dismiss(n);
             }
         }
+    }
+
+    /** The report a toast's button would send: only when it carries one and a handler is set. */
+    private Optional<ReportSubject> offeredReport(Notification n) {
+        return reportHandler == null ? Optional.empty() : n.report();
+    }
+
+    /**
+     * How many rows of buttons a toast has: none, one, or two when "Send report"
+     * and its action do not fit side by side.
+     */
+    private int actionRows(Controls ui, Notification n, float width) {
+        boolean hasAction = n.kind().action() != Action.NONE;
+        boolean hasReport = offeredReport(n).isPresent();
+        if (!hasReport) {
+            return hasAction ? 1 : 0;
+        }
+        if (!hasAction) {
+            return 1;
+        }
+        float both = ui.buttonWidth(null, REPORT_LABEL, Tone.SOFT) + ui.m().u(2)
+                + ui.buttonWidth(null, n.kind().action().label(), Tone.GHOST);
+        return both <= bodyWidth(ui, width) ? 1 : 2;
     }
 
     /** The time left, drained along the bottom edge. A toast that stays until closed has none. */
@@ -336,8 +379,7 @@ public final class NotificationOverlay implements ToastSink {
         int at = active.indexOf(n);
         boolean isLeavingLater = n.expiresAt().map(soon::isBefore).orElse(true);
         if (at >= 0 && isLeavingLater) {
-            active.set(at, new Notification(n.id(), n.kind(), n.title(), n.message(), n.client(),
-                    n.createdAt(), Optional.of(soon)));
+            active.set(at, n.expiringAt(soon));
         }
     }
 

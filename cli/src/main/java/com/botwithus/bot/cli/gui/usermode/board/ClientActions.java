@@ -44,6 +44,9 @@ public interface ClientActions {
     /** Shows the log for this client (Advanced → Logs). */
     void viewLog(ClientKey client);
 
+    /** Opens "Report a problem" for the script named {@code scriptName} on the client. */
+    void reportProblem(ClientKey client, String scriptName);
+
     /** Turns "Resume after restart" on or off for the client's account. */
     void setResumeAfterRestart(ClientKey client, boolean isOn);
 }

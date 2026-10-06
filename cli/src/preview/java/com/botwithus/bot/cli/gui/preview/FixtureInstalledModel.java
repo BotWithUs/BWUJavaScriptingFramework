@@ -240,4 +240,8 @@ final class FixtureInstalledModel implements InstalledModel {
     @Override
     public void openSettings(String key, String clientId) {
     }
+
+    @Override
+    public void reportProblem(String key, String clientId) {
+    }
 }

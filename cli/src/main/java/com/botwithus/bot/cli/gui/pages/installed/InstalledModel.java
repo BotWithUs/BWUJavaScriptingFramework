@@ -42,4 +42,7 @@ public interface InstalledModel {
 
     /** Opens the shared config inspector on {@code key}'s script on one client. */
     void openSettings(String key, String clientId);
+
+    /** Opens "Report a problem" for {@code key}'s script on one client. */
+    void reportProblem(String key, String clientId);
 }

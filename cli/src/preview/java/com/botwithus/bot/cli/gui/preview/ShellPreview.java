@@ -47,6 +47,12 @@ import com.botwithus.bot.cli.gui.pages.management.ManagementPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.notify.ToastFeed;
+import com.botwithus.bot.cli.gui.report.ReportDialog;
+import com.botwithus.bot.cli.gui.report.ReportFlow;
+import com.botwithus.bot.cli.report.ReportForm;
+import com.botwithus.bot.cli.report.ReportSubject;
+import com.botwithus.bot.core.report.ProblemKind;
+import com.botwithus.bot.core.report.ReportReply;
 import com.botwithus.bot.cli.gui.pages.settings.IntegrationScene;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsAction;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsPreviewSeams;
@@ -144,7 +150,18 @@ public final class ShellPreview extends Application {
      */
     private record Scenario(String name, AppMode mode, Supplier<FixtureBoard> board,
                             Supplier<FixtureStoreModel> store, Supplier<FixtureConnectionsModel> connections,
-                            BiConsumer<Stage, Integer> onFrame) {
+                            BiConsumer<Stage, Integer> onFrame, Supplier<FixtureReports> reports) {
+
+        Scenario(String name, AppMode mode, Supplier<FixtureBoard> board, Supplier<FixtureStoreModel> store,
+                 Supplier<FixtureConnectionsModel> connections, BiConsumer<Stage, Integer> onFrame) {
+            this(name, mode, board, store, connections, onFrame, () -> FixtureReports.answering(FixtureReports.SENT));
+        }
+
+        /** Normal mode with the report dialog open on a crashed script, answered by {@code reports}. */
+        static Scenario report(String name, Supplier<FixtureReports> reports, BiConsumer<Stage, Integer> onFrame) {
+            return new Scenario(name, AppMode.NORMAL, FixtureBoard::everyState, FixtureStoreModel::signedIn,
+                    FixtureConnectionsModel::busy, onFrame, reports);
+        }
 
         Scenario(String name, AppMode mode, Supplier<FixtureBoard> board, Supplier<FixtureStoreModel> store,
                  BiConsumer<Stage, Integer> onFrame) {
@@ -182,7 +199,8 @@ public final class ShellPreview extends Application {
     /** What a scenario's frame hook can reach. */
     private record Stage(FixtureBoard board, UserModeRenderer page, Consumer<HostEvent> toasts,
                          FixtureToasts fleet, FixturePages.Built pages,
-                         InspectorDock inspector, FixtureWindow window, Consumer<TextSize> textSize) {}
+                         InspectorDock inspector, FixtureWindow window, Consumer<TextSize> textSize,
+                         ReportFlow reports, ReportDialog reportDialog) {}
 
     /** The argument that turns a render into the smoke check. */
     static final String CHECK_FLAG = "--check";
@@ -201,6 +219,7 @@ public final class ShellPreview extends Application {
     private Controls ui;
     private Stage stage;
     private Shell shell;
+    private ReportDialog reportDialog;
     /** The mode the shell drew last; an inspector request can switch it, as in the app. */
     private AppMode mode;
     private int fbo;
@@ -278,7 +297,11 @@ public final class ShellPreview extends Application {
         ToastFeed feed = new ToastFeed(toasts, toastSettings, fleet);
         FixturePages.Built pages = FixturePages.build(ui, page, board, s.store().get(), s.connections().get());
         FixtureWindow window = new FixtureWindow(new WindowRect(0, 0, WIDTH, HEIGHT));
-        stage = new Stage(board, page, feed, fleet, pages, inspector, window, size -> textSize = size);
+        ReportFlow reports = new ReportFlow(s.reports().get());
+        reportDialog = new ReportDialog(ui, reports);
+        toasts.setReportHandler(reports::open);
+        stage = new Stage(board, page, feed, fleet, pages, inspector, window, size -> textSize = size, reports,
+                reportDialog);
         shell = new Shell(ui, pages.registry(), inspector, toasts,
                 new FramelessChrome(ui, window, MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT));
         mode = s.mode();
@@ -303,6 +326,7 @@ public final class ShellPreview extends Application {
         try {
             s.onFrame().accept(stage, frame);
             mode = shell.render(mode, stage.board(), n -> { });
+            reportDialog.render();
         } catch (RuntimeException e) {
             throw new IllegalStateException("Preview scenario " + s.name() + " threw on frame " + frame, e);
         }
@@ -472,7 +496,8 @@ public final class ShellPreview extends Application {
                         (s, f) -> s.window().maximise()));
         return Stream.of(scenarios, dashboardScenarios(), storeScenarios(), connectionsScenarios(),
                 installedScenarios(), settingsScenarios(), integrationsScenarios(), groupsScenarios(),
-                toastScenarios(), managementSettingsScenarios(), managementScenarios(), coverageScenarios())
+                toastScenarios(), managementSettingsScenarios(), managementScenarios(), coverageScenarios(),
+                reportScenarios())
                 .flatMap(List::stream).toList();
     }
 
@@ -1102,6 +1127,54 @@ public final class ShellPreview extends Application {
                     loadFailed(s, at);
                     s.toasts().accept(reconnect(s, OAKHEART_NAME, new ReconnectState.Connected(0L)));
                 })));
+    }
+
+    /**
+     * "Report a problem": the crash toast offering it, the dialog asking for a
+     * note with "What will be sent" closed and open, sending, and the two ways it
+     * ends. The replies' words are fixture text; the launcher writes the real ones.
+     */
+    private static List<Scenario> reportScenarios() {
+        ReportSubject fromToast = ReportSubject.afterCrash(FixtureFleet.OAKHEART_PIPE, "Cook's Assistant");
+        ReportSubject fromRow = new ReportSubject(FixtureFleet.OAKHEART_PIPE, "Cook's Assistant");
+        String note = "It stopped after it picked up the second cabbage.";
+        BiConsumer<Stage, Integer> openFromToast = (s, f) -> {
+            if (f == 0) {
+                s.reports().open(fromToast);
+            }
+        };
+        BiConsumer<Stage, Integer> openAndSend = (s, f) -> {
+            if (f == 0) {
+                s.reports().open(fromToast);
+                s.reports().send(new ReportForm(Optional.of(ProblemKind.CRASHED), note));
+            }
+        };
+        return List.of(
+                Scenario.report("170-report-toast-crash-offers-report", FixtureReports::pending,
+                        once(ShellPreview::crash)),
+                // From the crash toast: the answer is preselected and only the note is missing.
+                Scenario.report("171-report-dialog", FixtureReports::pending, openFromToast),
+                Scenario.report("172-report-dialog-filled-what-will-be-sent", FixtureReports::pending, (s, f) -> {
+                    openFromToast.accept(s, f);
+                    if (f == 1) {
+                        s.reportDialog().fill(Optional.of(ProblemKind.CRASHED), note);
+                        s.reportDialog().expandDetails();
+                    }
+                }),
+                Scenario.report("173-report-sending", FixtureReports::pending, openAndSend),
+                Scenario.report("174-report-sent", () -> FixtureReports.answering(FixtureReports.SENT), openAndSend),
+                Scenario.report("175-report-launcher-not-running",
+                        () -> FixtureReports.answering(ReportReply.Failed.launcherNotRunning()), openAndSend),
+                // From a script row: nothing chosen, and a note too short to send.
+                Scenario.report("176-report-form-incomplete", FixtureReports::pending, (s, f) -> {
+                    if (f == 0) {
+                        s.reports().open(fromRow);
+                    }
+                    if (f == 1) {
+                        s.reportDialog().fill(Optional.empty(), "it froze");
+                    }
+                }),
+                Scenario.report("177-report-no-logs", FixtureReports::noLogs, openFromToast));
     }
 
     /** Runs {@code post} on the first frame only, with the time it happened. */

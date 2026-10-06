@@ -18,6 +18,7 @@ import com.botwithus.bot.cli.command.impl.ManagementScriptsCommand;
 import com.botwithus.bot.cli.command.impl.MetricsCommand;
 import com.botwithus.bot.cli.command.impl.MountCommand;
 import com.botwithus.bot.cli.command.impl.PingCommand;
+import com.botwithus.bot.cli.command.impl.ReportCommand;
 import com.botwithus.bot.cli.command.impl.PlayerCommand;
 import com.botwithus.bot.cli.command.impl.ProfileCommand;
 import com.botwithus.bot.cli.command.impl.ReloadCommand;
@@ -64,6 +65,9 @@ import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.log.RunLogBootstrap;
 import com.botwithus.bot.cli.output.AnsiCodes;
+import com.botwithus.bot.cli.gui.report.ReportDialog;
+import com.botwithus.bot.cli.gui.report.ReportFlow;
+import com.botwithus.bot.cli.report.ScriptReports;
 import com.botwithus.bot.cli.sdn.FavouritesStore;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
@@ -152,6 +156,11 @@ public class ImGuiApp extends Application {
     private CloseRequestPrompt closeRequestPrompt;
     private CloseRequestModal closeRequestModal;
     private CommandRegistry registry;
+    /** Created before the commands, so the `report` command and the report dialog share it. */
+    private SdnInstaller sdnInstaller;
+    private ScriptReports scriptReports;
+    private ReportFlow reportFlow;
+    private ReportDialog reportDialog;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "bwu-cmd");
@@ -232,6 +241,8 @@ public class ImGuiApp extends Application {
         AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore, ctx.getSettings());
         ctx.setAutoStartManager(autoStartManager);
 
+        sdnInstaller = new SdnInstaller();
+        scriptReports = ScriptReports.forHost(ctx, sdnInstaller.ledger()::find);
         registry = new CommandRegistry();
         registerCommands(registry, profileStore, autoStartManager);
 
@@ -341,6 +352,7 @@ public class ImGuiApp extends Application {
         r.register(new ClientCommand());
         r.register(new AutoStartCommand(profileStore, autoStartManager, ctx.getSettings()));
         r.register(new ManagementScriptsCommand());
+        r.register(new ReportCommand(scriptReports));
         r.register(new ClearCommand());
         r.register(new ExitCommand());
     }
@@ -393,9 +405,15 @@ public class ImGuiApp extends Application {
         // "Your subscriptions" group read the same refresher, so there is one fetch loop.
         SdnCatalogueRefresher sdnCatalogue = StoreCatalogue.refresherFor(new SdnCatalogueSource());
         catalogueTicker = StoreCatalogue.tickInBackground(sdnCatalogue);
-        SdnInstaller sdnInstaller = new SdnInstaller();
         favourites = FavouritesStore.inUserHome();
-        board = new LiveClientBoard(ctx, this::openLogs, clock, sdnCatalogue, sdnInstaller, executor);
+        LiveClientBoard liveBoard = new LiveClientBoard(ctx, this::openLogs, clock, sdnCatalogue, sdnInstaller,
+                executor);
+        board = liveBoard;
+        // One report dialog for the crash toast and the script rows.
+        reportFlow = new ReportFlow(scriptReports);
+        reportDialog = new ReportDialog(ui, reportFlow);
+        liveBoard.setReportOpener(reportFlow::open);
+        notificationOverlay.setReportHandler(reportFlow::open);
         pages = new PageRegistry(buildPages(sdnCatalogue, sdnInstaller));
         shell = new Shell(ui, pages, inspector, notificationOverlay, hostWindow.chrome(ui));
         toastRoutes = new ToastRoutes(key -> board.actions().retryNow(key), this::openLogs,
@@ -475,6 +493,7 @@ public class ImGuiApp extends Application {
         LiveInstalledModel model = new LiveInstalledModel(new LiveInstalledModel.Deps(ctx, sdnInstaller.ledger(),
                 sdnCatalogue::shown, inspector.state()::request, executor, LiveInstalledModel.desktopOpener(executor),
                 Clock.systemDefaultZone(), scriptsDir, folder.text(), INSTALLED_VIEW_MAX_AGE));
+        model.setReportOpener(reportFlow::open);
         return new InstalledPage(ui, model, folder, id -> pages.select(id), catalogueId -> {
             store.show(catalogueId);
             pages.select(PageId.STORE);
@@ -557,6 +576,7 @@ public class ImGuiApp extends Application {
         // requests the switch rather than setting currentMode, which the render's
         // own result would overwrite.
         currentMode = modeRequest.resolve(shell.render(currentMode, board, toastRoutes));
+        reportDialog.render();
         closeRequestModal.render();
         if (closeRequestPrompt.takeShutdownRequest()) {
             shutdown();

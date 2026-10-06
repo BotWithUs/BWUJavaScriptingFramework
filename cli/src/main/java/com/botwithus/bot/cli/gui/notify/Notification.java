@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli.gui.notify;
 
 import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.report.ReportSubject;
 import com.botwithus.bot.cli.settings.NotificationKind;
 
 import java.time.Instant;
@@ -21,9 +22,11 @@ import java.util.UUID;
  * @param client    the client the toast is about, if any; its action acts on it
  * @param createdAt when it was put on screen, for the slide-in and the life bar
  * @param expiresAt when it goes; empty for a toast that stays until closed
+ * @param report    the script its "Send report to script author" button
+ *                  reports; empty for a toast without one
  */
 public record Notification(UUID id, Kind kind, String title, String message, Optional<ClientKey> client,
-                           Instant createdAt, Optional<Instant> expiresAt) {
+                           Instant createdAt, Optional<Instant> expiresAt, Optional<ReportSubject> report) {
 
     public Notification {
         Objects.requireNonNull(id, "id");
@@ -33,6 +36,18 @@ public record Notification(UUID id, Kind kind, String title, String message, Opt
         Objects.requireNonNull(client, "client");
         Objects.requireNonNull(createdAt, "createdAt");
         Objects.requireNonNull(expiresAt, "expiresAt");
+        Objects.requireNonNull(report, "report");
+    }
+
+    /** A toast that offers no report. */
+    public Notification(UUID id, Kind kind, String title, String message, Optional<ClientKey> client,
+                        Instant createdAt, Optional<Instant> expiresAt) {
+        this(id, kind, title, message, client, createdAt, expiresAt, Optional.empty());
+    }
+
+    /** The same toast, leaving at {@code at}. */
+    public Notification expiringAt(Instant at) {
+        return new Notification(id, kind, title, message, client, createdAt, Optional.of(at), report);
     }
 
     public enum Severity { INFO, WARN, ERROR }

@@ -11,6 +11,7 @@ import com.botwithus.bot.cli.clients.ClientLifecycle;
 import com.botwithus.bot.cli.clients.ClientRecord;
 import com.botwithus.bot.cli.clients.ClientRegistry;
 import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.report.ReportSubject;
 import com.botwithus.bot.cli.management.ManagedLinks;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.pipe.PipeClient;
@@ -75,6 +76,8 @@ public final class LiveClientBoard implements ClientBoard {
     private final AtomicBoolean catalogLoadQueued = new AtomicBoolean();
     /** Written by the command executor, read by the render thread. */
     private volatile Catalog loadedCatalog = Catalog.EMPTY;
+    /** Opens the report dialog; a no-op until {@link #setReportOpener} is called. */
+    private Consumer<ReportSubject> reportOpener = subject -> { };
 
     /** One load of the installed scripts; the entry keys index {@code scripts}. */
     private record Catalog(List<BotScript> scripts, List<ScriptEntry> entries, List<LocalScript> locals) {
@@ -106,6 +109,11 @@ public final class LiveClientBoard implements ClientBoard {
                 installer.ledger()::find, () -> loadedCatalog.locals(),
                 task -> Thread.ofVirtual().name("sdn-subscription-install").start(task));
         requestCatalogLoad();
+    }
+
+    /** Has a row's "Report a problem" open the report dialog through {@code opener}. Render thread. */
+    public void setReportOpener(Consumer<ReportSubject> opener) {
+        this.reportOpener = opener;
     }
 
     @Override
@@ -446,6 +454,12 @@ public final class LiveClientBoard implements ClientBoard {
         @Override
         public void viewLog(ClientKey client) {
             logOpener.accept(client);
+        }
+
+        /** Run logs are keyed by connection, so a client with no pipe has nothing to report from. */
+        @Override
+        public void reportProblem(ClientKey client, String scriptName) {
+            pipeOf(client).ifPresent(pipe -> reportOpener.accept(new ReportSubject(pipe, scriptName)));
         }
 
         @Override

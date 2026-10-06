@@ -23,6 +23,7 @@ import com.botwithus.bot.cli.events.HostEventBus;
 import com.botwithus.bot.cli.gui.notify.Notification.Kind;
 import com.botwithus.bot.cli.gui.notify.Notification.Severity;
 import com.botwithus.bot.cli.gui.runners.CrashText;
+import com.botwithus.bot.cli.report.ReportSubject;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.rpc.ReconnectController;
@@ -153,9 +154,16 @@ public final class ToastFeed implements Consumer<HostEvent> {
 
     // ── Scripts ─────────────────────────────────────────────────────────────
 
+    /**
+     * A crash, with "Send report to script author" when the host knows which
+     * connection it was on: run logs are keyed by that connection.
+     */
     private void onCrashed(ScriptCrashed e) {
+        Optional<ReportSubject> report = e.client().hasPipe()
+                ? Optional.of(ReportSubject.afterCrash(e.client().pipe(), e.script()))
+                : Optional.empty();
         post(Kind.SCRIPT_CRASHED, e.script() + " crashed", who(e.client()) + " · " + CrashText.summary(e.crash()),
-                e.client(), true);
+                Optional.of(e.client().key()), true, report);
     }
 
     private void onLoadFailed(ScriptLoadFailed e) {
@@ -178,6 +186,12 @@ public final class ToastFeed implements Consumer<HostEvent> {
      * down the one it would have replaced, which it has made out of date.
      */
     private void post(Kind kind, String title, String message, Optional<ClientKey> client, boolean canOpen) {
+        post(kind, title, message, client, canOpen, Optional.empty());
+    }
+
+    /** As above, offering a report of {@code report} on the toast. */
+    private void post(Kind kind, String title, String message, Optional<ClientKey> client, boolean canOpen,
+                      Optional<ReportSubject> report) {
         if (!settings.get(SettingKeys.notifyEnabled(kind.setting()))) {
             if (kind.isConnectionState()) {
                 client.ifPresent(sink::withdraw);
@@ -187,7 +201,7 @@ public final class ToastFeed implements Consumer<HostEvent> {
         Optional<Duration> lifetime = kind.severity() == Severity.ERROR
                 ? Optional.empty()
                 : Optional.of(Duration.ofSeconds(settings.get(SettingKeys.NOTIFY_DURATION_S)));
-        sink.post(new Toast(kind, title, message, client, lifetime, canOpen));
+        sink.post(new Toast(kind, title, message, client, lifetime, canOpen, report));
     }
 
     /** The client's name, else its pipe, else its key. */
