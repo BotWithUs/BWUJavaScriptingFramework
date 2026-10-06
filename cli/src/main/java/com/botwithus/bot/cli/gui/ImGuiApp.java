@@ -62,6 +62,7 @@ import com.botwithus.bot.cli.gui.usermode.board.LiveClientBoard;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.log.RunLogBootstrap;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.sdn.FavouritesStore;
 import com.botwithus.bot.cli.settings.HostSettings;
@@ -72,9 +73,11 @@ import com.botwithus.bot.cli.launcher.LauncherHost;
 import com.botwithus.bot.core.launcher.DevGate;
 import com.botwithus.bot.core.launcher.CloseDecision;
 import com.botwithus.bot.core.config.ScriptProfileStore;
+import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueSource;
 import com.botwithus.bot.core.sdn.SdnInstaller;
+import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
 
@@ -307,8 +310,10 @@ public class ImGuiApp extends Application {
         wireLogBufferAppender(logBuffer);
         LogCapture logCapture = new LogCapture(logBuffer, guiOut, guiErr);
         logCapture.install();
+        RunLogs runLogs = RunLogBootstrap.start(logCapture);
 
         ctx = new CliContext(logBuffer, logCapture);
+        ctx.setRunLogs(runLogs);
         ctx.loadGroups();
         ctx.loadClients();
         ctx.setStreamManager(new StreamManager(outputBuffer, textureManager, guiOut));

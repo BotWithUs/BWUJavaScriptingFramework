@@ -67,6 +67,9 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.rpc.ReconnectPolicy;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.runlog.AgentInfoProbe;
+import com.botwithus.bot.core.runlog.HostIdentity;
+import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.config.ManagementSettingsStore;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.api.event.GameEvent;
@@ -106,11 +109,13 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -186,6 +191,13 @@ public class CliContext {
     private final HostEventBus hostEvents = new HostEventBus();
     private final ConnectionHistory connectionHistory = new ConnectionHistory();
     private final Clock clock = Clock.systemUTC();
+    /**
+     * Where script runs log. File-less until {@link #setRunLogs} is called by the
+     * entry point, so a context built by a test never writes to the user's home.
+     */
+    private volatile RunLogs runLogs = RunLogs.withoutFiles(HostIdentity.current(CliContext.class), clock);
+    /** Hands each connection the integer its run logs carry in place of its name. */
+    private final AtomicInteger nextSlot = new AtomicInteger();
     /** Keys and publishes every client event; see {@link ClientKeys}. */
     private final ClientKeys clientKeys = new ClientKeys(hostEvents, this::isPipeLive);
     private final RunnerEventBridge runnerEvents = new RunnerEventBridge(hostEvents, clientKeys, clock);
@@ -357,6 +369,19 @@ public class CliContext {
 
     public void setAutoStartManager(AutoStartManager manager) { this.autoStartManager = manager; }
     public AutoStartManager getAutoStartManager() { return autoStartManager; }
+
+    /**
+     * Gives script runs on connections made from now on a log file each. Called
+     * once by the entry point, before any connection is made.
+     */
+    public void setRunLogs(RunLogs runLogs) {
+        this.runLogs = runLogs;
+    }
+
+    /** The process's script run logs: each script's current or last log and last crash. */
+    public RunLogs getRunLogs() {
+        return runLogs;
+    }
 
     /**
      * The process's one {@link HostSettings}, set by the composition root before
@@ -800,6 +825,7 @@ public class CliContext {
         wireScriptGate(runtime, rpc, gameAPI);
 
         Connection conn = new Connection(name, pipe, rpc, runtime, new ScriptManagerImpl(runtime), connectedAt);
+        wireRunLogs(runtime, rpc, conn);
         conn.setEventBus(eventBus);
         conn.setEventPump(pump);
         conn.setGameAPI(gameAPI);
@@ -828,6 +854,25 @@ public class CliContext {
         runtime.setScriptGate(scriptGate);
         rpc.setScriptGate(scriptGate);
         gameAPI.setScriptGate(scriptGate);
+    }
+
+    /**
+     * Gives this connection's script runs their log: the slot their header names
+     * in place of the connection, the names to redact, the RPC breadcrumbs, and
+     * the agent's own identity, asked for once here. A run that opens while the
+     * answer is on its way waits up to {@link AgentInfoProbe#HEADER_WAIT} for it,
+     * on the script's thread; an agent that predates the method answers
+     * {@code unknown} quickly.
+     */
+    private void wireRunLogs(ScriptRuntime runtime, RpcClient rpc, Connection conn) {
+        RunLogs logs = this.runLogs;
+        runtime.setRunLogs(logs);
+        runtime.setSlot(nextSlot.incrementAndGet());
+        runtime.setRunNames(conn::knownNames);
+        rpc.setCallObserver(logs::recordRpc);
+        runtime.setAgentIdentity(AgentInfoProbe.start(
+                () -> rpc.callSync(AgentInfoProbe.METHOD, Map.of()), AgentInfoProbe.DEFAULT_DEADLINE)
+                .waitingAtMost(AgentInfoProbe.HEADER_WAIT));
     }
 
     /**

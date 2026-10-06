@@ -1,10 +1,20 @@
 <configuration>
+  <!-- Script threads log DEBUG into their run log (see RunLogLogback, which
+       lets DEBUG through on those threads only). These thresholds keep that
+       DEBUG off the console and out of the GUI buffer, which stay at INFO. -->
   <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>INFO</level>
+    </filter>
     <encoder>
       <pattern>%d{HH:mm:ss.SSS} %-5level [%X{script.name:-system}] %logger{20} - %msg%n</pattern>
     </encoder>
   </appender>
-  <appender name="LOG_BUFFER" class="com.botwithus.bot.cli.log.LogBufferAppender"/>
+  <appender name="LOG_BUFFER" class="com.botwithus.bot.cli.log.LogBufferAppender">
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>INFO</level>
+    </filter>
+  </appender>
   <root level="INFO">
     <appender-ref ref="CONSOLE"/>
     <appender-ref ref="LOG_BUFFER"/>

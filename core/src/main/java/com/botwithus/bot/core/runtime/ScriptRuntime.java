@@ -8,6 +8,9 @@ import com.botwithus.bot.api.event.GameEvent;
 import com.botwithus.bot.core.impl.ScopedEventBus;
 import com.botwithus.bot.core.impl.ScopedMessageBus;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
+import com.botwithus.bot.core.runlog.AgentIdentity;
+import com.botwithus.bot.core.runlog.KnownNames;
+import com.botwithus.bot.core.runlog.RunLogs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,6 +22,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /**
@@ -73,6 +77,11 @@ public class ScriptRuntime {
     private volatile Runnable beforeRunnerPublished = () -> { };
     /** Written under {@link #registrationLock}. */
     private BooleanSupplier loopTimingGate = () -> true;
+    // Run-log wiring, read by each runner at the start of each run.
+    private volatile RunLogs runLogs;
+    private volatile Supplier<KnownNames> runNames = () -> KnownNames.NONE;
+    private volatile int slot = RunLogging.NO_SLOT;
+    private volatile Supplier<AgentIdentity> agentIdentity = () -> AgentIdentity.UNKNOWN;
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
@@ -223,6 +232,47 @@ public class ScriptRuntime {
         this.publisherFactory = factory;
     }
 
+    /**
+     * Gives this connection's script runs a log file each. Until set, runs keep
+     * breadcrumbs and crash summaries but write nothing. Applies from the next
+     * run of every runner, registered or not.
+     */
+    public void setRunLogs(RunLogs runLogs) {
+        this.runLogs = runLogs;
+    }
+
+    /**
+     * The names to redact from this connection's run logs: account and
+     * connection names, character names. Re-read for every line written, so a
+     * name learned mid-run is redacted from then on.
+     */
+    public void setRunNames(Supplier<KnownNames> names) {
+        this.runNames = names != null ? names : () -> KnownNames.NONE;
+    }
+
+    /** The integer a run log's header carries for this connection, in place of its name. */
+    public void setSlot(int slot) {
+        this.slot = slot;
+    }
+
+    /**
+     * The seam for the {@code agent_build} and {@code game_revision} header keys.
+     * Read once per run. Unbound, both are {@code unknown}; binding the agent's
+     * {@code rpc.agent_info} is one call here at the connection setup site.
+     */
+    public void setAgentIdentity(Supplier<AgentIdentity> agentIdentity) {
+        this.agentIdentity = agentIdentity != null ? agentIdentity : () -> AgentIdentity.UNKNOWN;
+    }
+
+    /** What a runner of this runtime opens its next run log with. */
+    private RunLogging runLogging() {
+        RunLogs logs = this.runLogs;
+        if (logs == null) {
+            return RunLogging.fileLess();
+        }
+        return new RunLogging(logs, runNames, slot, agentIdentity);
+    }
+
     /** Test seam; see {@link #beforeRunnerPublished}. {@code null} restores the no-op. */
     void setBeforeRunnerPublished(Runnable hook) {
         this.beforeRunnerPublished = hook != null ? hook : () -> { };
@@ -293,6 +343,7 @@ public class ScriptRuntime {
                 runner.setScriptGate(scriptGate);
             }
             runner.setRunnerListener(runnerListener);
+            runner.setRunLogging(this::runLogging);
             runner.getProfiler().setAggregating(loopTimingGate);
             beforeRunnerPublished.run();
             runners.add(runner);

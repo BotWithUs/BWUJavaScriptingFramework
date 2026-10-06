@@ -25,6 +25,7 @@ import com.botwithus.bot.cli.diag.MetricsCollection;
 import com.botwithus.bot.cli.diag.WalkerPathOverlay;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.log.RunLogBootstrap;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.launcher.LauncherHost;
@@ -32,6 +33,7 @@ import com.botwithus.bot.core.launcher.DevGate;
 import com.botwithus.bot.core.launcher.CloseRequest;
 import com.botwithus.bot.core.pipe.PipeException;
 import com.botwithus.bot.core.rpc.RpcException;
+import com.botwithus.bot.core.runlog.RunLogs;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,9 +74,11 @@ public final class JBotCli {
         LogBuffer logBuffer = new LogBuffer();
         LogCapture logCapture = new LogCapture(logBuffer);
         logCapture.install();
+        RunLogs runLogs = RunLogBootstrap.start(logCapture);
 
         PrintStream out = logCapture.getOriginalOut();
         CliContext ctx = new CliContext(logBuffer, logCapture);
+        ctx.setRunLogs(runLogs);
         ctx.loadGroups();
         ctx.loadClients();
         ctx.setSettings(HostSettings.openForHost(HostSettings.defaultBaseDir()));

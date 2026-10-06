@@ -9,6 +9,7 @@ import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.runlog.KnownNames;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
@@ -17,8 +18,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -188,6 +191,29 @@ public class Connection {
         if (!uuid.equals(runtime.getAccountUuid())) {
             runtime.setAccountUuid(uuid);
         }
+    }
+
+    /**
+     * Every name this host knows for the client, for a script run log to redact:
+     * the connection's own name and the launcher's account name as accounts,
+     * the logged-in and launched-for character names as players. Read for every
+     * line a run log writes, so it reads only fields already in memory.
+     */
+    public KnownNames knownNames() {
+        List<String> accounts = new ArrayList<>();
+        List<String> players = new ArrayList<>();
+        accounts.add(name);
+        accounts.add(accountName);
+        players.add(inGameName);
+        players.add(launchedName);
+        Map<String, Object> info = accountInfo;
+        if (info != null) {
+            AccountReply reply = new AccountReply(info);
+            reply.accountName().ifPresent(accounts::add);
+            reply.inGameName().ifPresent(players::add);
+            reply.launchedName().ifPresent(players::add);
+        }
+        return KnownNames.of(accounts, players);
     }
 
     /** The last {@code get_account_info} reply, unmodifiable; {@code null} until the account is probed. */

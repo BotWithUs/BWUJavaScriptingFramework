@@ -1,6 +1,8 @@
 package com.botwithus.bot.cli.log;
 
 import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.IThrowableProxy;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.AppenderBase;
 
 import java.time.Instant;
@@ -50,10 +52,22 @@ public class LogBufferAppender extends AppenderBase<ILoggingEvent> {
         }
 
         String level = event.getLevel().toString();
-        String message = event.getFormattedMessage();
+        String message = withThrowable(event.getFormattedMessage(), event.getThrowableProxy());
 
         buf.add(new LogEntry(
                 Instant.ofEpochMilli(event.getTimeStamp()),
                 source, level, message, connection));
+    }
+
+    /**
+     * The message followed by the full trace of an attached throwable. Without
+     * this, {@code log.error("...", e)} reached the GUI as the message alone and
+     * the trace was only ever on the console.
+     */
+    private static String withThrowable(String message, IThrowableProxy throwable) {
+        if (throwable == null) {
+            return message;
+        }
+        return message + System.lineSeparator() + ThrowableProxyUtil.asString(throwable);
     }
 }

@@ -13,20 +13,29 @@ import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ScriptHealth;
+import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.core.config.ScriptConfigStore;
 import com.botwithus.bot.core.impl.ScopedEventBus;
 import com.botwithus.bot.core.impl.ScopedMessageBus;
+import com.botwithus.bot.core.runlog.CrashPhase;
+import com.botwithus.bot.core.runlog.RunLogs;
+import com.botwithus.bot.core.runlog.ScriptFrames;
+import com.botwithus.bot.core.runlog.ScriptIdentity;
+import com.botwithus.bot.core.runlog.ScriptRun;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * Runs a single BotScript on its own platform thread (see {@link #start()} for
@@ -39,6 +48,8 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptRunner.class);
 
+    /** Breadcrumb-only: the state before a run's first {@code STARTING}. */
+    private static final String STATE_NEW       = "NEW";
     /** Lifecycle state strings emitted on the {@code script.context} broker topic. */
     private static final String STATE_STARTING  = "STARTING";
     private static final String STATE_RUNNING   = "RUNNING";
@@ -86,6 +97,30 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private volatile Runnable messageUnsubscriber;
     private volatile Runnable watchdogArmer;
     private volatile RunnerListener runnerListener = RunnerListener.NONE;
+    private volatile Supplier<RunLogging> runLogging = RunLogging::fileLess;
+    /** The run in progress; null between runs. Read by the UI thread in {@link #applyConfig}. */
+    private volatile ScriptRun currentRun;
+    /** Last lifecycle state published, for the {@code state A->B} breadcrumb. */
+    private volatile String lastState = STATE_NEW;
+    /** Last tile recorded as a breadcrumb; only the script thread touches it. */
+    private String lastTile;
+    private static final String CRUMB_STATE = "state";
+    private static final String CRUMB_TILE = "tile";
+
+    /**
+     * Installs where this runner's run logs go and what they know about the
+     * connection. Read at the start of every run, so a change applies to the
+     * next one. Set by {@link ScriptRuntime#registerScript}; a runner left
+     * without one keeps breadcrumbs and crash summaries but writes no file.
+     */
+    public void setRunLogging(Supplier<RunLogging> runLogging) {
+        this.runLogging = runLogging != null ? runLogging : RunLogging::fileLess;
+    }
+
+    /** The run in progress, if any: its log file and breadcrumbs. */
+    public Optional<ScriptRun> currentRun() {
+        return Optional.ofNullable(currentRun);
+    }
 
     /**
      * Installs the host's lifecycle observer. Set by
@@ -324,6 +359,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
                     .name("script-" + name)
                     .daemon(true)
                     .priority(SCRIPT_THREAD_PRIORITY)
+                    .uncaughtExceptionHandler(this::onUncaught)
                     .start(this);
             // Arm the watchdog here, not at the runtime's startScript(): the
             // CLI and GUI both start scripts by resolving a runner and calling
@@ -478,8 +514,8 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         }
         try {
             script.onConfigUpdate(config);
-        } catch (Exception e) {
-            log.error("Error in onConfigUpdate for {}: {}", name, e.getMessage());
+        } catch (Throwable e) {
+            log.error("Error in onConfigUpdate for {}", name, e);
             notifyError(Phase.ON_CONFIG_UPDATE, e);
         }
     }
@@ -487,7 +523,9 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     @Override
     public void run() {
         String name = getScriptName();
-        enterScriptThread(name);
+        RunLogging logging = runLogging.get();
+        ScriptRun run = openRun(logging);
+        enterScriptThread(name, logging.logs(), run);
         boolean started = false;
         try {
             started = runOnStart(name);
@@ -495,16 +533,55 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
                 loadPersistedConfig(name);
                 runLoopReportingCrash(name);
             }
+        } catch (Throwable e) {
+            // Every lifecycle hook catches its own throw, so this is a failure
+            // in the host's handling around them. Recorded here rather than left
+            // to the thread's handler, which runs only after the log is closed.
+            log.error("Script thread for {} failed outside its lifecycle hooks", name, e);
+            run.crash(CrashPhase.OTHER, profiler.getLoopCount(), e);
         } finally {
             // Also after a failed onStart: the script may already have
             // subscribed or started a walk, and awaitStop() waits on the latch
             // this releases.
             cleanup(name, started);
+            closeRun(logging.logs(), run);
         }
     }
 
+    /** Opens this run's log on the script thread, so hashing the script jar costs no caller. */
+    private ScriptRun openRun(RunLogging logging) {
+        Class<?> scriptClass = script.getClass();
+        ScriptRun run = logging.logs().open(new RunLogs.RunRequest(ScriptIdentity.of(scriptClass),
+                connectionName, logging.slot(), logging.agent().get(), logging.names(),
+                ScriptFrames.of(scriptClass)));
+        lastTile = null;
+        lastState = STATE_NEW;
+        this.currentRun = run;
+        return run;
+    }
+
+    private void closeRun(RunLogs logs, ScriptRun run) {
+        run.close();
+        logs.exit();
+        if (this.currentRun == run) {
+            this.currentRun = null;
+        }
+    }
+
+    /**
+     * Last resort for a throw out of {@link #run()} itself, which can only come
+     * from its {@code finally}: logged with its full trace rather than printed
+     * bare by the JVM.
+     */
+    private void onUncaught(Thread t, Throwable e) {
+        log.error("Uncaught exception on script thread {}", t.getName(), e);
+    }
+
     /** Tags the thread and its log context before any script code runs. */
-    private void enterScriptThread(String name) {
+    private void enterScriptThread(String name, RunLogs logs, ScriptRun run) {
+        // Inheritable like the gate's tag below, so a thread the script spawns
+        // logs into this run too.
+        logs.enter(run);
         if (connectionName != null) {
             connectionTagger.accept(connectionName);
         }
@@ -532,8 +609,8 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
             publishState(STATE_RUNNING, null);
             tellListener(l -> l.scriptStarted(connectionName, name));
             return true;
-        } catch (Exception e) {
-            log.error("onStart error in {}: {}", name, e.getMessage());
+        } catch (Throwable e) {
+            log.error("onStart error in {}", name, e);
             notifyError(Phase.ON_START, e);
             return false;
         }
@@ -544,8 +621,11 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
             runLoop();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-        } catch (Exception e) {
-            log.error("onLoop error in {}: {}", name, e.getMessage());
+        } catch (Throwable e) {
+            // Throwable, not Exception: a StackOverflowError or an assertion is
+            // as much a crash as an NPE. By the time it lands here the stack has
+            // unwound, so logging it is safe even after a stack overflow.
+            log.error("onLoop error in {}", name, e);
             notifyError(Phase.ON_LOOP, e);
         }
     }
@@ -564,8 +644,8 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
                 currentConfig.set(config);
                 script.onConfigUpdate(config);
             }
-        } catch (Exception e) {
-            log.error("Config load error in {}: {}", name, e.getMessage());
+        } catch (Throwable e) {
+            log.error("Config load error in {}", name, e);
             notifyError(Phase.ON_CONFIG_UPDATE, e);
         }
     }
@@ -573,6 +653,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private void runLoop() throws InterruptedException {
         GameAPI gameAPI = context.getGameAPI();
         while (running.get() && !Thread.currentThread().isInterrupted()) {
+            recordTile(gameAPI);
             long loopStart = System.nanoTime();
             livenessState.enterLoop();
             int delay;
@@ -658,8 +739,8 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private void runOnStop(String name) {
         try {
             script.onStop();
-        } catch (Exception e) {
-            log.error("onStop error in {}: {}", name, e.getMessage());
+        } catch (Throwable e) {
+            log.error("onStop error in {}", name, e);
             notifyError(Phase.ON_STOP, e);
         }
     }
@@ -689,6 +770,11 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     }
 
     private void publishState(String state, String detail) {
+        ScriptRun run = currentRun;
+        if (run != null) {
+            run.crumb(CRUMB_STATE, lastState + "->" + state + (detail == null ? "" : " " + detail));
+        }
+        lastState = state;
         try {
             if (detail == null) {
                 scriptCtxPublisher.state(state);
@@ -710,6 +796,33 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     }
 
     /**
+     * Drops a {@code tile x,y,plane} breadcrumb when the player has moved since
+     * the last one. One shared-memory read and no RPC, so it costs the loop
+     * nothing worth measuring; skipped quietly whenever there is no snapshot or
+     * no player (a mock, the login screen, a lobby).
+     */
+    private void recordTile(GameAPI gameAPI) {
+        ScriptRun run = currentRun;
+        if (gameAPI == null || run == null) {
+            return;
+        }
+        try {
+            GameSnapshot snapshot = gameAPI.snapshot();
+            LocalPlayer self = snapshot != null ? snapshot.self() : null;
+            if (self == null) {
+                return;
+            }
+            String tile = self.tileX() + "," + self.tileY() + "," + self.plane();
+            if (!tile.equals(lastTile)) {
+                lastTile = tile;
+                run.crumb(CRUMB_TILE, tile);
+            }
+        } catch (RuntimeException e) {
+            // No snapshot right now; the next loop tries again.
+        }
+    }
+
+    /**
      * Stub: returns the base delay unchanged. The pre-rewrite implementation
      * called {@code GameAPI.getPersonality()} to scale loop delays by the
      * producer-side humanizer profile. That RPC was dropped in slice 3 —
@@ -724,6 +837,10 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         LastCrash crash = new LastCrash(phase, profiler.getLoopCount(), Instant.now(), error);
         healthRef.updateAndGet(h -> h.withCrash(crash));
         publishState(STATE_CRASHED, phase + ": " + (error != null ? error.getMessage() : "?"));
+        ScriptRun run = currentRun;
+        if (run != null && error != null) {
+            run.crash(CrashPhase.of(phase), crash.iteration(), error);
+        }
         ErrorHandler handler = this.errorHandler;
         if (handler != null) {
             try {
