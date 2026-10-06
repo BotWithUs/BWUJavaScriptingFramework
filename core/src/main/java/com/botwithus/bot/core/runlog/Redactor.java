@@ -82,6 +82,7 @@ public final class Redactor {
     private static final Pattern UNIX_HOME = Pattern.compile("(?<![\\w.])/home/[^/\\s\"']+/");
 
     private final Supplier<KnownNames> names;
+    private final boolean isPassThrough;
     private final Object lock = new Object();
     // Guarded by lock.
     private KnownNames compiledFor;
@@ -92,7 +93,22 @@ public final class Redactor {
 
     /** A redactor over a live view of the run's names. */
     public Redactor(Supplier<KnownNames> names) {
+        this(names, false);
+    }
+
+    private Redactor(Supplier<KnownNames> names, boolean isPassThrough) {
         this.names = names != null ? names : () -> KnownNames.NONE;
+        this.isPassThrough = isPassThrough;
+    }
+
+    /**
+     * A redactor that changes nothing. Package-private and for one purpose: the
+     * live redaction check runs the same script through it to prove that its
+     * grep for real names can hit, so a zero from the redacted run means
+     * something. Never reachable from production wiring.
+     */
+    static Redactor passThroughForLivenessCheck() {
+        return new Redactor(() -> KnownNames.NONE, true);
     }
 
     /** A redactor over a fixed set of names. */
@@ -118,6 +134,9 @@ public final class Redactor {
     private String apply(String line, boolean isHashRuleOn) {
         if (line == null || line.isEmpty()) {
             return line == null ? "" : line;
+        }
+        if (isPassThrough) {
+            return line;
         }
         String out = replaceNames(line);
         out = EMAIL_PATTERN.matcher(out).replaceAll(EMAIL);

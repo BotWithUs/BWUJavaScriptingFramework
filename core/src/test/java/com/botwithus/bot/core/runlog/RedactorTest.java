@@ -146,7 +146,7 @@ class RedactorTest {
         @Test
         void base64_needsUpperLowerAndDigit_hexDoesNot() {
             Redactor r = Redactor.withNames(KnownNames.NONE);
-            String path = "/Users/david/AppData/Local/Programs/Python/Scripts";
+            String path = "/Users/someone/AppData/Local/Programs/Python/Scripts";
             String noDigit = "AbCdEfGhIj".repeat(4);
             String noUpper = "abc123xyz4".repeat(4);
             String hexUpper = "ABCDEF0123".repeat(4);
@@ -184,12 +184,12 @@ class RedactorTest {
 
         @ParameterizedTest
         @CsvSource(delimiter = '|', value = {
-            "at C:/Users/david/.botwithus/x.log|at ~/.botwithus/x.log",
+            "at C:/Users/someone/.botwithus/x.log|at ~/.botwithus/x.log",
             "at d:\\users\\Some One\\x|at ~\\x",
             "at D:\\Users\\someone\\x|at ~\\x",
             // JSON-escaped form, spec §3 revision 3.
-            "{\"p\":\"C:\\\\Users\\\\david\\\\x\"}|{\"p\":\"~\\\\x\"}",
-            "at /home/david/.botwithus/x|at ~/.botwithus/x"})
+            "{\"p\":\"C:\\\\Users\\\\someone\\\\x\"}|{\"p\":\"~\\\\x\"}",
+            "at /home/someone/.botwithus/x|at ~/.botwithus/x"})
         void homeDirectories(String input, String expected) {
             assertEquals(expected, Redactor.withNames(KnownNames.NONE).redact(input));
         }

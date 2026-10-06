@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -48,6 +49,7 @@ public final class RunLogs {
     private final HostIdentity host;
     private final Clock clock;
     private final RunLogRetention retention;
+    private final Function<Supplier<KnownNames>, Redactor> redactors;
     private final SecureRandom random = new SecureRandom();
     private final InheritableThreadLocal<ScriptRun> current = new InheritableThreadLocal<>();
     private final Map<RunKey, ScriptRun> latestRuns = new ConcurrentHashMap<>();
@@ -63,10 +65,20 @@ public final class RunLogs {
     }
 
     RunLogs(Path root, HostIdentity host, Clock clock, RunLogRetention retention) {
+        this(root, host, clock, retention, Redactor::new);
+    }
+
+    /**
+     * With a different redactor per run. Package-private: only the live
+     * redaction check uses it, to run a pass-through control.
+     */
+    RunLogs(Path root, HostIdentity host, Clock clock, RunLogRetention retention,
+            Function<Supplier<KnownNames>, Redactor> redactors) {
         this.root = root;
         this.host = host;
         this.clock = clock;
         this.retention = retention;
+        this.redactors = redactors;
     }
 
     /** Writes run logs to the spec location under the user's home directory. */
@@ -89,7 +101,7 @@ public final class RunLogs {
         Instant startedAt = clock.instant();
         String runId = newRunId();
         RunKey key = new RunKey(request.connectionName(), request.script().name());
-        Redactor redactor = new Redactor(request.names());
+        Redactor redactor = redactors.apply(request.names());
         RunLogFile file = createFile(request, runId, startedAt, redactor);
         ScriptRun run = new ScriptRun(new ScriptRun.RunParts(runId, key, file, redactor, clock,
                 request.isScriptFrame(), summary -> crashes.put(key, summary), this::closed));

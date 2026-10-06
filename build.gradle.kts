@@ -45,6 +45,10 @@ subprojects {
 
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
+        // Stamps the build's version into each module descriptor, which is where
+        // a script run log's `host_version` header reads it from (HostIdentity).
+        // Without it every run log said `unknown`.
+        options.javaModuleVersion = projectVersion
         // -Werror is on. The three suppressed lints below are deliberate:
         //   -restricted        — Panama (java.lang.foreign) is the SUPPORTED
         //                        alternative to JNI per the project's rules;
