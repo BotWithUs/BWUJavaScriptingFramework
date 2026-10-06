@@ -240,6 +240,7 @@ tasks.register<Test>("liveSmokeTest") {
     filter {
         includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveLocationsSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveDynamicRegionSmokeTest")
+        includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveOpenInterfacesSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.rpc.LiveStaleRpcSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.rpc.LiveRetiredWalkerRpcTest")
         includeTestsMatching("com.botwithus.bot.core.impl.LiveComponentApiSmokeTest")
@@ -259,9 +260,10 @@ tasks.register<Test>("harnessTest") {
     // botwithus.harness.pid scopes LiveProtocolLockstepTest to the one client
     // the rest of the run is testing. Without it that gate would attach to
     // whichever agent it found first, and could certify a different process
-    // than the run then exercises.
+    // than the run then exercises. botwithus.live.expectOpenIfaces names the
+    // interfaces the caller opened first, for LiveOpenInterfacesSmokeTest.
     listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live",
-           "worldwalker.dll", "worldwalker.artifact",
+           "worldwalker.dll", "worldwalker.artifact", "botwithus.live.expectOpenIfaces",
            "botwithus.harness.pid").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }

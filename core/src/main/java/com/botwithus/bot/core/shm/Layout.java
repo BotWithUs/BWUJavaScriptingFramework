@@ -23,6 +23,15 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v22 raised {@link #OPEN_IFACE_CAP} from 64 to 256 and added {@code openIfaceTotal}
+     *  ({@link #SNAP_OPENIFACETOTAL_OFFSET}) beside {@code openIfaceCount}. A default HUD already
+     *  holds about 56 open sub-interfaces, so 64 overflowed in ordinary play, and the producer
+     *  walks the client's table in an order that put the bank (517) among the first ids cut: the
+     *  bank was visibly open while the snapshot said it was not. {@code openIfaceTotal} is the
+     *  client table's own element count ({@code 0} when the table could not be read), so a
+     *  consumer can see truncation instead of mistaking it for absence. An explicit u32 pad after
+     *  the array keeps the block ending at 4 mod 8, so every field from {@code groundItemCount}
+     *  on moved by exactly 776 bytes and {@link #SNAPSHOT_SIZE} went from 410800 to 411576.
      *  v21 added entity facing: a {@code u16 orientation} on NpcEntry
      *  ({@link #NPC_ORIENTATION_OFFSET}), PlayerEntry ({@link #PLAYER_ORIENTATION_OFFSET}) and
      *  LocalPlayer ({@link #LP_ORIENTATION_OFFSET}). NpcEntry grew 36 to 40 and PlayerEntry 28 to
@@ -80,7 +89,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 21;
+    public static final int PROTOCOL_VERSION = 22;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -95,9 +104,9 @@ public final class Layout {
     public static final int SKILL_CAP          = 32;
     public static final int INVENTORY_CAP      = 32;
     public static final int INVENTORY_ITEM_CAP = 2048;
-    /** Mirrors {@code kOpenIfaceCap} in SharedLayout.h. Snapshot of the
-     *  open-sub-interfaces hashmap; live counts are typically <20. */
-    public static final int OPEN_IFACE_CAP     = 64;
+    /** Mirrors {@code kOpenIfaceCap} in SharedLayout.h (256 since v22; was 64). Snapshot of
+     *  the open-sub-interfaces hashmap; a default HUD alone holds about 56 entries. */
+    public static final int OPEN_IFACE_CAP     = 256;
     /** Mirrors {@code kGroundItemCap} in SharedLayout.h. Cap on the per-tick
      *  ground-item array; matches {@link #NPC_CAP} for symmetry, costs 16 KB
      *  per buffer at {@link #GROUND_ITEM_ENTRY_SIZE} per row. */
@@ -379,12 +388,21 @@ public final class Layout {
     // Per-tick snapshot of jag::InterfaceManager's open-subs hashmap. The
     // count fits in a u32; entries [0, count) carry the interface ids the
     // producer found this tick. {@link #isInterfaceOpen} on SnapshotView
-    // does a linear scan — the keyset is small (~20 ids) and locality wins
+    // does a linear scan — the keyset is a few dozen ids and locality wins
     // over any data structure with constant overhead.
+    //
+    // openIfaceTotal (v22+) is the client table's own element count, read in
+    // the same pass as the array, or 0 when the table was unreadable. A count
+    // below the total means the list is incomplete, and an id missing from it
+    // is then not proof that the interface is closed. The u32 pad after the
+    // array keeps the block ending at 4 mod 8, as it did through v21.
     // ------------------------------------------------------------------
 
     public static final int SNAP_OPENIFACECOUNT_OFFSET = SNAP_PRODUCER_OFFSET + PRODUCER_SIZE;
-    public static final int SNAP_OPENIFACES_OFFSET     = SNAP_OPENIFACECOUNT_OFFSET + 4;
+    public static final int SNAP_OPENIFACETOTAL_OFFSET = SNAP_OPENIFACECOUNT_OFFSET + 4;
+    public static final int SNAP_OPENIFACES_OFFSET     = SNAP_OPENIFACETOTAL_OFFSET + 4;
+    /** {@code _padAfterOpenIfaces}; reserved, never read. */
+    public static final int SNAP_OPENIFACEPAD_OFFSET   = SNAP_OPENIFACES_OFFSET + OPEN_IFACE_CAP * 4;
 
     // ------------------------------------------------------------------
     // Ground items tail (v15+)
@@ -396,8 +414,7 @@ public final class Layout {
     // per-tick RPC round-trip. Replaces the retired query_ground_items.
     // ------------------------------------------------------------------
 
-    public static final int SNAP_GROUNDITEMCOUNT_OFFSET = SNAP_OPENIFACES_OFFSET
-                                                        + OPEN_IFACE_CAP * 4;
+    public static final int SNAP_GROUNDITEMCOUNT_OFFSET = SNAP_OPENIFACEPAD_OFFSET + 4;
     public static final int SNAP_GROUNDITEMS_OFFSET     = SNAP_GROUNDITEMCOUNT_OFFSET + 4;
 
     // ------------------------------------------------------------------

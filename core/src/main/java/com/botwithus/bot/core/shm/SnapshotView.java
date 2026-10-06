@@ -43,8 +43,13 @@ public final class SnapshotView {
      * This cannot make the row data coherent — that is inherent to the
      * lock-free double buffer, and a view is valid for one tick regardless —
      * but it does keep indices in range for the view's lifetime. Views are
-     * constructed per {@code region.snapshot()} call, so the cache is nine int
+     * constructed per {@code region.snapshot()} call, so the cache is ten int
      * loads with no staleness window of its own.
+     *
+     * openIfaceTotal is not an array bound, but it is cached beside
+     * openIfaceCount for the same reason: the completeness check compares the
+     * two, and reading them at different moments could pair a count from one
+     * publish with a total from the next.
      */
     private final int npcCount;
     private final int playerCount;
@@ -52,6 +57,7 @@ public final class SnapshotView {
     private final int inventoryCount;
     private final int invItemCount;
     private final int openIfaceCount;
+    private final int openIfaceTotal;
     private final int groundItemCount;
     private final int projectileCount;
     private final int dynChunkCount;
@@ -75,6 +81,7 @@ public final class SnapshotView {
         this.inventoryCount  = readCount(seg, Layout.SNAP_INVENTORYCOUNT_OFFSET,  Layout.INVENTORY_CAP);
         this.invItemCount    = readCount(seg, Layout.SNAP_INVITEMCOUNT_OFFSET,    Layout.INVENTORY_ITEM_CAP);
         this.openIfaceCount  = readCount(seg, Layout.SNAP_OPENIFACECOUNT_OFFSET,  Layout.OPEN_IFACE_CAP);
+        this.openIfaceTotal  = readCount(seg, Layout.SNAP_OPENIFACETOTAL_OFFSET,  Integer.MAX_VALUE);
         this.groundItemCount = readCount(seg, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, Layout.GROUND_ITEM_CAP);
         this.projectileCount = readCount(seg, Layout.SNAP_PROJECTILECOUNT_OFFSET, Layout.PROJECTILE_CAP);
         this.dynChunkCount   = readCount(seg, Layout.SNAP_DYNCHUNKCOUNT_OFFSET,   Layout.DYN_CHUNK_CAP);
@@ -254,6 +261,19 @@ public final class SnapshotView {
         return openIfaceCount;
     }
 
+    /** The client table's own element count this tick (v22+), or {@code 0} when the
+     *  producer could not read the table. Not bounded by {@link Layout#OPEN_IFACE_CAP}. */
+    public int openIfaceTotal() {
+        return openIfaceTotal;
+    }
+
+    /** True when the published list holds every open sub-interface: the table was
+     *  readable and nothing was truncated. When false, an id missing from the list is
+     *  not proof that the interface is closed. */
+    public boolean isOpenIfaceListComplete() {
+        return openIfaceTotal > 0 && openIfaceCount == openIfaceTotal;
+    }
+
     /** Returns the interface id at index {@code i} (0..openIfaceCount-1). */
     public int openIfaceAt(int i) {
         if (i < 0 || i >= openIfaceCount()) {
@@ -264,8 +284,9 @@ public final class SnapshotView {
     }
 
     /** True iff {@code ifaceId} appears in this tick's open-subs snapshot.
-     *  Linear scan; the keyset is small (~20 ids) so this is faster than
-     *  any data structure with constant overhead. */
+     *  Linear scan; the keyset is a few dozen ids so this is faster than
+     *  any data structure with constant overhead. A {@code false} is only
+     *  conclusive when {@link #isOpenIfaceListComplete()} holds. */
     public boolean isInterfaceOpen(int ifaceId) {
         int count = openIfaceCount();
         for (int i = 0; i < count; i++) {
