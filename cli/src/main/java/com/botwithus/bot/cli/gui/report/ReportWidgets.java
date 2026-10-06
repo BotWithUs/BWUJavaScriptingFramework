@@ -32,6 +32,10 @@ final class ReportWidgets {
     private static final float BULLET_X = 0.4f;
     private static final float FOCUS_RING_PX = 2f;
     private static final float BORDER_PX = 1f;
+    /** A choice ring's size against the small font, its unchosen stroke, and its dot against the ring. */
+    private static final float RADIO_EM = 1.1f;
+    private static final float RADIO_RING = 1.5f;
+    private static final float RADIO_DOT = 0.5f;
     private static final int FIELD_STYLE_VARS = 2;
     private static final int FIELD_STYLE_COLORS = 3;
 
@@ -89,6 +93,40 @@ final class ReportWidgets {
         int border = isActive ? ImGuiTheme.COL_FOCUS : ImGuiTheme.COL_BORDER;
         draw.addRect(x, y, x + width, y + height, border, m.radius(), 0, isActive ? FOCUS_RING_PX : BORDER_PX);
         return isActive && ImGui.getIO().getKeyCtrl() && ImGui.isKeyPressed(ImGuiKey.Enter, false);
+    }
+
+    /** One choice of a set: a ring, filled when chosen, and its words; returns whether it was clicked. */
+    boolean radio(String id, String label, boolean isChosen, float width) {
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY();
+        float h = ui.m().controlHeight();
+        boolean isClicked = ImGui.invisibleButton(id, width, h);
+        boolean isHovered = ImGui.isItemHovered();
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float r = ui.fonts().small().getFontSize() * RADIO_EM * 0.5f;
+        float cx = x + r + BORDER_PX;
+        float cy = y + h * 0.5f;
+        int ring = isChosen ? ImGuiTheme.COL_ACCENT : isHovered ? ImGuiTheme.COL_FG2 : ImGuiTheme.COL_FG3;
+        draw.addCircle(cx, cy, r, ring, 0, isChosen ? FOCUS_RING_PX : BORDER_PX * RADIO_RING);
+        if (isChosen) {
+            draw.addCircleFilled(cx, cy, r * RADIO_DOT, ImGuiTheme.COL_ACCENT);
+        }
+        int text = isChosen || isHovered ? ImGuiTheme.COL_FG : ImGuiTheme.COL_FG2;
+        ui.textCentredY(draw, ui.fonts().small(), x + r * 2f + ui.m().u(3), y, h, text, label);
+        return isClicked;
+    }
+
+    /** A quiet line under the note saying what is still missing: an info glyph and the words. */
+    void hint(String text, float width) {
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY() + ui.m().u(1);
+        ImFont font = ui.fonts().small();
+        float indent = ui.fonts().body().getFontSize() * BULLET_INDENT_EM;
+        ui.text(ImGui.getWindowDrawList(), ui.fonts().caption(), x, y + (font.getFontSize() * LINE_EM
+                - ui.fonts().caption().getFontSize()) * 0.5f, ImGuiTheme.COL_INFO, Icons.INFO);
+        ImGui.setCursorScreenPos(x + indent, y);
+        paragraph(font, ImGuiTheme.COL_FG2, text, width - indent);
+        ImGui.setCursorScreenPos(x, ImGui.getCursorScreenPosY());
     }
 
     /** A row with a chevron and {@code label}; returns whether it was clicked. */
@@ -163,7 +201,7 @@ final class ReportWidgets {
                 },
                 () -> lines.add(new DetailLine("No error was recorded, so your note matters most", false, true)));
         lines.add(new DetailLine("Recent activity from the BotWithUs launcher", false, true));
-        lines.add(new DetailLine("Your note, if you wrote one", false, true));
+        lines.add(new DetailLine("Your two answers above", false, true));
         return List.copyOf(lines);
     }
 

@@ -109,7 +109,8 @@ class CrashPayloadTest {
     @Test
     void request_withoutCrash_writesExplicitNull_andOmitsUnknowns() {
         ReportRequest r = new ReportRequest("Agility", "agility", OptionalLong.empty(), Optional.empty(), "2.0",
-                Optional.empty(), Optional.empty(), OptionalLong.empty(), KnownNames.NONE, Optional.empty(), "  ");
+                Optional.empty(), Optional.empty(), OptionalLong.empty(), KnownNames.NONE, Optional.empty(),
+                ProblemKind.WRONG_ACTION, "  it chopped the wrong tree  ");
         JsonObject o = JsonParser.parseString(r.toJson()).getAsJsonObject();
         assertAll(
                 () -> assertTrue(o.has("crash"), "crash must be present"),
@@ -117,7 +118,8 @@ class CrashPayloadTest {
                 () -> assertFalse(o.has("script_id")),
                 () -> assertFalse(o.has("run_id")),
                 () -> assertFalse(o.has("game_pid")),
-                () -> assertFalse(o.has("user_note")),
+                () -> assertEquals("it chopped the wrong tree", o.get("user_note").getAsString()),
+                () -> assertEquals("wrong_action", o.get("problem").getAsString()),
                 () -> assertEquals("java", o.get("host").getAsString()),
                 () -> assertEquals(0, o.getAsJsonObject("known_names").getAsJsonArray("accounts").size()));
     }
@@ -127,7 +129,7 @@ class CrashPayloadTest {
         CrashPayload p = CrashPayload.of(crash("  at a", List.of("rpc x")));
         ReportRequest r = new ReportRequest("Agility", "agility", OptionalLong.of(7), Optional.of("1"), "2.0",
                 Optional.of("run"), Optional.empty(), OptionalLong.of(5), KnownNames.NONE, Optional.of(p),
-                "n".repeat(ReportRequest.MAX_NOTE_CHARS + 10));
+                ProblemKind.CRASHED, "n".repeat(ReportRequest.MAX_NOTE_CHARS + 10));
         JsonObject o = JsonParser.parseString(r.toJson()).getAsJsonObject();
         JsonObject c = o.getAsJsonObject("crash");
         assertAll(

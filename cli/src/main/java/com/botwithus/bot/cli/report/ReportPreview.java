@@ -15,8 +15,11 @@ import java.util.stream.Stream;
  * @param scriptName the script it is about
  * @param crashLine  the error the script stopped with, if it crashed
  * @param logFiles   the script's own run logs the launcher will include, newest first
+ * @param hasLogs    whether the host has a run log for the script at all; without one
+ *                   there is nothing to send, and the dialog says so instead of asking
  */
-public record ReportPreview(String scriptName, Optional<String> crashLine, List<String> logFiles) {
+public record ReportPreview(String scriptName, Optional<String> crashLine, List<String> logFiles,
+                            boolean hasLogs) {
 
     /** How many of a script's run logs a report carries. */
     public static final int LOGS_SENT = 3;

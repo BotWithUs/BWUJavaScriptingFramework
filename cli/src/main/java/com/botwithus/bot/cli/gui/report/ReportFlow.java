@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.report;
 
+import com.botwithus.bot.cli.report.ReportForm;
 import com.botwithus.bot.cli.report.ReportPreview;
 import com.botwithus.bot.cli.report.ReportSender;
 import com.botwithus.bot.cli.report.ReportSubject;
@@ -79,11 +80,15 @@ public final class ReportFlow {
         }
     }
 
-    /** Sends what is being composed with {@code note}; ignored in any other stage. */
-    public void send(String note) {
+    /**
+     * Sends what is being composed. Ignored in any other stage, and while the form
+     * is incomplete: the dialog keeps Send off then, and this is its backstop.
+     */
+    public void send(ReportForm form) {
         switch (stage) {
-            case Stage.Composing c -> stage = new Stage.Sending(c.subject(), sender.send(c.subject(), note));
-            case Stage.Closed _, Stage.Sending _, Stage.Done _ -> { }
+            case Stage.Composing c when form.isComplete() -> stage = new Stage.Sending(c.subject(),
+                    sender.send(c.subject(), form.problem().orElseThrow(), form.note()));
+            case Stage.Composing _, Stage.Closed _, Stage.Sending _, Stage.Done _ -> { }
         }
     }
 

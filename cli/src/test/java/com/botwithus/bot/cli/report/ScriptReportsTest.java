@@ -9,6 +9,7 @@ import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.impl.ReportCommand;
 import com.botwithus.bot.core.report.CrashPayload;
 import com.botwithus.bot.core.report.LauncherReportChannel;
+import com.botwithus.bot.core.report.ProblemKind;
 import com.botwithus.bot.core.report.ReportReply;
 import com.botwithus.bot.core.report.ReportRequest;
 import com.botwithus.bot.core.runlog.CrashPhase;
@@ -64,6 +65,7 @@ class ScriptReportsTest {
     private static final HostIdentity HOST = new HostIdentity("2.3.0", 22, "Windows 11 10.0", "Java 25");
     private static final KnownNames NAMES = new KnownNames(List.of("Main Acc"), List.of("Zezima"));
     private static final int MANY_CRUMBS = 80;
+    private static final String NOTE = "it froze at the bank chest";
 
     @ScriptManifest(name = SCRIPT, version = "1.4.2")
     static final class AgilityScript implements BotScript {
@@ -129,7 +131,8 @@ class ScriptReportsTest {
         run.crash(CrashPhase.ON_LOOP, 7, new IllegalStateException("npc vanished"));
         run.close();
 
-        ReportRequest request = reports().request(new ReportSubject(PIPE, SCRIPT), "it fell off the log");
+        ReportRequest request = reports().request(new ReportSubject(PIPE, SCRIPT), ProblemKind.CRASHED,
+                "it fell off the log");
         JsonObject o = json(request);
 
         Path logFile = run.logFile().orElseThrow();
@@ -158,7 +161,7 @@ class ScriptReportsTest {
         ScriptRun run = openRun();
         run.close();
 
-        JsonObject o = json(reports().request(new ReportSubject(PIPE, SCRIPT), ""));
+        JsonObject o = json(reports().request(new ReportSubject(PIPE, SCRIPT), ProblemKind.STUCK, NOTE));
 
         assertAll(
                 () -> assertEquals(run.runId(), o.get("run_id").getAsString()),
@@ -171,7 +174,7 @@ class ScriptReportsTest {
     void request_openRun_usesItsRunId() {
         ScriptRun run = openRun();
 
-        JsonObject o = json(reports().request(new ReportSubject(PIPE, SCRIPT), ""));
+        JsonObject o = json(reports().request(new ReportSubject(PIPE, SCRIPT), ProblemKind.STUCK, NOTE));
 
         assertEquals(run.runId(), o.get("run_id").getAsString());
     }
@@ -181,14 +184,14 @@ class ScriptReportsTest {
         connectRunner();
         for (String id : List.of("abc", "0", "-4", "")) {
             ledger = Map.of(AgilityScript.class.getName(), new InstalledSdnScript(id, null, Instant.EPOCH));
-            ReportRequest r = reports().request(new ReportSubject(PIPE, SCRIPT), "");
+            ReportRequest r = reports().request(new ReportSubject(PIPE, SCRIPT), ProblemKind.STUCK, NOTE);
             assertEquals(OptionalLong.empty(), r.scriptId(), "catalogue id '" + id + "'");
         }
     }
 
     @Test
     void request_unknownPipe_hasNoPidAndNoNames() {
-        ReportRequest r = reports().request(new ReportSubject("not-a-pipe", SCRIPT), "");
+        ReportRequest r = reports().request(new ReportSubject("not-a-pipe", SCRIPT), ProblemKind.OTHER, NOTE);
         assertAll(
                 () -> assertEquals(OptionalLong.empty(), r.gamePid()),
                 () -> assertEquals(KnownNames.NONE, r.knownNames()),
@@ -235,57 +238,124 @@ class ScriptReportsTest {
         FakeLauncher launcher = FakeLauncher.answerOnce(dir,
                 "{\"status\":\"ok\",\"code\":\"BWU-ABC234\",\"user_message\":\"Thanks! Code BWU-ABC234.\"}");
 
-        ReportReply reply = reports(channel).sendNow(new ReportSubject(PIPE, SCRIPT), "note");
+        ReportReply reply = reports(channel).sendNow(new ReportSubject(PIPE, SCRIPT), ProblemKind.STUCK, NOTE);
         launcher.join();
 
         assertAll(
-                () -> assertEquals(new ReportReply.Sent("BWU-ABC234", Optional.empty(), "Thanks! Code BWU-ABC234."),
+                () -> assertEquals(new ReportReply.Sent("BWU-ABC234", "Thanks! Code BWU-ABC234."),
                         reply),
                 () -> assertEquals(List.of(), list(dir)),
                 () -> assertTrue(launcher.request().contains("\"script_name\":\"" + SCRIPT + "\"")));
     }
 
+    /** Runs one {@code report} line against a mocked host and returns what it printed. */
+    private String runCommand(ScriptReports with, String line) {
+        CliContext ctx = mock(CliContext.class);
+        ByteArrayOutputStream printed = new ByteArrayOutputStream();
+        when(ctx.out()).thenReturn(new PrintStream(printed, true, StandardCharsets.UTF_8));
+        when(ctx.getActiveConnectionName()).thenReturn(PIPE);
+        when(ctx.getConnections()).thenReturn(List.copyOf(connections));
+        new ReportCommand(with).execute(CommandParser.parse(line), ctx);
+        return printed.toString(StandardCharsets.UTF_8);
+    }
+
     /**
      * The headless path end to end: the {@code report} command finds the script
-     * on the active client, sends through the channel and prints the launcher's
-     * message unchanged.
+     * on the active client, sends through the channel with both answers, and
+     * prints the launcher's message unchanged.
      */
     @Test
     void reportCommand_printsTheLaunchersMessageUnchanged() throws Exception {
         connectRunner();
+        openRun().close();
         Path dir = Files.createDirectories(root.resolve("reports"));
         LauncherReportChannel channel = new LauncherReportChannel(dir, new LauncherReportChannel.Timing(
                 Duration.ofSeconds(2), Duration.ofSeconds(2), Duration.ofMillis(10)));
         String message = "You're not signed in to the launcher. Sign in, then try again.";
         FakeLauncher launcher = FakeLauncher.answerOnce(dir,
                 "{\"status\":\"error\",\"error\":\"not_signed_in\",\"user_message\":\"" + message + "\"}");
-        CliContext ctx = mock(CliContext.class);
-        ByteArrayOutputStream printed = new ByteArrayOutputStream();
-        when(ctx.out()).thenReturn(new PrintStream(printed, true, StandardCharsets.UTF_8));
-        when(ctx.getActiveConnectionName()).thenReturn(PIPE);
-        when(ctx.getConnections()).thenReturn(List.copyOf(connections));
 
-        new ReportCommand(reports(channel)).execute(
-                CommandParser.parse("report \"" + SCRIPT + "\" --note it got stuck"), ctx);
+        String out = runCommand(reports(channel),
+                "report \"" + SCRIPT + "\" --problem stuck --note it got stuck at the gate");
         launcher.join();
 
-        String out = printed.toString(StandardCharsets.UTF_8);
         assertAll(
                 () -> assertTrue(out.endsWith(message + System.lineSeparator()), out),
-                () -> assertTrue(launcher.request().contains("\"user_note\":\"it got stuck\"")));
+                () -> assertTrue(launcher.request().contains("\"user_note\":\"it got stuck at the gate\""),
+                        launcher.request()),
+                () -> assertTrue(launcher.request().contains("\"problem\":\"stuck\""), launcher.request()));
+    }
+
+    /** Every line that lacks a required part prints the usage and sends nothing, launcher or not. */
+    @Test
+    void reportCommand_missingOrWrongArguments_printUsage() {
+        connectRunner();
+        openRun().close();
+        String usage = "Usage: " + new ReportCommand(reports()).usage() + System.lineSeparator();
+        for (String line : List.of("report",
+                "report \"" + SCRIPT + "\" --note it got stuck at the gate",
+                "report \"" + SCRIPT + "\" --problem stuck",
+                "report \"" + SCRIPT + "\" --problem=frozen --note it got stuck at the gate",
+                "report \"" + SCRIPT + "\" --problem stuck --note")) {
+            assertEquals(usage, runCommand(reports(), line), line);
+        }
+    }
+
+    @Test
+    void reportCommand_shortNote_saysSoInTheLaunchersWords() {
+        connectRunner();
+        openRun().close();
+        assertEquals(ReportReply.Failed.noteTooShort().userMessage() + System.lineSeparator(),
+                runCommand(reports(), "report \"" + SCRIPT + "\" --problem=crashed --note=it broke"));
+    }
+
+    @Test
+    void reportCommand_noLogs_saysLogsMissing_andSendsNothing() throws IOException {
+        connectRunner();
+        Path dir = Files.createDirectories(root.resolve("reports"));
+
+        String out = runCommand(reports(new LauncherReportChannel(dir)),
+                "report \"" + SCRIPT + "\" --problem other --note nothing happened at all today");
+
+        assertAll(
+                () -> assertEquals(ReportReply.Failed.logsMissing().userMessage() + System.lineSeparator(), out),
+                () -> assertEquals(List.of(), list(dir), "a request was written"));
     }
 
     @Test
     void reportCommand_unknownScript_sendsNothing() {
-        CliContext ctx = mock(CliContext.class);
-        ByteArrayOutputStream printed = new ByteArrayOutputStream();
-        when(ctx.out()).thenReturn(new PrintStream(printed, true, StandardCharsets.UTF_8));
-        when(ctx.getActiveConnectionName()).thenReturn(PIPE);
-        when(ctx.getConnections()).thenReturn(List.of());
+        String out = runCommand(reports(), "report Nope --problem other --note nothing happened at all today");
 
-        new ReportCommand(reports()).execute(CommandParser.parse("report Nope"), ctx);
+        assertTrue(out.contains("Nothing is known about a script named"), out);
+    }
 
-        assertTrue(printed.toString(StandardCharsets.UTF_8).contains("Nothing is known about a script named"));
+    /** The host's own checks: no request reaches the launcher's directory. */
+    @Test
+    void sendNow_withoutLogsOrWithAShortNote_answersHereAndWritesNothing() throws IOException {
+        connectRunner();
+        Path dir = Files.createDirectories(root.resolve("reports"));
+        ScriptReports reports = reports(new LauncherReportChannel(dir));
+        ReportSubject subject = new ReportSubject(PIPE, SCRIPT);
+
+        ReportReply noLogs = reports.sendNow(subject, ProblemKind.CRASHED, NOTE);
+        openRun().close();
+        ReportReply shortNote = reports.sendNow(subject, ProblemKind.CRASHED, "it broke");
+
+        assertAll(
+                () -> assertEquals(ReportReply.Failed.logsMissing(), noLogs),
+                () -> assertEquals(ReportReply.Failed.noteTooShort(), shortNote),
+                () -> assertEquals(List.of(), list(dir)));
+    }
+
+    @Test
+    void preview_saysWhetherThereAreLogs() {
+        ReportSubject subject = new ReportSubject(PIPE, SCRIPT);
+        boolean before = reports().previewNow(subject).hasLogs();
+        openRun();
+        assertAll(
+                () -> assertFalse(before),
+                () -> assertTrue(reports().previewNow(subject).hasLogs()),
+                () -> assertTrue(reports().hasLogs(subject)));
     }
 
     private static List<String> list(Path dir) throws IOException {

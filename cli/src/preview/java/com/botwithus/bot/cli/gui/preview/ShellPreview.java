@@ -49,7 +49,9 @@ import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.notify.ToastFeed;
 import com.botwithus.bot.cli.gui.report.ReportDialog;
 import com.botwithus.bot.cli.gui.report.ReportFlow;
+import com.botwithus.bot.cli.report.ReportForm;
 import com.botwithus.bot.cli.report.ReportSubject;
+import com.botwithus.bot.core.report.ProblemKind;
 import com.botwithus.bot.core.report.ReportReply;
 import com.botwithus.bot.cli.gui.pages.settings.IntegrationScene;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsAction;
@@ -1133,32 +1135,46 @@ public final class ShellPreview extends Application {
      * ends. The replies' words are fixture text; the launcher writes the real ones.
      */
     private static List<Scenario> reportScenarios() {
-        ReportSubject cooks = new ReportSubject(FixtureFleet.OAKHEART_PIPE, "Cook's Assistant");
-        BiConsumer<Stage, Integer> open = (s, f) -> {
+        ReportSubject fromToast = ReportSubject.afterCrash(FixtureFleet.OAKHEART_PIPE, "Cook's Assistant");
+        ReportSubject fromRow = new ReportSubject(FixtureFleet.OAKHEART_PIPE, "Cook's Assistant");
+        String note = "It stopped after it picked up the second cabbage.";
+        BiConsumer<Stage, Integer> openFromToast = (s, f) -> {
             if (f == 0) {
-                s.reports().open(cooks);
+                s.reports().open(fromToast);
             }
         };
         BiConsumer<Stage, Integer> openAndSend = (s, f) -> {
             if (f == 0) {
-                s.reports().open(cooks);
-                s.reports().send("It stopped after it picked up the second cabbage.");
+                s.reports().open(fromToast);
+                s.reports().send(new ReportForm(Optional.of(ProblemKind.CRASHED), note));
             }
         };
         return List.of(
                 Scenario.report("170-report-toast-crash-offers-report", FixtureReports::pending,
                         once(ShellPreview::crash)),
-                Scenario.report("171-report-dialog", FixtureReports::pending, open),
-                Scenario.report("172-report-dialog-what-will-be-sent", FixtureReports::pending, (s, f) -> {
-                    open.accept(s, f);
+                // From the crash toast: the answer is preselected and only the note is missing.
+                Scenario.report("171-report-dialog", FixtureReports::pending, openFromToast),
+                Scenario.report("172-report-dialog-filled-what-will-be-sent", FixtureReports::pending, (s, f) -> {
+                    openFromToast.accept(s, f);
                     if (f == 1) {
+                        s.reportDialog().fill(Optional.of(ProblemKind.CRASHED), note);
                         s.reportDialog().expandDetails();
                     }
                 }),
                 Scenario.report("173-report-sending", FixtureReports::pending, openAndSend),
                 Scenario.report("174-report-sent", () -> FixtureReports.answering(FixtureReports.SENT), openAndSend),
                 Scenario.report("175-report-launcher-not-running",
-                        () -> FixtureReports.answering(ReportReply.Failed.launcherNotRunning()), openAndSend));
+                        () -> FixtureReports.answering(ReportReply.Failed.launcherNotRunning()), openAndSend),
+                // From a script row: nothing chosen, and a note too short to send.
+                Scenario.report("176-report-form-incomplete", FixtureReports::pending, (s, f) -> {
+                    if (f == 0) {
+                        s.reports().open(fromRow);
+                    }
+                    if (f == 1) {
+                        s.reportDialog().fill(Optional.empty(), "it froze");
+                    }
+                }),
+                Scenario.report("177-report-no-logs", FixtureReports::noLogs, openFromToast));
     }
 
     /** Runs {@code post} on the first frame only, with the time it happened. */

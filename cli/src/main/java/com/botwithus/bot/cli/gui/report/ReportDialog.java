@@ -5,7 +5,9 @@ import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.report.ReportFlow.Stage;
+import com.botwithus.bot.cli.report.ReportForm;
 import com.botwithus.bot.cli.report.ReportPreview;
+import com.botwithus.bot.core.report.ProblemKind;
 import com.botwithus.bot.core.report.ReportReply;
 import com.botwithus.bot.core.report.ReportRequest;
 
@@ -19,13 +21,16 @@ import imgui.flag.ImGuiWindowFlags;
 import imgui.type.ImString;
 
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * The "Report a problem" dialog: one modal for the crash toast's "Send report to
  * script author" and the script rows' "Report a problem". Written for someone
- * who has never had to describe a software problem: one optional question, the
- * contents behind a disclosure, one hero button, and the launcher's own words
- * for the outcome, shown as they came.
+ * who has never had to describe a software problem: two plain questions (what
+ * went wrong, and what they were doing), the contents behind a disclosure, one
+ * hero button that stays off until both are answered, and the launcher's own
+ * words for the outcome, shown as they came. A script with no run log gets no
+ * form at all: there would be nothing for its author to go on.
  *
  * <p>Render thread only. It draws {@link ReportFlow#stage()}; the flow owns
  * the state and the sender owns the waiting.</p>
@@ -33,7 +38,9 @@ import java.util.Objects;
 public final class ReportDialog {
 
     private static final String POPUP_ID = "##report-problem";
-    private static final String QUESTION = "What were you doing when it went wrong? (optional)";
+    private static final String WHAT_WENT_WRONG = "What went wrong?";
+    private static final String QUESTION = "What were you doing when it went wrong?";
+    private static final String CHECKING = "Looking for this script's logs…";
     private static final String WHO_GETS_IT =
             "Your report goes to the person who made this script, so they can fix it.";
     private static final String WHAT_IS_SENT = "What will be sent";
@@ -67,6 +74,9 @@ public final class ReportDialog {
     private final ReportWidgets widgets;
     private boolean isPopupOpen;
     private boolean isDetailsOpen;
+    /** Set when "What will be sent" opens, so the next frame scrolls Send back into view. */
+    private boolean isScrollToButtons;
+    private Optional<ProblemKind> problem = Optional.empty();
     private double copiedAt = Double.NEGATIVE_INFINITY;
 
     public ReportDialog(Controls ui, ReportFlow flow) {
@@ -89,7 +99,7 @@ public final class ReportDialog {
         place();
         pushStyle();
         int flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove
-                | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoSavedSettings
+                | ImGuiWindowFlags.NoSavedSettings
                 | ImGuiWindowFlags.AlwaysAutoResize;
         boolean isOpen = ImGui.beginPopupModal(POPUP_ID, flags);
         popStyle();
@@ -112,6 +122,17 @@ public final class ReportDialog {
     /** Opens "What will be sent", as clicking it does; for keyboard-free automation and the preview. */
     public void expandDetails() {
         isDetailsOpen = true;
+        isScrollToButtons = true;
+    }
+
+    /**
+     * Fills the form as a user would: the answer chosen and the note typed. For
+     * keyboard-free automation and the preview; call it after the dialog's first
+     * frame, which clears the form.
+     */
+    public void fill(Optional<ProblemKind> answer, String text) {
+        problem = answer;
+        note.set(text);
     }
 
     private static boolean isClosed(Stage stage) {
@@ -127,28 +148,57 @@ public final class ReportDialog {
         boolean isFirstFrame = c.isNew();
         if (isFirstFrame) {
             note.set("");
+            problem = c.subject().likelyProblem();
             isDetailsOpen = false;
         }
         header(Icons.FLAG, ImGuiTheme.COL_INFO, ImGuiTheme.COL_INFO_SOFT,
                 "Report a problem with " + c.subject().scriptName(), width);
+        flow.drawn();
+        Optional<ReportPreview> preview = c.previewIfReady();
+        if (preview.isEmpty()) {
+            widgets.paragraph(ui.fonts().small(), ImGuiTheme.COL_FG3, CHECKING, width);
+            gap();
+            closeOnlyButton("Cancel", width);
+        } else if (!preview.get().hasLogs()) {
+            widgets.paragraph(ui.fonts().body(), ImGuiTheme.COL_FG, ReportReply.Failed.logsMissing().userMessage(),
+                    width);
+            gap();
+            closeOnlyButton("Close", width);
+        } else {
+            form(preview, width, isFirstFrame);
+        }
+    }
+
+    /** The two questions, what will be sent, and Send once both are answered. */
+    private void form(Optional<ReportPreview> preview, float width, boolean isFirstFrame) {
         widgets.paragraph(ui.fonts().small(), ImGuiTheme.COL_FG2, WHO_GETS_IT, width);
+        gap();
+        widgets.paragraph(ui.fonts().smallMedium(), ImGuiTheme.COL_FG, WHAT_WENT_WRONG, width);
+        for (ProblemKind kind : ProblemKind.values()) {
+            if (widgets.radio("##report-problem-" + kind.wireName(), kind.label(),
+                    problem.filter(kind::equals).isPresent(), width)) {
+                problem = Optional.of(kind);
+            }
+        }
         gap();
         widgets.paragraph(ui.fonts().smallMedium(), ImGuiTheme.COL_FG, QUESTION, width);
         boolean isSubmitKey = widgets.noteField("##report-note", note, width,
                 ImGui.getFontSize() * LINE_EM * NOTE_LINES, isFirstFrame);
+        ReportForm form = new ReportForm(problem, note.get());
+        form.hint().ifPresent(hint -> widgets.hint(hint, width));
         gap();
         if (widgets.disclosure("##report-details", WHAT_IS_SENT, isDetailsOpen, width)) {
             isDetailsOpen = !isDetailsOpen;
+            isScrollToButtons = isDetailsOpen;
         }
         if (isDetailsOpen) {
-            widgets.details(c.previewIfReady(), PRIVACY, width);
+            widgets.details(preview, PRIVACY, width);
         }
         gap();
-        flow.drawn();
-        composeButtons(width, isSubmitKey);
+        composeButtons(form, width, isSubmitKey);
     }
 
-    private void composeButtons(float width, boolean isSubmitKey) {
+    private void composeButtons(ReportForm form, float width, boolean isSubmitKey) {
         String cancel = "Cancel";
         String send = "Send";
         float gap = ui.m().u(2);
@@ -163,8 +213,23 @@ public final class ReportDialog {
             return;
         }
         ImGui.setCursorScreenPos(x + ui.buttonWidth(null, cancel, Tone.GHOST) + gap, y);
-        if (ui.button("##report-send", Icons.PAPER_PLANE, send, Tone.PRIMARY, true) || isSubmitKey) {
-            flow.send(note.get());
+        if (isScrollToButtons) {
+            ImGui.setScrollHereY(1f);
+            isScrollToButtons = false;
+        }
+        boolean isReady = form.isComplete();
+        if (ui.button("##report-send", Icons.PAPER_PLANE, send, Tone.PRIMARY, isReady) || isSubmitKey) {
+            flow.send(form);
+        }
+    }
+
+    /** One right-aligned button that closes the dialog; Esc and Enter do the same. */
+    private void closeOnlyButton(String label, float width) {
+        ImGui.setCursorScreenPos(ImGui.getCursorScreenPosX() + width - ui.buttonWidth(null, label, Tone.PRIMARY),
+                ImGui.getCursorScreenPosY());
+        if (ui.button("##report-close", null, label, Tone.PRIMARY, true)
+                || ImGui.isKeyPressed(ImGuiKey.Escape, false) || ImGui.isKeyPressed(ImGuiKey.Enter, false)) {
+            flow.close();
         }
     }
 
@@ -214,12 +279,7 @@ public final class ReportDialog {
             case ReportReply.Sent _ -> "Done";
             case ReportReply.Failed _ -> "Close";
         };
-        ImGui.setCursorScreenPos(ImGui.getCursorScreenPosX() + width - ui.buttonWidth(null, close, Tone.PRIMARY),
-                ImGui.getCursorScreenPosY());
-        if (ui.button("##report-done", null, close, Tone.PRIMARY, true)
-                || ImGui.isKeyPressed(ImGuiKey.Escape, false) || ImGui.isKeyPressed(ImGuiKey.Enter, false)) {
-            flow.close();
-        }
+        closeOnlyButton(close, width);
     }
 
     /** The code, large, in a tinted box with Copy beside it. */
@@ -278,6 +338,9 @@ public final class ReportDialog {
         var vp = ImGui.getMainViewport();
         ImGui.setNextWindowPos(vp.getPosX() + vp.getSizeX() * 0.5f, vp.getPosY() + vp.getSizeY() * 0.5f,
                 0, 0.5f, 0.5f);
+        // Never taller than the window: "What will be sent" can open below the fold,
+        // and Send must stay reachable, so the dialog scrolls instead.
+        ImGui.setNextWindowSizeConstraints(0f, 0f, vp.getSizeX(), vp.getSizeY() - ui.m().u(5) * 2f);
     }
 
     private void pushStyle() {

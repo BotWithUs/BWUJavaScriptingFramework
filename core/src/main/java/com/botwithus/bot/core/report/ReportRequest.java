@@ -33,12 +33,14 @@ import java.util.OptionalLong;
  * @param gamePid       the game client's process id, if known
  * @param knownNames    the names the launcher must redact
  * @param crash         the trimmed crash, or empty when there was none
- * @param userNote      what the user typed; blank when nothing
+ * @param problem       what the user says went wrong
+ * @param userNote      what the user was doing; at least {@value #MIN_NOTE_CHARS} characters once trimmed
  */
 public record ReportRequest(String scriptName, String scriptSlug, OptionalLong scriptId,
                             Optional<String> scriptVersion, String hostVersion, Optional<String> runId,
                             Optional<Path> runLogDir, OptionalLong gamePid, KnownNames knownNames,
-                            Optional<CrashPayload> crash, String userNote) {
+                            Optional<CrashPayload> crash, ProblemKind problem,
+                            String userNote) {
 
     /** The request format this host writes. */
     public static final int FORMAT = 1;
@@ -46,6 +48,8 @@ public record ReportRequest(String scriptName, String scriptSlug, OptionalLong s
     public static final String HOST = "java";
     /** Longest note the website keeps, in characters. */
     public static final int MAX_NOTE_CHARS = 2000;
+    /** Shortest note the website accepts, in characters after trimming. */
+    public static final int MIN_NOTE_CHARS = 15;
 
     public ReportRequest {
         Objects.requireNonNull(scriptName, "scriptName");
@@ -58,7 +62,26 @@ public record ReportRequest(String scriptName, String scriptSlug, OptionalLong s
         Objects.requireNonNull(gamePid, "gamePid");
         Objects.requireNonNull(knownNames, "knownNames");
         Objects.requireNonNull(crash, "crash");
+        Objects.requireNonNull(problem, "problem");
         userNote = CrashPayload.cutChars(userNote == null ? "" : userNote.strip(), MAX_NOTE_CHARS);
+        if (!isNoteLongEnough(userNote)) {
+            throw new IllegalArgumentException("a report needs a note of at least " + MIN_NOTE_CHARS
+                    + " characters");
+        }
+    }
+
+    /**
+     * Whether {@code note} is long enough to send: {@value #MIN_NOTE_CHARS} characters
+     * or more once trimmed, counting a character outside the BMP once.
+     */
+    public static boolean isNoteLongEnough(String note) {
+        return noteLength(note) >= MIN_NOTE_CHARS;
+    }
+
+    /** The trimmed note's length in characters, as the website counts it. */
+    public static int noteLength(String note) {
+        String trimmed = note == null ? "" : note.strip();
+        return trimmed.codePointCount(0, trimmed.length());
     }
 
     /** The request as the launcher reads it: UTF-8 JSON, one object. */
@@ -76,9 +99,8 @@ public record ReportRequest(String scriptName, String scriptSlug, OptionalLong s
         gamePid.ifPresent(pid -> o.addProperty("game_pid", pid));
         o.add("known_names", names(knownNames));
         o.add("crash", crash.<JsonElement>map(ReportRequest::crash).orElse(JsonNull.INSTANCE));
-        if (!userNote.isEmpty()) {
-            o.addProperty("user_note", userNote);
-        }
+        o.addProperty("problem", problem.wireName());
+        o.addProperty("user_note", userNote);
         return new GsonBuilder().serializeNulls().create().toJson(o);
     }
 

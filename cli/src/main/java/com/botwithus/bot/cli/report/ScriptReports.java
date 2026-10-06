@@ -5,6 +5,7 @@ import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.report.CrashPayload;
 import com.botwithus.bot.core.report.LauncherReportChannel;
+import com.botwithus.bot.core.report.ProblemKind;
 import com.botwithus.bot.core.report.ReportReply;
 import com.botwithus.bot.core.report.ReportRequest;
 import com.botwithus.bot.core.runlog.CrashSummary;
@@ -95,18 +96,33 @@ public final class ScriptReports implements ReportSender {
             return gatherPreview(subject);
         } catch (RuntimeException e) {
             log.warn("Could not list what a report for {} would send", subject.scriptName(), e);
-            return new ReportPreview(subject.scriptName(), Optional.empty(), List.of());
+            return new ReportPreview(subject.scriptName(), Optional.empty(), List.of(), hasLogs(subject));
         }
     }
 
     private ReportPreview gatherPreview(ReportSubject subject) {
         RunLogs logs = deps.runLogs().get();
         Optional<CrashSummary> crash = logs.lastCrash(subject.connectionName(), subject.scriptName());
-        Optional<Path> logFile = crash.flatMap(CrashSummary::logFile)
-                .or(() -> logs.currentOrLastLog(subject.connectionName(), subject.scriptName()));
-        Optional<Path> dir = logFile.map(Path::getParent);
+        Optional<Path> logFile = primaryLog(logs, crash, subject);
         return new ReportPreview(subject.scriptName(), crash.map(CrashSummary::exception),
-                dir.map(ReportPreview::newestLogs).orElse(List.of()));
+                logFile.map(Path::getParent).map(ReportPreview::newestLogs).orElse(List.of()),
+                logFile.isPresent());
+    }
+
+    /**
+     * Whether the host has a run log for this script on this client. Without one
+     * there is nothing for the author to go on, so no report is offered or sent.
+     */
+    public boolean hasLogs(ReportSubject subject) {
+        RunLogs logs = deps.runLogs().get();
+        return primaryLog(logs, logs.lastCrash(subject.connectionName(), subject.scriptName()), subject)
+                .isPresent();
+    }
+
+    /** The log of the crashed run, else the open or last run's. */
+    private static Optional<Path> primaryLog(RunLogs logs, Optional<CrashSummary> crash, ReportSubject subject) {
+        return crash.flatMap(CrashSummary::logFile)
+                .or(() -> logs.currentOrLastLog(subject.connectionName(), subject.scriptName()));
     }
 
     /** Whether the host has anything to report about this script: a runner, a log or a crash. */
@@ -117,22 +133,25 @@ public final class ScriptReports implements ReportSender {
                 || logs.lastCrash(subject.connectionName(), subject.scriptName()).isPresent();
     }
 
-    /** The request for {@code subject} with the user's {@code note}. */
-    public ReportRequest request(ReportSubject subject, String note) {
+    /**
+     * The request for {@code subject} with the user's answers.
+     *
+     * @throws IllegalArgumentException when {@code note} is shorter than the website accepts
+     */
+    public ReportRequest request(ReportSubject subject, ProblemKind problem, String note) {
         RunLogs logs = deps.runLogs().get();
         String conn = subject.connectionName();
         String script = subject.scriptName();
         Optional<CrashSummary> crash = logs.lastCrash(conn, script);
         Optional<ScriptRunner> runner = runner(subject);
-        Optional<Path> logFile = crash.flatMap(CrashSummary::logFile)
-                .or(() -> logs.currentOrLastLog(conn, script));
+        Optional<Path> logFile = primaryLog(logs, crash, subject);
         Optional<String> runId = crash.map(CrashSummary::runId)
                 .or(() -> logs.openRun(conn, script).map(ScriptRun::runId))
                 .or(() -> logFile.flatMap(RunLogHeaders::runId));
         return new ReportRequest(script, ScriptSlug.of(script), storeId(runner), version(runner),
                 deps.host().hostVersion(), runId, logFile.map(Path::getParent), SharedRegion.parsePid(conn),
                 connection(conn).map(Connection::knownNames).orElse(KnownNames.NONE),
-                crash.map(CrashPayload::of), note);
+                crash.map(CrashPayload::of), problem, note);
     }
 
     /**
@@ -141,16 +160,26 @@ public final class ScriptReports implements ReportSender {
      * message to show.
      */
     @Override
-    public CompletableFuture<ReportReply> send(ReportSubject subject, String note) {
+    public CompletableFuture<ReportReply> send(ReportSubject subject, ProblemKind problem, String note) {
         CompletableFuture<ReportReply> done = new CompletableFuture<>();
-        Thread.ofVirtual().name("report-send").start(() -> done.complete(sendNow(subject, note)));
+        Thread.ofVirtual().name("report-send").start(() -> done.complete(sendNow(subject, problem, note)));
         return done;
     }
 
-    /** Sends the report on the calling thread, which waits up to the channel's windows. */
-    public ReportReply sendNow(ReportSubject subject, String note) {
+    /**
+     * Sends the report on the calling thread, which waits up to the channel's
+     * windows. Checks first, as the launcher will: no run log, or a note too
+     * short, is answered here in the launcher's words and nothing is sent.
+     */
+    public ReportReply sendNow(ReportSubject subject, ProblemKind problem, String note) {
+        if (!hasLogs(subject)) {
+            return ReportReply.Failed.logsMissing();
+        }
+        if (!ReportRequest.isNoteLongEnough(note)) {
+            return ReportReply.Failed.noteTooShort();
+        }
         try {
-            ReportRequest request = request(subject, note);
+            ReportRequest request = request(subject, problem, note);
             String id = deps.channel().newRequestId(ProcessHandle.current().pid(), request.runId());
             ReportReply reply = deps.channel().send(id, request);
             log.info("Report for {} ended: {}", subject.scriptName(), outcome(reply));

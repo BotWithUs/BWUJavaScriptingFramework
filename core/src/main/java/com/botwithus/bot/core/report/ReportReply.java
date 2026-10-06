@@ -27,13 +27,11 @@ public sealed interface ReportReply {
      * The report reached the script's author.
      *
      * @param code        the short code the user can quote, e.g. {@code BWU-7K3Q9P}
-     * @param ticketUrl   where the ticket lives; empty when the launcher gave none
      * @param userMessage what to show
      */
-    record Sent(String code, Optional<String> ticketUrl, String userMessage) implements ReportReply {
+    record Sent(String code, String userMessage) implements ReportReply {
         public Sent {
             Objects.requireNonNull(code, "code");
-            Objects.requireNonNull(ticketUrl, "ticketUrl");
             Objects.requireNonNull(userMessage, "userMessage");
         }
     }
@@ -53,6 +51,10 @@ public sealed interface ReportReply {
         public static final String LAUNCHER_TIMEOUT = "launcher_timeout";
         /** The answer could not be read. */
         public static final String BAD_REPLY = "bad_reply";
+        /** No run log for the script: checked by the host first, by the launcher as a backstop. */
+        public static final String LOGS_MISSING = "logs_missing";
+        /** The note is too short: checked by the host first, by the launcher as a backstop. */
+        public static final String NOTE_TOO_SHORT = "note_too_short";
 
         public Failed {
             Objects.requireNonNull(error, "error");
@@ -73,6 +75,23 @@ public sealed interface ReportReply {
         public static Failed badReply() {
             return new Failed(BAD_REPLY, OptionalLong.empty(),
                     "Something went wrong sending your report. Try again in a few minutes.");
+        }
+
+        /**
+         * No run log exists for the script, so there is nothing to send. The host
+         * says this itself before asking the launcher, in the launcher's words.
+         */
+        public static Failed logsMissing() {
+            return new Failed(LOGS_MISSING, OptionalLong.empty(),
+                    "We couldn't find a log for this script, so the author would have nothing to go on. "
+                            + "Start the script again, and when the problem happens, report it from here.");
+        }
+
+        /** The note is under the website's minimum; the launcher's words for it. */
+        public static Failed noteTooShort() {
+            return new Failed(NOTE_TOO_SHORT, OptionalLong.empty(),
+                    "Please describe what you were doing in a few words (at least 15 characters), "
+                            + "then send again.");
         }
     }
 
@@ -103,7 +122,7 @@ public sealed interface ReportReply {
         }
         return switch (status.get()) {
             case "ok" -> string(o, "code")
-                    .<ReportReply>map(code -> new Sent(code, string(o, "ticket_url"), message.get()))
+                    .<ReportReply>map(code -> new Sent(code, message.get()))
                     .orElseGet(Failed::badReply);
             case "error" -> new Failed(string(o, "error").orElse(UNSPECIFIED_ERROR), retryAfter(o),
                     message.get());

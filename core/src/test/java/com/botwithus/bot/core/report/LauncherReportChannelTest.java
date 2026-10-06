@@ -41,7 +41,7 @@ class LauncherReportChannelTest {
     private static final Duration POLL = Duration.ofMillis(10);
     private static final String ID = "4242-3f9c1a2b-00ff";
     private static final String OK_REPLY = """
-            {"status":"ok","code":"BWU-7K3Q9P","ticket_url":"https://example.test/t/1",
+            {"status":"ok","code":"BWU-7K3Q9P",
              "user_message":"Sent. Your report code is BWU-7K3Q9P."}""";
 
     @TempDir
@@ -65,7 +65,8 @@ class LauncherReportChannelTest {
     private static ReportRequest request() {
         return new ReportRequest("Agility", "agility", OptionalLong.of(123), Optional.of("1.4.2"), "2.0",
                 Optional.of("3f9c1a2be0d84c1e9a7f5d2b6c0e4a11"), Optional.empty(), OptionalLong.of(9001),
-                new KnownNames(List.of("Main Acc"), List.of("Zezima")), Optional.empty(), "it stopped");
+                new KnownNames(List.of("Main Acc"), List.of("Zezima")), Optional.empty(), ProblemKind.STUCK,
+                "it stopped at the bank chest");
     }
 
     // ── A fake launcher ─────────────────────────────────────────────────────
@@ -145,19 +146,20 @@ class LauncherReportChannelTest {
 
         JsonObject sent = JsonParser.parseString(seen.get()).getAsJsonObject();
         assertAll(
-                () -> assertEquals(new ReportReply.Sent("BWU-7K3Q9P", Optional.of("https://example.test/t/1"),
-                        "Sent. Your report code is BWU-7K3Q9P."), reply),
+                () -> assertEquals(new ReportReply.Sent("BWU-7K3Q9P", "Sent. Your report code is BWU-7K3Q9P."), reply),
                 () -> assertEquals(1, sent.get("format").getAsInt()),
                 () -> assertEquals("Agility", sent.get("script_name").getAsString()),
                 () -> assertEquals(123, sent.get("script_id").getAsLong()),
                 () -> assertTrue(sent.get("crash").isJsonNull()),
-                () -> assertEquals("it stopped", sent.get("user_note").getAsString()),
+                () -> assertEquals("it stopped at the bank chest", sent.get("user_note").getAsString()),
+                () -> assertEquals("stuck", sent.get("problem").getAsString()),
                 () -> assertEquals(List.of(), filesLeft()));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"not_signed_in", "script_not_found", "rate_limited", "too_large", "bad_request",
-            "launcher_outdated", "network", "server_error", "bad_request_file", "bundle_failed"})
+            "launcher_outdated", "network", "server_error", "bad_request_file", "bundle_failed",
+            "missing_problem", "note_too_short", "logs_missing"})
     void send_launcherAnswersError_showsItsMessageUnchanged(String error) throws Exception {
         String message = "Words for " + error + " — with \"quotes\" and é.";
         String retry = error.equals("rate_limited") ? ",\"retry_after\":3600" : "";
@@ -256,7 +258,7 @@ class LauncherReportChannelTest {
         ReportRequest big = new ReportRequest("Agility", "agility", OptionalLong.empty(), Optional.empty(), "2.0",
                 Optional.empty(), Optional.empty(), OptionalLong.empty(), KnownNames.NONE,
                 Optional.of(new CrashPayload("on_loop", "E", "f", "s".repeat(CrashPayload.MAX_STACK_BYTES),
-                        List.of())), bigNote);
+                        List.of())), ProblemKind.OTHER, bigNote);
 
         for (int i = 0; i < 5; i++) {
             channel().send("atomic-" + i, big);

@@ -161,7 +161,7 @@ class ToastFeedTest {
         feed.accept(new ScriptStalled(OAK, "Divination", AT));
         overlay.update();
 
-        assertEquals(List.of(Optional.of(new ReportSubject(PIPE, "Cook's Assistant")), Optional.empty()),
+        assertEquals(List.of(Optional.of(ReportSubject.afterCrash(PIPE, "Cook's Assistant")), Optional.empty()),
                 overlay.active().stream().map(Notification::report).toList());
     }
 

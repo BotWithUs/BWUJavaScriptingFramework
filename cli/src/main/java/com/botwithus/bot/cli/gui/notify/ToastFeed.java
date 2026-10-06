@@ -160,7 +160,7 @@ public final class ToastFeed implements Consumer<HostEvent> {
      */
     private void onCrashed(ScriptCrashed e) {
         Optional<ReportSubject> report = e.client().hasPipe()
-                ? Optional.of(new ReportSubject(e.client().pipe(), e.script()))
+                ? Optional.of(ReportSubject.afterCrash(e.client().pipe(), e.script()))
                 : Optional.empty();
         post(Kind.SCRIPT_CRASHED, e.script() + " crashed", who(e.client()) + " · " + CrashText.summary(e.crash()),
                 Optional.of(e.client().key()), true, report);

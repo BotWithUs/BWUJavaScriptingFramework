@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.report;
 
+import com.botwithus.bot.core.report.ProblemKind;
 import com.botwithus.bot.core.report.ReportReply;
 
 import java.util.concurrent.CompletableFuture;
@@ -14,5 +15,5 @@ public interface ReportSender {
     CompletableFuture<ReportPreview> preview(ReportSubject subject);
 
     /** Sends the report; always completes normally, with the outcome to show. */
-    CompletableFuture<ReportReply> send(ReportSubject subject, String note);
+    CompletableFuture<ReportReply> send(ReportSubject subject, ProblemKind problem, String note);
 }
