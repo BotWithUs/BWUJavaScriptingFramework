@@ -23,9 +23,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LayoutWireOffsetsTest {
 
     @Test
-    void protocolVersionIsTwentyOne() {
-        assertEquals(21, Layout.PROTOCOL_VERSION,
+    void protocolVersionIsTwentyTwo() {
+        assertEquals(22, Layout.PROTOCOL_VERSION,
                 "PROTOCOL_VERSION must equal kProtocolVersion in SharedLayout.h");
+    }
+
+    /**
+     * v22 raised the open-interface cap from 64 to 256 and put {@code openIfaceTotal}
+     * between the count and the array, with a u32 pad after the array. Each field is
+     * pinned on its own so a reorder inside the block cannot pass by keeping the sum.
+     */
+    @Test
+    void openInterfaceBlockIsPinned() {
+        assertEquals(256, Layout.OPEN_IFACE_CAP, "kOpenIfaceCap");
+        assertEquals(320376, Layout.SNAP_OPENIFACECOUNT_OFFSET, "offsetof(Snapshot, openIfaceCount)");
+        assertEquals(320380, Layout.SNAP_OPENIFACETOTAL_OFFSET, "offsetof(Snapshot, openIfaceTotal)");
+        assertEquals(320384, Layout.SNAP_OPENIFACES_OFFSET, "offsetof(Snapshot, openIfaces)");
+        assertEquals(321408, Layout.SNAP_OPENIFACEPAD_OFFSET,
+                "offsetof(Snapshot, _padAfterOpenIfaces)");
+        assertEquals(321412, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, "offsetof(Snapshot, groundItemCount)");
+        assertEquals(321416, Layout.SNAP_GROUNDITEMS_OFFSET, "offsetof(Snapshot, groundItems)");
+    }
+
+    @Test
+    void projectileBlockIsPinned() {
+        assertEquals(337800, Layout.SNAP_PROJECTILECOUNT_OFFSET, "offsetof(Snapshot, projectileCount)");
+        assertEquals(337804, Layout.SNAP_PROJECTILES_OFFSET, "offsetof(Snapshot, projectiles)");
     }
 
     /**
@@ -57,19 +80,19 @@ class LayoutWireOffsetsTest {
     }
 
     @Test
-    void gameCycleMovedByExactlyTheEntityRowGrowth() {
-        assertEquals(345220, Layout.SNAP_GAMECYCLE_OFFSET,
-                "v21 widened the NPC and player rows; gameCycle shifts with everything after");
-        assertEquals(332932 + (Layout.NPC_CAP + Layout.PLAYER_CAP) * 4,
+    void gameCycleMovedByExactlyTheOpenInterfaceGrowth() {
+        assertEquals(345996, Layout.SNAP_GAMECYCLE_OFFSET,
+                "v22 grew the open-interface block; gameCycle shifts with everything after");
+        assertEquals(345220 + 4 + (Layout.OPEN_IFACE_CAP - 64) * 4 + 4,
                 Layout.SNAP_GAMECYCLE_OFFSET,
-                "the shift must be exactly 4 * (kNpcCap + kPlayerCap) -- the cost of orientation");
+                "the shift must be exactly total(4) + 4 * (256 - 64) + pad(4) = 776");
     }
 
     @Test
     void dynamicRegionBlockOffsetsArePinned() {
-        assertEquals(345224, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
-        assertEquals(345260, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
-        assertEquals(345264, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
+        assertEquals(346000, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
+        assertEquals(346036, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
+        assertEquals(346040, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
     }
 
     @Test
@@ -112,7 +135,7 @@ class LayoutWireOffsetsTest {
 
     @Test
     void snapshotSizeIsPinned() {
-        assertEquals(410800, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
+        assertEquals(411576, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
     }
 
     /**

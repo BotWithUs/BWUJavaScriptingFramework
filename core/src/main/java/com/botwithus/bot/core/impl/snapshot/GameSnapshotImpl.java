@@ -181,6 +181,21 @@ public final class GameSnapshotImpl implements GameSnapshot {
         return view.isInterfaceOpen(ifaceId);
     }
 
+    @Override
+    public int openInterfaceCount() {
+        return view.openIfaceCount();
+    }
+
+    @Override
+    public int openInterfaceTotal() {
+        return view.openIfaceTotal();
+    }
+
+    @Override
+    public boolean isOpenInterfaceListComplete() {
+        return view.isOpenIfaceListComplete();
+    }
+
     private static Npc toNpc(NpcEntry e) {
         return new Npc(
                 e.serverIndex(),

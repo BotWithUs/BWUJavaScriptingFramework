@@ -121,8 +121,13 @@ public interface GameSnapshot {
      * Whether {@code ifaceId} is currently mounted in
      * {@code jag::InterfaceManager}'s open-subs hashmap — the engine's
      * canonical "this interface is open right now" signal. Backed by the v14
-     * SHM snapshot of the open-subs keyset (linear scan over a small
-     * keyset, typically &lt;20 entries this tick); no RPC round-trip.
+     * SHM snapshot of the open-subs keyset (linear scan over a few dozen
+     * entries this tick); no RPC round-trip.
+     *
+     * <p>A {@code true} is always conclusive. A {@code false} is conclusive only
+     * when {@link #isOpenInterfaceListComplete()} holds: if the producer could
+     * not read the table, or the list was truncated, a missing id may still be
+     * open.</p>
      *
      * <p>Use this for chain gates that need to wait for a dialog to appear
      * after a click that opens it (lodestone map, max-cape menu, dungeoneering
@@ -136,6 +141,39 @@ public interface GameSnapshot {
      */
     default boolean isInterfaceOpen(int ifaceId) {
         return false;
+    }
+
+    /**
+     * How many open sub-interfaces this snapshot lists — the set
+     * {@link #isInterfaceOpen(int)} searches. Never more than the producer's
+     * cap, so it can fall short of {@link #openInterfaceTotal()}.
+     *
+     * <p>Defaults to {@code 0} for test doubles; the live implementation overrides.</p>
+     */
+    default int openInterfaceCount() {
+        return 0;
+    }
+
+    /**
+     * How many sub-interfaces the client itself reports open this tick, or
+     * {@code 0} when that could not be read. Compare with
+     * {@link #openInterfaceCount()}, or use {@link #isOpenInterfaceListComplete()}.
+     *
+     * <p>Defaults to {@code 0} for test doubles; the live implementation overrides.</p>
+     */
+    default int openInterfaceTotal() {
+        return 0;
+    }
+
+    /**
+     * Whether the open-interface list is known to be complete this tick: the
+     * client's count was readable and every entry made it into the snapshot.
+     * Only then is a {@code false} from {@link #isInterfaceOpen(int)} proof
+     * that the interface is closed.
+     */
+    default boolean isOpenInterfaceListComplete() {
+        int total = openInterfaceTotal();
+        return total > 0 && openInterfaceCount() == total;
     }
 
     interface Npcs {
