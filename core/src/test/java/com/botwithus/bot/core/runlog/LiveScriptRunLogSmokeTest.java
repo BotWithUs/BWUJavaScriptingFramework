@@ -30,6 +30,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -77,6 +78,7 @@ class LiveScriptRunLogSmokeTest {
     private static final int WALK_LOOP_DELAY_MS = 600;
     private static final int WALK_MAX_LOOPS = 20;
     private static final int MIN_NAME_LENGTH = 2;
+    private static final Duration AGENT_INFO_WAIT = Duration.ofSeconds(10);
 
     /** Names the scripts write into their own logs; set by the test before a run. */
     private static volatile List<String> liveNames = List.of();
@@ -198,6 +200,33 @@ class LiveScriptRunLogSmokeTest {
         }
     }
 
+    /**
+     * The header says what the agent says about itself, and {@code unknown} for
+     * an agent that predates {@code rpc.agent_info}. Which of the two to expect is
+     * read from {@code rpc.list_methods}, never from the text of an error.
+     */
+    @Test
+    @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
+    void header_carriesTheAgentsOwnIdentity_orUnknown() throws Exception {
+        try (Live live = Live.connect()) {
+            boolean hasMethod = live.api().listMethods().contains(AgentInfoProbe.METHOD);
+            String text = live.runOnce(new NpeProbe(), outputDir("agent-info").resolve("redacted"),
+                    Redactor::new);
+            List<String> identity = text.lines()
+                    .filter(l -> l.startsWith("agent_build: ") || l.startsWith("game_revision: "))
+                    .toList();
+            System.out.println("agent lists " + AgentInfoProbe.METHOD + ": " + hasMethod);
+            identity.forEach(l -> System.out.println("header " + l));
+            if (hasMethod) {
+                assertAll(
+                        () -> assertTrue(identity.get(0).matches("agent_build: [0-9a-f]{32}"), identity.get(0)),
+                        () -> assertTrue(identity.get(1).matches("game_revision: \\d+-\\d+"), identity.get(1)));
+            } else {
+                assertEquals(List.of("agent_build: unknown", "game_revision: unknown"), identity);
+            }
+        }
+    }
+
     @Test
     @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
     void inWorld_aWalkStep_leavesATileCrumb() throws Exception {
@@ -256,7 +285,8 @@ class LiveScriptRunLogSmokeTest {
 
     /** One live connection, built the way the host builds one. */
     private record Live(String pipeName, PipeClient pipe, RpcClient rpc, SharedRegionEventPump pump,
-                        GameAPIImpl api, ScriptContextImpl context, List<String> names)
+                        GameAPIImpl api, ScriptContextImpl context, List<String> names,
+                        AgentInfoProbe.Pending agent)
             implements AutoCloseable {
 
         static Live connect() throws IOException {
@@ -273,7 +303,16 @@ class LiveScriptRunLogSmokeTest {
             ScriptContextImpl context = new ScriptContextImpl(api, bus, new MessageBusImpl());
             List<String> names = namesFor(pipeName, rpc);
             System.out.println("live: " + names.size() + " name(s) known for this client");
-            return new Live(pipeName, pipe, rpc, pump, api, context, names);
+            // Started exactly as CliContext.wireRunLogs starts it, then waited for
+            // so a run cannot race it: this test is about the answer, not the race.
+            AgentInfoProbe.Pending agent = AgentInfoProbe.start(
+                    () -> rpc.callSync(AgentInfoProbe.METHOD, Map.of()), AgentInfoProbe.DEFAULT_DEADLINE);
+            try {
+                agent.awaitSettled(AGENT_INFO_WAIT);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return new Live(pipeName, pipe, rpc, pump, api, context, names, agent);
         }
 
         int gameState() {
@@ -291,6 +330,7 @@ class LiveScriptRunLogSmokeTest {
             runtime.setConnectionName(pipeName);
             runtime.setRunLogs(logs);
             runtime.setSlot(1);
+            runtime.setAgentIdentity(agent);
             KnownNames known = KnownNames.of(names, List.of());
             runtime.setRunNames(() -> known);
             liveNames = names;

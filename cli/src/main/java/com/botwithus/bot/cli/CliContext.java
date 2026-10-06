@@ -67,6 +67,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.ReconnectController;
 import com.botwithus.bot.core.rpc.ReconnectPolicy;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.runlog.AgentInfoProbe;
 import com.botwithus.bot.core.runlog.HostIdentity;
 import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.config.ManagementSettingsStore;
@@ -108,6 +109,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -856,9 +858,9 @@ public class CliContext {
 
     /**
      * Gives this connection's script runs their log: the slot their header names
-     * in place of the connection, the names to redact, and the RPC breadcrumbs.
-     * The agent identity stays unbound ({@code unknown}) until the agent reports
-     * one; binding it is {@code runtime.setAgentIdentity(...)} here.
+     * in place of the connection, the names to redact, the RPC breadcrumbs, and
+     * the agent's own identity, asked for once here and {@code unknown} until it
+     * answers (and for good from an agent that predates the method).
      */
     private void wireRunLogs(ScriptRuntime runtime, RpcClient rpc, Connection conn) {
         RunLogs logs = this.runLogs;
@@ -866,6 +868,8 @@ public class CliContext {
         runtime.setSlot(nextSlot.incrementAndGet());
         runtime.setRunNames(conn::knownNames);
         rpc.setCallObserver(logs::recordRpc);
+        runtime.setAgentIdentity(AgentInfoProbe.start(
+                () -> rpc.callSync(AgentInfoProbe.METHOD, Map.of()), AgentInfoProbe.DEFAULT_DEADLINE));
     }
 
     /**
