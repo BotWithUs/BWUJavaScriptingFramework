@@ -195,6 +195,43 @@ class RedactorTest {
         }
     }
 
+    /** Spec §3 revision 4: the process's own profile prefix, wherever it lives. */
+    @Nested
+    class OwnProfilePrefix {
+
+        private final Redactor r = new Redactor(() -> KnownNames.NONE, "D:\\Profiles\\jdoe");
+
+        @Test
+        void specVector() {
+            assertEquals("at ~\\x.jar", r.redact("at D:\\Profiles\\jdoe\\x.jar"));
+        }
+
+        @ParameterizedTest
+        @CsvSource(delimiter = '|', value = {
+            "at d:/profiles/JDOE/x.jar|at ~/x.jar",
+            "{\"p\":\"D:\\\\Profiles\\\\jdoe\\\\x\"}|{\"p\":\"~\\\\x\"}",
+            "cwd D:\\Profiles\\jdoe|cwd ~",
+            "at D:\\Profiles\\jdoe2\\x|at D:\\Profiles\\jdoe2\\x",
+            "at E:\\Profiles\\jdoe\\x|at E:\\Profiles\\jdoe\\x"})
+        void spellingsAndBoundaries(String input, String expected) {
+            assertEquals(expected, r.redact(input));
+        }
+
+        @Test
+        void aRootOrMissingProfile_isNotAPrefix() {
+            assertAll(
+                    () -> assertEquals("at C:\\x", new Redactor(() -> KnownNames.NONE, "C:\\").redact("at C:\\x")),
+                    () -> assertEquals("at /x", new Redactor(() -> KnownNames.NONE, "/").redact("at /x")),
+                    () -> assertEquals("at /x", new Redactor(() -> KnownNames.NONE, null).redact("at /x")));
+        }
+
+        @Test
+        void aUnixProfile_withATrailingSlash() {
+            Redactor unix = new Redactor(() -> KnownNames.NONE, "/srv/users/jdoe/");
+            assertEquals("at ~/x.jar", unix.redact("at /srv/users/jdoe/x.jar"));
+        }
+    }
+
     @Test
     void nothingToRedact_isReturnedUnchanged() {
         Redactor r = Redactor.withNames(SPEC_NAMES);

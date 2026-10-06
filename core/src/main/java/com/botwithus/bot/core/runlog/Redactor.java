@@ -80,9 +80,13 @@ public final class Redactor {
     private static final Pattern WINDOWS_HOME = Pattern.compile(
             "(?i)(?<![A-Za-z])[A-Z]:(\\\\+|/+)Users\\1[^\\\\/\"'\\r\\n]+\\1");
     private static final Pattern UNIX_HOME = Pattern.compile("(?<![\\w.])/home/[^/\\s\"']+/");
+    /** Shortest profile path R7b acts on; anything shorter is a drive or filesystem root. */
+    private static final int MIN_PROFILE_LENGTH = 4;
 
     private final Supplier<KnownNames> names;
     private final boolean isPassThrough;
+    /** R7b: this process's own profile prefix in all three spellings; null when unusable. */
+    private final Pattern profilePrefix;
     private final Object lock = new Object();
     // Guarded by lock.
     private KnownNames compiledFor;
@@ -91,13 +95,22 @@ public final class Redactor {
     private final Map<String, String> replacementByKey = new HashMap<>();
     private final Map<NameKind, Integer> nextNumber = new HashMap<>();
 
-    /** A redactor over a live view of the run's names. */
+    /** A redactor over a live view of the run's names, for this process's user profile. */
     public Redactor(Supplier<KnownNames> names) {
-        this(names, false);
+        this(names, System.getProperty("user.home"));
     }
 
-    private Redactor(Supplier<KnownNames> names, boolean isPassThrough) {
+    /**
+     * As {@link #Redactor(Supplier)} with an explicit profile directory for
+     * R7b. Package-private so a test can stand in a redirected profile.
+     */
+    Redactor(Supplier<KnownNames> names, String userHome) {
+        this(names, userHome, false);
+    }
+
+    private Redactor(Supplier<KnownNames> names, String userHome, boolean isPassThrough) {
         this.names = names != null ? names : () -> KnownNames.NONE;
+        this.profilePrefix = profilePattern(userHome);
         this.isPassThrough = isPassThrough;
     }
 
@@ -108,7 +121,7 @@ public final class Redactor {
      * something. Never reachable from production wiring.
      */
     static Redactor passThroughForLivenessCheck() {
-        return new Redactor(() -> KnownNames.NONE, true);
+        return new Redactor(() -> KnownNames.NONE, null, true);
     }
 
     /** A redactor over a fixed set of names. */
@@ -117,7 +130,7 @@ public final class Redactor {
         return new Redactor(() -> fixed);
     }
 
-    /** Applies R1 to R7 to one line. */
+    /** Applies R1 to R7, with R7b before R7, to one line. */
     public String redact(String line) {
         return apply(line, true);
     }
@@ -149,6 +162,9 @@ public final class Redactor {
         }
         out = IPV4.matcher(out).replaceAll(IP);
         out = replaceEach(IPV6, out, Redactor::ipv6Replacement);
+        if (profilePrefix != null) {
+            out = profilePrefix.matcher(out).replaceAll("~");
+        }
         out = WINDOWS_HOME.matcher(out).replaceAll(m -> Matcher.quoteReplacement("~" + m.group(1)));
         return UNIX_HOME.matcher(out).replaceAll("~/");
     }
@@ -195,6 +211,32 @@ public final class Redactor {
             int n = nextNumber.merge(kind, 1, Integer::sum);
             return kind.label + n;
         });
+    }
+
+    /**
+     * R7b: the profile directory matched literally and case-insensitively, as
+     * written with {@code \}, with {@code /} and JSON-escaped ({@code \\}). It
+     * runs before R7 because R7 knows only {@code <drive>:\Users\<name>} and
+     * {@code /home/<name>}, and a redirected profile such as
+     * {@code D:\Profiles\<name>} is neither. The prefix must end at a path
+     * boundary, so a sibling such as {@code <name>2} is left alone.
+     */
+    private static Pattern profilePattern(String userHome) {
+        if (userHome == null) {
+            return null;
+        }
+        String canonical = userHome.strip().replace('/', '\\');
+        while (canonical.endsWith("\\")) {
+            canonical = canonical.substring(0, canonical.length() - 1);
+        }
+        if (canonical.length() < MIN_PROFILE_LENGTH) {
+            return null;
+        }
+        List<String> spellings = List.of(
+                canonical.replace("\\", "\\\\"), canonical, canonical.replace('\\', '/'));
+        String alternatives = String.join("|",
+                spellings.stream().distinct().map(Pattern::quote).toList());
+        return Pattern.compile("(?<![\\w])(?:" + alternatives + ")(?![\\w.-])", NAME_FLAGS);
     }
 
     private static boolean isLongEnough(String name) {
