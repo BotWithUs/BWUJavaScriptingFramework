@@ -82,6 +82,14 @@ public final class Redactor {
     private static final Pattern UNIX_HOME = Pattern.compile("(?<![\\w.])/home/[^/\\s\"']+/");
     /** Shortest profile path R7b acts on; anything shorter is a drive or filesystem root. */
     private static final int MIN_PROFILE_LENGTH = 4;
+    /**
+     * Where an R7b prefix may end (spec §3 revision 4): at {@code \}, {@code /},
+     * a quote, whitespace or end of line, or at a {@code .} that is itself
+     * followed by whitespace or end of line. So {@code jdoe2} and
+     * {@code jdoe.bak} are siblings and left alone, and a sentence ending in the
+     * profile path is still redacted.
+     */
+    private static final String PROFILE_END = "(?=[\\\\/\"'\\s]|\\.(?:\\s|$)|$)";
 
     private final Supplier<KnownNames> names;
     private final boolean isPassThrough;
@@ -218,8 +226,8 @@ public final class Redactor {
      * written with {@code \}, with {@code /} and JSON-escaped ({@code \\}). It
      * runs before R7 because R7 knows only {@code <drive>:\Users\<name>} and
      * {@code /home/<name>}, and a redirected profile such as
-     * {@code D:\Profiles\<name>} is neither. The prefix must end at a path
-     * boundary, so a sibling such as {@code <name>2} is left alone.
+     * {@code D:\Profiles\<name>} is neither. The prefix must end where
+     * {@link #PROFILE_END} says, so a sibling such as {@code <name>2} is left alone.
      */
     private static Pattern profilePattern(String userHome) {
         if (userHome == null) {
@@ -236,7 +244,7 @@ public final class Redactor {
                 canonical.replace("\\", "\\\\"), canonical, canonical.replace('\\', '/'));
         String alternatives = String.join("|",
                 spellings.stream().distinct().map(Pattern::quote).toList());
-        return Pattern.compile("(?<![\\w])(?:" + alternatives + ")(?![\\w.-])", NAME_FLAGS);
+        return Pattern.compile("(?<![\\w])(?:" + alternatives + ")" + PROFILE_END, NAME_FLAGS);
     }
 
     private static boolean isLongEnough(String name) {

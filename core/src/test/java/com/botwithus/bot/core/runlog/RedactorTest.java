@@ -211,7 +211,13 @@ class RedactorTest {
             "at d:/profiles/JDOE/x.jar|at ~/x.jar",
             "{\"p\":\"D:\\\\Profiles\\\\jdoe\\\\x\"}|{\"p\":\"~\\\\x\"}",
             "cwd D:\\Profiles\\jdoe|cwd ~",
+            // The spec's three boundary cases: a sibling, a sibling with a dot, and a
+            // sentence that ends in the profile path.
             "at D:\\Profiles\\jdoe2\\x|at D:\\Profiles\\jdoe2\\x",
+            "at D:\\Profiles\\jdoe.bak\\x|at D:\\Profiles\\jdoe.bak\\x",
+            "home is D:\\Profiles\\jdoe.|home is ~.",
+            "see 'D:\\Profiles\\jdoe' now|see '~' now",
+            "at D:\\Profiles\\jdoe-old\\x|at D:\\Profiles\\jdoe-old\\x",
             "at E:\\Profiles\\jdoe\\x|at E:\\Profiles\\jdoe\\x"})
         void spellingsAndBoundaries(String input, String expected) {
             assertEquals(expected, r.redact(input));
