@@ -66,6 +66,11 @@ public record AccountReply(Map<String, Object> raw) {
         return firstKnown(JX_DISPLAY_NAME);
     }
 
+    /** The launcher's name for the account ({@code account_name}); empty from an older agent. */
+    public Optional<String> accountName() {
+        return firstKnown(ACCOUNT_NAME);
+    }
+
     /**
      * The best name to show for the client: {@link #characterName()}, else the
      * account name the loader was given. Empty when none is set.

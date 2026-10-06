@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.log;
 
+import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.runtime.ConnectionContext;
 
 import java.io.ByteArrayOutputStream;
@@ -13,6 +14,7 @@ public class LogCapture {
     private final PrintStream originalErr;
     private final LogBuffer logBuffer;
     private volatile Predicate<String> connectionFilter;
+    private volatile RunLogs runLogs;
 
     public LogCapture(LogBuffer logBuffer) {
         this.logBuffer = logBuffer;
@@ -43,6 +45,14 @@ public class LogCapture {
 
     public PrintStream getOriginalErr() {
         return originalErr;
+    }
+
+    /**
+     * Also sends each captured line to the run log of the script thread that
+     * printed it. {@code null} stops that.
+     */
+    public void setRunLogs(RunLogs runLogs) {
+        this.runLogs = runLogs;
     }
 
     public void setConnectionFilter(Predicate<String> filter) {
@@ -108,6 +118,11 @@ public class LogCapture {
 
             if (!line.isEmpty()) {
                 logBuffer.add(new LogEntry(source, level, line, connection));
+                // Runs on the printing thread, so the run is the printer's own.
+                RunLogs logs = capture.runLogs;
+                if (logs != null) {
+                    logs.stdLine(source, level, line);
+                }
             }
 
             // Apply connection filter: print to original if no filter, or connection is null

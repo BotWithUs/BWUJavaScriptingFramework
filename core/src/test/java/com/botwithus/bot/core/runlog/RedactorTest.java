@@ -1,0 +1,173 @@
+package com.botwithus.bot.core.runlog;
+
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+
+class RedactorTest {
+
+    /** Spec §3.1's known names. Accounts are listed email-first on purpose: numbering is first-seen. */
+    private static final KnownNames SPEC_NAMES = new KnownNames(
+            List.of("dave.smith@example.com", "Main Acc"), List.of("Zezima"));
+
+    /** Every spec §3.1 vector, in spec order, through one instance (numbering depends on it). */
+    @Test
+    void specVectors_inOrder_onOneInstance() {
+        Redactor r = Redactor.withNames(SPEC_NAMES);
+        String[][] vectors = {
+            {"Logged in as Zezima at Lumbridge", "Logged in as Player#1 at Lumbridge"},
+            {"connection Main Acc ready", "connection Account#1 ready"},
+            {"user dave.smith@example.com failed", "user Account#2 failed"},
+            {"contact other.person@mail.co.uk", "contact <email>"},
+            {"Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sgn_abc-123", "Bearer <token>"},
+            {"session=a1b2c3d4e5f6g7h8; path=/", "session=<redacted>; path=/"},
+            {"{\"password\": \"hunter2hunter2\"}", "{\"password\": \"<redacted>\"}"},
+            {"password=hunter2", "password=<redacted>"},
+            {"digest 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                "digest <redacted>"},
+            {"connect 209.38.7.81:443", "connect <ip>:443"},
+            {"revision 950-1 on 10.0.26200", "revision 950-1 on 10.0.26200"},
+            {"at C:\\Users\\david\\.botwithus\\scripts\\x.jar", "at ~\\.botwithus\\scripts\\x.jar"},
+            {"tile (3222, 3218, 0) hp=99", "tile (3222, 3218, 0) hp=99"},
+        };
+        for (String[] v : vectors) {
+            assertEquals(v[1], r.redact(v[0]), "vector: " + v[0]);
+        }
+    }
+
+    @Nested
+    class KnownNameMatching {
+
+        @Test
+        void sameName_keepsItsNumber_acrossLinesAndCase() {
+            Redactor r = Redactor.withNames(SPEC_NAMES);
+            assertAll(
+                    () -> assertEquals("Player#1 here", r.redact("Zezima here")),
+                    () -> assertEquals("Player#1 again", r.redact("ZEZIMA again")),
+                    () -> assertEquals("Account#1 / Player#1", r.redact("main acc / zezima")));
+        }
+
+        @ParameterizedTest
+        @CsvSource(delimiter = '|', value = {
+            "hello Main_Acc!|hello Account#1!",
+            "hello Main-Acc!|hello Account#1!",
+            "hello Main\u00A0Acc!|hello Account#1!"})
+        void separatorVariants_ofAName_areTheSameName(String input, String expected) {
+            assertEquals(expected, Redactor.withNames(SPEC_NAMES).redact(input));
+        }
+
+        @Test
+        void aNameInsideALongerWord_isNotEaten() {
+            Redactor r = Redactor.withNames(new KnownNames(List.of(), List.of("Bob")));
+            assertAll(
+                    () -> assertEquals("Bobby met Player#1.", r.redact("Bobby met Bob.")),
+                    () -> assertEquals("xBob", r.redact("xBob")));
+        }
+
+        @Test
+        void theLongerOfTwoOverlappingNames_wins() {
+            Redactor r = Redactor.withNames(new KnownNames(List.of("Main", "Main Acc"), List.of()));
+            assertEquals("Account#1 and Account#2", r.redact("Main Acc and Main"));
+        }
+
+        @Test
+        void aNameLearnedMidRun_isRedactedFromThenOn() {
+            AtomicReference<KnownNames> names = new AtomicReference<>(KnownNames.NONE);
+            Redactor r = new Redactor(names::get);
+            assertEquals("Zezima logs in", r.redact("Zezima logs in"));
+            names.set(SPEC_NAMES);
+            assertEquals("Player#1 logs in", r.redact("Zezima logs in"));
+        }
+
+        @Test
+        void regexCharactersInAName_areLiteral() {
+            Redactor r = Redactor.withNames(new KnownNames(List.of("a.b (c)"), List.of()));
+            assertAll(
+                    () -> assertEquals("x Account#1 y", r.redact("x a.b (c) y")),
+                    () -> assertEquals("x aXb (c) y", r.redact("x aXb (c) y")));
+        }
+    }
+
+    @Nested
+    class Secrets {
+
+        @ParameterizedTest
+        @CsvSource(delimiter = '|', value = {
+            "apiKey=0123456789abc|apiKey=<redacted>",
+            "token: abcdefgh|token: <redacted>",
+            "cookie=abc|cookie=abc",
+            "secret=x|secret=<redacted>",
+            "PASSWD:p4ss|PASSWD:<redacted>",
+            "password=|password=",
+            "authToken='abcdefghijk'|authToken='<redacted>'"})
+        void keywordValues(String input, String expected) {
+            assertEquals(expected, Redactor.withNames(KnownNames.NONE).redact(input));
+        }
+
+        @Test
+        void hexAndBase64_onlyFromTheirLengthThreshold() {
+            Redactor r = Redactor.withNames(KnownNames.NONE);
+            String hex31 = "a".repeat(31);
+            String hex32 = "b".repeat(32);
+            String b64x39 = "Zy9".repeat(13);
+            String b64x40 = "Zy9/".repeat(10);
+            assertAll(
+                    () -> assertEquals("h " + hex31, r.redact("h " + hex31)),
+                    () -> assertEquals("h <redacted>", r.redact("h " + hex32)),
+                    () -> assertEquals("b " + b64x39, r.redact("b " + b64x39)),
+                    () -> assertEquals("b <redacted>", r.redact("b " + b64x40 + "==")));
+        }
+
+        @Test
+        void redactKeepingHashes_skipsOnlyTheHashRule() {
+            Redactor r = Redactor.withNames(SPEC_NAMES);
+            String runId = "3f9c1a2be0d84c1e9a7f5d2b6c0e4a11";
+            assertAll(
+                    () -> assertEquals(runId, r.redactKeepingHashes(runId)),
+                    () -> assertEquals("<redacted>", r.redact(runId)),
+                    () -> assertEquals("Player#1", r.redactKeepingHashes("Zezima")));
+        }
+    }
+
+    @Nested
+    class NetworkAndPaths {
+
+        @ParameterizedTest
+        @CsvSource(delimiter = '|', value = {
+            "peer 2001:db8::8a2e:370:7334 up|peer <ip> up",
+            "peer ::ffff:10.1.2.3 up|peer <ip> up",
+            "at 07:12:23.529 ok|at 07:12:23.529 ok",
+            "Foo.java:88|Foo.java:88",
+            "Java 25.0.1|Java 25.0.1"})
+        void addresses(String input, String expected) {
+            assertEquals(expected, Redactor.withNames(KnownNames.NONE).redact(input));
+        }
+
+        @ParameterizedTest
+        @CsvSource(delimiter = '|', value = {
+            "at C:/Users/david/.botwithus/x.log|at ~/.botwithus/x.log",
+            "at d:\\users\\Some One\\x|at ~\\x",
+            "at D:\\Users\\someone\\x|at ~\\x",
+            "{\"p\":\"C:\\\\Users\\\\david\\\\x\"}|{\"p\":\"~\\\\x\"}",
+            "at /home/david/.botwithus/x|at ~/.botwithus/x"})
+        void homeDirectories(String input, String expected) {
+            assertEquals(expected, Redactor.withNames(KnownNames.NONE).redact(input));
+        }
+    }
+
+    @Test
+    void nothingToRedact_isReturnedUnchanged() {
+        Redactor r = Redactor.withNames(SPEC_NAMES);
+        String line = "2026-10-06T07:12:23.529Z INFO  [script-Foo] com.example.Foo: chopping tree";
+        assertEquals(line, r.redact(line));
+        assertFalse(r.redact("").contains("#"));
+    }
+}

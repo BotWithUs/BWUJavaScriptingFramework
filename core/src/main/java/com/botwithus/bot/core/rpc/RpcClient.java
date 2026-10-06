@@ -63,6 +63,7 @@ public class RpcClient implements AutoCloseable {
     private volatile boolean running;
     private String connectionName;
     private volatile ScriptGate scriptGate;
+    private volatile RpcCallObserver callObserver = RpcCallObserver.NONE;
 
     /**
      * Latches on the first transport-level failure of a connection generation
@@ -140,6 +141,15 @@ public class RpcClient implements AutoCloseable {
      */
     public void setScriptGate(ScriptGate scriptGate) {
         this.scriptGate = scriptGate;
+    }
+
+    /**
+     * Installs the observer told about every call, after the gate has let it
+     * through and before it is sent. {@code null} restores
+     * {@link RpcCallObserver#NONE}.
+     */
+    public void setCallObserver(RpcCallObserver observer) {
+        this.callObserver = observer != null ? observer : RpcCallObserver.NONE;
     }
 
     /**
@@ -473,6 +483,10 @@ public class RpcClient implements AutoCloseable {
         if (gate != null) {
             gate.checkCaller();
         }
+        // Same single funnel, so a script run's breadcrumbs see every call it
+        // makes. After the gate, so a revoked script's rejected calls are not
+        // recorded as calls it made.
+        observeCall(method, params);
         RpcException lastException = null;
         int attempts = 1 + retryPolicy.maxRetries();
         for (int i = 0; i < attempts; i++) {
@@ -511,6 +525,14 @@ public class RpcClient implements AutoCloseable {
             }
         }
         throw lastException;
+    }
+
+    private void observeCall(String method, Map<String, Object> params) {
+        try {
+            callObserver.onCall(method, params);
+        } catch (RuntimeException e) {
+            log.debug("RPC call observer threw for {}: {}", method, e.toString());
+        }
     }
 
     private boolean matchesId(Map<String, Object> msg, int expectedId) {
