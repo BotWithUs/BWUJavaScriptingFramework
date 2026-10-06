@@ -98,6 +98,15 @@ class CrashPayloadTest {
     }
 
     @Test
+    void cutChars_atAndOneOverTheLimit() {
+        int max = CrashPayload.MAX_BREADCRUMB_CHARS;
+        String exact = "z".repeat(max);
+        assertAll(
+                () -> assertSame(exact, CrashPayload.cutChars(exact, max)),
+                () -> assertEquals(exact, CrashPayload.cutChars(exact + "!", max)));
+    }
+
+    @Test
     void request_withoutCrash_writesExplicitNull_andOmitsUnknowns() {
         ReportRequest r = new ReportRequest("Agility", "agility", OptionalLong.empty(), Optional.empty(), "2.0",
                 Optional.empty(), Optional.empty(), OptionalLong.empty(), KnownNames.NONE, Optional.empty(), "  ");
