@@ -73,6 +73,21 @@ class RedactorTest {
         }
 
         @Test
+        void underscoreIsAWordCharacter_atAMatchsEdges() {
+            Redactor r = Redactor.withNames(SPEC_NAMES);
+            assertAll(
+                    () -> assertEquals("x_Zezima", r.redact("x_Zezima")),
+                    () -> assertEquals("Zezima_2", r.redact("Zezima_2")),
+                    () -> assertEquals("(Player#1)", r.redact("(Zezima)")));
+        }
+
+        @Test
+        void aOneCharacterName_isIgnored() {
+            Redactor r = Redactor.withNames(new KnownNames(List.of("Z"), List.of("Al")));
+            assertEquals("Z met Player#1", r.redact("Z met Al"));
+        }
+
+        @Test
         void theLongerOfTwoOverlappingNames_wins() {
             Redactor r = Redactor.withNames(new KnownNames(List.of("Main", "Main Acc"), List.of()));
             assertEquals("Account#1 and Account#2", r.redact("Main Acc and Main"));
@@ -107,7 +122,9 @@ class RedactorTest {
             "secret=x|secret=<redacted>",
             "PASSWD:p4ss|PASSWD:<redacted>",
             "password=|password=",
-            "authToken='abcdefghijk'|authToken='<redacted>'"})
+            "authToken='abcdefghijk'|authToken='<redacted>'",
+            "{\"token\":\"abcdefghij\"}|{\"token\":\"<redacted>\"}",
+            "{\"password\":\"x\"}|{\"password\":\"<redacted>\"}"})
         void keywordValues(String input, String expected) {
             assertEquals(expected, Redactor.withNames(KnownNames.NONE).redact(input));
         }
@@ -124,6 +141,20 @@ class RedactorTest {
                     () -> assertEquals("h <redacted>", r.redact("h " + hex32)),
                     () -> assertEquals("b " + b64x39, r.redact("b " + b64x39)),
                     () -> assertEquals("b <redacted>", r.redact("b " + b64x40 + "==")));
+        }
+
+        @Test
+        void base64_needsUpperLowerAndDigit_hexDoesNot() {
+            Redactor r = Redactor.withNames(KnownNames.NONE);
+            String path = "/Users/david/AppData/Local/Programs/Python/Scripts";
+            String noDigit = "AbCdEfGhIj".repeat(4);
+            String noUpper = "abc123xyz4".repeat(4);
+            String hexUpper = "ABCDEF0123".repeat(4);
+            assertAll(
+                    () -> assertEquals("p " + path, r.redact("p " + path)),
+                    () -> assertEquals("b " + noDigit, r.redact("b " + noDigit)),
+                    () -> assertEquals("b " + noUpper, r.redact("b " + noUpper)),
+                    () -> assertEquals("h <redacted>", r.redact("h " + hexUpper)));
         }
 
         @Test
@@ -156,6 +187,7 @@ class RedactorTest {
             "at C:/Users/david/.botwithus/x.log|at ~/.botwithus/x.log",
             "at d:\\users\\Some One\\x|at ~\\x",
             "at D:\\Users\\someone\\x|at ~\\x",
+            // JSON-escaped form, spec §3 revision 3.
             "{\"p\":\"C:\\\\Users\\\\david\\\\x\"}|{\"p\":\"~\\\\x\"}",
             "at /home/david/.botwithus/x|at ~/.botwithus/x"})
         void homeDirectories(String input, String expected) {

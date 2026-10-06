@@ -22,15 +22,20 @@ import java.util.regex.Pattern;
  * name the host learns after the run started is redacted from then on. The
  * patterns are rebuilt only when the set actually changes.</p>
  *
- * <p>Two deliberate readings of the spec:</p>
+ * <p>Readings of the spec worth knowing (spec §3, revision 3):</p>
  * <ul>
  *   <li><b>R1 treats a space, {@code _}, a no-break space and {@code -} inside a
  *   name as the same character</b>, because the game writes the same name with
- *   any of them. Matches are guarded by letter/digit boundaries so a short name
- *   does not eat the middle of a longer word.</li>
+ *   any of them. A match needs a word boundary on both sides (no letter, digit
+ *   or {@code _}), so a short name does not eat the middle of a longer word, and
+ *   a name shorter than {@value #MIN_NAME_LENGTH} characters is ignored.</li>
  *   <li><b>R4 redacts any length for {@code password}, {@code passwd} and
- *   {@code secret}</b> and 8 or more characters for the other keywords (spec rev
- *   2026-10-06).</li>
+ *   {@code secret}</b> and 8 or more characters for the other keywords. Its
+ *   separator may be quoted on either side, which covers {@code ": "} and the
+ *   compact JSON {@code ":"}.</li>
+ *   <li><b>R5 base64 needs upper case, lower case and a digit</b> in the run, so a
+ *   long path or identifier is not mistaken for one. Hex of 32 or more is
+ *   redacted whatever its case.</li>
  * </ul>
  *
  * <p>Thread-safe: lines from several threads of one run may be redacted at once.</p>
@@ -46,8 +51,10 @@ public final class Redactor {
 
     private static final String NAME_SEPARATORS = " _\u00A0-";
     private static final String NAME_SEPARATOR_CLASS = "[ _\\u00A0-]";
-    private static final String NOT_WORD_BEFORE = "(?<![\\p{L}\\p{N}])";
-    private static final String NOT_WORD_AFTER = "(?![\\p{L}\\p{N}])";
+    private static final String NOT_WORD_BEFORE = "(?<![\\p{L}\\p{N}_])";
+    private static final String NOT_WORD_AFTER = "(?![\\p{L}\\p{N}_])";
+    /** Shortest name R1 acts on; a one-character name would match every lone letter. */
+    static final int MIN_NAME_LENGTH = 2;
     private static final int NAME_FLAGS = Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
     /** Fewest hex digits an IPv6 candidate needs, so a bare {@code :::} is left alone. */
     private static final int MIN_IPV6_HEX_GROUPS = 2;
@@ -119,7 +126,7 @@ public final class Redactor {
         out = SECRET_LONG.matcher(out).replaceAll("$1$2" + REDACTED);
         if (isHashRuleOn) {
             out = HEX.matcher(out).replaceAll(REDACTED);
-            out = BASE64.matcher(out).replaceAll(REDACTED);
+            out = replaceEach(BASE64, out, Redactor::base64Replacement);
         }
         out = IPV4.matcher(out).replaceAll(IP);
         out = replaceEach(IPV6, out, Redactor::ipv6Replacement);
@@ -148,8 +155,10 @@ public final class Redactor {
         }
         Map<String, NameKind> kinds = new LinkedHashMap<>();
         // Accounts first: a value known both ways is numbered as an account.
-        current.accounts().forEach(n -> kinds.putIfAbsent(keyOf(n), NameKind.ACCOUNT));
-        current.players().forEach(n -> kinds.putIfAbsent(keyOf(n), NameKind.PLAYER));
+        current.accounts().stream().filter(Redactor::isLongEnough)
+                .forEach(n -> kinds.putIfAbsent(keyOf(n), NameKind.ACCOUNT));
+        current.players().stream().filter(Redactor::isLongEnough)
+                .forEach(n -> kinds.putIfAbsent(keyOf(n), NameKind.PLAYER));
         List<String> alternatives = new ArrayList<>(kinds.keySet());
         // Longest first, so "Main Acc" wins over a shorter name inside it.
         alternatives.sort(Comparator.comparingInt(String::length).reversed());
@@ -167,6 +176,19 @@ public final class Redactor {
             int n = nextNumber.merge(kind, 1, Integer::sum);
             return kind.label + n;
         });
+    }
+
+    private static boolean isLongEnough(String name) {
+        return name.codePointCount(0, name.length()) >= MIN_NAME_LENGTH;
+    }
+
+    /** A base64-shaped run counts only when it mixes upper case, lower case and digits. */
+    private static String base64Replacement(Matcher match) {
+        String run = match.group();
+        boolean hasUpper = run.chars().anyMatch(Character::isUpperCase);
+        boolean hasLower = run.chars().anyMatch(Character::isLowerCase);
+        boolean hasDigit = run.chars().anyMatch(Character::isDigit);
+        return hasUpper && hasLower && hasDigit ? REDACTED : run;
     }
 
     private static String ipv6Replacement(Matcher match) {
