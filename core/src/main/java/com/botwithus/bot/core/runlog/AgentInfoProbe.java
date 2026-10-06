@@ -25,8 +25,9 @@ import java.util.function.Supplier;
  * tells a script author the user ran a dev agent.</p>
  *
  * <p>The call runs off the caller's thread, so attaching to a client never
- * waits on it. A run that starts before the answer lands writes
- * {@code unknown}; every run after it writes the agent's values.</p>
+ * waits on it. A run that opens before the answer lands waits for it at most
+ * {@link #HEADER_WAIT} ({@link Pending#waitingAtMost}), so a script started
+ * the moment a client connects still records the agent's values.</p>
  */
 public final class AgentInfoProbe {
 
@@ -34,6 +35,8 @@ public final class AgentInfoProbe {
     public static final String METHOD = "rpc.agent_info";
     /** How long to wait for the reply before settling on {@code unknown}. */
     public static final Duration DEFAULT_DEADLINE = Duration.ofSeconds(5);
+    /** Longest a run's header waits for an answer still on its way; see {@link Pending#waitingAtMost}. */
+    public static final Duration HEADER_WAIT = Duration.ofMillis(1500);
     static final String BUILD_ID = "build_id";
     static final String GAME_BUILD = "game_build";
 
@@ -108,6 +111,32 @@ public final class AgentInfoProbe {
         /** Waits until the probe has settled, for callers that must not race it (tests). */
         public boolean awaitSettled(Duration timeout) throws InterruptedException {
             return done.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        }
+
+        /**
+         * This answer as a run's header should read it: if the probe has not
+         * settled yet, wait for it, but never longer than {@code bound}, then
+         * take whatever is known ({@code unknown} if still nothing). Once the
+         * probe has settled, reads cost nothing.
+         *
+         * <p>This exists for scripts started the moment a client connects
+         * ("Resume after restart"), whose first run would otherwise open before
+         * the agent has answered and record {@code unknown} in exactly the
+         * reports that matter. An older agent fails fast, so the usual cost is a
+         * few milliseconds. The read happens where a run opens, on the script's
+         * own thread, never on the GUI thread.</p>
+         */
+        public Supplier<AgentIdentity> waitingAtMost(Duration bound) {
+            return () -> {
+                try {
+                    done.await(bound.toMillis(), TimeUnit.MILLISECONDS);
+                } catch (InterruptedException e) {
+                    // A stop arrived while the run was opening; keep the flag for
+                    // the runner and write what is known.
+                    Thread.currentThread().interrupt();
+                }
+                return identity;
+            };
         }
 
         private void settle(AgentIdentity answer) {

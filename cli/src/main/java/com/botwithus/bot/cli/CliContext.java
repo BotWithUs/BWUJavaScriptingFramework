@@ -859,8 +859,10 @@ public class CliContext {
     /**
      * Gives this connection's script runs their log: the slot their header names
      * in place of the connection, the names to redact, the RPC breadcrumbs, and
-     * the agent's own identity, asked for once here and {@code unknown} until it
-     * answers (and for good from an agent that predates the method).
+     * the agent's own identity, asked for once here. A run that opens while the
+     * answer is on its way waits up to {@link AgentInfoProbe#HEADER_WAIT} for it,
+     * on the script's thread; an agent that predates the method answers
+     * {@code unknown} quickly.
      */
     private void wireRunLogs(ScriptRuntime runtime, RpcClient rpc, Connection conn) {
         RunLogs logs = this.runLogs;
@@ -869,7 +871,8 @@ public class CliContext {
         runtime.setRunNames(conn::knownNames);
         rpc.setCallObserver(logs::recordRpc);
         runtime.setAgentIdentity(AgentInfoProbe.start(
-                () -> rpc.callSync(AgentInfoProbe.METHOD, Map.of()), AgentInfoProbe.DEFAULT_DEADLINE));
+                () -> rpc.callSync(AgentInfoProbe.METHOD, Map.of()), AgentInfoProbe.DEFAULT_DEADLINE)
+                .waitingAtMost(AgentInfoProbe.HEADER_WAIT));
     }
 
     /**
