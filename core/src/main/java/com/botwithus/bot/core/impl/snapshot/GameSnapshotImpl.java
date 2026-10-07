@@ -11,6 +11,7 @@ import com.botwithus.bot.api.snapshot.Location;
 import com.botwithus.bot.api.snapshot.LocationFilter;
 import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
+import com.botwithus.bot.api.snapshot.OpenInterface;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
 import com.botwithus.bot.api.snapshot.Projectile;
@@ -194,6 +195,22 @@ public final class GameSnapshotImpl implements GameSnapshot {
     @Override
     public boolean isOpenInterfaceListComplete() {
         return view.isOpenIfaceListComplete();
+    }
+
+    @Override
+    public List<OpenInterface> openInterfaces() {
+        return view.openInterfaces();
+    }
+
+    @Override
+    public Optional<OpenInterface> openInterface(int ifaceId) {
+        int count = view.openIfaceCount();
+        for (int i = 0; i < count; i++) {
+            if (view.openIfaceAt(i) == ifaceId) {
+                return Optional.of(OpenInterface.fromWire(ifaceId, view.openIfaceFlagsAt(i)));
+            }
+        }
+        return Optional.empty();
     }
 
     private static Npc toNpc(NpcEntry e) {

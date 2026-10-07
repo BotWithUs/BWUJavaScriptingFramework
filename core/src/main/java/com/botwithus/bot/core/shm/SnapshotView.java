@@ -1,9 +1,12 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.api.snapshot.OpenInterface;
 import com.botwithus.bot.api.snapshot.Orientation;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Typed accessor over a single snapshot buffer in the shared region.
@@ -281,6 +284,26 @@ public final class SnapshotView {
         }
         return seg.get(ValueLayout.JAVA_INT,
                        Layout.SNAP_OPENIFACES_OFFSET + (long) i * 4);
+    }
+
+    /** Returns the unsigned flags byte at index {@code i} (0..openIfaceCount-1), which
+     *  describes {@link #openIfaceAt(int)} at the same index (v23+). */
+    public int openIfaceFlagsAt(int i) {
+        if (i < 0 || i >= openIfaceCount()) {
+            throw new IndexOutOfBoundsException(i);
+        }
+        return Byte.toUnsignedInt(seg.get(ValueLayout.JAVA_BYTE,
+                                          Layout.SNAP_OPENIFACEFLAGS_OFFSET + (long) i));
+    }
+
+    /** Copies this tick's open sub-interfaces, ids paired with their flags by index. */
+    public List<OpenInterface> openInterfaces() {
+        int count = openIfaceCount();
+        List<OpenInterface> out = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            out.add(OpenInterface.fromWire(openIfaceAt(i), openIfaceFlagsAt(i)));
+        }
+        return List.copyOf(out);
     }
 
     /** True iff {@code ifaceId} appears in this tick's open-subs snapshot.

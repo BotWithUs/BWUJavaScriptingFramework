@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.impl.snapshot;
 
 import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.snapshot.OpenInterface;
 import com.botwithus.bot.core.shm.Layout;
 import com.botwithus.bot.core.shm.SharedRegion;
 import org.junit.jupiter.api.Test;
@@ -10,7 +11,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -29,6 +32,10 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * that each listed interface is open. Set it only when the caller has opened those
  * interfaces first (the harness opens the bank through the agent).</p>
  *
+ * <p>{@code -Dbotwithus.live.expectOpenIfaceTypes=<id>:<type>[,...]} (v23) asserts each
+ * listed interface is open with that open type, e.g. {@code 517:0} for the bank as a modal.
+ * Every open interface is logged as {@code id(type,cs2)} either way.</p>
+ *
  * <p>Disabled by default; opt in with {@code -Dbotwithus.smoke.live=true}.
  * {@code -Dbotwithus.harness.pid=<pid>} pins the client; without it the first
  * visible agent is used.</p>
@@ -39,6 +46,7 @@ class LiveOpenInterfacesSmokeTest {
 
     private static final String PID_PROPERTY = "botwithus.harness.pid";
     private static final String EXPECT_PROPERTY = "botwithus.live.expectOpenIfaces";
+    private static final String EXPECT_TYPES_PROPERTY = "botwithus.live.expectOpenIfaceTypes";
 
     /** Game state code published by the producer when the client is in-game. */
     private static final int GAME_STATE_IN_GAME = 30;
@@ -60,7 +68,38 @@ class LiveOpenInterfacesSmokeTest {
                     "open-interface list is incomplete: count=" + count + " total=" + total
                             + " cap=" + Layout.OPEN_IFACE_CAP);
             assertExpectedOpen(snap);
+            assertExpectedTypes(snap);
         }
+    }
+
+    /**
+     * Logs every open interface as {@code id(type,cs2)}, the form agentctl prints as
+     * {@code openIfacesDescribed}, so the two can be diffed directly, then checks each
+     * {@code <id>:<type>} pair in {@value #EXPECT_TYPES_PROPERTY}.
+     */
+    private static void assertExpectedTypes(GameSnapshot snap) {
+        log.info("live openIfacesDescribed: {}", snap.openInterfaces().stream()
+                .map(LiveOpenInterfacesSmokeTest::describe)
+                .collect(Collectors.joining(" ")));
+        String expected = System.getProperty(EXPECT_TYPES_PROPERTY, "").trim();
+        if (expected.isEmpty()) {
+            return;
+        }
+        for (String pair : expected.split(",")) {
+            String[] parts = pair.trim().split(":");
+            int id = Integer.parseInt(parts[0].trim());
+            int type = Integer.parseInt(parts[1].trim());
+            Optional<OpenInterface> open = snap.openInterface(id);
+            log.info("expected interface {} type {}: got {} (isModal={})", id, type,
+                    open.map(LiveOpenInterfacesSmokeTest::describe).orElse("absent"),
+                    open.map(OpenInterface::isModal).orElse(false));
+            assertEquals(Optional.of(type), open.map(OpenInterface::type),
+                    "open type of interface " + id);
+        }
+    }
+
+    private static String describe(OpenInterface open) {
+        return open.id() + "(" + open.type() + "," + (open.clientOpened() ? 1 : 0) + ")";
     }
 
     private static void assertExpectedOpen(GameSnapshot snap) {

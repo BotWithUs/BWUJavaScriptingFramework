@@ -261,10 +261,11 @@ tasks.register<Test>("harnessTest") {
     // the rest of the run is testing. Without it that gate would attach to
     // whichever agent it found first, and could certify a different process
     // than the run then exercises. botwithus.live.expectOpenIfaces names the
-    // interfaces the caller opened first, for LiveOpenInterfacesSmokeTest.
+    // interfaces the caller opened first, for LiveOpenInterfacesSmokeTest, and
+    // botwithus.live.expectOpenIfaceTypes the open type each must have (<id>:<type>).
     listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live",
            "worldwalker.dll", "worldwalker.artifact", "botwithus.live.expectOpenIfaces",
-           "botwithus.harness.pid").forEach { key ->
+           "botwithus.live.expectOpenIfaceTypes", "botwithus.harness.pid").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {
