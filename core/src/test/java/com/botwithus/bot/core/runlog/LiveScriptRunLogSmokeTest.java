@@ -19,6 +19,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.shm.Layout;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
 import org.junit.jupiter.api.Assumptions;
@@ -250,7 +251,7 @@ class LiveScriptRunLogSmokeTest {
         assertAll(
                 () -> assertTrue(text.startsWith("# bwu-run-log v1\n")),
                 () -> assertTrue(text.contains("\n---\n")),
-                () -> assertTrue(text.contains("\nprotocol_version: 22\n")),
+                () -> assertTrue(text.contains("\nprotocol_version: " + Layout.PROTOCOL_VERSION + "\n")),
                 () -> assertTrue(text.contains("=== CRASH phase=on_loop ")),
                 () -> assertTrue(text.contains("\nexception: " + exception)),
                 () -> assertTrue(text.contains("\ntop_frame: " + topFramePrefix), "top_frame"),
