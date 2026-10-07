@@ -22,6 +22,7 @@ import com.botwithus.bot.cli.command.impl.ReportCommand;
 import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.diag.FreeToPlayRoutingSwitch;
 import com.botwithus.bot.cli.diag.MetricsCollection;
 import com.botwithus.bot.cli.diag.WalkerPathOverlay;
 import com.botwithus.bot.cli.log.LogBuffer;
@@ -90,6 +91,7 @@ public final class JBotCli {
                 DevGate.fromSystemProperties(), JBotCli::onCloseRequested);
         new MetricsCollection(ctx.getSettings()).bind(ctx);
         new WalkerPathOverlay(ctx.getSettings()).bind(ctx);
+        new FreeToPlayRoutingSwitch(ctx.getSettings()).bind(ctx);
         CommandRegistry registry = new CommandRegistry();
 
         // Register commands

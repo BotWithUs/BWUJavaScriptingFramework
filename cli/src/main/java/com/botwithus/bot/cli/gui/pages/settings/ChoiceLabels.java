@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.settings.FreeToPlayRouting;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.settings.StartMode;
 import com.botwithus.bot.cli.settings.TextSize;
@@ -29,6 +30,9 @@ final class ChoiceLabels {
         if (keyName.equals(SettingKeys.START_MODE.name())) {
             return startMode(StartMode.valueOf(optionName));
         }
+        if (keyName.equals(SettingKeys.WALK_FREE_TO_PLAY.name())) {
+            return freeToPlay(FreeToPlayRouting.valueOf(optionName));
+        }
         return words(optionName);
     }
 
@@ -43,6 +47,13 @@ final class ChoiceLabels {
         return switch (mode) {
             case NORMAL -> "Normal";
             case ADVANCED -> "Advanced";
+        };
+    }
+
+    private static String freeToPlay(FreeToPlayRouting routing) {
+        return switch (routing) {
+            case OFF -> "Off";
+            case RESTRICT_WHEN_FREE_TO_PLAY -> "Restrict when the account is free-to-play";
         };
     }
 

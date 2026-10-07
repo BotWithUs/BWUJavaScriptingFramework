@@ -26,6 +26,7 @@ import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.StreamCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
+import com.botwithus.bot.cli.diag.FreeToPlayRoutingSwitch;
 import com.botwithus.bot.cli.diag.MetricsCollection;
 import com.botwithus.bot.cli.diag.WalkerPathOverlay;
 import com.botwithus.bot.cli.events.ClientKey;
@@ -442,6 +443,7 @@ public class ImGuiApp extends Application {
     private DashboardPage dashboardPage() {
         new MetricsCollection(ctx.getSettings()).bind(ctx);
         new WalkerPathOverlay(ctx.getSettings()).bind(ctx);
+        new FreeToPlayRoutingSwitch(ctx.getSettings()).bind(ctx);
         Clock clock = Clock.systemDefaultZone();
         CommandConsole console = new CommandConsole(outputBuffer, registry, executor, ctx, this::shutdown);
         String scriptsFolder = folderLine(LocalScriptLoader.scriptsDir()).text();

@@ -209,6 +209,15 @@ public final class SettingKeys {
                     + "stairs and teleports over the game. Debug aid; costs a few calls a step.",
             FLAG, Boolean.FALSE);
 
+    // ── Walking ─────────────────────────────────────────────────────────
+
+    public static final SettingKey<FreeToPlayRouting> WALK_FREE_TO_PLAY = new SettingKey<>(
+            "walking.freeToPlay", "Free-to-play routing",
+            "Keep a free-to-play account off members routes: no charter ships, gliders, fairy rings "
+                    + "or members transports, and no walking onto members land. A members account is "
+                    + "never restricted. Needs an up-to-date worldwalker.dll and map data.",
+            new SettingType.Choice<>(List.of(FreeToPlayRouting.values())), FreeToPlayRouting.OFF);
+
     /** Every known key, in settings-page order. Immutable. */
     public static final List<SettingKey<?>> ALL = catalogue();
 
@@ -241,7 +250,7 @@ public final class SettingKeys {
         keys.addAll(AlertSettingKeys.ALL);
         keys.addAll(List.of(START_MODE, TEXT_SIZE, REDUCE_MOTION, NATIVE_FRAME,
                 WINDOW_X, WINDOW_Y, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_MAXIMISED,
-                COLLECT_RPC_TIMING, COLLECT_LOOP_TIMING, DRAW_WALKER_PATH));
+                WALK_FREE_TO_PLAY, COLLECT_RPC_TIMING, COLLECT_LOOP_TIMING, DRAW_WALKER_PATH));
         return List.copyOf(keys);
     }
 }

@@ -86,7 +86,7 @@ public final class SettingsSheet {
                 items.add(new SettingsItem.ActionRow(SettingsAction.EXPORT_SETTINGS, "Export settings",
                         "Save config, profiles and groups to one file to move them to another PC."));
             }
-            case CONNECTING, NOTIFICATIONS, INTEGRATIONS, INTERFACE -> { }
+            case CONNECTING, NOTIFICATIONS, INTEGRATIONS, INTERFACE, WALKING -> { }
         }
         return items;
     }

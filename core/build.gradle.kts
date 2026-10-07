@@ -129,7 +129,7 @@ tasks.register<Test>("worldwalkerE2ETest") {
     // gates on WorldWalkerExecutorE2ETest cause the case to skip cleanly when
     // either prop is missing, so this task is safe to run unconditionally.
     jvmArgs("--enable-native-access=ALL-UNNAMED")
-    listOf("worldwalker.dll", "worldwalker.testArtifact").forEach { key ->
+    listOf("worldwalker.dll", "worldwalker.testArtifact", "worldwalker.f2pArtifact").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {
@@ -140,6 +140,7 @@ tasks.register<Test>("worldwalkerE2ETest") {
     classpath = sourceSets["test"].runtimeClasspath
     filter {
         includeTestsMatching("com.botwithus.bot.core.worldwalker.WorldWalkerExecutorE2ETest")
+        includeTestsMatching("com.botwithus.bot.core.worldwalker.WorldWalkerFreeToPlayE2ETest")
     }
 }
 
@@ -264,7 +265,8 @@ tasks.register<Test>("harnessTest") {
     // interfaces the caller opened first, for LiveOpenInterfacesSmokeTest, and
     // botwithus.live.expectOpenIfaceTypes the open type each must have (<id>:<type>).
     listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live",
-           "worldwalker.dll", "worldwalker.artifact", "botwithus.live.expectOpenIfaces",
+           "worldwalker.dll", "worldwalker.artifact", "worldwalker.teleports", "botwithus.live.walks",
+           "botwithus.live.expectOpenIfaces",
            "botwithus.live.expectOpenIfaceTypes", "botwithus.harness.pid").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }

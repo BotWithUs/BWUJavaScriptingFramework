@@ -300,8 +300,25 @@ public final class WorldWalker implements AutoCloseable {
      */
     public WwPathResult query(WwTile start, WwGoal goal, CapabilitySnapshot capabilities,
                               DynamicRegion instance) {
+        return query(start, goal, capabilities, instance, DisabledMoves.NONE);
+    }
+
+    /**
+     * {@link #query(WwTile, WwGoal, CapabilitySnapshot, DynamicRegion)} with
+     * {@code moves} kept out of the plan ({@code ww_query_moves}).
+     *
+     * <p>{@link DisabledMoves#NONE} makes exactly the call the four-argument
+     * overload makes. A non-empty mask against a library without
+     * {@code ww_query_moves} plans unrestricted and warns once; see
+     * {@link MovesEntry}.</p>
+     *
+     * @return the assembled path, or {@code null} when no route exists
+     */
+    public WwPathResult query(WwTile start, WwGoal goal, CapabilitySnapshot capabilities,
+                              DynamicRegion instance, DisabledMoves moves) {
         Objects.requireNonNull(start, "start");
         Objects.requireNonNull(goal, "goal");
+        Objects.requireNonNull(moves, "moves");
         enterCall();
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment startSeg = writeTile(tmp, start);
@@ -316,8 +333,11 @@ public final class WorldWalker implements AutoCloseable {
 
             int rc;
             try {
-                rc = (int) N.wwQueryEx.invokeExact(
-                        artifact, pool, startSeg, goalSeg, capsSeg, instSeg, outPath);
+                rc = N.queryEntry.call(moves,
+                        () -> (int) N.wwQueryEx.invokeExact(
+                                artifact, pool, startSeg, goalSeg, capsSeg, instSeg, outPath),
+                        mask -> (int) N.wwQueryMoves.orElseThrow().invokeExact(
+                                artifact, pool, startSeg, goalSeg, capsSeg, instSeg, outPath, mask));
             } catch (Throwable t) {
                 throw rethrow(t);
             }
@@ -370,8 +390,24 @@ public final class WorldWalker implements AutoCloseable {
      * @throws IllegalStateException when this handle has been closed
      */
     public WwStatus runExecutor(WwGoal goal, WwCallbacks callbacks) {
+        return runExecutor(goal, callbacks, DisabledMoves.NONE);
+    }
+
+    /**
+     * {@link #runExecutor(WwGoal, WwCallbacks)} with {@code moves} kept out of
+     * the first plan and every re-plan ({@code ww_executor_run_ex}).
+     *
+     * <p>{@link DisabledMoves#NONE} makes exactly the call the two-argument
+     * overload makes. A non-empty mask against a library without
+     * {@code ww_executor_run_ex} walks unrestricted and warns once; see
+     * {@link MovesEntry}.</p>
+     *
+     * @return the terminal status of the run
+     */
+    public WwStatus runExecutor(WwGoal goal, WwCallbacks callbacks, DisabledMoves moves) {
         Objects.requireNonNull(goal, "goal");
         Objects.requireNonNull(callbacks, "callbacks");
+        Objects.requireNonNull(moves, "moves");
         enterCall();
         Linker linker = Linker.nativeLinker();
         try (Arena tmp = Arena.ofConfined()) {
@@ -380,8 +416,11 @@ public final class WorldWalker implements AutoCloseable {
 
             int rc;
             try {
-                rc = (int) N.wwExecutorRun.invokeExact(
-                        artifact, pool, goalSeg, run.callbacksStruct);
+                MemorySegment callbacksSeg = run.callbacksStruct;
+                rc = N.executorEntry.call(moves,
+                        () -> (int) N.wwExecutorRun.invokeExact(artifact, pool, goalSeg, callbacksSeg),
+                        mask -> (int) N.wwExecutorRunEx.orElseThrow().invokeExact(
+                                artifact, pool, goalSeg, callbacksSeg, mask));
             } catch (Throwable t) {
                 // If a callback also threw, surface that first — it's the
                 // closer cause. invokeExact failures are far rarer and likely

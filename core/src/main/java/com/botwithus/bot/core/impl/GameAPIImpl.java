@@ -64,6 +64,7 @@ import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcRemoteException;
 import com.botwithus.bot.core.runtime.ScriptGate;
+import com.botwithus.bot.core.worldwalker.DisabledMoves;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
 import com.botwithus.bot.core.worldwalker.WwEvent;
@@ -249,6 +250,9 @@ public class GameAPIImpl implements GameAPI {
 
     /** Whether walks draw their route; see {@link #setDrawWalkerPath(boolean)}. */
     private volatile boolean isDrawingWalkerPath;
+
+    /** Whether walks may plan as free-to-play; see {@link #setRestrictFreeToPlay(boolean)}. */
+    private volatile boolean isRestrictingFreeToPlay;
 
     /**
      * The path overlay of every walk whose executor has not finished, so a
@@ -872,9 +876,10 @@ public class GameAPIImpl implements GameAPI {
         Optional<WalkPathOverlay> built = Optional.empty();
         Thread worker;
         try {
-            WalkPathOverlay overlay = newWalkOverlay(w, goal, snapSrc, lease);
+            DisabledMoves moves = walkMoves();
+            WalkPathOverlay overlay = newWalkOverlay(w, goal, moves, snapSrc, lease);
             built = Optional.of(overlay);
-            worker = newWalkWorker(w, goal, snapSrc, lease, overlay, x, y);
+            worker = newWalkWorker(w, goal, moves, snapSrc, lease, overlay, x, y);
         } catch (RuntimeException e) {
             // Nothing was started: shut the overlay's worker and hand the lease back.
             built.ifPresent(WalkPathOverlay::close);
@@ -890,8 +895,9 @@ public class GameAPIImpl implements GameAPI {
     }
 
     /** The walk's executor thread, built but not started; it closes {@code overlay} on exit. */
-    private Thread newWalkWorker(WorldWalker w, WwGoal goal, Supplier<GameSnapshot> snapSrc,
-                                 WalkLease lease, WalkPathOverlay overlay, int x, int y) {
+    private Thread newWalkWorker(WorldWalker w, WwGoal goal, DisabledMoves moves,
+                                 Supplier<GameSnapshot> snapSrc, WalkLease lease,
+                                 WalkPathOverlay overlay, int x, int y) {
         Consumer<? super GameEvent> publisher = eventPublisher;
         WorldWalkerCallbackBridge bridge = newWalkBridge(goal, snapSrc, lease, overlay);
         // rule-exception: platform thread rather than virtual — see CLAUDE.md,
@@ -903,7 +909,7 @@ public class GameAPIImpl implements GameAPI {
                 .name("ww-executor-" + System.nanoTime())
                 .daemon(true)
                 .unstarted(() -> runWalkThenCloseOverlay(
-                        () -> runWalk(w, goal, bridge, lease, publisher, x, y), overlay));
+                        () -> runWalk(w, goal, moves, bridge, lease, publisher, x, y), overlay));
     }
 
     /** The executor's callbacks, reporting progress to the log and to {@code overlay}. */
@@ -939,6 +945,27 @@ public class GameAPIImpl implements GameAPI {
     }
 
     /**
+     * Switches free-to-play routing on or off for walks and path queries on this
+     * connection. On, a walk started while the snapshot reads the account as not
+     * a member plans as free-to-play ({@link DisabledMoves#FREE_TO_PLAY}); a
+     * member account is never restricted. Read once at walk start, so a walk
+     * already running keeps the routing it started with. Set by the host from its
+     * {@code walking.freeToPlay} setting; off until then.
+     */
+    public void setRestrictFreeToPlay(boolean isOn) {
+        isRestrictingFreeToPlay = isOn;
+    }
+
+    /**
+     * The planner mask for a walk or query starting now: the free-to-play bit
+     * only when the setting is on and the account reads as not a member.
+     * Package-private so the rule is testable without the native library.
+     */
+    DisabledMoves walkMoves() {
+        return DisabledMoves.forWalk(isRestrictingFreeToPlay, currentLocalPlayer());
+    }
+
+    /**
      * The path overlay for one walk. Built for every walk, whatever the setting
      * says, so that turning the setting on mid-walk draws the walk in progress;
      * while it is off the overlay only records progress.
@@ -958,13 +985,13 @@ public class GameAPIImpl implements GameAPI {
      * <p>Not registered in {@link #liveOverlays} here; the caller registers it
      * once the walk's executor thread exists.</p>
      */
-    private WalkPathOverlay newWalkOverlay(WorldWalker w, WwGoal goal,
+    private WalkPathOverlay newWalkOverlay(WorldWalker w, WwGoal goal, DisabledMoves moves,
                                            Supplier<GameSnapshot> snapSrc, WalkLease lease) {
         WorldWalkerCallbackBridge inputs = new WorldWalkerCallbackBridge(
                 this, snapSrc, lease.cancel(), e -> { }, goal);
         return new WalkPathOverlay(
                 new WalkPathLayout(lease.seq()),
-                start -> w.query(start, goal, inputs.readCapability(), inputs.readInstance()),
+                start -> w.query(start, goal, inputs.readCapability(), inputs.readInstance(), moves),
                 new WalkPathOverlay.DrawSink(drawFacade),
                 this::currentTile,
                 () -> isDrawingWalkerPath,
@@ -1104,11 +1131,15 @@ public class GameAPIImpl implements GameAPI {
         return refusals == null ? 0L : refusals.get();
     }
 
-    private void runWalk(WorldWalker w, WwGoal goal, WorldWalkerCallbackBridge bridge,
-                         WalkLease lease, Consumer<? super GameEvent> publisher, int x, int y) {
+    private void runWalk(WorldWalker w, WwGoal goal, DisabledMoves moves,
+                         WorldWalkerCallbackBridge bridge, WalkLease lease,
+                         Consumer<? super GameEvent> publisher, int x, int y) {
         WwStatus status = WwStatus.FAILED;
         try {
-            status = w.runExecutor(goal, bridge);
+            if (moves.isFreeToPlay()) {
+                log.info("WorldWalker walk to ({},{}) is planned as free-to-play", x, y);
+            }
+            status = w.runExecutor(goal, bridge, moves);
             log.info("WorldWalker walk to ({},{}) finished: {}", x, y, status);
         } catch (Throwable t) {
             log.warn("WorldWalker executor threw", t);
@@ -1223,7 +1254,8 @@ public class GameAPIImpl implements GameAPI {
         WwTile start = new WwTile(lp.tileX(), lp.tileY(), lp.plane());
         WwGoal goal = new WwGoal(x, y, lp.plane(), 0);
         try {
-            return lazyWorldWalker().query(start, goal, null, currentInstance()) != null;
+            DisabledMoves moves = DisabledMoves.forWalk(isRestrictingFreeToPlay, lp);
+            return lazyWorldWalker().query(start, goal, null, currentInstance(), moves) != null;
         } catch (RuntimeException e) {
             log.debug("isReachable query failed: {}", e.toString());
             return false;
@@ -1258,7 +1290,7 @@ public class GameAPIImpl implements GameAPI {
         WwTile start = new WwTile(fromX, fromY, plane);
         WwGoal goal = new WwGoal(toX, toY, plane, 0);
         try {
-            WwPathResult result = lazyWorldWalker().query(start, goal, null, currentInstance());
+            WwPathResult result = lazyWorldWalker().query(start, goal, null, currentInstance(), walkMoves());
             if (result == null) {
                 return notFoundPath();
             }
