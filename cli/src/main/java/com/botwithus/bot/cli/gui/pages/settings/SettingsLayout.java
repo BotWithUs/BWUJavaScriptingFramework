@@ -50,6 +50,7 @@ public final class SettingsLayout {
         rows.add(Placement.of(SettingsSection.INTERFACE, SettingKeys.TEXT_SIZE));
         rows.add(Placement.of(SettingsSection.INTERFACE, SettingKeys.REDUCE_MOTION));
         rows.add(Placement.of(SettingsSection.INTERFACE, SettingKeys.NATIVE_FRAME));
+        rows.add(Placement.of(SettingsSection.WALKING, SettingKeys.WALK_FREE_TO_PLAY));
         rows.add(Placement.of(SettingsSection.DIAGNOSTICS, SettingKeys.COLLECT_RPC_TIMING));
         rows.add(Placement.of(SettingsSection.DIAGNOSTICS, SettingKeys.COLLECT_LOOP_TIMING));
         rows.add(Placement.of(SettingsSection.DIAGNOSTICS, SettingKeys.DRAW_WALKER_PATH));

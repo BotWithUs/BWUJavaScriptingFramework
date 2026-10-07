@@ -23,6 +23,8 @@ public enum SettingsSection {
             "Send the same alerts to your phone or a chat channel, so you know when a client stops "
                     + "while you’re away."),
     INTERFACE("Interface", "Interface", Icons.DISPLAY, ""),
+    WALKING("Walking", "Walking", Icons.MAP,
+            "How the world walker plans routes. Applies to walks started after a change."),
     DIAGNOSTICS("Diagnostics", "Diagnostics", Icons.GAUGE_HIGH,
             "Numbers behind the Dashboard, and debug drawing over the game. "
                     + "Collecting the numbers costs very little."),
