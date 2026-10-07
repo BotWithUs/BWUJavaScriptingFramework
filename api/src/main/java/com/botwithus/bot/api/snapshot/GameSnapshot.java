@@ -176,6 +176,34 @@ public interface GameSnapshot {
         return total > 0 && openInterfaceCount() == total;
     }
 
+    /**
+     * Every open sub-interface this snapshot lists, with how each was opened
+     * (wire v23) — the same {@link #openInterfaceCount()} entries
+     * {@link #isInterfaceOpen(int)} searches, in the producer's order.
+     *
+     * <p>The list is an immutable copy, so it may be kept past the tick. Like
+     * the ids, it can be incomplete; see {@link #isOpenInterfaceListComplete()}.</p>
+     *
+     * <p>Defaults to an empty list for test doubles; the live implementation overrides.</p>
+     */
+    default List<OpenInterface> openInterfaces() {
+        return List.of();
+    }
+
+    /**
+     * The open sub-interface {@code ifaceId} with its open type, or empty when
+     * it is not in this snapshot's list. {@code api.snapshot().openInterface(517)
+     * .map(OpenInterface::isModal)} asks whether the bank is open as a modal.
+     *
+     * <p>Empty is conclusive only when {@link #isOpenInterfaceListComplete()}
+     * holds, exactly as a {@code false} from {@link #isInterfaceOpen(int)} is.</p>
+     *
+     * <p>Defaults to scanning {@link #openInterfaces()}.</p>
+     */
+    default Optional<OpenInterface> openInterface(int ifaceId) {
+        return openInterfaces().stream().filter(open -> open.id() == ifaceId).findFirst();
+    }
+
     interface Npcs {
         int count();
 

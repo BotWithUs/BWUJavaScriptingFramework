@@ -23,8 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LayoutWireOffsetsTest {
 
     @Test
-    void protocolVersionIsTwentyTwo() {
-        assertEquals(22, Layout.PROTOCOL_VERSION,
+    void protocolVersionIsTwentyThree() {
+        assertEquals(23, Layout.PROTOCOL_VERSION,
                 "PROTOCOL_VERSION must equal kProtocolVersion in SharedLayout.h");
     }
 
@@ -39,16 +39,31 @@ class LayoutWireOffsetsTest {
         assertEquals(320376, Layout.SNAP_OPENIFACECOUNT_OFFSET, "offsetof(Snapshot, openIfaceCount)");
         assertEquals(320380, Layout.SNAP_OPENIFACETOTAL_OFFSET, "offsetof(Snapshot, openIfaceTotal)");
         assertEquals(320384, Layout.SNAP_OPENIFACES_OFFSET, "offsetof(Snapshot, openIfaces)");
-        assertEquals(321408, Layout.SNAP_OPENIFACEPAD_OFFSET,
+        assertEquals(321408, Layout.SNAP_OPENIFACEFLAGS_OFFSET, "offsetof(Snapshot, openIfaceFlags)");
+        assertEquals(321664, Layout.SNAP_OPENIFACEPAD_OFFSET,
                 "offsetof(Snapshot, _padAfterOpenIfaces)");
-        assertEquals(321412, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, "offsetof(Snapshot, groundItemCount)");
-        assertEquals(321416, Layout.SNAP_GROUNDITEMS_OFFSET, "offsetof(Snapshot, groundItems)");
+        assertEquals(321668, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, "offsetof(Snapshot, groundItemCount)");
+        assertEquals(321672, Layout.SNAP_GROUNDITEMS_OFFSET, "offsetof(Snapshot, groundItems)");
+    }
+
+    /**
+     * v23 put one flags byte per open-interface slot between the id array and the pad. The
+     * array must be exactly the cap long, so a flag can never sit at a different index from
+     * the id it describes.
+     */
+    @Test
+    void openInterfaceFlagsAreIndexParallelToTheIds() {
+        assertEquals(Layout.SNAP_OPENIFACES_OFFSET + Layout.OPEN_IFACE_CAP * Integer.BYTES,
+                Layout.SNAP_OPENIFACEFLAGS_OFFSET, "flags start where the id array ends");
+        assertEquals(Layout.OPEN_IFACE_CAP,
+                Layout.SNAP_OPENIFACEPAD_OFFSET - Layout.SNAP_OPENIFACEFLAGS_OFFSET,
+                "one flags byte per id slot");
     }
 
     @Test
     void projectileBlockIsPinned() {
-        assertEquals(337800, Layout.SNAP_PROJECTILECOUNT_OFFSET, "offsetof(Snapshot, projectileCount)");
-        assertEquals(337804, Layout.SNAP_PROJECTILES_OFFSET, "offsetof(Snapshot, projectiles)");
+        assertEquals(338056, Layout.SNAP_PROJECTILECOUNT_OFFSET, "offsetof(Snapshot, projectileCount)");
+        assertEquals(338060, Layout.SNAP_PROJECTILES_OFFSET, "offsetof(Snapshot, projectiles)");
     }
 
     /**
@@ -81,18 +96,17 @@ class LayoutWireOffsetsTest {
 
     @Test
     void gameCycleMovedByExactlyTheOpenInterfaceGrowth() {
-        assertEquals(345996, Layout.SNAP_GAMECYCLE_OFFSET,
-                "v22 grew the open-interface block; gameCycle shifts with everything after");
-        assertEquals(345220 + 4 + (Layout.OPEN_IFACE_CAP - 64) * 4 + 4,
-                Layout.SNAP_GAMECYCLE_OFFSET,
-                "the shift must be exactly total(4) + 4 * (256 - 64) + pad(4) = 776");
+        assertEquals(346252, Layout.SNAP_GAMECYCLE_OFFSET,
+                "v23 grew the open-interface block; gameCycle shifts with everything after");
+        assertEquals(345996 + Layout.OPEN_IFACE_CAP, Layout.SNAP_GAMECYCLE_OFFSET,
+                "the v23 shift must be exactly one flags byte per slot = 256");
     }
 
     @Test
     void dynamicRegionBlockOffsetsArePinned() {
-        assertEquals(346000, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
-        assertEquals(346036, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
-        assertEquals(346040, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
+        assertEquals(346256, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
+        assertEquals(346292, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
+        assertEquals(346296, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
     }
 
     @Test
@@ -135,7 +149,7 @@ class LayoutWireOffsetsTest {
 
     @Test
     void snapshotSizeIsPinned() {
-        assertEquals(411576, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
+        assertEquals(411832, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
     }
 
     /**

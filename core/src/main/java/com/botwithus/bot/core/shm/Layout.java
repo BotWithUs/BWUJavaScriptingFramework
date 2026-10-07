@@ -23,6 +23,12 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v23 added {@code openIfaceFlags[OPEN_IFACE_CAP]} ({@link #SNAP_OPENIFACEFLAGS_OFFSET}), one
+     *  u8 per {@code openIfaces[]} entry at the same index: the sub-interface's open type in bits
+     *  0-2 and whether a client script rather than the server opened it in bit 3 (bit layout on
+     *  api's {@code OpenInterface}). It sits between the id array
+     *  and the existing pad; 256 bytes keeps the block's mod-8 alignment, so every field from the
+     *  pad on moved by exactly 256 and {@link #SNAPSHOT_SIZE} went from 411576 to 411832.
      *  v22 raised {@link #OPEN_IFACE_CAP} from 64 to 256 and added {@code openIfaceTotal}
      *  ({@link #SNAP_OPENIFACETOTAL_OFFSET}) beside {@code openIfaceCount}. A default HUD already
      *  holds about 56 open sub-interfaces, so 64 overflowed in ordinary play, and the producer
@@ -89,7 +95,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 22;
+    public static final int PROTOCOL_VERSION = 23;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -396,13 +402,22 @@ public final class Layout {
     // below the total means the list is incomplete, and an id missing from it
     // is then not proof that the interface is closed. The u32 pad after the
     // array keeps the block ending at 4 mod 8, as it did through v21.
+    //
+    // openIfaceFlags (v23+) is index-parallel to openIfaces: flags[i]
+    // describes ids[i], and only [0, openIfaceCount) is meaningful, the same
+    // contract as the ids. The BIT layout of a flags byte is NOT here — it
+    // lives on api's OpenInterface (TYPE_MASK, FLAG_CLIENT_OPENED), because
+    // scripts decode it and api cannot depend on core. One home, as with
+    // DynamicRegion's descriptor bits.
     // ------------------------------------------------------------------
 
     public static final int SNAP_OPENIFACECOUNT_OFFSET = SNAP_PRODUCER_OFFSET + PRODUCER_SIZE;
     public static final int SNAP_OPENIFACETOTAL_OFFSET = SNAP_OPENIFACECOUNT_OFFSET + 4;
     public static final int SNAP_OPENIFACES_OFFSET     = SNAP_OPENIFACETOTAL_OFFSET + 4;
+    /** {@code openIfaceFlags[OPEN_IFACE_CAP]}, one u8 per id (v23+). */
+    public static final int SNAP_OPENIFACEFLAGS_OFFSET = SNAP_OPENIFACES_OFFSET + OPEN_IFACE_CAP * 4;
     /** {@code _padAfterOpenIfaces}; reserved, never read. */
-    public static final int SNAP_OPENIFACEPAD_OFFSET   = SNAP_OPENIFACES_OFFSET + OPEN_IFACE_CAP * 4;
+    public static final int SNAP_OPENIFACEPAD_OFFSET   = SNAP_OPENIFACEFLAGS_OFFSET + OPEN_IFACE_CAP;
 
     // ------------------------------------------------------------------
     // Ground items tail (v15+)
