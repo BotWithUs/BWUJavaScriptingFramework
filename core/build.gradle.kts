@@ -265,7 +265,8 @@ tasks.register<Test>("harnessTest") {
     // interfaces the caller opened first, for LiveOpenInterfacesSmokeTest, and
     // botwithus.live.expectOpenIfaceTypes the open type each must have (<id>:<type>).
     listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live",
-           "worldwalker.dll", "worldwalker.artifact", "botwithus.live.expectOpenIfaces",
+           "worldwalker.dll", "worldwalker.artifact", "worldwalker.teleports", "botwithus.live.walks",
+           "botwithus.live.expectOpenIfaces",
            "botwithus.live.expectOpenIfaceTypes", "botwithus.harness.pid").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
