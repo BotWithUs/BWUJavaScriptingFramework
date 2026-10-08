@@ -42,8 +42,14 @@ class LauncherFixturesTest {
     /** Every fixture this host sends, and how this host's builder makes it from the manifest value. */
     private static final Map<String, Function<JsonObject, Value>> BUILDERS = builders();
 
-    /** {@code hello.req} is the GUI's hello ({@code clientKind:"gui"}); a host sends {@code hello.req.host}. */
-    private static final Set<String> NOT_SENT_BY_A_HOST = Set.of("hello.req");
+    /**
+     * Automation requests this host never sends. {@code hello.req} is the GUI's hello
+     * ({@code clientKind:"gui"}). {@code hello.req.host.agentproto} is the native host's hello
+     * ({@code hostKind:"native"}, with the optional {@code agentProtocol}). This host sends
+     * {@code hello.req.host}.
+     */
+    private static final Set<String> NOT_SENT_BY_THIS_HOST =
+            Set.of("hello.req", "hello.req.host.agentproto");
 
     @TestFactory
     Stream<DynamicTest> everyFixture_unpackThenRepack_isByteIdentical() {
@@ -83,7 +89,7 @@ class LauncherFixturesTest {
                 .filter(f -> f.direction().equals("c2s"))
                 .filter(f -> sentMethods.contains(f.value().get("method").getAsString()))
                 .filter(f -> f.surface().contains(LauncherProtocol.SURFACE_AUTOMATION))
-                .filter(f -> !NOT_SENT_BY_A_HOST.contains(f.name()))
+                .filter(f -> !NOT_SENT_BY_THIS_HOST.contains(f.name()))
                 .map(LauncherFixtures.Fixture::name)
                 .filter(name -> !BUILDERS.containsKey(name))
                 .toList();

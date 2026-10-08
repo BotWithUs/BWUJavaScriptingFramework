@@ -1868,6 +1868,32 @@
       },
       "binFields": [],
       "builder": "UpdatesStatus"
+    },
+    {
+      "name": "hello.req.host.agentproto",
+      "file": "hello.req.host.agentproto.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 2,
+        "kind": "req",
+        "method": "hello",
+        "body": {
+          "protocolMin": 1,
+          "protocolMax": 1,
+          "clientKind": "host",
+          "clientVersion": "0.2.0",
+          "hostKind": "native",
+          "hostPid": 5555,
+          "hostLabel": "System 1",
+          "agentProtocol": 23
+        }
+      },
+      "binFields": [],
+      "builder": "HelloRequest"
     }
   ]
 }
