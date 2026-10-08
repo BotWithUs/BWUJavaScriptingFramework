@@ -15,6 +15,7 @@ import java.util.OptionalLong;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -100,6 +101,22 @@ class LauncherDecoderTest {
                         Optional.of(SHA_B), 2, true), decodeEvent("data.update_available.event")),
                 () -> assertEquals(new LauncherEvent.DataUpdateApplied(SHA_B),
                         decodeEvent("data.update_applied.event")));
+    }
+
+    @Test
+    void nativeUpdateEvents_areNeverDataEvents() {
+        for (String name : List.of("native.update_available.event", "native.update_available.event.error",
+                "native.update_applied.event")) {
+            Envelope event = FIXTURES.envelope(name);
+            assertAll(name, () -> assertTrue(event.method().startsWith("native.")),
+                    () -> assertEquals(Optional.empty(), LauncherDecoder.event(event.method(), event.body())));
+        }
+    }
+
+    @Test
+    void automationTopics_leaveOutNative() {
+        assertAll(() -> assertFalse(LauncherProtocol.AUTOMATION_TOPICS.contains("native")),
+                () -> assertTrue(LauncherProtocol.AUTOMATION_TOPICS.contains("data")));
     }
 
     @Test

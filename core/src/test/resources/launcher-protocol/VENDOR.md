@@ -1,16 +1,17 @@
 # Vendored: launcher protocol golden fixtures (automation surface)
 
 Source: `BotWithUs/BotWithUs-Launcher`, directory `protocol/fixtures/`, at merge
-`7fa9a446bbcf95eb00d5e27b60bbb236c86febfa` (the A5 merge; launcher ADR 0007, section 3.3).
+`9d2df79f370cfe9f4a10c67d95e0b0b702347426` (PR #41, the native.zip amendment; launcher
+ADR 0007, section 3.3).
 
 **Only the automation-surface fixtures are vendored; the full surface stays in
 the private launcher repository.** A host speaks only the automation pipe, so
 the fixtures copied are those whose manifest `surface` includes `"automation"`:
-64 of 122.
+70 of 128.
 
 - Every `.msgpack` file is a byte-exact copy of the upstream file.
 - `manifest.json` is **derived**: the upstream manifest (blob
-  `fad8875d53ac26e7fd1ffefeb88d1b8e95b360e6`) with only those entries kept, in upstream order,
+  `0f5f1211eec2aa8e31c3ca0c9eff121a9162199d`) with only those entries kept, in upstream order,
   values unchanged. It is not byte-identical to upstream.
 
 **Do not hand-edit.** A protocol change lands in the launcher first; this
@@ -29,7 +30,7 @@ Checks:
 
 `.gitattributes` here marks everything `-text`, so no checkout converts a line ending.
 
-## Blob ids at 7fa9a44
+## Blob ids at 9d2df79
 
 ```
 7eef37e00caa5e1c13682c39eea19cad4160eae3  hello.req.msgpack
@@ -96,4 +97,10 @@ c32e394c79e08c419acce475ea0c2f9075eee5d5  service.status.resp.automation.msgpack
 74ba2cf312294c1a03cdce3f889065af8bd9da6c  client.status.resp.automation.msgpack
 dbe72c27c711674fe74f540b4078d021922e8e8b  events.subscribe.error.hosts_topic.msgpack
 46569135f26d601f990534e4dc51837771653b96  client.launch.error.session_limit.msgpack
+353b23c36b261119cc1c0548ea5c482d0374d316  native.update_available.event.msgpack
+c402117718aa7d51cbf3a0c62d243212c2b032b6  native.update_available.event.error.msgpack
+8c7172fd0957a8f29a5bf66b65969974e1f06e5f  native.update_applied.event.msgpack
+ead75e38543e1805bbd36fd2791446d6d9ceb95e  events.subscribe.req.native.msgpack
+d7c942280cff1f034b3c0b2938f43065eb4c3942  events.subscribe.resp.native.msgpack
+340fc292d72cbaf5b4cd86b891f205993baa33a0  updates.status.resp.native.msgpack
 ```

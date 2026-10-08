@@ -46,14 +46,24 @@ public final class LauncherProtocol {
     public static final String EVENT_AGENT_UPDATED = "agent.updated";
     public static final String EVENT_DATA_UPDATE_AVAILABLE = "data.update_available";
     public static final String EVENT_DATA_UPDATE_APPLIED = "data.update_applied";
+    /**
+     * The native host package's update, on the {@code native} topic. Not the
+     * data update: this host neither installs that package nor subscribes to
+     * the topic, so it never turns these into script events.
+     */
+    public static final String EVENT_NATIVE_UPDATE_AVAILABLE = "native.update_available";
+    public static final String EVENT_NATIVE_UPDATE_APPLIED = "native.update_applied";
     public static final String EVENT_LICENCE_STATE = "licence.state";
     public static final String EVENT_SERVICE_SHUTTING_DOWN = "service.shutting_down";
     /** Sent only to this host's own connection, whether or not it subscribed. */
     public static final String EVENT_HOST_CLOSE_REQUESTED = "host.close_requested";
 
     /**
-     * Every topic the automation surface may subscribe to: all of them except
-     * {@code hosts}, which the service refuses there.
+     * The topics this host subscribes to: every automation topic except
+     * {@code native}, whose events concern only the native host's package.
+     * {@code hosts} is refused on the automation surface. A service older than
+     * a topic refuses the whole subscribe with {@code bad_request}, so adding
+     * {@code native} here needs a resubscribe without it on that refusal.
      */
     public static final List<String> AUTOMATION_TOPICS = List.of("clients", "agent", "data", "licence", "service");
 

@@ -162,8 +162,10 @@ class LauncherFixturesTest {
         b.put("client.stop.req", body -> LauncherRequests.clientStop(body.get("clientId").getAsString(),
                 stopMode(body.get("mode").getAsString())));
         b.put("client.status.req", body -> LauncherRequests.clientStatus(body.get("clientId").getAsString()));
-        b.put("events.subscribe.req", body -> LauncherRequests.subscribe(body.getAsJsonArray("topics").asList()
-                .stream().map(JsonElement::getAsString).toList()));
+        Function<JsonObject, Value> subscribe = body -> LauncherRequests.subscribe(
+                body.getAsJsonArray("topics").asList().stream().map(JsonElement::getAsString).toList());
+        b.put("events.subscribe.req", subscribe);
+        b.put("events.subscribe.req.native", subscribe);
         b.put("host.ack_close.req", body -> LauncherRequests.ackClose(body.get("requestId").getAsLong(),
                 decision(body.get("decision").getAsString())));
         b.put("host.ack_close.req.later", body -> LauncherRequests.ackClose(body.get("requestId").getAsLong(),
