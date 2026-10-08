@@ -1,17 +1,17 @@
 # Vendored: launcher protocol golden fixtures (automation surface)
 
 Source: `BotWithUs/BotWithUs-Launcher`, directory `protocol/fixtures/`, at merge
-`9d2df79f370cfe9f4a10c67d95e0b0b702347426` (PR #41, the native.zip amendment; launcher
-ADR 0007, section 3.3).
+`71c6981e970f5c3fdd95a5b699492304cc9f39af` (PR #43, which carries PR #42 and the native host
+launch amendment; launcher ADR 0007, section 3.3).
 
 **Only the automation-surface fixtures are vendored; the full surface stays in
 the private launcher repository.** A host speaks only the automation pipe, so
 the fixtures copied are those whose manifest `surface` includes `"automation"`:
-70 of 128.
+71 of 132.
 
 - Every `.msgpack` file is a byte-exact copy of the upstream file.
 - `manifest.json` is **derived**: the upstream manifest (blob
-  `0f5f1211eec2aa8e31c3ca0c9eff121a9162199d`) with only those entries kept, in upstream order,
+  `f209cedf1014a3bc993a9eb70ee9e0a8ab3aa344`) with only those entries kept, in upstream order,
   values unchanged. It is not byte-identical to upstream.
 
 **Do not hand-edit.** A protocol change lands in the launcher first; this
@@ -30,7 +30,7 @@ Checks:
 
 `.gitattributes` here marks everything `-text`, so no checkout converts a line ending.
 
-## Blob ids at 9d2df79
+## Blob ids at 71c6981
 
 ```
 7eef37e00caa5e1c13682c39eea19cad4160eae3  hello.req.msgpack
@@ -103,4 +103,5 @@ c402117718aa7d51cbf3a0c62d243212c2b032b6  native.update_available.event.error.ms
 ead75e38543e1805bbd36fd2791446d6d9ceb95e  events.subscribe.req.native.msgpack
 d7c942280cff1f034b3c0b2938f43065eb4c3942  events.subscribe.resp.native.msgpack
 340fc292d72cbaf5b4cd86b891f205993baa33a0  updates.status.resp.native.msgpack
+bb5c4dff00d7938f1afca3e2f13febbc8b9d6350  hello.req.host.agentproto.msgpack
 ```
