@@ -74,6 +74,10 @@ final class LauncherDecoder {
             case LauncherProtocol.EVENT_LICENCE_STATE -> Optional.of(licenceChanged(body));
             case LauncherProtocol.EVENT_SERVICE_SHUTTING_DOWN -> Optional.of(
                     new LauncherEvent.ServiceShuttingDown(WireValues.bool(body, "closeClients", false)));
+            // Named, not left to default: these share the data events' body shape
+            // but are never a data update.
+            case LauncherProtocol.EVENT_NATIVE_UPDATE_AVAILABLE,
+                 LauncherProtocol.EVENT_NATIVE_UPDATE_APPLIED -> Optional.empty();
             default -> Optional.empty();
         };
     }

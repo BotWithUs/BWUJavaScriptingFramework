@@ -863,7 +863,8 @@
         },
         "seq": 13
       },
-      "binFields": []
+      "binFields": [],
+      "builder": "CloseClientsBody"
     },
     {
       "name": "error.bad_frame",
@@ -1693,6 +1694,180 @@
       },
       "binFields": [],
       "builder": "Error"
+    },
+    {
+      "name": "native.update_available.event",
+      "file": "native.update_available.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "native.update_available",
+        "body": {
+          "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+          "phase": "downloading",
+          "blockedBy": [],
+          "applyWhenHostsClose": true,
+          "checkedAtMs": 1790000120000
+        },
+        "seq": 13
+      },
+      "binFields": [],
+      "builder": "DataState"
+    },
+    {
+      "name": "native.update_available.event.error",
+      "file": "native.update_available.event.error.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "native.update_available",
+        "body": {
+          "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+          "phase": "error",
+          "blockedBy": [],
+          "applyWhenHostsClose": true,
+          "lastError": "Installing the native host update failed: native.json: unknown format (this launcher reads format 1)",
+          "checkedAtMs": 1790000120000
+        },
+        "seq": 14
+      },
+      "binFields": [],
+      "builder": "DataState"
+    },
+    {
+      "name": "native.update_applied.event",
+      "file": "native.update_applied.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "native.update_applied",
+        "body": {
+          "sha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12"
+        },
+        "seq": 15
+      },
+      "binFields": [],
+      "builder": "ShaBody"
+    },
+    {
+      "name": "events.subscribe.req.native",
+      "file": "events.subscribe.req.native.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 45,
+        "kind": "req",
+        "method": "events.subscribe",
+        "body": {
+          "topics": [
+            "data",
+            "native"
+          ]
+        }
+      },
+      "binFields": [],
+      "builder": "SubscribeRequest"
+    },
+    {
+      "name": "events.subscribe.resp.native",
+      "file": "events.subscribe.resp.native.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 45,
+        "kind": "resp",
+        "method": "events.subscribe",
+        "ok": true,
+        "body": {
+          "snapshot": {
+            "data": {
+              "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+              "phase": "current",
+              "blockedBy": [],
+              "applyWhenHostsClose": true,
+              "checkedAtMs": 1790000060000
+            },
+            "native": {
+              "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+              "stagedSha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12",
+              "phase": "staged",
+              "blockedBy": [],
+              "applyWhenHostsClose": true,
+              "checkedAtMs": 1790000120000
+            }
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "SubscribeResponse"
+    },
+    {
+      "name": "updates.status.resp.native",
+      "file": "updates.status.resp.native.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 46,
+        "kind": "resp",
+        "method": "updates.status",
+        "ok": true,
+        "body": {
+          "agent": {
+            "sha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12",
+            "checkedAtMs": 1790000000000
+          },
+          "data": {
+            "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+            "phase": "current",
+            "blockedBy": [],
+            "applyWhenHostsClose": true,
+            "checkedAtMs": 1790000060000
+          },
+          "runtimeCheck": {
+            "serial": 4,
+            "note": ""
+          },
+          "native": {
+            "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+            "phase": "current",
+            "blockedBy": [],
+            "applyWhenHostsClose": true,
+            "checkedAtMs": 1790000120000
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "UpdatesStatus"
     }
   ]
 }
