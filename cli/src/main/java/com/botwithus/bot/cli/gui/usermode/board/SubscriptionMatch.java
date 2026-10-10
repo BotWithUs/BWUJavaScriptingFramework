@@ -15,9 +15,11 @@ import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
  *       identity, and a same-named local JAR by someone else would otherwise be
  *       hidden and started in the subscription's place.</li>
  *   <li><b>Which script in a delivery is the one we asked for?</b> The class
- *       when the catalogue gives one, else the manifest name. The delivery holds
- *       only what was requested, so the name is safe there; the caller still
- *       checks that the runner it starts holds the delivered instance.</li>
+ *       the catalogue gives, or the manifest name: an entry shared by both agents
+ *       carries the agent v1 class, which an agent v2 build never has. The
+ *       delivery holds only what was requested, so the name is safe there; the
+ *       caller still checks that the runner it starts holds the delivered
+ *       instance.</li>
  * </ul>
  */
 public final class SubscriptionMatch {

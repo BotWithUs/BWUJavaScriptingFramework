@@ -168,6 +168,16 @@ class SdnInstallerTest {
     }
 
     @Test
+    void install_entryNamingAnotherAgentsClass_pairsTheDeliveryByManifestName() {
+        SdnCatalogueEntry shared = entry("7", DELIVERED_NAME, "net.botwithus.legacy.Woodcutter", BUILD);
+
+        delivering(List.of(new DeliveredScript())).install(List.of(shared));
+
+        assertEquals(Optional.of("7"),
+                ledger().find(DeliveredScript.class.getName()).map(InstalledSdnScript::catalogueId));
+    }
+
+    @Test
     void install_batch_recordsEachScriptAgainstItsOwnEntry() {
         SdnCatalogueEntry first = entry("7");
         SdnCatalogueEntry second = entry("12", "Other", OtherScript.class.getName(), null);
