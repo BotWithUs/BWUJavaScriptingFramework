@@ -115,19 +115,19 @@ public record SdnCatalogueEntry(String id,
     /**
      * Whether a script that arrived in a delivery of this entry is its script.
      *
-     * <p>The class when the catalogue names one, else the manifest name, ignoring
-     * case. A delivery holds only what was requested, so the name is a safe
-     * fallback there. It is not a safe way to recognise an already-loaded script:
-     * a same-named local script by someone else would match.
+     * <p>The class the catalogue names, or the manifest name, ignoring case. The
+     * name is not only a fallback for a blank class: an entry shared by both agents
+     * carries the agent v1 class, so an agent v2 build of it never matches by class.
+     * A delivery holds only what was requested, so the name is safe there. It is not
+     * a safe way to recognise an already-loaded script: a same-named local script by
+     * someone else would match.
      *
      * @param className    the delivered script's fully-qualified class name
      * @param manifestName the name the runtime registers it under
      */
     public boolean isDeliveredAs(String className, String manifestName) {
-        if (scriptClass != null && !scriptClass.isBlank()) {
-            return scriptClass.equals(className);
-        }
-        return !name.isBlank() && name.equalsIgnoreCase(manifestName);
+        boolean byClass = scriptClass != null && !scriptClass.isBlank() && scriptClass.equals(className);
+        return byClass || !name.isBlank() && name.equalsIgnoreCase(manifestName);
     }
 
     /** Display label: the tagline when there is one, else the first line of the description. */

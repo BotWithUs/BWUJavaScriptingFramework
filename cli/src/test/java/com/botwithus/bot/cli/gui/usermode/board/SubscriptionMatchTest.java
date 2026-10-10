@@ -36,15 +36,22 @@ class SubscriptionMatchTest {
         assertFalse(SubscriptionMatch.isLoadedCopy("x.Y", entry("Woodcutter", null)));
     }
 
-    // ── A fresh delivery: class, else name ─────────────────────────────────
+    // ── A fresh delivery: class or name ────────────────────────────────────
 
     @Test
-    void isDeliveryOf_scriptClassPresent_comparesClassNameExactly() {
+    void isDeliveryOf_scriptClassPresent_matchesTheClassWhateverTheName() {
         SdnCatalogueEntry e = entry("Woodcutter", "com.example.Woodcutter");
 
         assertTrue(SubscriptionMatch.isDeliveryOf("com.example.Woodcutter", "Anything", e));
-        assertFalse(SubscriptionMatch.isDeliveryOf("com.other.Woodcutter", "Woodcutter", e),
-                "a matching name must not override a different class");
+        assertFalse(SubscriptionMatch.isDeliveryOf("com.other.Fletcher", "Fletcher", e));
+    }
+
+    @Test
+    void isDeliveryOf_agentV1ClassOnTheEntry_matchesTheAgentV2BuildByName() {
+        // A shared entry names the v1 class; the v2 build of the same script has another.
+        SdnCatalogueEntry e = entry("CraftWithUs", "net.botwithus.plugins.crafting.CraftWithUs");
+
+        assertTrue(SubscriptionMatch.isDeliveryOf("com.botwithus.scripts.craftwithus.CraftWithUs", "CraftWithUs", e));
     }
 
     @Test
