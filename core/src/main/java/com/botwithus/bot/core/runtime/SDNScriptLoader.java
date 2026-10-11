@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.core.crypto.DefinedBundle;
 import com.botwithus.bot.core.crypto.SdnDiskBundleSource;
 import com.botwithus.bot.core.crypto.SdnLoader;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -11,7 +12,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.ServiceConfigurationError;
-import java.util.ServiceLoader;
 
 /**
  * Facade that combines local script loading (JAR files) and SDN script loading
@@ -95,12 +95,7 @@ public final class SDNScriptLoader {
             ClassLoader sdnClassLoader = sdnLoader.loadScriptBundle(
                     SDNScriptLoader.class.getClassLoader());
 
-            List<BotScript> scripts = new ArrayList<>();
-            ServiceLoader<BotScript> loader = ServiceLoader.load(BotScript.class, sdnClassLoader);
-            for (BotScript script : loader) {
-                scripts.add(script);
-                log.info("SDN loaded: {}", script.getClass().getName());
-            }
+            List<BotScript> scripts = providersFrom(sdnClassLoader);
 
             if (scripts.isEmpty()) {
                 log.info("No BotScript providers found in SDN bundle.");
@@ -124,55 +119,65 @@ public final class SDNScriptLoader {
      * @return list of BotScript implementations from the disk-delivered bundle
      */
     public static List<BotScript> loadSdnScriptsFromDisk() {
+        return loadSdnDeliveryFromDisk().scripts();
+    }
+
+    /**
+     * As {@link #loadSdnScriptsFromDisk()}, keeping each script with the jar it
+     * came from and that jar's place in the delivery, which is what pairs a
+     * script with the catalogue entry it was requested as.
+     *
+     * @return the delivery; {@link SdnDelivery#none()} when disabled, not
+     *         delivered, or on error
+     */
+    public static SdnDelivery loadSdnDeliveryFromDisk() {
         if (!SdnDiskBundleSource.isEnabled()) {
-            return List.of();
+            return SdnDelivery.none();
         }
         try {
-            List<ClassLoader> loaders =
+            DefinedBundle bundle =
                     SdnDiskBundleSource.awaitBundle(SDNScriptLoader.class.getClassLoader());
-            if (loaders.isEmpty()) {
-                return List.of();
+            List<SdnDelivery.Jar> jars = new ArrayList<>();
+            for (DefinedBundle.Jar jar : bundle.jars()) {
+                List<BotScript> found = providersFrom(jar.loader());
+                if (!found.isEmpty()) {
+                    jars.add(new SdnDelivery.Jar(jar.position(), found));
+                }
             }
-
-            List<BotScript> scripts = new ArrayList<>();
-            for (ClassLoader loader : loaders) {
-                scripts.addAll(providersFrom(loader));
-            }
-
-            if (scripts.isEmpty()) {
+            SdnDelivery delivery = new SdnDelivery(bundle.jarCount(), jars);
+            if (bundle.jarCount() > 0 && delivery.isEmpty()) {
                 log.info("No BotScript providers found in SDN disk bundle.");
-            } else {
-                log.info("Loaded {} script(s) from {} SDN bundle(s).", scripts.size(), loaders.size());
+            } else if (!delivery.isEmpty()) {
+                log.info("Loaded {} script(s) from {} SDN jar(s).", delivery.scripts().size(), jars.size());
             }
-            return scripts;
+            return delivery;
         } catch (Exception e) {
             log.error("SDN disk script loading failed: {}", e.getMessage());
-            return List.of();
+            return SdnDelivery.none();
         }
     }
 
     /**
-     * Discovers the providers in one delivered bundle.
+     * Discovers the providers in one delivered bundle: from its own module layer
+     * when the jar declares a module, else from its unnamed module (see
+     * {@link SdnBundleProviders}).
      *
-     * <p>Failure is contained to this loader. ServiceLoader resolves providers
-     * lazily, so a single script whose provider class is missing or whose
-     * constructor throws surfaces here, during iteration — and without this
-     * boundary it would cost the user every other script in the same delivery.
-     * That isolation is the reason the delivery is N loaders rather than one
-     * merged jar.
+     * <p>Failure is contained to this loader. A module that does not resolve, a
+     * descriptor that does not unseal, or a provider whose class is missing or
+     * whose constructor throws surfaces here — and without this boundary it
+     * would cost the user every other script in the same delivery. That
+     * isolation is the reason the delivery is N loaders rather than one merged
+     * jar.
      */
     private static List<BotScript> providersFrom(ClassLoader loader) {
-        List<BotScript> found = new ArrayList<>();
         try {
-            for (BotScript script : ServiceLoader.load(BotScript.class, loader)) {
-                found.add(script);
-                log.info("SDN (disk) loaded: {}", script.getClass().getName());
-            }
+            return SdnBundleProviders.load(loader, SdnLoader.moduleOf(loader), ModuleLayer.boot(),
+                    BotScript.class);
         } catch (Exception | ServiceConfigurationError e) {
             log.warn("SDN: a delivered bundle yielded no usable providers, skipping it: {}",
                     e.getMessage(), e);
+            return List.of();
         }
-        return found;
     }
 
     /**

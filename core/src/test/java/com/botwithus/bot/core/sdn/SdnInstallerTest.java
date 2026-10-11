@@ -3,6 +3,7 @@ package com.botwithus.bot.core.sdn;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.core.runtime.SdnDelivery;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -20,7 +21,6 @@ import java.time.Instant;
 import java.time.InstantSource;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.BlockingQueue;
@@ -67,9 +67,28 @@ class SdnInstallerTest {
                 false, true, true, false, null, null, build);
     }
 
-    /** An installer whose courier always delivers {@code scripts}, recording into {@link #ledger()}. */
-    private SdnInstaller delivering(List<BotScript> scripts) {
-        return new SdnInstaller(dir, () -> true, () -> scripts, ledger());
+    /** An installer whose courier always delivers {@code delivery}, recording into {@link #ledger()}. */
+    private SdnInstaller delivering(SdnDelivery delivery) {
+        return new SdnInstaller(dir, () -> true, () -> delivery, ledger());
+    }
+
+    /** A delivery of one jar per script, in order, every jar defined. */
+    private static SdnDelivery jars(BotScript... perJar) {
+        List<SdnDelivery.Jar> jars = new ArrayList<>();
+        for (int i = 0; i < perJar.length; i++) {
+            jars.add(new SdnDelivery.Jar(i, List.of(perJar[i])));
+        }
+        return new SdnDelivery(perJar.length, jars);
+    }
+
+    private static SdnInstallResult.Installed installed(SdnInstallResult result) {
+        return switch (result) {
+            case SdnInstallResult.Installed installed -> installed;
+            case SdnInstallResult.NothingSelected ignored -> fail("nothing selected");
+            case SdnInstallResult.DeliveryDisabled ignored -> fail("delivery disabled");
+            case SdnInstallResult.CourierUnavailable ignored -> fail("courier unavailable");
+            case SdnInstallResult.Failed failed -> fail(failed.reason());
+        };
     }
 
     @Test
@@ -95,8 +114,10 @@ class SdnInstallerTest {
     @Test
     void isDeliveryEnabled_reportsWhatTheInstallWouldFind() {
         assertAll(
-                () -> assertTrue(new SdnInstaller(dir, () -> true, List::of, ledger()).isDeliveryEnabled()),
-                () -> assertFalse(new SdnInstaller(dir, () -> false, List::of, ledger()).isDeliveryEnabled()));
+                () -> assertTrue(new SdnInstaller(dir, () -> true, SdnDelivery::none, ledger())
+                        .isDeliveryEnabled()),
+                () -> assertFalse(new SdnInstaller(dir, () -> false, SdnDelivery::none, ledger())
+                        .isDeliveryEnabled()));
     }
 
     /**
@@ -145,7 +166,7 @@ class SdnInstallerTest {
 
     @Test
     void install_delivered_recordsTheScriptClassAgainstItsCatalogueEntry() {
-        SdnInstallResult result = delivering(List.of(new DeliveredScript())).install(List.of(entry("7")));
+        SdnInstallResult result = delivering(jars(new DeliveredScript())).install(List.of(entry("7")));
 
         assertInstanceOf(SdnInstallResult.Installed.class, result);
         // A fresh ledger over the same directory proves the record reached the disk.
@@ -157,22 +178,46 @@ class SdnInstallerTest {
                 () -> assertEquals(NOW, recorded.installedAt()));
     }
 
+    /**
+     * The CraftWithUs shape: the catalogue entry is shared by both agents, so it
+     * names the agent-v1 class, and the jar delivered here is the v2 build with a
+     * different class and a different manifest name. The jar is what pairs them.
+     */
     @Test
-    void install_entryWithoutAScriptClass_pairsTheDeliveryByManifestName() {
-        SdnCatalogueEntry byName = entry("7", DELIVERED_NAME.toUpperCase(Locale.ROOT), "", BUILD);
+    void install_entryNamingAnotherAgentsClass_pairsTheDeliveryByItsJar() {
+        BotScript v2Build = new DeliveredScript();
+        SdnCatalogueEntry shared = entry("7", "CraftWithUs", "com.example.agentv1.CraftWithUs", BUILD);
 
-        delivering(List.of(new DeliveredScript())).install(List.of(byName));
+        SdnInstallResult.Installed result = installed(delivering(jars(v2Build)).install(List.of(shared)));
 
-        assertEquals(Optional.of("7"),
-                ledger().find(DeliveredScript.class.getName()).map(InstalledSdnScript::catalogueId));
+        assertAll(
+                () -> assertEquals(List.of(v2Build), result.scriptsFor("7")),
+                () -> assertEquals(Optional.of("7"),
+                        ledger().find(DeliveredScript.class.getName()).map(InstalledSdnScript::catalogueId)),
+                () -> assertEquals(List.of(DeliveredScript.class.getName()),
+                        List.copyOf(ledger().installsOf("7").keySet())));
     }
 
     @Test
-    void install_batch_recordsEachScriptAgainstItsOwnEntry() {
-        SdnCatalogueEntry first = entry("7");
-        SdnCatalogueEntry second = entry("12", "Other", OtherScript.class.getName(), null);
+    void install_entryWithoutAScriptClass_pairsTheDeliveryByItsJarWhateverItsName() {
+        SdnCatalogueEntry blank = entry("7", "A name nothing is registered under", "", BUILD);
 
-        delivering(List.of(new OtherScript(), new DeliveredScript())).install(List.of(first, second));
+        SdnInstallResult.Installed result = installed(delivering(jars(new DeliveredScript()))
+                .install(List.of(blank)));
+
+        assertAll(
+                () -> assertEquals(1, result.scriptsFor("7").size()),
+                () -> assertEquals(Optional.of("7"),
+                        ledger().find(DeliveredScript.class.getName()).map(InstalledSdnScript::catalogueId)));
+    }
+
+    /** Position wins over what the catalogue names: the launcher delivers jar i for request i. */
+    @Test
+    void install_batch_recordsEachScriptAgainstTheEntryAtItsJarsPosition() {
+        SdnCatalogueEntry first = entry("7", "Names the other class", OtherScript.class.getName(), BUILD);
+        SdnCatalogueEntry second = entry("12", "Names the delivered class", DeliveredScript.class.getName(), null);
+
+        delivering(jars(new DeliveredScript(), new OtherScript())).install(List.of(first, second));
 
         Map<String, InstalledSdnScript> all = ledger().all();
         assertAll(
@@ -183,27 +228,36 @@ class SdnInstallerTest {
                         "an entry with no build records no build, not zero"));
     }
 
+    /** A jar that failed to define is missing from the list but still holds its position. */
     @Test
-    void install_deliveredScriptNoEntryNames_isNotRecorded() {
-        delivering(List.of(new DeliveredScript()))
-                .install(List.of(entry("7", "Else", "com.example.Else", BUILD)));
+    void install_aJarFailedToDefine_theOthersKeepTheirPositions() {
+        BotScript other = new OtherScript();
+        SdnDelivery secondOnly = new SdnDelivery(2, List.of(new SdnDelivery.Jar(1, List.of(other))));
 
-        assertTrue(ledger().all().isEmpty(), "a script nobody asked for must not be credited to an entry");
+        SdnInstallResult.Installed result = installed(delivering(secondOnly)
+                .install(List.of(entry("7"), entry("12", "Other", "", null))));
+
+        assertAll(
+                () -> assertEquals(List.of(), result.scriptsFor("7")),
+                () -> assertEquals(List.of(other), result.scriptsFor("12")),
+                () -> assertEquals(Optional.of("12"),
+                        ledger().find(OtherScript.class.getName()).map(InstalledSdnScript::catalogueId)));
     }
 
     @Test
-    void install_deliveredScriptTwoEntriesClaim_isNotRecorded() {
-        SdnCatalogueEntry one = entry("7", DELIVERED_NAME, "", BUILD);
-        SdnCatalogueEntry two = entry("12", DELIVERED_NAME, "", BUILD);
+    void install_jarCountDisagreesWithTheRequest_pairsAndRecordsNothing() {
+        SdnInstallResult.Installed result = installed(delivering(jars(new DeliveredScript()))
+                .install(List.of(entry("7"), entry("12"))));
 
-        delivering(List.of(new DeliveredScript())).install(List.of(one, two));
-
-        assertTrue(ledger().all().isEmpty(), "an ambiguous delivery must not be credited to either entry");
+        assertAll(
+                () -> assertEquals(1, result.scripts().size(), "the scripts still load"),
+                () -> assertTrue(result.byEntryId().isEmpty(), "but none can be credited to an entry"),
+                () -> assertTrue(ledger().all().isEmpty()));
     }
 
     @Test
     void install_courierDeliversNothing_recordsNothing() {
-        SdnInstallResult result = delivering(List.of()).install(List.of(entry("7")));
+        SdnInstallResult result = delivering(SdnDelivery.none()).install(List.of(entry("7")));
 
         assertInstanceOf(SdnInstallResult.CourierUnavailable.class, result);
         assertFalse(Files.exists(ledger().file()));
@@ -219,7 +273,7 @@ class SdnInstallerTest {
         Files.writeString(blocked, "a file where the ledger directory should be");
         InstalledScriptsLedger unwritable = new InstalledScriptsLedger(blocked, InstantSource.fixed(NOW));
 
-        SdnInstallResult result = new SdnInstaller(dir, () -> true, () -> List.of(new DeliveredScript()),
+        SdnInstallResult result = new SdnInstaller(dir, () -> true, () -> jars(new DeliveredScript()),
                 unwritable).install(List.of(entry("7")));
 
         assertInstanceOf(SdnInstallResult.Installed.class, result);
@@ -266,7 +320,7 @@ class SdnInstallerTest {
         final List<List<String>> requestedIds = new CopyOnWriteArrayList<>();
         final List<String> tornRequests = new CopyOnWriteArrayList<>();
         private final AtomicInteger inFlight = new AtomicInteger();
-        private final BlockingQueue<CompletableFuture<List<BotScript>>> keys =
+        private final BlockingQueue<CompletableFuture<SdnDelivery>> keys =
                 new LinkedBlockingQueue<>();
 
         FakeCourier(Path request) {
@@ -274,11 +328,11 @@ class SdnInstallerTest {
         }
 
         /** The host's half: publish a key, then wait for the delivery. */
-        List<BotScript> awaitDelivery() {
+        SdnDelivery awaitDelivery() {
             arrivals.incrementAndGet();
             maxInFlight.accumulateAndGet(inFlight.incrementAndGet(), Math::max);
             try {
-                CompletableFuture<List<BotScript>> delivery = new CompletableFuture<>();
+                CompletableFuture<SdnDelivery> delivery = new CompletableFuture<>();
                 keys.add(delivery);
                 return delivery.join();
             } finally {
@@ -297,7 +351,7 @@ class SdnInstallerTest {
             }
         }
 
-        private void deliver(CompletableFuture<List<BotScript>> key, boolean isFirst)
+        private void deliver(CompletableFuture<SdnDelivery> key, boolean isFirst)
                 throws InterruptedException {
             String body = readRequest();
             requestedIds.add(idsOf(body));
@@ -309,7 +363,7 @@ class SdnInstallerTest {
             if (!atDelivery.equals(body)) {
                 tornRequests.add(body + " -> " + atDelivery);
             }
-            key.complete(List.of(new DeliveredScript()));
+            key.complete(jars(new DeliveredScript()));
         }
 
         private String readRequest() {

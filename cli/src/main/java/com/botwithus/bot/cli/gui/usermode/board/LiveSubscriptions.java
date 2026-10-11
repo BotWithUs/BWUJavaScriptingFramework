@@ -3,13 +3,13 @@ package com.botwithus.bot.cli.gui.usermode.board;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.runtime.ScriptRunner;
-import com.botwithus.bot.core.sdn.InstalledSdnScript;
 import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
 import com.botwithus.bot.core.sdn.SdnInstaller;
 import com.botwithus.bot.core.sdn.SdnUpdateStatus;
+import com.botwithus.bot.core.sdn.StoreCopies;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,8 +38,11 @@ import java.util.function.Supplier;
  * one at a time per process, whether the picker or the Store panel asked, so a
  * second click waits behind the first and its row stays "Installing" meanwhile.</p>
  *
- * <p>A delivered script is started only if the runner the client's runtime hands
- * back holds that script. The runtime keys runners by name, so a different
+ * <p>Which delivered script to start comes from the installer's pairing, which goes
+ * by the jar the launcher delivered for the entry, never by a class or manifest
+ * name; whether a loaded script is an entry's Store copy is {@link StoreCopies}'
+ * call, the same one the Store page makes. A delivered script is started only if
+ * the runner the client's runtime hands back holds that script. The runtime keys runners by name, so a different
  * script that is already loaded under the same name would otherwise be the one
  * that starts.</p>
  */
@@ -50,7 +53,7 @@ final class LiveSubscriptions {
     private final Supplier<? extends Collection<Connection>> connections;
     private final SdnCatalogueRefresher refresher;
     private final Function<List<SdnCatalogueEntry>, SdnInstallResult> installer;
-    private final Function<String, Optional<InstalledSdnScript>> storeInstalls;
+    private final StoreCopies storeCopies;
     private final Supplier<List<LocalScript>> localScripts;
     private final Executor installExecutor;
     /** Only in-flight and failed installs live here; an absent id is decided from the runtime. */
@@ -60,18 +63,18 @@ final class LiveSubscriptions {
     /**
      * @param connections   the host's connections, read fresh on every call
      * @param installer     asks the launcher for catalogue scripts and loads them; blocks
-     * @param storeInstalls what the host recorded when it installed a script class from
-     *                      the Store, which says whether a newer build is out
+     * @param storeCopies   recognises a loaded Store copy and finds its install record,
+     *                      which says whether a newer build is out
      * @param localScripts  the picker's local catalogue, as last loaded
      */
     LiveSubscriptions(Supplier<? extends Collection<Connection>> connections, SdnCatalogueRefresher refresher,
                       Function<List<SdnCatalogueEntry>, SdnInstallResult> installer,
-                      Function<String, Optional<InstalledSdnScript>> storeInstalls,
+                      StoreCopies storeCopies,
                       Supplier<List<LocalScript>> localScripts, Executor installExecutor) {
         this.connections = connections;
         this.refresher = refresher;
         this.installer = installer;
-        this.storeInstalls = storeInstalls;
+        this.storeCopies = storeCopies;
         this.localScripts = localScripts;
         this.installExecutor = installExecutor;
     }
@@ -130,8 +133,9 @@ final class LiveSubscriptions {
         if (hasLocalCopy) {
             return new SubscriptionState.Installed();
         }
-        if (runnerFor(conn, e).isPresent()) {
-            return storeCopyState(e);
+        Optional<ScriptRunner> storeCopy = runnerFor(conn, e);
+        if (storeCopy.isPresent()) {
+            return storeCopyState(e, storeCopy.get().getScript().getClass().getName());
         }
         return tracked != null ? tracked : new SubscriptionState.NotInstalled();
     }
@@ -142,8 +146,8 @@ final class LiveSubscriptions {
      * side does not know, gets no badge. A local copy never reaches here: the Store's
      * record says nothing about a build the user made.
      */
-    private SubscriptionState storeCopyState(SdnCatalogueEntry e) {
-        SdnUpdateStatus update = storeInstalls.apply(e.scriptClass())
+    private SubscriptionState storeCopyState(SdnCatalogueEntry e, String loadedClass) {
+        SdnUpdateStatus update = storeCopies.recordOf(e, loadedClass)
                 .map(installed -> installed.updateAgainst(e))
                 .orElseGet(SdnUpdateStatus.Unknown::new);
         return switch (update) {
@@ -160,12 +164,12 @@ final class LiveSubscriptions {
                 .findFirst();
     }
 
-    private static Optional<ScriptRunner> runnerFor(Connection conn, SdnCatalogueEntry e) {
+    private Optional<ScriptRunner> runnerFor(Connection conn, SdnCatalogueEntry e) {
         if (conn == null) {
             return Optional.empty();
         }
         return conn.getRuntime().getRunners().stream()
-                .filter(r -> SubscriptionMatch.isLoadedCopy(r.getScript().getClass().getName(), e))
+                .filter(r -> storeCopies.isCopyOf(e, r.getScript().getClass().getName()))
                 .findFirst();
     }
 
@@ -191,7 +195,7 @@ final class LiveSubscriptions {
 
     private void settle(String clientId, SdnCatalogueEntry entry, SdnInstallResult result) {
         switch (result) {
-            case SdnInstallResult.Installed installed -> startDelivered(clientId, entry, installed.scripts());
+            case SdnInstallResult.Installed installed -> startDelivered(clientId, entry, installed);
             case SdnInstallResult.NothingSelected ignored -> fail(entry, "Nothing was requested from the launcher.");
             case SdnInstallResult.DeliveryDisabled ignored -> fail(entry,
                     "This host was not started by the launcher, so it cannot install scripts. "
@@ -206,15 +210,14 @@ final class LiveSubscriptions {
      * Registers the delivery on every live client, as the Store panel does, then
      * starts the chosen script on the client it was picked for.
      */
-    private void startDelivered(String clientId, SdnCatalogueEntry entry, List<BotScript> scripts) {
+    private void startDelivered(String clientId, SdnCatalogueEntry entry, SdnInstallResult.Installed installed) {
         for (Connection conn : liveConnections()) {
-            scripts.forEach(conn.getRuntime()::registerScript);
+            installed.scripts().forEach(conn.getRuntime()::registerScript);
         }
-        Optional<BotScript> chosen = scripts.stream()
-                .filter(s -> SubscriptionMatch.isDeliveryOf(s.getClass().getName(), registeredName(s), entry))
-                .findFirst();
+        List<BotScript> paired = installed.scriptsFor(entry.id());
+        Optional<BotScript> chosen = SubscriptionMatch.scriptToStart(entry, paired, LiveSubscriptions::registeredName);
         if (chosen.isEmpty()) {
-            fail(entry, "The launcher delivered " + scripts.size() + " script(s), but not " + entry.name() + ".");
+            fail(entry, unstartableReason(entry, installed, paired));
             return;
         }
         Connection conn = find(clientId);
@@ -251,6 +254,17 @@ final class LiveSubscriptions {
     private static boolean holds(ScriptRunner runner, BotScript delivered) {
         BotScript held = runner.getScript();
         return held == delivered || held.getClass().getName().equals(delivered.getClass().getName());
+    }
+
+    /** Why nothing could be started out of a delivery that did arrive. */
+    private static String unstartableReason(SdnCatalogueEntry entry, SdnInstallResult.Installed installed,
+                                            List<BotScript> paired) {
+        if (paired.isEmpty()) {
+            return "The launcher delivered " + installed.scripts().size() + " script(s), but none could be "
+                    + "matched to " + entry.name() + ". Try again, and report it if it keeps happening.";
+        }
+        return entry.name() + " contains " + paired.size() + " scripts. Start the one you want from "
+                + "Installed scripts.";
     }
 
     private void fail(SdnCatalogueEntry entry, String message) {
