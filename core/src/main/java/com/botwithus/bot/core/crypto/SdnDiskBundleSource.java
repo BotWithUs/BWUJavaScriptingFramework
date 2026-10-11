@@ -17,7 +17,7 @@ import java.util.Optional;
 /**
  * Disk-based SDN bundle source — the file-courier half of the production
  * delivery path. The launcher (which holds the credential and the heartbeat
- * session) fetches the encrypted jar + the per-session key envelope and drops
+ * session) fetches the sealed jars and the key material for them and drops
  * them in a shared directory; this class publishes the JVM's ephemeral public
  * key, waits for the courier to deliver the bundle, and constructs the
  * {@code SdnClassLoader} from it. The host itself never touches the network.
@@ -108,19 +108,9 @@ public final class SdnDiskBundleSource {
     }
 
     /**
-     * Parses the courier payload and defines one loader per jar.
-     *
-     * <p>Wire format, big-endian, agreed with the launcher courier:
-     * <pre>
-     *   u32  count
-     *   byte envelope[168]
-     *   repeat count times:
-     *       u32  jarLen
-     *       byte jar[jarLen]
-     * </pre>
-     *
-     * <p>One envelope for all jars, because the content key is per-SESSION: the
-     * site seals every jar in a delivery under the same key.
+     * Parses the courier payload and defines one loader per jar, in delivery
+     * order. The payload's layout is agreed with the launcher courier and is not
+     * restated here; {@link #parseFrame} is its only reader on this side.
      *
      * <p>One loader per jar rather than one loader over a merged jar. That is
      * forced, not chosen — {@code SdnClassLoader}'s constructor takes a single
@@ -152,7 +142,7 @@ public final class SdnDiskBundleSource {
     }
 
     /**
-     * One delivery: the shared key envelope and the jars it covers.
+     * One delivery: the key material the runtime needs and the jars it covers.
      *
      * <p>Package-private so the framing can be tested without the patched JVM.
      * Everything past this point needs {@code SdnLoader.defineLoader}, which
@@ -214,8 +204,9 @@ public final class SdnDiskBundleSource {
         try {
             return Optional.of(SdnLoader.defineLoader(jar, envelope, parent));
         } catch (Exception e) {
-            // Isolated on purpose. The envelope is shared, so a failure here is
-            // the jar's own: a wrong content key would fail every jar, not one.
+            // Isolated on purpose. The key material is common to the whole
+            // delivery, so a failure here is the jar's own: a key problem would
+            // fail every jar, not one.
             log.warn("SDN: jar {} of {} ({} bytes) failed to define, skipping: {}",
                     index, count, jar.length, e.getMessage());
             return Optional.empty();
