@@ -22,6 +22,7 @@ import com.botwithus.bot.core.rpc.RpcMetrics;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnInstaller;
+import com.botwithus.bot.core.sdn.StoreCopies;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -106,7 +107,7 @@ public final class LiveClientBoard implements ClientBoard {
         this.commandExecutor = commandExecutor;
         this.profiles = new ResumeProfiles(ctx::getProfileStore, commandExecutor, clock);
         this.subscriptions = new LiveSubscriptions(ctx::getConnections, catalogue, installer::install,
-                installer.ledger()::find, () -> loadedCatalog.locals(),
+                StoreCopies.of(installer.ledger()), () -> loadedCatalog.locals(),
                 task -> Thread.ofVirtual().name("sdn-subscription-install").start(task));
         requestCatalogLoad();
     }

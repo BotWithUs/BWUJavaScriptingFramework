@@ -16,6 +16,7 @@ import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
+import com.botwithus.bot.core.sdn.StoreCopies;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -158,7 +159,7 @@ class LiveStoreModelTest {
         favourites = new FavouritesStore(home, Runnable::run);
         refresher = new SdnCatalogueRefresher(launcher::get, Runnable::run, InstantSource.fixed(NOW),
                 () -> MID_JITTER);
-        launcherInstall = entries -> new SdnInstallResult.Installed(List.of());
+        launcherInstall = entries -> new SdnInstallResult.Installed(List.of(), Map.of());
     }
 
     @AfterEach
@@ -170,7 +171,7 @@ class LiveStoreModelTest {
         return new LiveStoreModel(refresher, entries -> {
             installRequests.add(List.copyOf(entries));
             return launcherInstall.apply(entries);
-        }, ledger::find, () -> deliveryEnabled, favourites, () -> List.of(conn), () -> localScripts,
+        }, StoreCopies.of(ledger), () -> deliveryEnabled, favourites, () -> List.of(conn), () -> localScripts,
                 queuedInstalls, InstantSource.fixed(NOW));
     }
 
@@ -517,7 +518,8 @@ class LiveStoreModelTest {
         @Test
         void aDelivery_isRegisteredOnLiveClients_andTheRowBecomesInstalled() {
             BotScript delivered = new NotHere();
-            launcherInstall = entries -> new SdnInstallResult.Installed(List.of(delivered));
+            launcherInstall = entries -> new SdnInstallResult.Installed(List.of(delivered),
+                    Map.of("one", List.of(delivered)));
             LiveStoreModel model = model();
 
             model.install(List.of("one"));

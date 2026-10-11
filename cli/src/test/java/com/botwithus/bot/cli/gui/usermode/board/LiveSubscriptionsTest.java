@@ -14,6 +14,7 @@ import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
+import com.botwithus.bot.core.sdn.StoreCopies;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -110,14 +111,16 @@ class LiveSubscriptionsTest {
     }
 
     private static Function<List<SdnCatalogueEntry>, SdnInstallResult> delivers(BotScript script) {
-        return entries -> new SdnInstallResult.Installed(List.of(script));
+        // As the installer does: the one jar requested is paired with its entry.
+        return entries -> new SdnInstallResult.Installed(List.of(script),
+                Map.of(entries.getFirst().id(), List.of(script)));
     }
 
     private LiveSubscriptions subscriptions(Supplier<? extends Collection<Connection>> connections,
                                             SdnCatalogueEntry entry, BotScript delivery,
                                             List<LocalScript> locals) {
-        return new LiveSubscriptions(connections, catalogue(entry), delivers(delivery), ledger::find, () -> locals,
-                Runnable::run);
+        return new LiveSubscriptions(connections, catalogue(entry), delivers(delivery), StoreCopies.of(ledger),
+                () -> locals, Runnable::run);
     }
 
     private static SubscriptionEntry onlyRow(LiveSubscriptions subs) {
@@ -258,9 +261,9 @@ class LiveSubscriptionsTest {
                 catalogue(entry(DeliveredWoodcutting.class.getName(), STORE_BUILD)),
                 entries -> {
                     installs.incrementAndGet();
-                    return new SdnInstallResult.Installed(List.of());
+                    return new SdnInstallResult.Installed(List.of(), Map.of());
                 },
-                ledger::find, List::of, Runnable::run);
+                StoreCopies.of(ledger), List::of, Runnable::run);
 
         subs.start(CLIENT, SCRIPT_ID);
 

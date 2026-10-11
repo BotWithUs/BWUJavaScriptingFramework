@@ -82,6 +82,7 @@ import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueSource;
 import com.botwithus.bot.core.sdn.SdnInstaller;
+import com.botwithus.bot.core.sdn.StoreCopies;
 import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
@@ -456,7 +457,7 @@ public class ImGuiApp extends Application {
     /** The Script Store over the host's catalogue; its "Open" goes to Installed scripts. */
     private StorePage storePage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
         LiveStoreModel model = new LiveStoreModel(sdnCatalogue, sdnInstaller::install,
-                sdnInstaller.ledger()::find, sdnInstaller::isDeliveryEnabled, favourites, ctx::getConnections,
+                StoreCopies.of(sdnInstaller.ledger()), sdnInstaller::isDeliveryEnabled, favourites, ctx::getConnections,
                 () -> ctx.getLastLoadReport().scripts(),
                 task -> Thread.ofVirtual().name("sdn-store-install").start(task), InstantSource.system());
         return new StorePage(ui, model, id -> pages.select(id));

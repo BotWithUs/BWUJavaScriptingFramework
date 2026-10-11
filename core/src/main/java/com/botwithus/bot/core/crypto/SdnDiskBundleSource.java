@@ -66,15 +66,16 @@ public final class SdnDiskBundleSource {
 
     /**
      * Publishes this JVM's public key into the default directory, waits for the
-     * courier-delivered bundle, and returns one class loader per jar it carried.
-     * Empty if disabled, not delivered within the timeout, or on any error
-     * (callers fall back to local scripts).
+     * courier-delivered bundle, and returns one class loader per jar it carried,
+     * with the jar's place in the delivery. {@link DefinedBundle#none()} if not
+     * delivered within the timeout or on any error (callers fall back to local
+     * scripts).
      */
-    public static List<ClassLoader> awaitBundle(ClassLoader parent) {
+    public static DefinedBundle awaitBundle(ClassLoader parent) {
         return awaitBundle(directory(), DEFAULT_TIMEOUT, parent);
     }
 
-    public static List<ClassLoader> awaitBundle(Path dir, Duration timeout, ClassLoader parent) {
+    public static DefinedBundle awaitBundle(Path dir, Duration timeout, ClassLoader parent) {
         long pid = SdnRendezvous.currentPid();
         Path pubFile = dir.resolve(pid + ".pub");
         Path bundleFile = dir.resolve(pid + ".sdn");
@@ -94,12 +95,12 @@ public final class SdnDiskBundleSource {
                 // "the courier is not running" and sends you to the wrong process.
                 log.info("SDN: no bundle delivered within {} in {} — is the courier "
                         + "running, and is it writing to the same directory?", timeout, dir);
-                return List.of();
+                return DefinedBundle.none();
             }
             return defineAll(bundle, parent);
         } catch (Exception e) {
             log.error("SDN disk bundle load failed: {}", e.getMessage());
-            return List.of();
+            return DefinedBundle.none();
         } finally {
             SdnRendezvous.deleteQuietly(pubFile);
             SdnRendezvous.deleteQuietly(bundleFile);
@@ -128,23 +129,26 @@ public final class SdnDiskBundleSource {
      * resolving class-name collisions between independently-authored scripts.
      *
      * <p>A jar that fails to define is skipped, not fatal: one bad script must
-     * not cost the user every other script in the same delivery.
+     * not cost the user every other script in the same delivery. Each loader
+     * keeps its jar's position, because that is what pairs it with the script
+     * it was requested as.
      */
-    private static List<ClassLoader> defineAll(byte[] bundle, ClassLoader parent) {
+    private static DefinedBundle defineAll(byte[] bundle, ClassLoader parent) {
         Optional<BundleFrame> parsed = parseFrame(bundle);
         if (parsed.isEmpty()) {
-            return List.of();
+            return DefinedBundle.none();
         }
         BundleFrame frame = parsed.get();
         List<byte[]> jars = frame.jars();
 
-        List<ClassLoader> loaders = new ArrayList<>(jars.size());
+        List<DefinedBundle.Jar> defined = new ArrayList<>(jars.size());
         for (int i = 0; i < jars.size(); i++) {
+            int position = i;
             defineOne(jars.get(i), frame.envelope(), parent, i + 1, jars.size())
-                    .ifPresent(loaders::add);
+                    .ifPresent(loader -> defined.add(new DefinedBundle.Jar(position, loader)));
         }
-        log.info("SDN: bundle delivered, {} of {} jar(s) defined", loaders.size(), jars.size());
-        return loaders;
+        log.info("SDN: bundle delivered, {} of {} jar(s) defined", defined.size(), jars.size());
+        return new DefinedBundle(jars.size(), defined);
     }
 
     /**

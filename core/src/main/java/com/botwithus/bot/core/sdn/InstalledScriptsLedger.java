@@ -31,7 +31,8 @@ import java.util.TreeMap;
  * record is the only way to tell a Store script from a local build once it is
  * loaded, to offer to reinstall one after a restart, and to know which build was
  * installed. It lives in {@value #FILE_NAME} under the host's settings directory,
- * keyed by the script's class name.
+ * keyed by the delivered script's class name, with the catalogue entry it was
+ * delivered for; {@link #installsOf} reads it the other way round.
  *
  * <p>Reads are served from memory after the first, so a page may ask every frame.
  * Each {@link #record} reads the file again before writing it, so an install
@@ -82,6 +83,24 @@ public final class InstalledScriptsLedger {
     /** The recorded install of the script with class {@code scriptClass}, if the Store installed it. */
     public Optional<InstalledSdnScript> find(String scriptClass) {
         return Optional.ofNullable(loaded().get(scriptClass));
+    }
+
+    /**
+     * The recorded installs made for catalogue entry {@code catalogueId}, keyed by
+     * the class each delivered script turned out to have. This, not the class the
+     * catalogue names, is what identifies a Store copy: a catalogue entry shared by
+     * both agents names the agent-v1 class, while the build delivered here is the
+     * v2 one. Usually one entry; more when the delivered class changed between
+     * builds or one jar provided several scripts.
+     */
+    public Map<String, InstalledSdnScript> installsOf(String catalogueId) {
+        Map<String, InstalledSdnScript> matching = new HashMap<>();
+        loaded().forEach((scriptClass, installed) -> {
+            if (installed.catalogueId().equals(catalogueId)) {
+                matching.put(scriptClass, installed);
+            }
+        });
+        return Map.copyOf(matching);
     }
 
     /** Every recorded install, keyed by script class. An immutable copy. */

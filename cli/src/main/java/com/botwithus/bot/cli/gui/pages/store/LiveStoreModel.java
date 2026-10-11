@@ -6,12 +6,12 @@ import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.gui.pages.StoreSignInLine;
 import com.botwithus.bot.cli.sdn.FavouritesStore;
 import com.botwithus.bot.core.runtime.ScriptRunner;
-import com.botwithus.bot.core.sdn.InstalledSdnScript;
 import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
 import com.botwithus.bot.core.sdn.SdnUpdateStatus;
+import com.botwithus.bot.core.sdn.StoreCopies;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,12 +38,14 @@ import java.util.stream.Collectors;
  * {@link SdnCatalogueRefresher}, the scripts loaded on this PC, the Store's
  * install ledger and the user's favourites.
  *
- * <p>A catalogue script counts as on this PC when a loaded script has exactly the
- * class the catalogue names: a local build from {@code scripts/}, or a Store copy
- * registered on a client. Only a Store copy can be out of date, and only when the
- * ledger's build is behind the catalogue's; a local build is the user's own and is
- * never badged. A script with no class in the catalogue matches nothing loaded,
- * because a name is not an identity.</p>
+ * <p>A catalogue script counts as on this PC when a local build from
+ * {@code scripts/} has exactly the class the catalogue names, or when a script
+ * registered on a client is the entry's Store copy by {@link StoreCopies}, the rule
+ * the picker uses too. That rule reads the install ledger, so a v2 build counts
+ * although the catalogue names the agent-v1 class, and so does an entry that names
+ * no class. Only a Store copy can be out of date, and only when the ledger's build
+ * is behind the catalogue's; a local build is the user's own and is never badged.
+ * A name never matches, because a name is not an identity.</p>
  *
  * <p>Installs run on the executor given, never on the render thread, because each
  * waits for the launcher. A delivery is registered on every live client, which is
@@ -63,7 +65,7 @@ public final class LiveStoreModel implements StoreModel {
 
     private final SdnCatalogueRefresher refresher;
     private final Function<List<SdnCatalogueEntry>, SdnInstallResult> installer;
-    private final Function<String, Optional<InstalledSdnScript>> ledger;
+    private final StoreCopies storeCopies;
     private final BooleanSupplier deliveryEnabled;
     private final FavouritesStore favourites;
     private final Supplier<? extends Collection<Connection>> connections;
@@ -83,7 +85,7 @@ public final class LiveStoreModel implements StoreModel {
     /**
      * @param refresher       the host's one catalogue loop, shared with Normal mode's picker
      * @param installer       asks the launcher for catalogue scripts and loads them; blocks
-     * @param ledger          what the host recorded when it installed a script class from the Store
+     * @param storeCopies     recognises a Store copy on a client and finds its install record
      * @param deliveryEnabled whether the launcher can hand this host a script at all
      * @param connections     the host's clients, read fresh on every call
      * @param localScripts    the scripts last loaded from the scripts folder
@@ -92,7 +94,7 @@ public final class LiveStoreModel implements StoreModel {
      */
     public LiveStoreModel(SdnCatalogueRefresher refresher,
                           Function<List<SdnCatalogueEntry>, SdnInstallResult> installer,
-                          Function<String, Optional<InstalledSdnScript>> ledger,
+                          StoreCopies storeCopies,
                           BooleanSupplier deliveryEnabled,
                           FavouritesStore favourites,
                           Supplier<? extends Collection<Connection>> connections,
@@ -101,7 +103,7 @@ public final class LiveStoreModel implements StoreModel {
                           InstantSource clock) {
         this.refresher = refresher;
         this.installer = installer;
-        this.ledger = ledger;
+        this.storeCopies = storeCopies;
         this.deliveryEnabled = deliveryEnabled;
         this.favourites = favourites;
         this.connections = connections;
@@ -243,18 +245,18 @@ public final class LiveStoreModel implements StoreModel {
     }
 
     private RowState stateOf(SdnCatalogueEntry e, Loaded loaded) {
-        String cls = e.scriptClass();
-        if (cls == null || cls.isBlank()) {
-            return new RowState.NotInstalled(false);
-        }
-        if (loaded.local().contains(cls)) {
+        if (loaded.local().stream().anyMatch(cls -> StoreCopies.namesClass(e, cls))) {
             return new RowState.Installed();
         }
-        Optional<InstalledSdnScript> record = ledger.apply(cls);
-        if (!loaded.onClients().contains(cls)) {
-            return new RowState.NotInstalled(record.isPresent());
+        Optional<String> storeCopy = loaded.onClients().stream()
+                .filter(cls -> storeCopies.isCopyOf(e, cls))
+                .findFirst();
+        if (storeCopy.isEmpty()) {
+            return new RowState.NotInstalled(storeCopies.wasInstalled(e));
         }
-        SdnUpdateStatus update = record.map(r -> r.updateAgainst(e)).orElseGet(SdnUpdateStatus.Unknown::new);
+        SdnUpdateStatus update = storeCopies.recordOf(e, storeCopy.get())
+                .map(r -> r.updateAgainst(e))
+                .orElseGet(SdnUpdateStatus.Unknown::new);
         return switch (update) {
             case SdnUpdateStatus.Available available ->
                     new RowState.UpdateAvailable(available.installedBuild(), available.currentBuild());

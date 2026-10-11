@@ -1,9 +1,9 @@
 package com.botwithus.bot.core.sdn;
 
 import com.botwithus.bot.api.BotScript;
-import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.core.crypto.SdnDiskBundleSource;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
+import com.botwithus.bot.core.runtime.SdnDelivery;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
@@ -31,9 +31,13 @@ import java.util.function.Supplier;
  * scripts; the caller registers the result with a runtime, at which point the
  * scripts behave exactly like any locally installed one.
  *
- * <p>Each script that arrives is recorded in the {@link InstalledScriptsLedger}
- * against the catalogue entry it was requested for, so the host can tell it is a
- * Store script, and which build, after it is loaded.
+ * <p>Each script that arrives is paired with the catalogue entry it was requested
+ * for <em>by the jar it came from</em>: the launcher delivers one jar per requested
+ * id, in the order requested, and all or nothing. The pairing is returned with the
+ * result and recorded in the {@link InstalledScriptsLedger}, so the host can tell
+ * it is a Store script, and which build, after it is loaded. Neither a class name
+ * nor a manifest name is used: a catalogue entry shared by both agents names the
+ * agent-v1 class, so the v2 build delivered here never matches it.
  *
  * <p>Installs are serialised process-wide. The launcher reads one request file per
  * host process, so a second install running beside the first would overwrite its
@@ -49,7 +53,7 @@ public final class SdnInstaller {
 
     private final Path directory;
     private final BooleanSupplier deliveryEnabled;
-    private final Supplier<List<BotScript>> awaitDelivery;
+    private final Supplier<SdnDelivery> awaitDelivery;
     private final InstalledScriptsLedger ledger;
 
     /** The shared rendezvous directory, recording installs in the user's ledger. */
@@ -58,18 +62,21 @@ public final class SdnInstaller {
     }
 
     public SdnInstaller(Path directory, InstalledScriptsLedger ledger) {
-        this(directory, SdnDiskBundleSource::isEnabled, SDNScriptLoader::loadSdnScriptsFromDisk, ledger);
+        this(directory, SdnDiskBundleSource::isEnabled, SDNScriptLoader::loadSdnDeliveryFromDisk, ledger);
     }
 
     /**
-     * Package-private for {@code SdnInstallerTest}: the real delivery needs the
-     * patched JVM and a running launcher, so the test supplies both.
+     * An installer over a delivery source of the caller's choosing. The real
+     * delivery needs the patched JVM and a running launcher, so tests of the
+     * install screens supply both through here and still get the real pairing
+     * and ledger.
      *
      * @param deliveryEnabled whether the launcher started this host with delivery on
-     * @param awaitDelivery   publishes the key, waits for the courier and loads the delivery
+     * @param awaitDelivery   publishes the key, waits for the courier and loads the
+     *                        delivery, one jar per requested entry in request order
      */
-    SdnInstaller(Path directory, BooleanSupplier deliveryEnabled,
-                 Supplier<List<BotScript>> awaitDelivery, InstalledScriptsLedger ledger) {
+    public SdnInstaller(Path directory, BooleanSupplier deliveryEnabled,
+                 Supplier<SdnDelivery> awaitDelivery, InstalledScriptsLedger ledger) {
         this.directory = directory;
         this.deliveryEnabled = deliveryEnabled;
         this.awaitDelivery = awaitDelivery;
@@ -132,57 +139,53 @@ public final class SdnInstaller {
     }
 
     private SdnInstallResult loadDelivered(List<SdnCatalogueEntry> entries) {
-        List<BotScript> scripts = awaitDelivery.get();
-        if (scripts.isEmpty()) {
+        SdnDelivery delivery = awaitDelivery.get();
+        if (delivery.isEmpty()) {
             return new SdnInstallResult.CourierUnavailable();
         }
-        recordInstalls(entries, scripts);
-        return new SdnInstallResult.Installed(scripts);
+        Map<String, List<BotScript>> byEntryId = pair(entries, delivery);
+        recordInstalls(entries, byEntryId);
+        return new SdnInstallResult.Installed(delivery.scripts(), byEntryId);
     }
 
     /**
-     * Records each delivered script against the requested entry it belongs to. The
-     * scripts are already loaded, so a ledger that cannot be written costs only the
-     * record, never the install.
+     * Records each delivered script class against the entry its jar was requested
+     * as. The scripts are already loaded, so a ledger that cannot be written costs
+     * only the record, never the install.
      */
-    private void recordInstalls(List<SdnCatalogueEntry> entries, List<BotScript> scripts) {
-        try {
-            ledger.record(pair(entries, scripts));
-        } catch (IOException e) {
-            log.warn("SDN: installed {} script(s), but could not record them in {}: {}",
-                    scripts.size(), ledger.file(), e.getMessage());
-        }
-    }
-
-    /**
-     * Pairs delivered scripts, by class name, with the one requested entry each is
-     * the delivery of (see {@link SdnCatalogueEntry#isDeliveredAs}). A script no
-     * entry claims, or more than one does, is left out: crediting it to a guess
-     * would show the wrong Store script as installed.
-     */
-    private static Map<String, SdnCatalogueEntry> pair(List<SdnCatalogueEntry> entries,
-                                                       List<BotScript> scripts) {
-        Map<String, SdnCatalogueEntry> paired = new LinkedHashMap<>();
-        for (BotScript script : scripts) {
-            String className = script.getClass().getName();
-            String manifestName = manifestName(script);
-            List<SdnCatalogueEntry> claims = entries.stream()
-                    .filter(e -> e.isDeliveredAs(className, manifestName))
-                    .toList();
-            if (claims.size() == 1) {
-                paired.put(className, claims.getFirst());
-            } else if (claims.size() > 1) {
-                log.warn("SDN: {} matches {} requested scripts, so it is not recorded as any of them",
-                        className, claims.size());
+    private void recordInstalls(List<SdnCatalogueEntry> entries, Map<String, List<BotScript>> byEntryId) {
+        Map<String, SdnCatalogueEntry> byClass = new LinkedHashMap<>();
+        for (SdnCatalogueEntry entry : entries) {
+            for (BotScript script : byEntryId.getOrDefault(entry.id(), List.of())) {
+                byClass.put(script.getClass().getName(), entry);
             }
         }
-        return paired;
+        try {
+            ledger.record(byClass);
+        } catch (IOException e) {
+            log.warn("SDN: installed {} script(s), but could not record them in {}: {}",
+                    byClass.size(), ledger.file(), e.getMessage());
+        }
     }
 
-    /** The name the runtime registers {@code script} under. */
-    private static String manifestName(BotScript script) {
-        ScriptManifest manifest = script.getClass().getAnnotation(ScriptManifest.class);
-        return manifest != null ? manifest.name() : script.getClass().getSimpleName();
+    /**
+     * Pairs the jar at position {@code i} with requested entry {@code i}. When the
+     * delivery does not carry one jar per request, positions mean nothing and no
+     * script is paired: crediting one to a guess would show, and start, the wrong
+     * Store script.
+     */
+    static Map<String, List<BotScript>> pair(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
+        if (delivery.jarCount() != entries.size()) {
+            log.warn("SDN: requested {} script(s) but the launcher delivered {} jar(s), so no "
+                    + "delivered script can be told apart; none is recorded as installed",
+                    entries.size(), delivery.jarCount());
+            return Map.of();
+        }
+        Map<String, List<BotScript>> paired = new LinkedHashMap<>();
+        for (SdnDelivery.Jar jar : delivery.jars()) {
+            paired.put(entries.get(jar.position()).id(), jar.scripts());
+        }
+        return paired;
     }
 
     static byte[] requestBody(List<String> scriptIds) {

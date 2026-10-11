@@ -26,6 +26,10 @@ import java.util.Objects;
  * field or had nothing to say, which is not the same answer as {@code false} or
  * zero. Read them as "unknown".
  *
+ * @param scriptClass  the class the catalogue names, which may be blank. For a script
+ *                     both agents run it is the <em>agent-v1</em> class, so it does
+ *                     not identify the build this host is delivered; see
+ *                     {@link StoreCopies} for how a Store copy is recognised.
  * @param subscribed   {@code TRUE} iff the signed-in account holds an active
  *                     subscription to this script; {@code null} when not reported
  * @param isFree       {@code TRUE} iff the site offers this script for free;
@@ -110,24 +114,6 @@ public record SdnCatalogueEntry(String id,
     /** The host category for {@link #category()}; {@link ScriptCategory#UNCATEGORIZED} when unknown. */
     public ScriptCategory scriptCategory() {
         return CategorySlugs.toCategory(category);
-    }
-
-    /**
-     * Whether a script that arrived in a delivery of this entry is its script.
-     *
-     * <p>The class when the catalogue names one, else the manifest name, ignoring
-     * case. A delivery holds only what was requested, so the name is a safe
-     * fallback there. It is not a safe way to recognise an already-loaded script:
-     * a same-named local script by someone else would match.
-     *
-     * @param className    the delivered script's fully-qualified class name
-     * @param manifestName the name the runtime registers it under
-     */
-    public boolean isDeliveredAs(String className, String manifestName) {
-        if (scriptClass != null && !scriptClass.isBlank()) {
-            return scriptClass.equals(className);
-        }
-        return !name.isBlank() && name.equalsIgnoreCase(manifestName);
     }
 
     /** Display label: the tagline when there is one, else the first line of the description. */
