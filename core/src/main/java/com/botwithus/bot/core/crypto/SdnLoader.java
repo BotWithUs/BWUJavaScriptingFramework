@@ -11,6 +11,7 @@ import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 import java.lang.module.ModuleDescriptor;
 import java.lang.module.ModuleFinder;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Optional;
@@ -107,6 +108,13 @@ public final class SdnLoader {
             var ctor = clazz.getDeclaredConstructor(byte[].class, byte[].class, ClassLoader.class);
             ctor.setAccessible(true);
             return (ClassLoader) ctor.newInstance(encryptedJar, serverPubKey, parent);
+        } catch (InvocationTargetException e) {
+            // The constructor's own refusal (a bad signature, an unusable key, a
+            // jar that does not unseal) is the only account of why a delivery
+            // loaded nothing, so it is carried into the message rather than
+            // left on a cause that a one-line log never prints.
+            Throwable refusal = e.getCause();
+            throw new RpcException("Failed to construct SdnClassLoader: " + refusal.getMessage(), refusal);
         } catch (ReflectiveOperationException e) {
             throw new RpcException("Failed to construct SdnClassLoader", e);
         }

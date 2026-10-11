@@ -1,3 +1,4 @@
+import java.security.SecureRandom
 import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
@@ -244,6 +245,102 @@ tasks.register("renderNormalModePreviews") {
     description = "Dev only: alias of renderPreviews"
     group = "verification"
     dependsOn(renderPreviews)
+}
+
+// ── SDN install screens, live (sdnLiveCheck) ─────────────────────────────────
+// Installs SDN scripts through the Store page's and the picker's own models,
+// against an injected game client, with a test courier standing in for the
+// launcher's. Fails unless both screens agree each script installed and the
+// paired script started. Gated by construction like the preview: the code lives
+// in the sdnLive source set, which the jar, the jlink image and the installer
+// never read. Needs, as -P properties, local.properties keys or env vars:
+//   sdn.jdk       a DEBUG SDN runtime; only a debug one honours the run's signing key
+//   sdnbundle.exe the private SDN tooling's courier stand-in
+//   sdnlive.pid   the game client (or -Dbotwithus.harness.pid, as the harness passes it)
+//
+// It runs on the MODULE path, patched into this module, unlike the preview. A
+// delivered named module resolves against the boot layer, and on a classpath the
+// API is unnamed there, so the fixtures would not resolve and the check would
+// prove nothing about module loading. The check's first precondition fails the
+// run if this ever stops holding.
+val sdnLive: SourceSet by sourceSets.creating {
+    compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
+}
+tasks.named("check") { dependsOn(sdnLive.classesTaskName) }
+
+val sdnLiveFixture by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+dependencies {
+    sdnLiveFixture(project(path = ":sdn-live-fixture", configuration = "sdnLiveFixtures"))
+}
+
+val sdnLiveSeedBytes = 32
+
+/** A throwaway signing seed as hex, made per run and never written down. */
+fun randomSeedHex(): String =
+    ByteArray(sdnLiveSeedBytes).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+
+/** The public half of [seed], as the courier computes it, for the runtime's override. */
+fun sdnPublicKey(courier: String, seed: String): String {
+    val process = ProcessBuilder(courier, "pubkey", seed).redirectErrorStream(true).start()
+    val out = process.inputStream.bufferedReader().readText().trim()
+    if (process.waitFor() != 0) {
+        throw GradleException("sdnLiveCheck: '$courier pubkey' failed: $out")
+    }
+    return out
+}
+
+tasks.register<JavaExec>("sdnLiveCheck") {
+    description = "Live: installs SDN scripts from the Store page and the picker on an injected client"
+    group = "verification"
+    dependsOn(sdnLive.classesTaskName)
+    inputs.files(sdnLiveFixture)
+    mainModule = "com.botwithus.bot.cli"
+    mainClass = "com.botwithus.bot.cli.sdnlive.SdnLiveCheck"
+    classpath = sourceSets.main.get().runtimeClasspath
+    val runDir = layout.buildDirectory.dir("sdn-live").get().asFile
+    workingDir = runDir
+    val courier = project.localProperty("sdnbundle.exe", "SDNBUNDLE_EXE")
+    val pid = project.localProperty("sdnlive.pid", "SDNLIVE_PID") ?: System.getProperty("botwithus.harness.pid")
+    val sdnJdk = project.localProperty("sdn.jdk", "SDN_JDK")
+    sdnJdk?.let {
+        val suffix = if (System.getProperty("os.name").startsWith("Windows")) ".exe" else ""
+        setExecutable("$it/bin/java$suffix")
+    }
+    val hostLog = File(runDir, "host.log")
+    jvmArgs(
+        "--patch-module", "com.botwithus.bot.cli=${sdnLive.output.asPath}",
+        "--enable-native-access=com.botwithus.bot.core,org.xerial.sqlitejdbc",
+        "-Dlogback.configurationFile=${file("src/sdnLive/resources/logback-sdnlive.xml").absolutePath}",
+        "-Duser.home=${File(runDir, "home").absolutePath}",
+        "-Dbotwithus.sdn.dir=${File(runDir, "sdn").absolutePath}",
+        "-Dbotwithus.sdn.disk=true",
+        "-Dbotwithus.sdnlive.workDir=${runDir.absolutePath}",
+        "-Dbotwithus.sdnlive.hostLog=${hostLog.absolutePath}",
+    )
+    project.localProperty("nxtcache.dll", "NXTCACHE_DLL")?.let { jvmArgs("-Dnxtcache.dll=$it") }
+    project.localProperty("nxtcache.path", "NXTCACHE_PATH")?.let { jvmArgs("-Dnxtcache.path=$it") }
+    // The verdict depends on a live game, not on inputs Gradle can see.
+    outputs.upToDateWhen { false }
+    doFirst {
+        if (sdnJdk == null || courier == null || pid == null) {
+            throw GradleException("sdnLiveCheck needs sdn.jdk, sdnbundle.exe and sdnlive.pid; " +
+                    "have sdn.jdk=$sdnJdk sdnbundle.exe=$courier sdnlive.pid=$pid")
+        }
+        runDir.deleteRecursively()
+        runDir.mkdirs()
+        val seed = randomSeedHex()
+        environment("BWU_SDN_SERVER_PUBKEY", sdnPublicKey(courier, seed))
+        jvmArgs(
+            "-Dbotwithus.sdnlive.courier=$courier",
+            "-Dbotwithus.sdnlive.pid=$pid",
+            "-Dbotwithus.sdnlive.seed=$seed",
+            "-Dbotwithus.sdnlive.wrongSeed=${randomSeedHex()}",
+            "-Dbotwithus.sdnlive.fixtures=${sdnLiveFixture.asPath}",
+        )
+    }
 }
 
 // Resolve the JDK that the project's Java toolchain points at. beryx-jlink
