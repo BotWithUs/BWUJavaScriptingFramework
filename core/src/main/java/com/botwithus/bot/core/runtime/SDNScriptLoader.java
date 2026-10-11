@@ -84,7 +84,8 @@ public final class SDNScriptLoader {
 
     /**
      * Loads scripts from the SDN via encrypted bundle transfer.
-     * Performs ECDH key exchange with the server and decrypts the script bundle.
+     * Performs the key exchange with the server and has the runtime decrypt the
+     * script bundle.
      *
      * @param rpc the RPC client connected to the game server
      * @return list of BotScript implementations from the SDN bundle

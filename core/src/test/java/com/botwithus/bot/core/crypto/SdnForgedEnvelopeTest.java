@@ -10,12 +10,11 @@ import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 /**
- * Regression tests for a key-envelope signature-verification bypass
- * (internal tracker #119).
+ * Contract tests for the native loader's key-material check: input it cannot
+ * authenticate must never yield a loader, whatever else it carries.
  *
- * <p>A key envelope must never authenticate under a degenerate signature, for
- * any message body. These tests assert that property directly and require no
- * network or server rig; they are skipped when not running on the custom JDK.
+ * <p>These need no network or server rig; they are skipped when not running on
+ * the custom JDK.
  */
 class SdnForgedEnvelopeTest {
 
