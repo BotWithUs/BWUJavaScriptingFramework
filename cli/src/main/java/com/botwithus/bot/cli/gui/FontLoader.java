@@ -21,7 +21,8 @@ import java.nio.file.Paths;
  * <p>The host's own pages draw only with the token fonts. The default font is
  * what imgui uses when nothing is pushed, and two things still rely on it: a
  * script's own UI ({@code ScriptUI.render()}, drawn in the inspector's Script UI
- * tab), which the host frames but deliberately does not restyle, so scripts keep
+ * tab, in a sandbox context that shares this atlas and is handed the host's
+ * current font as its default), which the host frames but deliberately does not restyle, so scripts keep
  * the size they were written against; and imgui's own text outside a pushed
  * font, such as tooltips.</p>
  */

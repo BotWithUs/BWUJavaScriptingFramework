@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.gui.preview;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
+import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.inspector.InspectorSource;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
@@ -117,20 +118,28 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
     private final ScriptConfig applied = new ScriptConfig(Map.of());
     private final ClientActions actions = new NoActions();
     private final SubscriptionGroup subscriptions;
+    private final ScriptUI fleetUi;
 
     private FixtureBoard(List<ClientView> clients, BoardStatus status) {
-        this(clients, status, new SubscriptionGroup.Hidden());
+        this(clients, status, new SubscriptionGroup.Hidden(), FixtureBoard::sampleFleetUi);
     }
 
-    private FixtureBoard(List<ClientView> clients, BoardStatus status, SubscriptionGroup subscriptions) {
+    private FixtureBoard(List<ClientView> clients, BoardStatus status, SubscriptionGroup subscriptions,
+                         ScriptUI fleetUi) {
         this.clients = clients;
         this.status = status;
         this.subscriptions = subscriptions;
+        this.fleetUi = fleetUi;
     }
 
     /** The same fleet with a different "Your subscriptions" group. */
     FixtureBoard withSubscriptions(SubscriptionGroup group) {
-        return new FixtureBoard(clients, status, group);
+        return new FixtureBoard(clients, status, group, fleetUi);
+    }
+
+    /** The same fleet, with the fleet monitor's own UI breaking a Dear ImGui rule. */
+    FixtureBoard withBrokenFleetUi() {
+        return new FixtureBoard(clients, status, subscriptions, FixtureBoard::brokenFleetUi);
     }
 
     /**
@@ -265,7 +274,7 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
         }
         if (subject.scriptName().equals(FLEET_MONITOR.name())) {
             return Optional.of(new InspectorTarget(subject, WHOLE_HOST_CONTEXT, FLEET_MONITOR,
-                    List.of(), () -> applied, cfg -> { }, FixtureBoard::sampleFleetUi, id -> Optional.empty(),
+                    List.of(), () -> applied, cfg -> { }, fleetUi, id -> Optional.empty(),
                     () -> false));
         }
         return Optional.empty();
@@ -280,6 +289,15 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
         ImGui.button("Pause all");
         ImGui.sameLine();
         ImGui.button("Resume all");
+    }
+
+    /**
+     * A script UI with a bug that used to take the whole host down: it pops a style
+     * variable it never pushed. Drawn sandboxed, it is stopped and its panel says why.
+     */
+    private static void brokenFleetUi() {
+        ImGui.text("Fleet: 7 clients");
+        ImGui.popStyleVar();
     }
 
     /** Stands in for a script's own ImGui: plain widgets in the default font, unstyled by the host. */

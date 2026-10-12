@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.gui.inspector;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
 
 import imgui.ImGui;
 import imgui.ImGuiViewport;
@@ -32,13 +33,15 @@ final class ScriptUiWindows {
     private final Controls ui;
     private final InspectorState state;
     private final InspectorSource source;
+    private final ScriptUiHost scriptUis;
     /** The X button's flag, reset before each window; ImGui clears it when the X is clicked. */
     private final ImBoolean isOpen = new ImBoolean();
 
-    ScriptUiWindows(Controls ui, InspectorState state, InspectorSource source) {
+    ScriptUiWindows(Controls ui, InspectorState state, InspectorSource source, ScriptUiHost scriptUis) {
         this.ui = ui;
         this.state = state;
         this.source = source;
+        this.scriptUis = scriptUis;
     }
 
     void render() {
@@ -55,7 +58,7 @@ final class ScriptUiWindows {
         ImGui.setNextWindowSize(fontSize * WIDTH_EM, fontSize * HEIGHT_EM, ImGuiCond.FirstUseEver);
         isOpen.set(true);
         if (ImGui.begin(titleOf(target), isOpen, ImGuiWindowFlags.NoCollapse)) {
-            ConfigInspector.drawScriptUi(target.customUi(), target.script().name());
+            scriptUis.draw(target.scriptUiSlot());
         }
         ImGui.end();
         if (!isOpen.get()) {
