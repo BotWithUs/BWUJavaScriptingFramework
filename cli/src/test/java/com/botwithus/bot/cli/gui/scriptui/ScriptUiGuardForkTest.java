@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -88,14 +89,24 @@ class ScriptUiGuardForkTest {
     /**
      * Why {@code HostIni} exists, pinned: the live host crashed this way before
      * it did. If imgui-java ever stops freeing through a process-wide flag, this
-     * fails, and {@code HostIni} can be reconsidered.
+     * fails, and {@code HostIni} can be reconsidered. The C runtime decides how a
+     * bad {@code free} dies: Windows reports heap corruption, glibc aborts. Either
+     * way the process must not finish, and must not be ImGui's own exit(1).
      */
     @Test
     void anIniPathSetThroughImGuiIo_makesTheFirstSandboxCorruptTheHeap() throws Exception {
         Run run = fork(Breaker.TEXT_WRAP_LEAK, BreakerMain.INI_VIA_IO);
 
-        assertEquals(EXIT_HEAP_CORRUPTION, run.exitCode(), run.output());
         assertFalse(run.contains("RESULT frames="), run.output());
+        assertNotEquals(EXIT_OK, run.exitCode(), run.output());
+        assertNotEquals(EXIT_IMGUI_ASSERT, run.exitCode(), run.output());
+        if (isWindows()) {
+            assertEquals(EXIT_HEAP_CORRUPTION, run.exitCode(), run.output());
+        }
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name").startsWith("Windows");
     }
 
     private static Run fork(Breaker breaker, String mode) throws IOException, InterruptedException {
