@@ -97,7 +97,7 @@ public final class SdnDiskBundleSource {
                         + "running, and is it writing to the same directory?", timeout, dir);
                 return DefinedBundle.none();
             }
-            return defineAll(bundle, parent);
+            return defineBundle(bundle, parent);
         } catch (Exception e) {
             log.error("SDN disk bundle load failed: {}", e.getMessage());
             return DefinedBundle.none();
@@ -112,6 +112,9 @@ public final class SdnDiskBundleSource {
      * order. The payload's layout is agreed with the launcher courier and is not
      * restated here; {@link #parseFrame} is its only reader on this side.
      *
+     * <p>Public because the launcher's pipe delivers the same bytes a file
+     * delivery holds: whichever way a bundle arrived, it is defined here.
+     *
      * <p>One loader per jar rather than one loader over a merged jar. That is
      * forced, not chosen — {@code SdnClassLoader}'s constructor takes a single
      * jar and its native side parses a single zip, so merging would mean
@@ -123,7 +126,7 @@ public final class SdnDiskBundleSource {
      * keeps its jar's position, because that is what pairs it with the script
      * it was requested as.
      */
-    private static DefinedBundle defineAll(byte[] bundle, ClassLoader parent) {
+    public static DefinedBundle defineBundle(byte[] bundle, ClassLoader parent) {
         Optional<BundleFrame> parsed = parseFrame(bundle);
         if (parsed.isEmpty()) {
             return DefinedBundle.none();
@@ -147,7 +150,7 @@ public final class SdnDiskBundleSource {
      * <p>Package-private so the framing can be tested without the patched JVM.
      * Everything past this point needs {@code SdnLoader.defineLoader}, which
      * only exists on the custom JDK, so a test that went through
-     * {@link #defineAll} could not run on a stock toolchain — and the framing
+     * {@link #defineBundle} could not run on a stock toolchain — and the framing
      * is exactly the part where a disagreement with the launcher's writer would
      * be silent.
      */

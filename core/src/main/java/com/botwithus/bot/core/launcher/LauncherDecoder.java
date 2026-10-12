@@ -29,6 +29,21 @@ final class LauncherDecoder {
                 .toList();
     }
 
+    /**
+     * @return {@code sdn.bundle}'s offer. A missing field reads as {@code 0} or an
+     *         empty digest, which {@link SdnBundleDownload} then refuses.
+     */
+    static SdnBundleOffer sdnBundleOffer(Value body) {
+        return new SdnBundleOffer(WireValues.integer(body, "deliveryId", 0L), WireValues.integer(body, "size", 0L),
+                WireValues.binary(body, "sha256").orElseGet(() -> new byte[0]),
+                WireValues.integer(body, "chunkSize", 0L));
+    }
+
+    /** @return {@code sdn.bundle_chunk}'s bytes; empty when absent, which the download refuses */
+    static byte[] sdnBundleChunk(Value body) {
+        return WireValues.binary(body, "data").orElseGet(() -> new byte[0]);
+    }
+
     /** @return the clients in {@code client.list}'s body */
     static List<LaunchedClient> clients(Value body) {
         return WireValues.array(body, "clients").stream().filter(Value::isMapValue)

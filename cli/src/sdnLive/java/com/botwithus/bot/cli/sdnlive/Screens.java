@@ -12,6 +12,7 @@ import com.botwithus.bot.cli.gui.usermode.board.SubscriptionState;
 import com.botwithus.bot.cli.sdn.FavouritesStore;
 import com.botwithus.bot.core.sdn.InstalledSdnScript;
 import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
+import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueSource;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
@@ -39,12 +40,18 @@ final class Screens {
 
     private final AtomicInteger installRequests = new AtomicInteger();
     private final SdnCatalogueRefresher catalogue = StoreCatalogue.refresherFor(new SdnCatalogueSource());
-    private final SdnInstaller installer = new SdnInstaller();
+    private final SdnInstaller installer;
     private final String clientId;
     private final LiveStoreModel store;
     private final PickerScreen picker;
 
     Screens(LiveHost host) {
+        this(host, new SdnInstaller());
+    }
+
+    /** Over {@code installer}, which decides the route: files, or the launcher's pipe. */
+    Screens(LiveHost host, SdnInstaller installer) {
+        this.installer = installer;
         this.clientId = host.clientId();
         Function<List<SdnCatalogueEntry>, SdnInstallResult> counted = entries -> {
             installRequests.incrementAndGet();
@@ -63,6 +70,24 @@ final class Screens {
         catalogue.requestNow();
         return Waits.until(() -> ids.stream().allMatch(id -> storeRow(id).isPresent() && pickerRow(id).isPresent()),
                 timeout);
+    }
+
+    /** The catalogue as both screens show it now; empty until one has arrived. */
+    List<SdnCatalogueEntry> catalogueEntries() {
+        return catalogue.shown().map(result -> switch (result) {
+            case SdnCatalogueResult.Delivered delivered -> delivered.entries();
+            default -> List.<SdnCatalogueEntry>of();
+        }).orElse(List.of());
+    }
+
+    /** Asks for the catalogue now. */
+    void refreshCatalogue() {
+        catalogue.requestNow();
+    }
+
+    /** The class names the ledger recorded for catalogue entry {@code id}. */
+    List<String> ledgerClassesFor(String id) {
+        return List.copyOf(installer.ledger().installsOf(id).keySet());
     }
 
     /** How many times either screen has asked the launcher for scripts. */

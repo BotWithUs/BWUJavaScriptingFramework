@@ -54,6 +54,11 @@ final class WireValues {
         return integer(map, key).orElse(fallback);
     }
 
+    /** @return a copy of the binary under {@code key} */
+    static Optional<byte[]> binary(Value map, String key) {
+        return field(map, key).filter(Value::isBinaryValue).map(v -> v.asBinaryValue().asByteArray());
+    }
+
     /** @return the boolean under {@code key}, or {@code fallback} */
     static boolean bool(Value map, String key, boolean fallback) {
         return field(map, key).filter(Value::isBooleanValue)

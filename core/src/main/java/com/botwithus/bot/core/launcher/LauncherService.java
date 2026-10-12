@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
@@ -40,7 +41,7 @@ import java.util.function.Consumer;
  * a missing answer is how a dead service is noticed. The launcher ADR is silent
  * on this; it is a host-side requirement.</p>
  */
-public final class LauncherService implements AutoCloseable {
+public final class LauncherService implements SdnBundleChannel, AutoCloseable {
 
     /**
      * How the connection paces itself.
@@ -83,6 +84,8 @@ public final class LauncherService implements AutoCloseable {
     private final List<Consumer<LauncherEvent>> listeners = new CopyOnWriteArrayList<>();
     private final AtomicLong registrations = new AtomicLong();
     private volatile ServiceSession session;
+    /** What the current session's {@code hello} listed; empty between sessions. */
+    private volatile Set<String> offeredMethods = Set.of();
     private volatile boolean isRunning;
     private volatile Thread connector;
 
@@ -146,6 +149,28 @@ public final class LauncherService implements AutoCloseable {
         call(LauncherProtocol.METHOD_HOST_ACK_CLOSE, LauncherRequests.ackClose(requestId, decision));
     }
 
+    /** @return whether the connected service listed {@code method} in its {@code hello} */
+    public boolean offers(String method) {
+        return isConnected() && offeredMethods.contains(method);
+    }
+
+    @Override
+    public boolean offersSdnBundles() {
+        return offers(LauncherProtocol.METHOD_SDN_BUNDLE);
+    }
+
+    @Override
+    public SdnBundleOffer requestSdnBundle(byte[] publicKey, List<String> scriptIds) {
+        return LauncherDecoder.sdnBundleOffer(call(LauncherProtocol.METHOD_SDN_BUNDLE,
+                LauncherRequests.sdnBundle(publicKey, scriptIds)));
+    }
+
+    @Override
+    public byte[] sdnBundleChunk(long deliveryId, long index) {
+        return LauncherDecoder.sdnBundleChunk(call(LauncherProtocol.METHOD_SDN_BUNDLE_CHUNK,
+                LauncherRequests.sdnBundleChunk(deliveryId, index)));
+    }
+
     /**
      * Adds a listener for events. It is called on the reader thread and must
      * hand the event off rather than block.
@@ -198,6 +223,7 @@ public final class LauncherService implements AutoCloseable {
                 wasConnected = true;
                 superviseUntilLost(connected);
                 session = null;
+                offeredMethods = Set.of();
                 if (isRunning) {
                     emit(new LauncherEvent.ServiceLost(lostCode()));
                 }
@@ -219,7 +245,7 @@ public final class LauncherService implements AutoCloseable {
         ServiceSession candidate = new ServiceSession(channel, timings.readPoll(), new SessionListener());
         candidate.start();
         try {
-            register(candidate);
+            offeredMethods = register(candidate);
         } catch (ChannelClosedException | LauncherException e) {
             log.warn("Launcher service refused this host's registration: {}", e.getMessage());
             candidate.close();
@@ -231,16 +257,21 @@ public final class LauncherService implements AutoCloseable {
         return candidate;
     }
 
-    /** {@code hello}, then a subscription to every automation topic. */
-    private void register(ServiceSession candidate) {
+    /**
+     * {@code hello}, then a subscription to every automation topic.
+     *
+     * @return the methods the service listed in {@code hello}
+     */
+    private Set<String> register(ServiceSession candidate) {
         Envelope reply = candidate.call(LauncherProtocol.METHOD_HELLO, LauncherRequests.hello(hello),
                 timings.callTimeout());
         if (!reply.isOk()) {
             throw reply.error().map(e -> e.toException(LauncherProtocol.METHOD_HELLO))
                     .orElseGet(() -> new LauncherException(WireError.UNKNOWN_CODE, "hello failed"));
         }
-        HelloReply.check(reply.body());
+        Set<String> methods = HelloReply.check(reply.body());
         subscribe(candidate);
+        return methods;
     }
 
     private void subscribe(ServiceSession target) {

@@ -1,17 +1,18 @@
 # Vendored: launcher protocol golden fixtures (automation surface)
 
-Source: `BotWithUs/BotWithUs-Launcher`, directory `protocol/fixtures/`, at merge
-`71c6981e970f5c3fdd95a5b699492304cc9f39af` (PR #43, which carries PR #42 and the native host
-launch amendment; launcher ADR 0007, section 3.3).
+Source: `BotWithUs/BotWithUs-Launcher`, directory `protocol/fixtures/`, at commit
+`5df6e2775acb944cdc5f0b751d4a3bdb6df1b877` (the protocol commit of PR #53, the B1 Store-bundle
+amendment; launcher ADR 0007, section 3.3). This is a pre-merge sha: the copy is
+re-vendored at PR #53's merge commit once it lands.
 
 **Only the automation-surface fixtures are vendored; the full surface stays in
 the private launcher repository.** A host speaks only the automation pipe, so
 the fixtures copied are those whose manifest `surface` includes `"automation"`:
-71 of 132.
+80 of 143.
 
 - Every `.msgpack` file is a byte-exact copy of the upstream file.
 - `manifest.json` is **derived**: the upstream manifest (blob
-  `f209cedf1014a3bc993a9eb70ee9e0a8ab3aa344`) with only those entries kept, in upstream order,
+  `229670346492e8d4dcb91ca17944e1d40a3f758f`) with only those entries kept, in upstream order,
   values unchanged. It is not byte-identical to upstream.
 
 **Do not hand-edit.** A protocol change lands in the launcher first; this
@@ -30,7 +31,7 @@ Checks:
 
 `.gitattributes` here marks everything `-text`, so no checkout converts a line ending.
 
-## Blob ids at 71c6981
+## Blob ids at 5df6e27
 
 ```
 7eef37e00caa5e1c13682c39eea19cad4160eae3  hello.req.msgpack
@@ -104,4 +105,13 @@ ead75e38543e1805bbd36fd2791446d6d9ceb95e  events.subscribe.req.native.msgpack
 d7c942280cff1f034b3c0b2938f43065eb4c3942  events.subscribe.resp.native.msgpack
 340fc292d72cbaf5b4cd86b891f205993baa33a0  updates.status.resp.native.msgpack
 bb5c4dff00d7938f1afca3e2f13febbc8b9d6350  hello.req.host.agentproto.msgpack
+f21d0a1e918f5310e1cec7948949c4a1adf660db  updates.status.resp.client.msgpack
+97a105a367a3995f868514f719af27f2ef0a7420  game_client.update_available.event.msgpack
+8215744be8457497abc8af62b5cb5e6da017e9c8  game_client.update_available.event.refused.msgpack
+cec3625d6ff8b020fcd08274781ebe4753e76564  events.subscribe.resp.game_client.msgpack
+1963c4b545bdc959f84bb6bf231c2dec45add811  sdn.bundle.req.msgpack
+55a36221e0a3908b956773933dc89528b883f45d  sdn.bundle.resp.msgpack
+86181f1b86067e1e3e4cd102d02d364a0cb741ec  sdn.bundle_chunk.req.msgpack
+b70d4f5d5b580983253e7faa68c9f895836474d4  sdn.bundle_chunk.resp.msgpack
+71d623ebddc68d3d8c44590f45ddf142626e4b1f  error.sdn_not_delivered.msgpack
 ```

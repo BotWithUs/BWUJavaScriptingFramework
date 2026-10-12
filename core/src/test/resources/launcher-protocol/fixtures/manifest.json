@@ -1894,6 +1894,323 @@
       },
       "binFields": [],
       "builder": "HelloRequest"
+    },
+    {
+      "name": "updates.status.resp.client",
+      "file": "updates.status.resp.client.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 91,
+        "kind": "resp",
+        "method": "updates.status",
+        "ok": true,
+        "body": {
+          "agent": {
+            "sha": "ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12cd34ef56ab12"
+          },
+          "data": {
+            "currentSha": "3f1c2d4e5b6a79880112233445566778899aabbccddeeff00112233445566778",
+            "phase": "current",
+            "blockedBy": [],
+            "applyWhenHostsClose": true
+          },
+          "client": {
+            "state": "choice",
+            "live": {
+              "revision": "950-2",
+              "sha8": "3a90c1d7"
+            },
+            "selected": {
+              "revision": "950-2",
+              "sha8": "3a90c1d7"
+            },
+            "recommended": {
+              "revision": "950-2",
+              "sha8": "3a90c1d7"
+            },
+            "alternative": {
+              "revision": "950-1",
+              "sha8": "fc749254"
+            },
+            "installed": [
+              {
+                "revision": "950-1",
+                "sha8": "fc749254"
+              },
+              {
+                "revision": "950-2",
+                "sha8": "3a90c1d7"
+              }
+            ],
+            "bump": "minor",
+            "note": "Launches now use RuneScape 950-2.",
+            "checkedAtMs": 1790000180000
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "UpdatesStatus"
+    },
+    {
+      "name": "game_client.update_available.event",
+      "file": "game_client.update_available.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "game_client.update_available",
+        "body": {
+          "state": "choice",
+          "live": {
+            "revision": "950-2",
+            "sha8": "3a90c1d7"
+          },
+          "selected": {
+            "revision": "950-2",
+            "sha8": "3a90c1d7"
+          },
+          "recommended": {
+            "revision": "950-2",
+            "sha8": "3a90c1d7"
+          },
+          "alternative": {
+            "revision": "950-1",
+            "sha8": "fc749254"
+          },
+          "installed": [
+            {
+              "revision": "950-1",
+              "sha8": "fc749254"
+            },
+            {
+              "revision": "950-2",
+              "sha8": "3a90c1d7"
+            }
+          ],
+          "bump": "minor",
+          "note": "Launches now use RuneScape 950-2.",
+          "checkedAtMs": 1790000180000
+        },
+        "seq": 14
+      },
+      "binFields": [],
+      "builder": "ClientUpdateView"
+    },
+    {
+      "name": "game_client.update_available.event.refused",
+      "file": "game_client.update_available.event.refused.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "game_client.update_available",
+        "body": {
+          "state": "refused",
+          "live": {
+            "revision": "950-1",
+            "sha8": "fc749254"
+          },
+          "selected": {
+            "revision": "950-1",
+            "sha8": "fc749254"
+          },
+          "installed": [
+            {
+              "revision": "950-1",
+              "sha8": "fc749254"
+            }
+          ],
+          "checkedAtMs": 1790000300000,
+          "lastError": "client binary is a BETA build (RS2EngineBeta marker); refused"
+        },
+        "seq": 15
+      },
+      "binFields": [],
+      "builder": "ClientUpdateView"
+    },
+    {
+      "name": "events.subscribe.resp.game_client",
+      "file": "events.subscribe.resp.game_client.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 92,
+        "kind": "resp",
+        "method": "events.subscribe",
+        "ok": true,
+        "body": {
+          "snapshot": {
+            "game_client": {
+              "state": "choice",
+              "live": {
+                "revision": "950-2",
+                "sha8": "3a90c1d7"
+              },
+              "selected": {
+                "revision": "950-2",
+                "sha8": "3a90c1d7"
+              },
+              "recommended": {
+                "revision": "950-2",
+                "sha8": "3a90c1d7"
+              },
+              "alternative": {
+                "revision": "950-1",
+                "sha8": "fc749254"
+              },
+              "installed": [
+                {
+                  "revision": "950-1",
+                  "sha8": "fc749254"
+                },
+                {
+                  "revision": "950-2",
+                  "sha8": "3a90c1d7"
+                }
+              ],
+              "bump": "minor",
+              "note": "Launches now use RuneScape 950-2.",
+              "checkedAtMs": 1790000180000
+            }
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "SubscribeResponse"
+    },
+    {
+      "name": "sdn.bundle.req",
+      "file": "sdn.bundle.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 120,
+        "kind": "req",
+        "method": "sdn.bundle",
+        "body": {
+          "publicKey": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+          "scriptIds": [
+            "7",
+            "12"
+          ]
+        }
+      },
+      "binFields": [
+        "/body/publicKey"
+      ],
+      "builder": "SdnBundleRequest"
+    },
+    {
+      "name": "sdn.bundle.resp",
+      "file": "sdn.bundle.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 120,
+        "kind": "resp",
+        "method": "sdn.bundle",
+        "ok": true,
+        "body": {
+          "deliveryId": 1,
+          "size": 600000,
+          "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+          "chunkSize": 524288
+        }
+      },
+      "binFields": [
+        "/body/sha256"
+      ],
+      "builder": "SdnBundleOffer"
+    },
+    {
+      "name": "sdn.bundle_chunk.req",
+      "file": "sdn.bundle_chunk.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 121,
+        "kind": "req",
+        "method": "sdn.bundle_chunk",
+        "body": {
+          "deliveryId": 1,
+          "index": 1
+        }
+      },
+      "binFields": [],
+      "builder": "SdnChunkRequest"
+    },
+    {
+      "name": "sdn.bundle_chunk.resp",
+      "file": "sdn.bundle_chunk.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 121,
+        "kind": "resp",
+        "method": "sdn.bundle_chunk",
+        "ok": true,
+        "body": {
+          "data": "a0a1a2a3a4a5a6a7a8a9aaabacadaeaf"
+        }
+      },
+      "binFields": [
+        "/body/data"
+      ],
+      "builder": "SdnChunk"
+    },
+    {
+      "name": "error.sdn_not_delivered",
+      "file": "error.sdn_not_delivered.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 120,
+        "kind": "resp",
+        "method": "sdn.bundle",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "sdn_not_delivered",
+          "message": "Not delivered.",
+          "retryable": true
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
     }
   ]
 }

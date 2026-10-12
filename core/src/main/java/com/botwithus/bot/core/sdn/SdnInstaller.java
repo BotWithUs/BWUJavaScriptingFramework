@@ -2,6 +2,10 @@ package com.botwithus.bot.core.sdn;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.core.crypto.SdnDiskBundleSource;
+import com.botwithus.bot.core.launcher.LauncherProtocol;
+import com.botwithus.bot.core.launcher.SdnBundleChannel;
+import com.botwithus.bot.core.launcher.SdnBundleDownload;
+import com.botwithus.bot.core.launcher.SdnBundleFetch;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.SdnDelivery;
 
@@ -18,12 +22,22 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 /**
  * Asks the launcher to deliver a set of catalogue scripts, then loads them.
+ *
+ * <p>Two routes, chosen per install. When this host's launcher connection is up
+ * and the launcher listed {@code sdn.bundle} in its {@code hello}, the bundle
+ * comes over the automation pipe ({@link SdnBundleDownload}) and nothing is
+ * written to disk; such a launcher serves no bundle by file, so files are never
+ * tried. Only when the method is absent (an older launcher) or no launcher
+ * answers does the install fall back to the file courier described below,
+ * unchanged. A launcher that refuses ({@code sdn_not_delivered}) is reported as
+ * {@link SdnInstallResult.Failed} carrying that code and nothing more.
  *
  * <p>The host names the scripts it wants and the launcher does the fetching, so
  * the credential stays in the one process that already holds it. What comes back
@@ -55,10 +69,17 @@ public final class SdnInstaller {
     private final BooleanSupplier deliveryEnabled;
     private final Supplier<SdnDelivery> awaitDelivery;
     private final InstalledScriptsLedger ledger;
+    private final SdnPipeRoute pipe;
 
-    /** The shared rendezvous directory, recording installs in the user's ledger. */
+    /** Files only: the shared rendezvous directory, recording installs in the user's ledger. */
     public SdnInstaller() {
-        this(SdnRendezvous.directory(), InstalledScriptsLedger.inUserHome());
+        this(SdnPipeRoute.none());
+    }
+
+    /** The production installer: over {@code pipe} when the launcher offers it, else the shared directory. */
+    public SdnInstaller(SdnPipeRoute pipe) {
+        this(SdnRendezvous.directory(), SdnDiskBundleSource::isEnabled, SDNScriptLoader::loadSdnDeliveryFromDisk,
+                pipe, InstalledScriptsLedger.inUserHome());
     }
 
     public SdnInstaller(Path directory, InstalledScriptsLedger ledger) {
@@ -77,9 +98,20 @@ public final class SdnInstaller {
      */
     public SdnInstaller(Path directory, BooleanSupplier deliveryEnabled,
                  Supplier<SdnDelivery> awaitDelivery, InstalledScriptsLedger ledger) {
+        this(directory, deliveryEnabled, awaitDelivery, SdnPipeRoute.none(), ledger);
+    }
+
+    /**
+     * As above, with the pipe route too.
+     *
+     * @param pipe the launcher-pipe route, preferred whenever the launcher offers it
+     */
+    public SdnInstaller(Path directory, BooleanSupplier deliveryEnabled, Supplier<SdnDelivery> awaitDelivery,
+                        SdnPipeRoute pipe, InstalledScriptsLedger ledger) {
         this.directory = directory;
         this.deliveryEnabled = deliveryEnabled;
         this.awaitDelivery = awaitDelivery;
+        this.pipe = pipe;
         this.ledger = ledger;
     }
 
@@ -101,7 +133,9 @@ public final class SdnInstaller {
      * Requests {@code entries} from the launcher and loads whatever it delivers.
      *
      * <p>Blocking: it waits for any install already running in this process, then
-     * for the courier, so call it off the render thread. Waiting in line does not
+     * for the launcher, so call it off the render thread. Pipe installs wait in the
+     * same line, because the launcher holds one delivery per connection and a
+     * second {@code sdn.bundle} would replace the first. Waiting in line does not
      * count against the courier's timeout, which starts only once this call has
      * the rendezvous to itself.
      */
@@ -115,7 +149,8 @@ public final class SdnInstaller {
         ReentrantLock exchange = SdnRendezvous.exchangeLock(directory, REQUEST_SUFFIX);
         exchange.lock();
         try {
-            return exchange(entries);
+            Optional<SdnBundleChannel> channel = pipe.offering();
+            return channel.isPresent() ? overPipe(entries, channel.get()) : exchange(entries);
         } finally {
             exchange.unlock();
         }
@@ -138,11 +173,42 @@ public final class SdnInstaller {
         }
     }
 
+    private SdnInstallResult overPipe(List<SdnCatalogueEntry> entries, SdnBundleChannel channel) {
+        List<String> scriptIds = entries.stream().map(SdnCatalogueEntry::id).toList();
+        byte[] key;
+        try {
+            key = pipe.publicKey().get();
+        } catch (RuntimeException e) {
+            log.warn("SDN: this runtime has no delivery key: {}", e.getMessage());
+            return new SdnInstallResult.Failed("this runtime cannot receive Store scripts");
+        }
+        log.info("SDN: requested {} script(s) from the launcher over its pipe", scriptIds.size());
+        return switch (SdnBundleDownload.fetch(channel, key, scriptIds)) {
+            case SdnBundleFetch.Fetched fetched -> installFetched(entries, pipe.define().apply(fetched.bundle()));
+            case SdnBundleFetch.NotDelivered ignored ->
+                    new SdnInstallResult.Failed(LauncherProtocol.ERROR_SDN_NOT_DELIVERED);
+            case SdnBundleFetch.Unavailable ignored -> new SdnInstallResult.CourierUnavailable();
+            case SdnBundleFetch.Failed failed -> new SdnInstallResult.Failed(failed.reason());
+        };
+    }
+
+    /** The bytes arrived intact, so a delivery that loads nothing is a failure, not an absent launcher. */
+    private SdnInstallResult installFetched(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
+        if (delivery.isEmpty()) {
+            return new SdnInstallResult.Failed("the delivered scripts could not be loaded");
+        }
+        return installDelivery(entries, delivery);
+    }
+
     private SdnInstallResult loadDelivered(List<SdnCatalogueEntry> entries) {
         SdnDelivery delivery = awaitDelivery.get();
         if (delivery.isEmpty()) {
             return new SdnInstallResult.CourierUnavailable();
         }
+        return installDelivery(entries, delivery);
+    }
+
+    private SdnInstallResult installDelivery(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
         Map<String, List<BotScript>> byEntryId = pair(entries, delivery);
         recordInstalls(entries, byEntryId);
         return new SdnInstallResult.Installed(delivery.scripts(), byEntryId);

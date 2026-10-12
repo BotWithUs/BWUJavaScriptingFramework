@@ -95,6 +95,23 @@ final class LauncherRequests {
                 .build();
     }
 
+    /** @return {@code sdn.bundle}'s body: the key to seal to, then the catalogue ids wanted */
+    static Value sdnBundle(byte[] publicKey, List<String> scriptIds) {
+        List<Value> ids = scriptIds.stream().<Value>map(ValueFactory::newString).toList();
+        return ValueFactory.newMapBuilder()
+                .put(key("publicKey"), ValueFactory.newBinary(publicKey.clone()))
+                .put(key("scriptIds"), ValueFactory.newArray(ids))
+                .build();
+    }
+
+    /** @return {@code sdn.bundle_chunk}'s body */
+    static Value sdnBundleChunk(long deliveryId, long index) {
+        return ValueFactory.newMapBuilder()
+                .put(key("deliveryId"), ValueFactory.newInteger(deliveryId))
+                .put(key("index"), ValueFactory.newInteger(index))
+                .build();
+    }
+
     /** @return the wire spelling of {@code mode}: {@code "close"} or {@code "kill"} */
     static String stopModeWire(StopMode mode) {
         return switch (mode) {

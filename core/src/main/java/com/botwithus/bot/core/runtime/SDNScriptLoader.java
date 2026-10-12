@@ -136,26 +136,44 @@ public final class SDNScriptLoader {
             return SdnDelivery.none();
         }
         try {
-            DefinedBundle bundle =
-                    SdnDiskBundleSource.awaitBundle(SDNScriptLoader.class.getClassLoader());
-            List<SdnDelivery.Jar> jars = new ArrayList<>();
-            for (DefinedBundle.Jar jar : bundle.jars()) {
-                List<BotScript> found = providersFrom(jar.loader());
-                if (!found.isEmpty()) {
-                    jars.add(new SdnDelivery.Jar(jar.position(), found));
-                }
-            }
-            SdnDelivery delivery = new SdnDelivery(bundle.jarCount(), jars);
-            if (bundle.jarCount() > 0 && delivery.isEmpty()) {
-                log.info("No BotScript providers found in SDN disk bundle.");
-            } else if (!delivery.isEmpty()) {
-                log.info("Loaded {} script(s) from {} SDN jar(s).", delivery.scripts().size(), jars.size());
-            }
-            return delivery;
+            return toDelivery(SdnDiskBundleSource.awaitBundle(SDNScriptLoader.class.getClassLoader()));
         } catch (Exception e) {
             log.error("SDN disk script loading failed: {}", e.getMessage());
             return SdnDelivery.none();
         }
+    }
+
+    /**
+     * Loads the scripts in a bundle that has already arrived, which is how the
+     * launcher's pipe delivers one (amendment B1 of the launcher's ADR 0007).
+     * The bytes are the same a file delivery holds and are defined the same way.
+     *
+     * @return the delivery; {@link SdnDelivery#none()} on error
+     */
+    public static SdnDelivery loadSdnDelivery(byte[] bundle) {
+        try {
+            return toDelivery(SdnDiskBundleSource.defineBundle(bundle, SDNScriptLoader.class.getClassLoader()));
+        } catch (Exception e) {
+            log.error("SDN bundle loading failed: {}", e.getMessage());
+            return SdnDelivery.none();
+        }
+    }
+
+    private static SdnDelivery toDelivery(DefinedBundle bundle) {
+        List<SdnDelivery.Jar> jars = new ArrayList<>();
+        for (DefinedBundle.Jar jar : bundle.jars()) {
+            List<BotScript> found = providersFrom(jar.loader());
+            if (!found.isEmpty()) {
+                jars.add(new SdnDelivery.Jar(jar.position(), found));
+            }
+        }
+        SdnDelivery delivery = new SdnDelivery(bundle.jarCount(), jars);
+        if (bundle.jarCount() > 0 && delivery.isEmpty()) {
+            log.info("No BotScript providers found in SDN bundle.");
+        } else if (!delivery.isEmpty()) {
+            log.info("Loaded {} script(s) from {} SDN jar(s).", delivery.scripts().size(), jars.size());
+        }
+        return delivery;
     }
 
     /**
