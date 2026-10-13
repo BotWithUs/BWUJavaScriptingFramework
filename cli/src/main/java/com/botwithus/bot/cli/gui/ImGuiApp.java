@@ -88,6 +88,7 @@ import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueSource;
 import com.botwithus.bot.core.sdn.SdnInstaller;
+import com.botwithus.bot.core.sdn.SdnPipeRoute;
 import com.botwithus.bot.core.sdn.StoreCopies;
 import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.runtime.LocalScriptLoader;
@@ -259,7 +260,8 @@ public class ImGuiApp extends Application {
         AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore, ctx.getSettings());
         ctx.setAutoStartManager(autoStartManager);
 
-        sdnInstaller = new SdnInstaller();
+        // Read at each install: the launcher registration happens further down.
+        sdnInstaller = new SdnInstaller(SdnPipeRoute.over(() -> launcherHost.map(LauncherHost::service)));
         scriptReports = ScriptReports.forHost(ctx, sdnInstaller.ledger()::find);
         registry = new CommandRegistry();
         registerCommands(registry, profileStore, autoStartManager);

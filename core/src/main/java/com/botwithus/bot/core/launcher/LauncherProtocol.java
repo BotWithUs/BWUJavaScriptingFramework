@@ -39,6 +39,27 @@ public final class LauncherProtocol {
     public static final String METHOD_CLIENT_STATUS = "client.status";
     public static final String METHOD_EVENTS_SUBSCRIBE = "events.subscribe";
     public static final String METHOD_HOST_ACK_CLOSE = "host.ack_close";
+    /**
+     * Asks for a Store bundle sealed to this host's key (amendment B1). Offered
+     * only by a launcher that serves bundles over the pipe, which a host learns
+     * from {@code hello}'s {@code methods}; such a launcher serves none by file.
+     */
+    public static final String METHOD_SDN_BUNDLE = "sdn.bundle";
+    /** One chunk of the bundle {@link #METHOD_SDN_BUNDLE} offered. */
+    public static final String METHOD_SDN_BUNDLE_CHUNK = "sdn.bundle_chunk";
+
+    /**
+     * Every refusal and failure of the two SDN methods. The service says nothing
+     * more about the cause, and this host neither shows nor logs more than the code.
+     */
+    public static final String ERROR_SDN_NOT_DELIVERED = "sdn_not_delivered";
+
+    /** The length of the key {@code sdn.bundle} seals to. */
+    public static final int SDN_PUBLIC_KEY_BYTES = 32;
+    /** The length of the offer's {@code sha256}. */
+    public static final int SDN_SHA256_BYTES = 32;
+    /** The largest bundle the service offers: 64 MiB. */
+    public static final long SDN_MAX_BUNDLE_BYTES = 64L * 1024 * 1024;
 
     public static final String EVENT_CLIENT_STARTED = "client.started";
     public static final String EVENT_CLIENT_STATE = "client.state";

@@ -7,10 +7,12 @@ import com.botwithus.bot.api.script.LauncherException;
 import org.junit.jupiter.api.Test;
 import org.msgpack.value.ValueFactory;
 
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -39,6 +41,43 @@ class LauncherDecoderTest {
         Envelope reply = FIXTURES.envelope("hello.resp");
         LauncherException e = assertThrows(LauncherException.class, () -> HelloReply.check(reply.body()));
         assertEquals(HelloReply.PROTOCOL_MISMATCH, e.code());
+    }
+
+    @Test
+    void automationHello_returnsTheMethodsItLists() {
+        Set<String> methods = HelloReply.check(FIXTURES.envelope("hello.resp.automation").body());
+        assertAll(() -> assertEquals(10, methods.size()),
+                () -> assertTrue(methods.contains(LauncherProtocol.METHOD_HOST_ACK_CLOSE)),
+                () -> assertFalse(methods.contains(LauncherProtocol.METHOD_SDN_BUNDLE)));
+    }
+
+    @Test
+    void sdnBundleOffer_decodesEveryField() {
+        SdnBundleOffer offer = LauncherDecoder.sdnBundleOffer(FIXTURES.envelope("sdn.bundle.resp").body());
+        assertAll(() -> assertEquals(1, offer.deliveryId()),
+                () -> assertEquals(600_000, offer.size()),
+                () -> assertEquals("9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+                        HexFormat.of().formatHex(offer.sha256())),
+                () -> assertEquals(524_288, offer.chunkSize()),
+                () -> assertEquals(2, offer.chunkCount()),
+                () -> assertEquals(600_000 - 524_288, offer.chunkLength(1)),
+                () -> assertEquals(Optional.empty(), SdnBundleDownload.checkOffer(offer)));
+    }
+
+    @Test
+    void sdnBundleChunk_decodesItsBytes() {
+        assertEquals("a0a1a2a3a4a5a6a7a8a9aaabacadaeaf", HexFormat.of().formatHex(
+                LauncherDecoder.sdnBundleChunk(FIXTURES.envelope("sdn.bundle_chunk.resp").body())));
+    }
+
+    @Test
+    void sdnNotDelivered_decodesToItsRetryableCode() {
+        Envelope reply = FIXTURES.envelope("error.sdn_not_delivered");
+        WireError error = reply.error().orElseThrow();
+        assertAll(() -> assertFalse(reply.isOk()),
+                () -> assertEquals(LauncherProtocol.ERROR_SDN_NOT_DELIVERED, error.code()),
+                () -> assertTrue(error.isRetryable()),
+                () -> assertEquals(Optional.empty(), error.field()));
     }
 
     @Test

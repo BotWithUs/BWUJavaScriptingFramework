@@ -84,7 +84,8 @@ class LauncherFixturesTest {
                 LauncherProtocol.METHOD_ACCOUNTS_LIST, LauncherProtocol.METHOD_CLIENT_LAUNCH,
                 LauncherProtocol.METHOD_CLIENT_STOP, LauncherProtocol.METHOD_CLIENT_LIST,
                 LauncherProtocol.METHOD_CLIENT_STATUS, LauncherProtocol.METHOD_EVENTS_SUBSCRIBE,
-                LauncherProtocol.METHOD_HOST_ACK_CLOSE);
+                LauncherProtocol.METHOD_HOST_ACK_CLOSE, LauncherProtocol.METHOD_SDN_BUNDLE,
+                LauncherProtocol.METHOD_SDN_BUNDLE_CHUNK);
         List<String> uncovered = FIXTURES.all().stream()
                 .filter(f -> f.direction().equals("c2s"))
                 .filter(f -> sentMethods.contains(f.value().get("method").getAsString()))
@@ -176,6 +177,11 @@ class LauncherFixturesTest {
                 decision(body.get("decision").getAsString())));
         b.put("host.ack_close.req.later", body -> LauncherRequests.ackClose(body.get("requestId").getAsLong(),
                 decision(body.get("decision").getAsString())));
+        b.put("sdn.bundle.req", body -> LauncherRequests.sdnBundle(
+                HexFormat.of().parseHex(body.get("publicKey").getAsString()),
+                body.getAsJsonArray("scriptIds").asList().stream().map(JsonElement::getAsString).toList()));
+        b.put("sdn.bundle_chunk.req", body -> LauncherRequests.sdnBundleChunk(body.get("deliveryId").getAsLong(),
+                body.get("index").getAsLong()));
         return b;
     }
 
