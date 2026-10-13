@@ -68,6 +68,15 @@ class DevGateTest {
         assertEquals(Optional.empty(), new DevGate(true).closeRequestAnswer(env(DevGate.CLOSE_ANSWER_PROPERTY, "x")));
     }
 
+    @Test
+    void openScriptUi_onlyThroughTheGate() {
+        UnaryOperator<String> props = env(DevGate.OPEN_SCRIPT_UI_PROPERTY, " Fleet Monitor ");
+        assertEquals(Optional.of("Fleet Monitor"), new DevGate(true).openScriptUi(props));
+        assertEquals(Optional.empty(), new DevGate(false).openScriptUi(props));
+        assertEquals(Optional.empty(), new DevGate(true).openScriptUi(env(DevGate.OPEN_SCRIPT_UI_PROPERTY, " ")));
+        assertEquals(Optional.empty(), new DevGate(true).openScriptUi(key -> null));
+    }
+
     private static UnaryOperator<String> env(String name, String value) {
         return key -> key.equals(name) ? value : null;
     }

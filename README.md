@@ -321,7 +321,23 @@ module my.script {
 }
 ```
 
-The `render()` method is called every frame on the UI thread while the script's inspector shows its Script UI tab. The tab is offered only to scripts whose `getUI()` returns a UI, and a script with a UI but no settings opens its inspector on that tab.
+The `render()` method is called every frame while the script's inspector shows its Script UI tab. The tab is offered only to scripts whose `getUI()` returns a UI, and a script with a UI but no settings opens its inspector on that tab.
+
+Each script's UI draws in an ImGui context of its own, on a thread of its own named `script-ui <script name> #<n>`, while the host's UI thread waits for it. The host then copies what it drew into the panel. This means a UI that breaks one of Dear ImGui's rules cannot take the host down. Examples are one `popStyleVar()` too many, an `end()` with no `begin()`, or a `beginChild()` that is never ended. Instead:
+
+- the panel says which Dear ImGui check failed;
+- the host and every other script and client carry on;
+- a **Reload UI** button tries the UI again.
+
+After 3 such failures in one run of the script, Reload is withdrawn until the script is restarted. Each failure leaves a parked thread and an unused ImGui context behind, and the limit bounds that.
+
+A `render()` that throws behaves as before: the panel shows the message, and the UI is drawn again on the next frame.
+
+Three consequences for script authors:
+
+- **Everything you draw stays inside the panel.** That includes popups, tooltips and any window you `begin()` yourself, and it is clipped to the panel. A UI cannot reach the host's own windows: `ImGui.findWindowByName` does not see them.
+- **Do not call OpenGL from `render()`.** It no longer runs on the thread that owns the GL context. Upload textures elsewhere and draw them with `ImGui.image(id, ...)`, which works as before.
+- **A `render()` that never returns still freezes the host's UI.** There is deliberately no timeout. A UI thread that was given up on could resume later and draw into the host's own context.
 
 ## Live Config
 

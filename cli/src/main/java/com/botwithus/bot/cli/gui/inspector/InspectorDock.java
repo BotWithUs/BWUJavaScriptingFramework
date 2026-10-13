@@ -3,6 +3,7 @@ package com.botwithus.bot.cli.gui.inspector;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.nav.PageId;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
 
 import imgui.ImDrawList;
 import imgui.ImGui;
@@ -36,17 +37,23 @@ public final class InspectorDock {
     private final InspectorSource source;
     private final ConfigInspector inspector;
     private final ScriptUiWindows windows;
+    private final ScriptUiHost scriptUis;
     private float progress;
     private InspectorTarget lastTarget;
     /** The width the user dragged the drawer to, or {@code 0} until they do. */
     private float preferredWidth;
 
-    public InspectorDock(Controls ui, InspectorState state, InspectorSource source) {
+    /**
+     * @param scriptUis draws the scripts' own UIs, in the drawer and popped out,
+     *                  each in a sandbox a broken UI cannot take the host down from
+     */
+    public InspectorDock(Controls ui, InspectorState state, InspectorSource source, ScriptUiHost scriptUis) {
         this.ui = ui;
         this.state = state;
         this.source = source;
-        this.inspector = new ConfigInspector(ui, state);
-        this.windows = new ScriptUiWindows(ui, state, source);
+        this.scriptUis = scriptUis;
+        this.inspector = new ConfigInspector(ui, state, scriptUis);
+        this.windows = new ScriptUiWindows(ui, state, source, scriptUis);
     }
 
     public InspectorState state() {
@@ -147,7 +154,8 @@ public final class InspectorDock {
      * would let the same key press close the inspector too.
      */
     private void handleEscape(PageId shown) {
-        if (!state.docksBeside(shown) || ImGui.isAnyItemActive() || ImGui.isPopupOpen("", POPUP_ANY)) {
+        if (!state.docksBeside(shown) || ImGui.isAnyItemActive() || scriptUis.hasKeyboard()
+                || ImGui.isPopupOpen("", POPUP_ANY)) {
             return;
         }
         if (ImGui.isKeyPressed(ImGuiKey.Escape, false)) {

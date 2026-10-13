@@ -31,7 +31,10 @@ import com.botwithus.bot.cli.diag.MetricsCollection;
 import com.botwithus.bot.cli.diag.WalkerPathOverlay;
 import com.botwithus.bot.cli.events.ClientKey;
 import com.botwithus.bot.cli.gui.inspector.InspectorDock;
+import com.botwithus.bot.cli.gui.inspector.InspectorRequest;
 import com.botwithus.bot.cli.gui.inspector.InspectorState;
+import com.botwithus.bot.cli.gui.inspector.InspectorSubject;
+import com.botwithus.bot.cli.gui.inspector.InspectorTab;
 import com.botwithus.bot.cli.gui.inspector.LiveInspectorSource;
 import com.botwithus.bot.cli.gui.nav.Page;
 import com.botwithus.bot.cli.gui.nav.PageId;
@@ -68,6 +71,9 @@ import com.botwithus.bot.cli.log.RunLogBootstrap;
 import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.gui.report.ReportDialog;
 import com.botwithus.bot.cli.gui.report.ReportFlow;
+import com.botwithus.bot.cli.gui.scriptui.AssertRouter;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
+import com.botwithus.bot.cli.gui.scriptui.TypedChars;
 import com.botwithus.bot.cli.report.ScriptReports;
 import com.botwithus.bot.cli.sdn.FavouritesStore;
 import com.botwithus.bot.cli.settings.HostSettings;
@@ -130,6 +136,8 @@ public class ImGuiApp extends Application {
     private static final float DEFAULT_FONT_PX = 17f;
     /** The taskbar's name for the window. It names no connection: no one client owns the app. */
     private static final String WINDOW_TITLE = "BotWithUs";
+    /** The window/dock layout file's name, in the host's data folder. */
+    private static final String IMGUI_INI = "imgui.ini";
     /** How long the Installed scripts page reuses one read of the host: its badge and body share it. */
     private static final Duration INSTALLED_VIEW_MAX_AGE = Duration.ofMillis(250);
     /** How long the Management page reuses one read of the host: its badge and body share it. */
@@ -185,6 +193,10 @@ public class ImGuiApp extends Application {
 
     // The one config inspector, shared by both modes and every "Settings" button
     private InspectorDock inspector;
+    /** Typed characters for the script UIs' sandboxes, which never see the host's text input. */
+    private final TypedChars scriptUiChars = new TypedChars();
+    private ScriptUiHost scriptUis;
+    private HostIni hostIni;
 
     // Toasts (top-right), fed from the host event bus, and what their buttons do
     private NotificationOverlay notificationOverlay;
@@ -215,17 +227,21 @@ public class ImGuiApp extends Application {
         HostWindow.Pending pending = HostWindow.prepare(settings, config);
         super.initWindow(config);
         hostWindow = pending.attach(handle);
+        // Installed before the ImGui backend, which chains to it (for every window, see initImGui).
+        GLFW.glfwSetCharCallback(handle, (window, codepoint) -> scriptUiChars.typed(codepoint));
     }
 
     @Override
     protected void initImGui(Configuration config) {
         super.initImGui(config);
+        AssertRouter assertRouter = AssertRouter.install();
 
-        redirectImGuiIniToConfigDir();
+        hostIni = HostIni.attach(imguiIniFile());
         dpiScale = detectDpiScale();
         ui = new Controls(FontLoader.loadAll(dpiScale, DEFAULT_FONT_PX),
                 Motion.following(settings, Motion.FrameClock.imGui()));
         setupTheme();
+        scriptUis = ScriptUiHost.withControls(assertRouter, scriptUiChars, ui);
 
         textureManager = new TextureManager();
         outputBuffer = new AnsiOutputBuffer();
@@ -280,22 +296,23 @@ public class ImGuiApp extends Application {
         launcherHost.ifPresent(host -> host.service().ackClose(requestId, decision));
     }
 
-    private static void redirectImGuiIniToConfigDir() {
-        // Window/dock layout settings ship as imgui.ini, which ImGui writes
-        // next to the CWD by default. In the jpackage app-image the CWD
-        // varies (and the install dir may be read-only), so park the file
-        // alongside every other persistent BotWithUs store under
-        // ~/.botwithus/. Must run before any UI frame so ImGui picks it up
-        // for both the initial load and subsequent saves.
+    /**
+     * Where the window/dock layout lives. ImGui's default is {@code imgui.ini}
+     * in the CWD, but in the jpackage app-image the CWD varies (and the install
+     * dir may be read-only), so it is parked alongside every other persistent
+     * BotWithUs store under {@code ~/.botwithus/}. {@link HostIni} explains why
+     * the path is not handed to ImGui itself.
+     */
+    private static Path imguiIniFile() {
         Path configDir = Path.of(System.getProperty("user.home"), ".botwithus");
         try {
             Files.createDirectories(configDir);
         } catch (IOException e) {
             log.warn("Could not create {}; imgui.ini will fall back to CWD: {}",
                     configDir, e.getMessage());
-            return;
+            return Path.of(IMGUI_INI);
         }
-        ImGui.getIO().setIniFilename(configDir.resolve("imgui.ini").toString());
+        return configDir.resolve(IMGUI_INI);
     }
 
     private static float detectDpiScale() {
@@ -400,8 +417,12 @@ public class ImGuiApp extends Application {
         // why the opener only requests and the shell opens it on the next frame.
         Clock clock = Clock.systemDefaultZone();
         InspectorState inspectorState = new InspectorState(clock);
-        inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx));
+        inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx), scriptUis);
         ctx.setConfigPanelOpener(inspectorState.clientScriptOpener());
+        // Dev only (DevGate): a live check of script UIs opens one without anybody clicking.
+        // The request waits for the script to load; the drawer resolves it each frame.
+        DevGate.fromSystemProperties().openScriptUi(System::getProperty).ifPresent(name -> inspectorState.request(
+                new InspectorRequest(new InspectorSubject.ManagementScript(name), InspectorTab.SCRIPT_UI)));
 
         // One catalogue for the whole host: the Script Store and Normal mode's
         // "Your subscriptions" group read the same refresher, so there is one fetch loop.
@@ -586,6 +607,25 @@ public class ImGuiApp extends Application {
         }
 
         hostWindow.endFrame();
+        scriptUis.endFrame();
+        hostIni.saveIfWanted();
+    }
+
+    /** After the framework has initialised the GLFW backend, which {@link #initImGui} runs before. */
+    @Override
+    protected void preRun() {
+        super.preRun();
+        // Popped-out script UIs are OS windows of their own; their typing reaches
+        // scriptUiChars only if the backend chains every window's callbacks, not just the main one's.
+        imGuiGlfw.setCallbacksChainForAllWindows(true);
+    }
+
+    @Override
+    protected void disposeImGui() {
+        // The sandboxes share this context's font atlas, so they go first.
+        scriptUis.close();
+        hostIni.save();
+        super.disposeImGui();
     }
 
     private static final String LOG_BUFFER_APPENDER_NAME = "LOG_BUFFER";

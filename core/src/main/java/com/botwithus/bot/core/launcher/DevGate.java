@@ -8,10 +8,10 @@ import java.util.Optional;
 import java.util.function.UnaryOperator;
 
 /**
- * Whether this run may use the development overrides for the launcher
- * service: a sandboxed service scope ({@code BWU_DEV_SVC_SCOPE}) and an
- * automatic answer to a close request (for tests that must not be clicked by a
- * person).
+ * Whether this run may use the development overrides: a sandboxed launcher
+ * service scope ({@code BWU_DEV_SVC_SCOPE}), an automatic answer to a close
+ * request, and a script UI to open at startup (the last two for checks that
+ * must not be clicked through by a person).
  *
  * <p>Both of these must hold:</p>
  * <ul>
@@ -39,6 +39,8 @@ public record DevGate(boolean isEnabled) {
     public static final String SCOPE_VARIABLE = "BWU_DEV_SVC_SCOPE";
     /** The system property naming a close-request answer for tests. */
     public static final String CLOSE_ANSWER_PROPERTY = "botwithus.dev.closeRequestAnswer";
+    /** The system property naming a management script whose Script UI tab the GUI opens at startup. */
+    public static final String OPEN_SCRIPT_UI_PROPERTY = "botwithus.dev.openScriptUi";
     /** The scope prefix the launcher adds to an override. */
     public static final String DEV_SCOPE_PREFIX = "dev";
     /** Longest override value the launcher accepts. */
@@ -108,6 +110,21 @@ public record DevGate(boolean isEnabled) {
         }
         log.warn("{}={} is not closing, declined or later; ignoring it", CLOSE_ANSWER_PROPERTY, value);
         return Optional.empty();
+    }
+
+    /**
+     * The management script whose Script UI the GUI should open once it is loaded,
+     * so a live check of script UIs needs nobody to click through to it.
+     *
+     * @param properties reads a system property; {@code null} when unset
+     * @return the script's name, when the gate is open and the property is set and not blank
+     */
+    public Optional<String> openScriptUi(UnaryOperator<String> properties) {
+        String value = properties.apply(OPEN_SCRIPT_UI_PROPERTY);
+        if (value == null || value.isBlank() || !isEnabled) {
+            return Optional.empty();
+        }
+        return Optional.of(value.strip());
     }
 
     static boolean isValidScopeValue(String value) {

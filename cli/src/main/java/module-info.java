@@ -53,4 +53,6 @@ module com.botwithus.bot.cli {
     exports com.botwithus.bot.cli.gui.usermode;
     exports com.botwithus.bot.cli.gui.usermode.board;
     exports com.botwithus.bot.cli.gui.notify;
+    // InspectorDock and InspectorTarget take the sandboxed script-UI host and its slot.
+    exports com.botwithus.bot.cli.gui.scriptui;
 }

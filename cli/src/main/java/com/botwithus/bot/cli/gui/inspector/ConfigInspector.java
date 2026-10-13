@@ -6,7 +6,6 @@ import com.botwithus.bot.api.config.ConfigField.ChoiceField;
 import com.botwithus.bot.api.config.ConfigField.IntField;
 import com.botwithus.bot.api.config.ConfigField.ItemIdField;
 import com.botwithus.bot.api.config.ConfigField.StringField;
-import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.cli.gui.CategoryStyle;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Segment;
@@ -16,6 +15,7 @@ import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
 import com.botwithus.bot.cli.gui.inspector.SettingsFor.InheritedValue;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -24,9 +24,6 @@ import imgui.flag.ImGuiChildFlags;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiStyleVar;
 import imgui.type.ImInt;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Optional;
@@ -49,8 +46,6 @@ import java.util.Optional;
  */
 final class ConfigInspector {
 
-    private static final Logger log = LoggerFactory.getLogger(ConfigInspector.class);
-
     private static final int SEGMENTED_MAX_CHOICES = 3;
     private static final float TAB_HEIGHT_EM = 2.267f;
     private static final float TAB_UNDERLINE_PX = 2f;
@@ -69,14 +64,16 @@ final class ConfigInspector {
 
     private final Controls ui;
     private final InspectorState state;
+    private final ScriptUiHost scriptUis;
     /** The picker's selection, reset from the target every frame. */
     private final ImInt pickerChoice = new ImInt();
     private ConfigEdits edits;
     private InspectorSubject editsFor;
 
-    ConfigInspector(Controls ui, InspectorState state) {
+    ConfigInspector(Controls ui, InspectorState state, ScriptUiHost scriptUis) {
         this.ui = ui;
         this.state = state;
+        this.scriptUis = scriptUis;
     }
 
     /** The open form, or {@code null} before its first frame. The dev preview's seam. */
@@ -445,7 +442,7 @@ final class ConfigInspector {
         ImGui.setCursorScreenPos(x + inset, y + top);
         ImGui.pushStyleVar(ImGuiStyleVar.ItemSpacing, ImGui.getStyle().getItemSpacingX(), m.u(1.5f));
         ImGui.beginChild("##script-ui", w - inset * 2f, Math.max(0f, h - top - inset), false);
-        drawScriptUi(target.customUi(), target.script().name());
+        scriptUis.draw(target.scriptUiSlot());
         ImGui.endChild();
         ImGui.popStyleVar();
     }
@@ -484,21 +481,6 @@ final class ConfigInspector {
         ImGui.setCursorScreenPos(x, y + lineH + m.u(3));
         if (ui.button("##script-ui-bring-back", Icons.COMPRESS, BRING_BACK, Tone.GHOST, true)) {
             state.bringBack(subject);
-        }
-    }
-
-    /**
-     * Script code: whatever it throws is shown in place, not propagated into the
-     * frame. Shared with the popped-out windows, which draw the same UI.
-     */
-    static void drawScriptUi(ScriptUI scriptUi, String name) {
-        try {
-            scriptUi.render();
-        } catch (RuntimeException e) {
-            log.debug("Script UI for {} threw: {}", name, e.toString());
-            ImGui.pushStyleColor(ImGuiCol.Text, ImGuiTheme.COL_DANGER);
-            ImGui.textWrapped("This script's UI failed to draw: " + e.getMessage());
-            ImGui.popStyleColor();
         }
     }
 

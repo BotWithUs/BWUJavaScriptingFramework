@@ -45,6 +45,9 @@ import com.botwithus.bot.cli.gui.pages.installed.InstalledQuery;
 import com.botwithus.bot.cli.gui.pages.management.ManagementPage;
 import com.botwithus.bot.cli.gui.pages.management.ManagementPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
+import com.botwithus.bot.cli.gui.scriptui.AssertRouter;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
+import com.botwithus.bot.cli.gui.scriptui.TypedChars;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.notify.ToastFeed;
 import com.botwithus.bot.cli.gui.report.ReportDialog;
@@ -217,6 +220,7 @@ public final class ShellPreview extends Application {
     private int scenarioIndex;
     private int frame;
     private Controls ui;
+    private ScriptUiHost scriptUis;
     private Stage stage;
     private Shell shell;
     private ReportDialog reportDialog;
@@ -281,6 +285,7 @@ public final class ShellPreview extends Application {
         ImGui.getIO().setIniFilename(null);
         ImGui.getIO().addConfigFlags(ImGuiConfigFlags.NavEnableKeyboard);
         ui = new Controls(FontLoader.loadAll(SCALE, DEFAULT_FONT_PX), Motion.full(Motion.FrameClock.imGui()));
+        scriptUis = ScriptUiHost.withControls(AssertRouter.install(), new TypedChars(), ui);
         ImGuiTheme.apply(SCALE);
         fbo = createFramebuffer();
         toastSettings = HostSettings.open(outDir.resolve("toast-settings"));
@@ -290,7 +295,8 @@ public final class ShellPreview extends Application {
     private void startScenario() {
         Scenario s = scenarios.get(scenarioIndex);
         FixtureBoard board = s.board().get();
-        InspectorDock inspector = new InspectorDock(ui, new InspectorState(Clock.systemDefaultZone()), board);
+        InspectorDock inspector = new InspectorDock(ui, new InspectorState(Clock.systemDefaultZone()), board,
+                scriptUis);
         UserModeRenderer page = new UserModeRenderer(ui, inspector.state());
         NotificationOverlay toasts = new NotificationOverlay(Clock.systemDefaultZone());
         FixtureToasts fleet = new FixtureToasts(board);
@@ -488,6 +494,12 @@ public final class ShellPreview extends Application {
                 Scenario.advanced("25-advanced-inspector-settings-pops-out-script-ui", FixtureBoard::everyState,
                         fromPage(PageId.INSTALLED, InspectorRequest.settings(
                                 new InspectorSubject.ClientScript(WOODCUTTER, WOODCUTTING), true, true))),
+                // A script UI that breaks a Dear ImGui rule: stopped in its panel, the host carries on.
+                Scenario.advanced("31b-advanced-inspector-script-ui-broken",
+                        () -> FixtureBoard.everyState().withBrokenFleetUi(),
+                        fromPage(PageId.MANAGEMENT, new InspectorRequest(
+                                new InspectorSubject.ManagementScript(FixtureBoard.FLEET_MONITOR.name()),
+                                InspectorTab.SCRIPT_UI))),
                 Scenario.advanced("32-advanced-inspector-restore-defaults", FixtureBoard::everyState,
                         ShellPreview::managementOffDefaults),
                 // The frameless window's own chrome: every scenario draws it, these two isolate it.

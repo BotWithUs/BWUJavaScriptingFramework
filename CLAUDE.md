@@ -175,6 +175,21 @@ ImGui-based GUI + interactive command system (`JBotApplication`, `gui/ImGuiApp`)
 
 The CLI run task places the API JAR on the **module path** (not classpath) so `LocalScriptLoader` can build child `ModuleLayer`s that reference the API module.
 
+**Script UIs are sandboxed (`cli/.../gui/scriptui/`).** Each script's `ScriptUI.render()` runs in its own `ImGuiContext`, on its own platform thread (`script-ui <name> #<n>`), while the UI thread waits. What it drew is then composited into the host's panel. The design follows from three facts about imgui-java 1.90, which bundles Dear ImGui **1.90.9**:
+
+1. `ImAssertCallback.imAssert` calls `System.exit(1)` whether the callback returns or throws an `Exception`.
+2. Native code continues past a failed `IM_ASSERT` when the callback throws an `Error`, and some checks guard an out-of-bounds read or write.
+3. imgui-java binds no stack sizes, so there is nothing to repair the host's context to.
+
+So `AssertRouter`, the one assert handler, **parks the script's render thread for good** on an assertion. The native call never resumes, and the context and thread are abandoned (leaked). Asserts on any other thread keep imgui-java's exit, so a host bug still fails loudly. Things to keep straight when editing it:
+
+- **Never add a timeout** to `SandboxWorker.run`. An abandoned render thread could resume and call ImGui with the host's context current.
+- **Never let script code reach the host's context.** That includes draw-list callbacks and anything invoked after `ImGui.setCurrentContext(host)` on the UI thread.
+- The 3-failures-per-run limit in `ScriptUiHost` (`MAX_FAILURES`, reset by a new `lastStartedAt`) is what **bounds the leak**. Keep it.
+- **Never call `ImGuiIO.setIniFilename` with a non-null value, anywhere in the process.** imgui-java's setter frees the field's old value whenever the last value *any* context was given was non-null, because it tracks that in one process-wide static. A fresh sandbox's `IniFilename` is a string literal, so after the host once set its path that way, creating a sandbox killed the process with heap corruption (`0xC0000374`). `cli/.../gui/HostIni` loads and saves the host's layout file by hand for this reason. `ScriptUiGuardForkTest.anIniPathSetThroughImGuiIo_makesTheFirstSandboxCorruptTheHeap` pins the hazard.
+- **One sandbox per script (owner), not per `ScriptUI` object.** A script may return a new object from every `getUI()`. Keying by object made a thread and a context per frame, and lost combo and scroll state.
+- Parity is pinned by `ScriptUiParityTest`, which compares vertices, colours, clip rects and textures with what master drew. Containment is pinned by `ScriptUiGuardForkTest`, which forks a JVM per breaker with the guard on (must exit 0) and off (a fatal breaker must exit 1).
+
 ### example-script (`com.botwithus.bot.scripts.example`)
 
 Reference scripts: `ExampleScript` (Script UI demo), `WoodcuttingFletcherScript`, `LocationProbeScript`, `WalkToFlagScript`, `DivinationScript`. Build auto-copies the JAR into `scripts/`.
@@ -343,6 +358,8 @@ Intentionally violated rule:
 Script runners are also the wrong *shape* for virtual threads: virtual threads pay off for many short-lived, mostly-blocked tasks, whereas there are few script runners, they live for the whole session, and they are CPU-active every loop. On a platform thread the OS preempts a runaway script, so it costs CPU share and nothing else — and `Thread.interrupt()` / `InheritableThreadLocal` semantics are unchanged.
 
 Threads created *by* a script's thread (notably `ww-executor-<nanos>` in `GameAPIImpl.walkWorldPathAsync`) inherit its `InheritableThreadLocal`s, which is what lets the runtime attribute their RPC calls back to the owning script. Don't convert these back to virtual threads without re-checking that attribution.
+
+The script-UI render threads (`script-ui <name> #<n>`, `cli/.../gui/scriptui/SandboxWorker`) are platform for a third reason: a failed Dear ImGui assertion parks one **inside a native call, for good** (see the *Script UIs are sandboxed* note under *cli*). A virtual thread there would pin its carrier forever, so each failure would remove one carrier from every virtual thread in the JVM.
 
 The WorldWalker path overlay's worker (`ww-overlay-<walkSeq>`, `GameAPIImpl.newOverlayWorker`) is platform for a different reason: it makes the planner's Panama downcall (`WorldWalker.query`), which pins a virtual thread's carrier for the length of a route search. It deliberately does **not** inherit the script's tag, so its draw calls are the host's and its cleanup is not refused when the script that started the walk is revoked.
 

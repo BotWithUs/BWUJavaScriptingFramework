@@ -112,7 +112,8 @@ public final class LiveInspectorSource implements InspectorSource {
         ScriptUI ui = ScriptCode.ui(() -> runner.getScript().getUI(), name);
         return new InspectorTarget(subject, "on " + account(conn) + " · " + conn.getName(),
                 ScriptInfo.of(runner.getManifest(), name, fields.size(), ui != null), fields,
-                runner::getCurrentConfig, runner::applyConfig, ui, itemNames::of, runner::isDisposed);
+                runner::getCurrentConfig, runner::applyConfig, ui, itemNames::of, runner::isDisposed,
+                SettingsFor.none(), runner.lastStartedAt());
     }
 
     /**
@@ -133,13 +134,14 @@ public final class LiveInspectorSource implements InspectorSource {
             ScriptConfig defaults = access.settings().defaults(name, fields);
             return new InspectorTarget(subject.withSettingsFor(picked), context, info, fields,
                     () -> defaults, runner::applyConfig, ui, itemNames::of, runner::isDisposed,
-                    picker(name, pickable, Optional.empty(), DEFAULTS_NOTE, Map.of()));
+                    picker(name, pickable, Optional.empty(), DEFAULTS_NOTE, Map.of()), runner.lastStartedAt());
         }
         Target target = picked.get();
         TargetView view = access.settings().view(name, target, fields);
         return new InspectorTarget(subject, context, info, fields, view::merged,
                 cfg -> access.settings().apply(name, target, cfg, fields), ui, itemNames::of, runner::isDisposed,
-                picker(name, pickable, picked, targetNote(name, target), inheritedLabels(view)));
+                picker(name, pickable, picked, targetNote(name, target), inheritedLabels(view)),
+                runner.lastStartedAt());
     }
 
     /**
