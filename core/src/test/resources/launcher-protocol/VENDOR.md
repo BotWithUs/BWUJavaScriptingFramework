@@ -1,9 +1,8 @@
 # Vendored: launcher protocol golden fixtures (automation surface)
 
 Source: `BotWithUs/BotWithUs-Launcher`, directory `protocol/fixtures/`, at commit
-`5df6e2775acb944cdc5f0b751d4a3bdb6df1b877` (the protocol commit of PR #53, the B1 Store-bundle
-amendment; launcher ADR 0007, section 3.3). This is a pre-merge sha: the copy is
-re-vendored at PR #53's merge commit once it lands.
+`be62f173038fa6c4b7959e475f236c78468b3c93` (the merge of PR #53, the B1 Store-bundle
+amendment; launcher ADR 0007, section 3.3).
 
 **Only the automation-surface fixtures are vendored; the full surface stays in
 the private launcher repository.** A host speaks only the automation pipe, so
@@ -31,7 +30,7 @@ Checks:
 
 `.gitattributes` here marks everything `-text`, so no checkout converts a line ending.
 
-## Blob ids at 5df6e27
+## Blob ids at be62f17
 
 ```
 7eef37e00caa5e1c13682c39eea19cad4160eae3  hello.req.msgpack
