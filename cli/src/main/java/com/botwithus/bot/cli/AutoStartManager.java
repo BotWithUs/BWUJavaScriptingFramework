@@ -104,7 +104,10 @@ public class AutoStartManager {
             if (scanThread != null) {
                 return;
             }
-            scanThread = Thread.ofVirtual().name("autostart-scan").start(this::scanLoop);
+            // Publish before starting: scanLoop exits at once unless it sees itself here.
+            Thread scanner = Thread.ofVirtual().name("autostart-scan").unstarted(this::scanLoop);
+            scanThread = scanner;
+            scanner.start();
         }
         out().println("[AutoStart] Background pipe scanning started.");
     }
