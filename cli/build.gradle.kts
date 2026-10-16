@@ -92,7 +92,16 @@ tasks.named<JavaExec>("run") {
         // restricted Linker API; J22+ requires explicit native-access opt-in.
         // sqlite-jdbc (org.xerial.sqlitejdbc) System.load()s its native lib when
         // a skilling script opens the Atlas — opt it in too so the read is clean.
-        "--enable-native-access=com.botwithus.bot.core,org.xerial.sqlitejdbc",
+        //
+        // LWJGL and imgui-java load and bind native code too. The linked image
+        // folds them into com.botwithus.merged.module (forceMerge below) and
+        // enables that; `run` keeps them as their own modules, so it names them.
+        "--enable-native-access=com.botwithus.bot.core,org.xerial.sqlitejdbc,"
+                + "org.lwjgl,org.lwjgl.glfw,org.lwjgl.opengl,imgui.binding",
+        // Every module not listed above is refused a restricted call outright,
+        // as in the shipped launcher below, instead of being let through with a
+        // warning. A script module is never on the list.
+        "--illegal-native-access=deny",
     )
     // Optional: point at the NXTCache DLL + cache directory to enable
     // cache-backed config-type lookups (item/npc/loc/quest/etc.). Set these
@@ -313,6 +322,7 @@ tasks.register<JavaExec>("sdnLiveCheck") {
     jvmArgs(
         "--patch-module", "com.botwithus.bot.cli=${sdnLive.output.asPath}",
         "--enable-native-access=com.botwithus.bot.core,org.xerial.sqlitejdbc",
+        "--illegal-native-access=deny",
         "-Dlogback.configurationFile=${file("src/sdnLive/resources/logback-sdnlive.xml").absolutePath}",
         "-Duser.home=${File(runDir, "home").absolutePath}",
         "-Dbotwithus.sdn.dir=${File(runDir, "sdn").absolutePath}",
@@ -402,6 +412,10 @@ jlink {
             // has one).
             "--enable-native-access=com.botwithus.bot.core,com.botwithus.merged.module,"
                     + "org.xerial.sqlitejdbc",
+            // Any other module, a script module included, is refused a
+            // restricted call (IllegalCallerException) rather than allowed one
+            // with a warning, which is the JDK default until it changes.
+            "--illegal-native-access=deny",
             // SdnDiskBundleSource.isEnabled() reads this and skips the whole
             // disk-delivery path when it is absent — silently, so an unset flag
             // presents as "the launcher's courier isn't running" (a 30s timeout)
