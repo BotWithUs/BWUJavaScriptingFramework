@@ -57,9 +57,30 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
 
     /**
      * Largest footprint distance still accepted for a transition's loc. Some dataset rows sit a
-     * few tiles off the loc they name; past this the loc is treated as absent.
+     * few tiles off the loc they name; past this the loc is treated as absent. Doors never get
+     * it: see {@link #DOOR_REACH}.
      */
     private static final int LOC_FALLBACK_REACH = 4;
+
+    /**
+     * Largest footprint distance accepted for a door-type transition's loc. A door is a 1x1 loc
+     * on a tile edge, so its row tile is the door's own tile or the one across the edge. A loc of
+     * the same id further out is a different door: rooms share door ids, so the fallback reach
+     * would click the next room's door once this one is open.
+     */
+    private static final int DOOR_REACH = LOC_FOOTPRINT_REACH;
+
+    // RT4 placement shapes of a loc on a tile edge: 0..3 are the straight,
+    // diagonal-corner, L and square-corner walls, 9 the diagonal wall. Doors
+    // and gates are placed with one of these.
+    private static final int SHAPE_WALL_FIRST    = 0;
+    private static final int SHAPE_WALL_LAST     = 3;
+    private static final int SHAPE_WALL_DIAGONAL = 9;
+
+    // Cache options that mark the two states of an openable loc. The closed
+    // loc a transition names offers Open; the loc it is swapped for offers Close.
+    private static final String OPTION_OPEN  = "Open";
+    private static final String OPTION_CLOSE = "Close";
 
     // Opportunistic movement abilities, piggy-backed onto walkTo. We only see
     // the click target, never the path, so every rule is judged on the
@@ -960,26 +981,43 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         // tile, which sections do carry. The transition's row tile is often the
         // stand tile or a corner of a multi-tile loc rather than its anchor, so
         // we match against the loc's whole footprint (see resolveLocTile).
-        WwTile locTile = resolveLocTile(objectId, tile);
-        if (locTile == null) {
-            // The baked transition names the CLOSED loc (the world-map door, or
-            // the stairs/ladder object). When that loc is absent from the live
-            // scene at the interact tile the obstacle is no longer there to act
-            // on: an open door is a different loc id, so a door we've already
-            // opened (or that spawned open) simply isn't found. Treat it as
-            // already-traversable and skip the interact — the executor advances
-            // to the next step, whose walk routes straight through the open
-            // doorway. (A plane-change loc can't be "open"; if a stairs loc were
-            // ever missing the following different-plane walk would stall and
-            // trigger a re-plan, which is the correct failure mode, not a clip.)
-            log.info("interact: loc {} absent at ({},{},{}); assuming already open/removed, skipping",
-                    objectId, tile.x(), tile.y(), tile.plane());
+        // The baked transition names the CLOSED loc (the world-map door, or the
+        // stairs/ladder object). When that loc is not at the interact tile the
+        // obstacle is no longer there to act on: an open door is a different
+        // loc id, so a door we've already opened (or that spawned open) simply
+        // isn't found. Every outcome but Found skips the interact, and the
+        // executor advances to the next step, whose walk routes straight
+        // through the open doorway. (A plane-change loc can't be "open"; if a
+        // stairs loc were ever missing the following different-plane walk would
+        // stall and trigger a re-plan, which is the correct failure mode.)
+        Optional<WwTile> resolved = clickableLocTile(objectId, tile);
+        if (resolved.isEmpty()) {
             return 0;
         }
+        WwTile locTile = resolved.get();
         int actionId = ActionTypes.OBJECT_OPTIONS[optionIndex + 1];
         clickSink.accept(locTile);
         api.queueAction(new GameAction(actionId, objectId, locTile.x(), locTile.y()));
         return 1;
+    }
+
+    /** The tile to click for the transition's loc, or empty (logged once) when there is none. */
+    private Optional<WwTile> clickableLocTile(int objectId, WwTile tile) {
+        switch (resolveLocTile(objectId, tile)) {
+            case LocResolution.Found found -> {
+                return Optional.of(found.tile());
+            }
+            case LocResolution.AlreadyOpen open -> log.info("interact: loc {} at row tile"
+                            + " ({},{},{}) is already open (loc {} on the tile offers {});"
+                            + " skipping, nothing clicked",
+                    objectId, tile.x(), tile.y(), tile.plane(), open.openLoc().typeId(),
+                    OPTION_CLOSE);
+            case LocResolution.OutOfReach far -> logOutOfReach(objectId, tile, far.nearest());
+            case LocResolution.Absent absent -> log.info("interact: loc {} absent at ({},{},{});"
+                            + " assuming already open/removed, skipping",
+                    objectId, tile.x(), tile.y(), tile.plane());
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -1142,11 +1180,17 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
      * anything out to {@link #LOC_FALLBACK_REACH} is still accepted, closest footprint first and
      * then closest anchor, so an exact-tile loc beats a neighbour. The returned tile is always the
      * loc's own anchor, which is what the {@code (typeId, worldX, worldY)} action targets.</p>
+     *
+     * <p>Doors are the exception to the fallback reach, because rooms share door ids. A candidate
+     * is door-type when it is placed on a tile edge (a wall shape) or the transition's loc type
+     * offers {@value #OPTION_OPEN}; it must lie within {@link #DOOR_REACH}. And when the closed
+     * loc is no longer on the row tile but its open state is (a loc of the same name offering
+     * {@value #OPTION_CLOSE}), the door has already been opened and nothing is matched at all.</p>
      */
-    private WwTile resolveLocTile(int objectId, WwTile tile) {
+    private LocResolution resolveLocTile(int objectId, WwTile tile) {
         GameSnapshot snap = snapshotSource.get();
         if (snap == null) {
-            return null;
+            return new LocResolution.Absent();
         }
         List<Location> candidates = snap.locations().stream()
                 .filter(loc -> (loc.typeId() == objectId || loc.resolvedId() == objectId)
@@ -1154,34 +1198,98 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                         && !loc.isDeleted())
                 .toList();
         if (candidates.isEmpty()) {
-            return null;
+            return new LocResolution.Absent();
         }
-        LocSize size = locSize(objectId);
-        Optional<LocMatch> best = candidates.stream()
-                .map(loc -> LocMatch.of(loc, size, tile))
-                .filter(match -> match.footprintDistance() <= LOC_FALLBACK_REACH)
-                .min(Comparator.comparingInt(LocMatch::footprintDistance)
-                        .thenComparingInt(LocMatch::anchorDistance));
-        best.ifPresent(match -> logOffsetMatch(objectId, tile, match));
-        return best.map(match -> new WwTile(match.loc().tileX(), match.loc().tileY(),
-                match.loc().plane())).orElse(null);
+        TransitionLoc closed = transitionLoc(objectId);
+        List<LocMatch> matches = candidates.stream()
+                .map(loc -> LocMatch.of(loc, closed, tile))
+                .sorted(Comparator.comparingInt(LocMatch::footprintDistance)
+                        .thenComparingInt(LocMatch::anchorDistance))
+                .toList();
+        LocMatch nearest = matches.getFirst();
+        if (nearest.footprintDistance() > 0) {
+            Optional<Location> open = openStateOnTile(snap, closed, tile);
+            if (open.isPresent()) {
+                return new LocResolution.AlreadyOpen(open.get());
+            }
+        }
+        Optional<LocMatch> best = matches.stream().filter(LocMatch::isWithinReach).findFirst();
+        if (best.isEmpty()) {
+            return new LocResolution.OutOfReach(nearest);
+        }
+        logOffsetMatch(objectId, tile, best.get());
+        Location loc = best.get().loc();
+        return new LocResolution.Found(new WwTile(loc.tileX(), loc.tileY(), loc.plane()));
     }
 
     /**
-     * The cache size of loc type {@code objectId}, or 1x1 when the cache cannot answer (no cache
-     * attached, a failed read, or an unknown id). A 1x1 guess degrades to anchor-tile matching,
-     * which the fallback reach still covers.
+     * The open state of {@code closed} placed on the row tile itself: a loc of another id whose
+     * cache type offers {@value #OPTION_CLOSE} and, when the closed type has a name, shares it.
+     * Empty when the transition is not openable or the cache cannot say.
      */
-    private LocSize locSize(int objectId) {
-        LocationType type;
-        try {
-            type = api.getLocationType(objectId);
-        } catch (RuntimeException e) {
-            log.debug("interact: size of loc {} unreadable ({}); assuming 1x1",
-                    objectId, e.toString());
-            return LocSize.UNKNOWN;
+    private Optional<Location> openStateOnTile(GameSnapshot snap, TransitionLoc closed,
+                                               WwTile tile) {
+        if (!closed.isOpenable()) {
+            return Optional.empty();
         }
-        return type == null ? LocSize.UNKNOWN : new LocSize(type.sizeX(), type.sizeY());
+        return snap.locations().stream()
+                .filter(loc -> loc.tileX() == tile.x() && loc.tileY() == tile.y()
+                        && loc.plane() == tile.plane()
+                        && !loc.isDeleted()
+                        && loc.typeId() != closed.objectId())
+                .filter(loc -> cachedLocType(loc.typeId())
+                        .filter(type -> hasOption(type, OPTION_CLOSE))
+                        .filter(type -> closed.name().isEmpty()
+                                || closed.name().equalsIgnoreCase(type.name()))
+                        .isPresent())
+                .findFirst();
+    }
+
+    /**
+     * What the cache says about the transition's loc type. When it cannot answer (no cache
+     * attached, a failed read, or an unknown id) the loc is taken as 1x1, unnamed and not
+     * openable: a 1x1 guess degrades to anchor-tile matching, which the fallback reach still
+     * covers, and a wall-shaped candidate is still held to {@link #DOOR_REACH}.
+     */
+    private TransitionLoc transitionLoc(int objectId) {
+        return cachedLocType(objectId)
+                .map(type -> new TransitionLoc(objectId, new LocSize(type.sizeX(), type.sizeY()),
+                        Objects.requireNonNullElse(type.name(), ""), hasOption(type, OPTION_OPEN)))
+                .orElseGet(() -> new TransitionLoc(objectId, LocSize.UNKNOWN, "", false));
+    }
+
+    /** Loc type {@code id} from the cache, or empty when the cache cannot answer. */
+    private Optional<LocationType> cachedLocType(int id) {
+        try {
+            return Optional.ofNullable(api.getLocationType(id));
+        } catch (RuntimeException e) {
+            log.debug("interact: loc type {} unreadable ({}); treating it as unknown",
+                    id, e.toString());
+            return Optional.empty();
+        }
+    }
+
+    /** True when {@code type} lists {@code option}, ignoring case. */
+    private static boolean hasOption(LocationType type, String option) {
+        List<String> options = type.options();
+        return options != null && options.stream().anyMatch(option::equalsIgnoreCase);
+    }
+
+    /** True for the placement shapes that put a loc on a tile edge, as doors and gates are. */
+    private static boolean isWallShape(int shape) {
+        return (shape >= SHAPE_WALL_FIRST && shape <= SHAPE_WALL_LAST)
+                || shape == SHAPE_WALL_DIAGONAL;
+    }
+
+    /** Logs the nearest candidate that lay past the reach its kind is allowed. */
+    private static void logOutOfReach(int objectId, WwTile tile, LocMatch nearest) {
+        Location loc = nearest.loc();
+        String kind = nearest.isDoor() ? "door" : "fallback";
+        log.info("interact: loc {} nearest match at ({},{},{}) is {} tile(s) from row tile"
+                        + " ({},{},{}), past the {} reach of {}; rejected as a different loc,"
+                        + " skipping",
+                objectId, loc.tileX(), loc.tileY(), loc.plane(), nearest.footprintDistance(),
+                tile.x(), tile.y(), tile.plane(), kind, nearest.reach());
     }
 
     /** Logs a match whose anchor tile is not the transition's row tile. */
@@ -1298,23 +1406,66 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     }
 
     /**
+     * The loc type a transition names, as far as the cache knows it.
+     *
+     * @param objectId   the transition's loc id
+     * @param size       its cache size, or {@link LocSize#UNKNOWN}
+     * @param name       its cache name, empty when unknown or unnamed
+     * @param isOpenable true when its cache options include {@value #OPTION_OPEN}
+     */
+    private record TransitionLoc(int objectId, LocSize size, String name, boolean isOpenable) {
+    }
+
+    /** What {@link #resolveLocTile} made of a transition's loc. */
+    private sealed interface LocResolution {
+
+        /** A candidate within reach; {@code tile} is its anchor, the tile the action targets. */
+        record Found(WwTile tile) implements LocResolution {
+        }
+
+        /** No closed loc on the row tile, but its open state {@code openLoc} is. */
+        record AlreadyOpen(Location openLoc) implements LocResolution {
+        }
+
+        /** Every candidate lay past its reach; {@code nearest} is the closest of them. */
+        record OutOfReach(LocMatch nearest) implements LocResolution {
+        }
+
+        /** No candidate of the transition's id on the row tile's plane, or no snapshot. */
+        record Absent() implements LocResolution {
+        }
+    }
+
+    /**
      * A candidate loc measured against a transition's row tile.
      *
      * @param loc               the placed loc
      * @param footprint         the tiles it covers at its rotation
      * @param footprintDistance Chebyshev distance from the row tile to the footprint
      * @param anchorDistance    Chebyshev distance from the row tile to the loc's anchor tile
+     * @param isDoor            true when the candidate is held to {@link #DOOR_REACH}
      */
     private record LocMatch(Location loc, LocFootprint footprint, int footprintDistance,
-                            int anchorDistance) {
+                            int anchorDistance, boolean isDoor) {
 
-        /** Measures {@code loc}, of cache size {@code size}, against {@code tile}. */
-        static LocMatch of(Location loc, LocSize size, WwTile tile) {
+        /** Measures {@code loc}, an instance of {@code closed}, against {@code tile}. */
+        static LocMatch of(Location loc, TransitionLoc closed, WwTile tile) {
+            LocSize size = closed.size();
             LocFootprint fp = LocFootprint.of(loc.tileX(), loc.tileY(), size.sizeX(), size.sizeY(),
                     loc.rotation());
             int anchor = Math.max(Math.abs(loc.tileX() - tile.x()),
                     Math.abs(loc.tileY() - tile.y()));
-            return new LocMatch(loc, fp, fp.distanceTo(tile.x(), tile.y()), anchor);
+            boolean isDoor = closed.isOpenable() || isWallShape(loc.shape());
+            return new LocMatch(loc, fp, fp.distanceTo(tile.x(), tile.y()), anchor, isDoor);
+        }
+
+        /** The largest footprint distance this candidate may lie at and still be the loc. */
+        int reach() {
+            return isDoor ? DOOR_REACH : LOC_FALLBACK_REACH;
+        }
+
+        boolean isWithinReach() {
+            return footprintDistance <= reach();
         }
     }
 
