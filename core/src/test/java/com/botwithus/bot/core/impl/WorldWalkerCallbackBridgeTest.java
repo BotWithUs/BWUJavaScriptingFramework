@@ -68,6 +68,15 @@ class WorldWalkerCallbackBridgeTest {
     // Sabbot's cave entrance, a 4x4 loc whose dataset row sits off its anchor.
     private static final int SABBOT_CAVE = 34395;
 
+    // The Moonrise bank's doors: every one is this closed id, swapped for the
+    // open id when opened.
+    private static final int DOOR_CLOSED = 137297;
+    private static final int DOOR_OPEN = 137298;
+
+    // RT4 placement shapes: a straight wall (doors) and a centrepiece.
+    private static final int WALL_SHAPE = 0;
+    private static final int CENTREPIECE_SHAPE = 10;
+
     // RandomGenerator.nextDouble() is built from nextLong(): 0 maps to 0.0 (every
     // chance roll passes), all bits set to just under 1.0 (every roll fails).
     private static final RandomGenerator ALWAYS_FIRE = () -> 0L;
@@ -1244,6 +1253,74 @@ class WorldWalkerCallbackBridgeTest {
 
         assertEquals(1, issued);
         assertQueuedAt(1234, 3221, 3219);
+    }
+
+    @Test
+    void interactClicksAClosedDoorOnTheRowTile() {
+        stubMoonriseDoorTypes();
+        Location closed = new Location(DOOR_CLOSED, -1, -1, 3727, 1576, 0, WALL_SHAPE, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(closed));
+
+        int issued = bridge.interact(DOOR_CLOSED, new WwTile(3727, 1576, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(DOOR_CLOSED, 3727, 1576);
+    }
+
+    @Test
+    void interactSkipsAnOpenedDoorRatherThanClickingTheNextRoomsDoor() {
+        // Two rooms share one closed-door id. The row's door has been opened (its
+        // open state now sits on the row tile); the other room's door, still
+        // closed, is four tiles off and inside the old fallback reach.
+        stubMoonriseDoorTypes();
+        Location opened = new Location(DOOR_OPEN, -1, -1, 3727, 1576, 0, WALL_SHAPE, 1, 0);
+        Location nextRoom = new Location(DOOR_CLOSED, -1, -1, 3728, 1580, 0, WALL_SHAPE, 0, 0);
+        when(locationsTable.stream()).thenAnswer(inv -> Stream.of(nextRoom, opened));
+
+        int issued = bridge.interact(DOOR_CLOSED, new WwTile(3727, 1576, 0), 0);
+
+        assertEquals(0, issued, "an already-open door is done, not re-clicked elsewhere");
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void interactHoldsAWallShapedLocToDoorReachWithoutTheCache() {
+        // No cache to name the open state: the wall shape alone keeps a same-id
+        // door two tiles away from being taken for the row's door.
+        Location nextRoom = new Location(DOOR_CLOSED, -1, -1, 3727, 1578, 0, WALL_SHAPE, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(nextRoom));
+
+        int issued = bridge.interact(DOOR_CLOSED, new WwTile(3727, 1576, 0), 0);
+
+        assertEquals(0, issued);
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void interactStillResolvesAnOffsetNonDoorLocWithinFallbackReach() {
+        // A centrepiece the dataset row names from three tiles off: not a door,
+        // so the fallback reach of four still applies with the cache attached.
+        when(api.getLocationType(1234)).thenReturn(
+                locType(1234, "Cave entrance", List.of("Enter")));
+        Location cave = new Location(1234, -1, -1, 3224, 3219, 0, CENTREPIECE_SHAPE, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(cave));
+
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(1234, 3224, 3219);
+    }
+
+    private void stubMoonriseDoorTypes() {
+        when(api.getLocationType(DOOR_CLOSED)).thenReturn(
+                locType(DOOR_CLOSED, "Door", List.of("Open")));
+        when(api.getLocationType(DOOR_OPEN)).thenReturn(
+                locType(DOOR_OPEN, "Door", List.of("Close")));
+    }
+
+    private static LocationType locType(int id, String name, List<String> options) {
+        return new LocationType(id, name, 1, 1, 0, 0, false, options, -1, -1,
+                List.of(), 0, Map.of());
     }
 
     private void assertQueuedAt(int objectId, int x, int y) {
