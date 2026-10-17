@@ -18,6 +18,7 @@ import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
+import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -38,6 +39,7 @@ import com.botwithus.bot.core.worldwalker.WwTile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -78,6 +80,12 @@ class WorldWalkerCallbackBridgeTest {
 
     private static final long ONE_TICK_MS = 600L;
     private static final int  SOME_ANIMATION = 8939;
+
+    // Handle the fake producer hands out for the target-mode cancel script,
+    // the producer's "not acquired" handle, and the script's idle answer.
+    private static final long CANCEL_HANDLE = 4242L;
+    private static final long NO_SCRIPT_HANDLE = 0L;
+    private static final int  TARGETMODE_WAS_IDLE = 0;
 
     // Test clock start; any positive epoch-ms value works.
     private static final long START_MS = 1_000_000L;
@@ -821,6 +829,106 @@ class WorldWalkerCallbackBridgeTest {
 
         List<GameAction> actions = queuedActions(2);
         assertEquals(ActionTypes.SELECT_COMPONENT, actions.get(1).actionId());
+    }
+
+    @Test
+    void diveCancelsATargetModeItsTileUseLeftActive() {
+        AtomicBoolean targetMode = fakeTargetMode(false);
+        stubDiveFromIdle();
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        assertFalse(targetMode.get(), "the leftover targeting cursor is cancelled");
+        List<GameAction> actions = queuedActions(4);
+        assertEquals(ActionTypes.SELECT_TILE, actions.get(2).actionId());
+        assertEquals(ActionTypes.WALK, actions.get(3).actionId());
+        InOrder order = inOrder(api);
+        order.verify(api).queueAction(argThat(a -> a.actionId() == ActionTypes.SELECT_TILE));
+        order.verify(api).executeScript(eq(CANCEL_HANDLE), isNull(), isNull(), any());
+        order.verify(api).queueAction(argThat(a -> a.actionId() == ActionTypes.WALK));
+        verify(api).destroyScriptHandle(CANCEL_HANDLE);
+    }
+
+    @Test
+    void diveSendsNothingMoreWhenItsTileUseConsumedTargetMode() {
+        AtomicBoolean targetMode = fakeTargetMode(true);
+        stubDiveFromIdle();
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        assertFalse(targetMode.get());
+        // Walk, select, tile use, re-queued walk: no extra action. The
+        // guard script ran once and found nothing to cancel.
+        queuedActions(4);
+        verify(api, times(1)).executeScript(eq(CANCEL_HANDLE), isNull(), isNull(), any());
+        verify(api).destroyScriptHandle(CANCEL_HANDLE);
+    }
+
+    @Test
+    void diveCancelledBetweenSelectAndTileUseStillClearsTargetMode() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS,
+                new WorldWalkerCallbackBridge.Pacing(ALWAYS_FIRE, clock::get,
+                        ms -> cancel.set(true)));
+        AtomicBoolean targetMode = fakeTargetMode(true);
+        stubDiveFromIdle();
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        assertFalse(targetMode.get(), "the select's cursor is cancelled even on a cancelled run");
+        queuedActions(2);
+    }
+
+    @Test
+    void surgeNeverRunsTheTargetModeCancel() {
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3012, 3000, 0));
+
+        verify(api, never()).getScriptHandle(anyInt());
+    }
+
+    @Test
+    void diveCarriesOnWhenTheCancelScriptCannotBeAcquired() {
+        stubDiveFromIdle();
+        when(api.getScriptHandle(WorldWalkerCallbackBridge.SCRIPT_TARGETMODE_CANCEL))
+                .thenReturn(NO_SCRIPT_HANDLE);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        queuedActions(4);
+        verify(api, never()).executeScript(anyLong(), any(), any(), any());
+        verify(api, never()).destroyScriptHandle(anyLong());
+    }
+
+    private void stubDiveFromIdle() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+    }
+
+    // A client-side target mode: the slot select opens it, the tile use closes
+    // it only when isConsumedByTileUse, and the guard script 9666 cancels it,
+    // answering 1 when it was active and 0 when it was not.
+    private AtomicBoolean fakeTargetMode(boolean isConsumedByTileUse) {
+        AtomicBoolean active = new AtomicBoolean(false);
+        doAnswer(inv -> {
+            GameAction action = inv.getArgument(0);
+            if (action.actionId() == ActionTypes.SELECT_COMPONENT) {
+                active.set(true);
+            } else if (action.actionId() == ActionTypes.SELECT_TILE && isConsumedByTileUse) {
+                active.set(false);
+            }
+            return null;
+        }).when(api).queueAction(any(GameAction.class));
+        when(api.getScriptHandle(WorldWalkerCallbackBridge.SCRIPT_TARGETMODE_CANCEL))
+                .thenReturn(CANCEL_HANDLE);
+        when(api.executeScript(eq(CANCEL_HANDLE), isNull(), isNull(), any()))
+                .thenAnswer(inv -> new ScriptResult(List.of(
+                        active.getAndSet(false) ? WorldWalkerCallbackBridge.TARGETMODE_WAS_ACTIVE
+                                                : TARGETMODE_WAS_IDLE)));
+        return active;
     }
 
     @Test
