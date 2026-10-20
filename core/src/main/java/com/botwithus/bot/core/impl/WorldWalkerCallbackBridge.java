@@ -9,6 +9,7 @@ import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
+import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.VarpRead;
@@ -152,6 +153,15 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final int  SELECT_COMPONENT_PARAM = 0;
     private static final int  SELECT_SETTLE_TICKS = 1;
     private static final int  SELECT_TILE_PARAM = 0;
+    // Client script that cancels a leftover target mode: it runs
+    // TARGETMODE_CANCEL and returns 1 when target mode is active, and returns
+    // 0 and touches nothing when it is not. It is the same guard the client
+    // runs in front of an interface close (see clearLeftoverTargetMode).
+    static final int          SCRIPT_TARGETMODE_CANCEL = 9666;
+    static final int          TARGETMODE_WAS_ACTIVE = 1;
+    private static final String SCRIPT_INT_RETURN = "int";
+    // Handle the producer answers when it cannot acquire a script.
+    private static final long NO_SCRIPT_HANDLE = 0L;
     // Ticks to wait after an ability before re-queueing the walk it cancelled.
     private static final int  RESUME_WALK_MIN_TICKS = 1;
     private static final int  RESUME_WALK_MAX_TICKS = 2;
@@ -640,7 +650,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                 return;
             }
             fireAbility(slot, bar.get(), target, now);
-            resumeWalkAfterAbility(target);
+            resumeWalkAfterAbility(target, slot.family());
             return;
         }
     }
@@ -649,9 +659,13 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     // then stands still until the executor's stall re-click, seconds later.
     // Wait a random 1-2 ticks for the ability to go off, then re-queue the
     // same walk so movement carries on. Sleeping through sleepTicks keeps it
-    // cancellable; a run cancelled meanwhile queues nothing more.
-    private void resumeWalkAfterAbility(WwTile target) {
+    // cancellable; a run cancelled meanwhile queues nothing more, but a
+    // tile-targeted ability still gets its target mode cleaned up first.
+    private void resumeWalkAfterAbility(WwTile target, AbilityFamily family) {
         sleepTicks(rng.nextInt(RESUME_WALK_MIN_TICKS, RESUME_WALK_MAX_TICKS + 1));
+        if (family.isTileTargeted()) {
+            clearLeftoverTargetMode(family);
+        }
         if (cancel.get()) {
             return;
         }
@@ -662,6 +676,53 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
 
     private void queueWalk(WwTile target) {
         api.queueAction(new GameAction(ActionTypes.WALK, 1, target.x(), target.y()));
+    }
+
+    // A tile-targeted ability's tile use normally consumes the target mode its
+    // select opened, but not always: a select that missed or was refused, or
+    // a run cancelled between select and use, leaves the targeting cursor up.
+    // The client then spends the next interface click on cancelling it, so
+    // e.g. the first bank close only clears the cursor and the bank stays open.
+    // Neither the snapshot nor any RPC exposes target mode, so this runs the
+    // client's own guard script, which cancels target mode only when it is
+    // active and reports whether it was. Check and cancel happen in one client
+    // call, so a consumed target mode is never touched. It runs a pause of at
+    // least one tick after the tile use was queued, the same settle the select
+    // gets before the tile use, so the use has been dispatched by then.
+    // Best effort: a failed call only costs the one eaten click.
+    private void clearLeftoverTargetMode(AbilityFamily family) {
+        long handle;
+        try {
+            handle = api.getScriptHandle(SCRIPT_TARGETMODE_CANCEL);
+        } catch (RuntimeException e) {
+            log.debug("ww target-mode cancel script unavailable: {}", e.toString());
+            return;
+        }
+        if (handle == NO_SCRIPT_HANDLE) {
+            log.debug("ww target-mode cancel script {} not acquired", SCRIPT_TARGETMODE_CANCEL);
+            return;
+        }
+        try {
+            ScriptResult result = api.executeScript(handle, null, null,
+                    new String[] {SCRIPT_INT_RETURN});
+            if (result != null && MapHelper.toIntList(result.returns())
+                    .equals(List.of(TARGETMODE_WAS_ACTIVE))) {
+                log.info("ww {} left target mode active after its tile use; cancelled it",
+                        family.name());
+            }
+        } catch (RuntimeException e) {
+            log.debug("ww target-mode cancel failed: {}", e.toString());
+        } finally {
+            releaseScriptHandle(handle);
+        }
+    }
+
+    private void releaseScriptHandle(long handle) {
+        try {
+            api.destroyScriptHandle(handle);
+        } catch (RuntimeException e) {
+            log.debug("ww script handle {} not released: {}", handle, e.toString());
+        }
     }
 
     // Surge moves 10 tiles and Dive moves the avatar off the walk the
