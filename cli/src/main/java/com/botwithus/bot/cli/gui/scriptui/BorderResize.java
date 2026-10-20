@@ -39,6 +39,8 @@ import java.util.Optional;
 public final class BorderResize {
 
     private static final String NONE = "";
+    /** The window or one of its children has the mouse, whatever item is active. */
+    private static final int HOVERED = ImGuiHoveredFlags.ChildWindows | ImGuiHoveredFlags.AllowWhenBlockedByActiveItem;
 
     /** The window being resized, by its ImGui name, or {@link #NONE}. */
     private String resized = NONE;
@@ -101,10 +103,17 @@ public final class BorderResize {
         return resized.equals(name);
     }
 
-    /** The edge the mouse is over in the current window's band, if it is free to start a resize there. */
+    /**
+     * The edge the mouse is over in the current window's band, if it is free to
+     * start a resize there. The window counts as hovered even while an item is
+     * active: once the script's UI has keyboard focus, {@link HostFocus} keeps
+     * the panel's own input item active every frame, which would otherwise hide
+     * the band for good after the first press in the window. An item held by a
+     * mouse button is still respected, through the held-button check.
+     */
     private static Optional<ResizeEdge> edgeUnderMouse(BorderHitTest border) {
         boolean isHeldElsewhere = isAnyButtonDown() && !ImGui.isMouseClicked(ImGuiMouseButton.Left);
-        if (isHeldElsewhere || !ImGui.isMousePosValid() || !ImGui.isWindowHovered(ImGuiHoveredFlags.ChildWindows)) {
+        if (isHeldElsewhere || !ImGui.isMousePosValid() || !ImGui.isWindowHovered(HOVERED)) {
             return Optional.empty();
         }
         return border.edgeAt(ImGui.getMousePosX() - ImGui.getWindowPosX(), ImGui.getMousePosY() - ImGui.getWindowPosY(),

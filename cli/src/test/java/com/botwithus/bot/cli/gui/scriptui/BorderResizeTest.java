@@ -192,6 +192,66 @@ class BorderResizeTest {
         assertBounds(WINDOW_X, WINDOW_Y, MIN_W, MIN_H);
     }
 
+    @Test
+    void aSecondResize_afterTheMouseLeftAndCameBack_resizesAgain() {
+        float right = WINDOW_X + WINDOW_W - INSIDE;
+        resizeRightEdge(right);
+        hoverAt(CENTRE_X, CENTRE_Y);
+
+        resizeRightEdge(right + MOVE_X);
+
+        assertBounds(WINDOW_X, WINDOW_Y, WINDOW_W + 2 * MOVE_X, WINDOW_H);
+    }
+
+    @Test
+    void aResize_thenABackgroundDrag_bothWork() {
+        resizeRightEdge(WINDOW_X + WINDOW_W - INSIDE);
+
+        hoverAt(EMPTY_X, EMPTY_Y);
+        press();
+        assertTrue(drag.isDragging(WINDOW));
+        mouse(EMPTY_X + MOVE_X, EMPTY_Y + MOVE_Y, true);
+        frame();
+        frame();
+        release();
+
+        assertBounds(WINDOW_X + MOVE_X, WINDOW_Y + MOVE_Y, WINDOW_W + MOVE_X, WINDOW_H);
+    }
+
+    @Test
+    void aBackgroundDrag_thenAResize_bothWork() {
+        hoverAt(EMPTY_X, EMPTY_Y);
+        press();
+        mouse(EMPTY_X + MOVE_X, EMPTY_Y + MOVE_Y, true);
+        frame();
+        frame();
+        release();
+
+        float right = WINDOW_X + MOVE_X + WINDOW_W - INSIDE;
+        hoverAt(right, CENTRE_Y + MOVE_Y);
+        press();
+        assertTrue(resize.isResizing(WINDOW));
+        mouse(right + MOVE_X, CENTRE_Y + MOVE_Y, true);
+        frame();
+        frame();
+        release();
+
+        assertBounds(WINDOW_X + MOVE_X, WINDOW_Y + MOVE_Y, WINDOW_W + MOVE_X, WINDOW_H);
+    }
+
+    /** Grabs the right edge at {@code x} on the centre line and drags it {@link #MOVE_X} to the right. */
+    private void resizeRightEdge(float x) {
+        hoverAt(x, CENTRE_Y);
+        assertEquals(ImGuiMouseCursor.ResizeEW, cursor, "hovering the right edge shows the resize cursor");
+        press();
+        assertTrue(resize.isResizing(WINDOW));
+        mouse(x + MOVE_X, CENTRE_Y, true);
+        frame();
+        frame();
+        release();
+        assertFalse(resize.isResizing(WINDOW));
+    }
+
     /** A UI that is one button over the whole panel, counting the presses that reach it. */
     private ScriptUI panelWideButton() {
         return () -> {
