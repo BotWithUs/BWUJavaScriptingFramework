@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli.gui.scriptui;
 
 import com.botwithus.bot.api.ui.ScriptUI;
+import com.botwithus.bot.api.ui.ScriptUiHost;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -14,8 +15,9 @@ import java.util.Objects;
  * @param ui        what the script's {@code getUI()} returned
  * @param startedAt when the script's current run started, or {@link #NEVER_STARTED}.
  *                  A change means the script was restarted, which clears its failures.
+ * @param host      what {@code ui} is attached to before each frame, inside the sandbox
  */
-public record ScriptUiSlot(String owner, String label, ScriptUI ui, Instant startedAt) {
+public record ScriptUiSlot(String owner, String label, ScriptUI ui, Instant startedAt, ScriptUiHost host) {
 
     /** {@code startedAt} for a script that has not been started. */
     public static final Instant NEVER_STARTED = Instant.EPOCH;
@@ -24,6 +26,12 @@ public record ScriptUiSlot(String owner, String label, ScriptUI ui, Instant star
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(label, "label");
         Objects.requireNonNull(ui, "ui");
+        Objects.requireNonNull(host, "host");
         startedAt = startedAt == null ? NEVER_STARTED : startedAt;
+    }
+
+    /** A UI drawn in the drawer, attached to {@link ScriptUiHandle#DOCKED}. */
+    public ScriptUiSlot(String owner, String label, ScriptUI ui, Instant startedAt) {
+        this(owner, label, ui, startedAt, ScriptUiHandle.DOCKED);
     }
 }

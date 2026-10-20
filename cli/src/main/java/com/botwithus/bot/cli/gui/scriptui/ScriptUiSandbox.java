@@ -1,15 +1,21 @@
 package com.botwithus.bot.cli.gui.scriptui;
 
 import com.botwithus.bot.api.ui.ScriptUI;
+import com.botwithus.bot.api.ui.ScriptUiHost;
 
 import imgui.ImFontAtlas;
 import imgui.ImGui;
 import imgui.ImGuiIO;
 import imgui.flag.ImGuiBackendFlags;
 import imgui.flag.ImGuiConfigFlags;
+import imgui.flag.ImGuiHoveredFlags;
+import imgui.flag.ImGuiMouseButton;
 import imgui.flag.ImGuiStyleVar;
 import imgui.flag.ImGuiWindowFlags;
 import imgui.internal.ImGuiContext;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * One script UI's own Dear ImGui context, rendered on its own thread. The
@@ -29,6 +35,8 @@ import imgui.internal.ImGuiContext;
  * except {@link #frame}, which runs on the worker.</p>
  */
 final class ScriptUiSandbox {
+
+    private static final Logger log = LoggerFactory.getLogger(ScriptUiSandbox.class);
 
     private static final String ROOT_WINDOW = "##script-ui-root";
     /**
@@ -63,23 +71,24 @@ final class ScriptUiSandbox {
     }
 
     /**
-     * Draws one frame of {@code ui} on the worker. The host's context is current
-     * again on return. {@code ui} may be a different object every frame (a script
-     * may build a new one per {@code getUI()} call); the context, and with it the
+     * Draws one frame of {@code ui} on the worker, attached to {@code host} first.
+     * The host's context is current again on return. {@code ui} may be a
+     * different object every frame (a script may build a new one per
+     * {@code getUI()} call); the context, and with it the
      * UI's own state such as an open combo or a scroll position, belongs to the
      * script, not to the object.
      */
-    FrameOutcome render(ScriptUI ui, FrameInput input) {
-        ImGuiContext host = ImGui.getCurrentContext();
+    FrameOutcome render(ScriptUI ui, ScriptUiHost host, FrameInput input) {
+        ImGuiContext hostContext = ImGui.getCurrentContext();
         if (context == null) {
             context = ImGui.createContext(atlas);
-            ImGui.setCurrentContext(host);
+            ImGui.setCurrentContext(hostContext);
         }
         ImGuiContext sandbox = context;
         boolean needsConfigure = !isConfigured;
         isConfigured = true;
-        FrameOutcome outcome = worker.run(() -> frame(sandbox, needsConfigure, ui, input));
-        ImGui.setCurrentContext(host);
+        FrameOutcome outcome = worker.run(() -> frame(sandbox, needsConfigure, ui, host, input));
+        ImGui.setCurrentContext(hostContext);
         switch (outcome) {
             case FrameOutcome.Asserted ignored -> abandon();
             case FrameOutcome.Threw ignored -> destroyContext();
@@ -110,9 +119,13 @@ final class ScriptUiSandbox {
         }
     }
 
-    /** On the worker. Any Dear ImGui assertion in here parks this thread for good. */
+    /**
+     * On the worker. Any Dear ImGui assertion in here parks this thread for good.
+     * Every call into the script ({@code attach}, {@code render},
+     * {@code drawsOwnChrome}) happens here, with the sandbox's context current.
+     */
     private static FrameOutcome frame(ImGuiContext sandbox, boolean needsConfigure, ScriptUI ui,
-                                      FrameInput input) {
+                                      ScriptUiHost host, FrameInput input) {
         ImGui.setCurrentContext(sandbox);
         ImGuiIO io = ImGui.getIO();
         if (needsConfigure) {
@@ -123,14 +136,39 @@ final class ScriptUiSandbox {
         ImGui.newFrame();
         beginRoot(input);
         try {
+            ui.attach(host);
             ui.render();
         } catch (RuntimeException e) {
             return new FrameOutcome.Threw(e);
         }
+        boolean isBackgroundPress = isBackgroundPress();
+        boolean drawsOwnChrome = askDrawsOwnChrome(ui);
         ImGui.end();
         ImGui.render();
         return new FrameOutcome.Drawn(DrawCopy.capture(ImGui.getDrawData()), ImGui.getMouseCursor(),
-                io.getWantTextInput() || io.getWantCaptureKeyboard());
+                io.getWantTextInput() || io.getWantCaptureKeyboard(), isBackgroundPress, drawsOwnChrome);
+    }
+
+    /**
+     * After {@code render()}, with the root window current: the left button went
+     * down this frame over the root or one of its child windows, on no item. A
+     * press on a widget, a scrollbar or a popup (popups are windows of their own)
+     * is the script's, so it never counts. This is the press Dear ImGui itself
+     * would take to move a window.
+     */
+    private static boolean isBackgroundPress() {
+        return ImGui.isMouseClicked(ImGuiMouseButton.Left) && !ImGui.isAnyItemHovered()
+                && ImGui.isWindowHovered(ImGuiHoveredFlags.ChildWindows);
+    }
+
+    /** The script's answer, mid-frame so any Dear ImGui call in it lands here; false if it throws. */
+    private static boolean askDrawsOwnChrome(ScriptUI ui) {
+        try {
+            return ui.drawsOwnChrome();
+        } catch (RuntimeException e) {
+            log.debug("drawsOwnChrome() threw: {}", e.toString());
+            return false;
+        }
     }
 
     /**

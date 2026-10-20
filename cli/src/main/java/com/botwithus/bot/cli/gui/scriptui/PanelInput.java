@@ -39,9 +39,22 @@ record PanelInput(float originX, float originY, int itemId, boolean isOver, bool
     /** This frame's input for the sandbox, sized {@code width} x {@code height}. */
     FrameInput frame(float width, float height, TypedChars typed, StyleSnapshot style) {
         ImGuiIO io = ImGui.getIO();
+        return input(io, width, height, pointer(io), keyboard(io, typed), style);
+    }
+
+    /**
+     * Input for a sandboxed frame that no panel shows: the host's clock, font
+     * and style, but no pointer and no keyboard, so nothing typed is consumed.
+     */
+    static FrameInput unseen(float width, float height, StyleSnapshot style) {
+        return input(ImGui.getIO(), width, height, FrameInput.Pointer.AWAY, FrameInput.Keyboard.NONE, style);
+    }
+
+    private static FrameInput input(ImGuiIO io, float width, float height, FrameInput.Pointer pointer,
+                                    FrameInput.Keyboard keyboard, StyleSnapshot style) {
         style.readFrom(ImGui.getStyle());
         return new FrameInput(width, height, Math.max(io.getDeltaTime(), MIN_DELTA_TIME), ImGui.getFont().ptr,
-                io.getFontGlobalScale(), pointer(io), keyboard(io, typed), style);
+                io.getFontGlobalScale(), pointer, keyboard, style);
     }
 
     private FrameInput.Pointer pointer(ImGuiIO io) {

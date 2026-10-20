@@ -29,9 +29,9 @@ class ScriptUiSandboxTest {
             };
             ScriptUI draws = () -> ImGui.text("fine");
             host.frame(() -> {
-                FrameOutcome crashed = sandbox.render(crashes, input());
+                FrameOutcome crashed = sandbox.render(crashes, ScriptUiHandle.DOCKED, input());
                 assertSame(thrown, assertInstanceOf(FrameOutcome.Crashed.class, crashed).error());
-                assertInstanceOf(FrameOutcome.Drawn.class, sandbox.render(draws, input()));
+                assertInstanceOf(FrameOutcome.Drawn.class, sandbox.render(draws, ScriptUiHandle.DOCKED, input()));
             });
             assertFalse(sandbox.isAbandoned());
             sandbox.dispose();

@@ -18,7 +18,7 @@ import java.util.Locale;
  *       inside the drawer's child, exactly as master's
  *       {@code ConfigInspector.drawScriptUi} did, with imgui-java's own
  *       assertion handler. A fatal breaker exits 1 from inside imgui-java.</li>
- *   <li>{@code guarded} draws it through {@link ScriptUiHost}, next to a second,
+ *   <li>{@code guarded} draws it through {@link ScriptUiRenderer}, next to a second,
  *       well-behaved script UI in a panel of its own.</li>
  * </ul>
  *
@@ -63,8 +63,8 @@ public final class BreakerMain {
             if (INI_VIA_IO.equals(args[1])) {
                 ImGui.getIO().setIniFilename(Path.of("build", "ini-via-io-never-written.ini").toString());
             }
-            ScriptUiHost scriptUis = isGuarded
-                    ? new ScriptUiHost(AssertRouter.install(), new TypedChars(), () -> ImGui.button("Reload UI"))
+            ScriptUiRenderer scriptUis = isGuarded
+                    ? new ScriptUiRenderer(AssertRouter.install(), new TypedChars(), () -> ImGui.button("Reload UI"))
                     : null;
             for (int frame = 0; frame < FRAMES; frame++) {
                 host.frame(() -> drawPanels(breaker.ui(), good, scriptUis));
@@ -82,14 +82,14 @@ public final class BreakerMain {
         out.flush();
     }
 
-    private static void drawPanels(ScriptUI broken, ScriptUI good, ScriptUiHost scriptUis) {
+    private static void drawPanels(ScriptUI broken, ScriptUI good, ScriptUiRenderer scriptUis) {
         HeadlessHost.panel("##script-ui", PANEL_X, PANEL_Y, PANEL_W, PANEL_H, () -> draw(broken, BROKEN_OWNER,
                 scriptUis));
         HeadlessHost.panel("##script-ui-good", PANEL_X, PANEL_Y + PANEL_H + GAP, PANEL_W, PANEL_H,
                 () -> draw(good, GOOD_OWNER, scriptUis));
     }
 
-    private static void draw(ScriptUI ui, String owner, ScriptUiHost scriptUis) {
+    private static void draw(ScriptUI ui, String owner, ScriptUiRenderer scriptUis) {
         if (scriptUis != null) {
             scriptUis.draw(new ScriptUiSlot(owner, owner, ui, Instant.EPOCH));
             return;
@@ -101,7 +101,7 @@ public final class BreakerMain {
         }
     }
 
-    private static void report(PrintStream out, ScriptUiHost scriptUis) {
+    private static void report(PrintStream out, ScriptUiRenderer scriptUis) {
         SlotState broken = scriptUis.state(BROKEN_OWNER).orElseThrow();
         out.println("RESULT stopped=" + broken.isStopped());
         out.println("RESULT failures=" + broken.failures());

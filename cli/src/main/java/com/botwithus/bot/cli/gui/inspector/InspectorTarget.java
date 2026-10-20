@@ -3,8 +3,10 @@ package com.botwithus.bot.cli.gui.inspector;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.ui.ScriptUI;
+import com.botwithus.bot.api.ui.ScriptUiHost;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiHandle;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiSlot;
 import com.botwithus.bot.cli.gui.usermode.board.ScriptInfo;
 
@@ -83,10 +85,15 @@ public record InspectorTarget(
      * count as a different UI. Only call when {@link #hasCustomUi()}.
      */
     public ScriptUiSlot scriptUiSlot() {
+        return scriptUiSlot(ScriptUiHandle.DOCKED);
+    }
+
+    /** {@link #scriptUiSlot()}, attached to {@code host} instead of the drawer's handle. */
+    public ScriptUiSlot scriptUiSlot(ScriptUiHost host) {
         String owner = switch (subject) {
             case ClientScript s -> "client/" + s.clientId() + "/" + s.scriptName();
             case ManagementScript s -> "management/" + s.scriptName();
         };
-        return new ScriptUiSlot(owner, script.name(), customUi, startedAt);
+        return new ScriptUiSlot(owner, script.name(), customUi, startedAt, host);
     }
 }

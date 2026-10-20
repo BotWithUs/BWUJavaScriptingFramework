@@ -72,7 +72,7 @@ import com.botwithus.bot.cli.output.AnsiCodes;
 import com.botwithus.bot.cli.gui.report.ReportDialog;
 import com.botwithus.bot.cli.gui.report.ReportFlow;
 import com.botwithus.bot.cli.gui.scriptui.AssertRouter;
-import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
 import com.botwithus.bot.cli.gui.scriptui.TypedChars;
 import com.botwithus.bot.cli.report.ScriptReports;
 import com.botwithus.bot.cli.sdn.FavouritesStore;
@@ -196,7 +196,7 @@ public class ImGuiApp extends Application {
     private InspectorDock inspector;
     /** Typed characters for the script UIs' sandboxes, which never see the host's text input. */
     private final TypedChars scriptUiChars = new TypedChars();
-    private ScriptUiHost scriptUis;
+    private ScriptUiRenderer scriptUis;
     private HostIni hostIni;
 
     // Toasts (top-right), fed from the host event bus, and what their buttons do
@@ -242,7 +242,7 @@ public class ImGuiApp extends Application {
         ui = new Controls(FontLoader.loadAll(dpiScale, DEFAULT_FONT_PX),
                 Motion.following(settings, Motion.FrameClock.imGui()));
         setupTheme();
-        scriptUis = ScriptUiHost.withControls(assertRouter, scriptUiChars, ui);
+        scriptUis = ScriptUiRenderer.withControls(assertRouter, scriptUiChars, ui);
 
         textureManager = new TextureManager();
         outputBuffer = new AnsiOutputBuffer();
