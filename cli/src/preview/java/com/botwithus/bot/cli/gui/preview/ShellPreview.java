@@ -46,7 +46,7 @@ import com.botwithus.bot.cli.gui.pages.management.ManagementPage;
 import com.botwithus.bot.cli.gui.pages.management.ManagementPreviewSeams;
 import com.botwithus.bot.cli.gui.preview.FixtureDashboardModel.Fleet;
 import com.botwithus.bot.cli.gui.scriptui.AssertRouter;
-import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
 import com.botwithus.bot.cli.gui.scriptui.TypedChars;
 import com.botwithus.bot.cli.gui.notify.NotificationOverlay;
 import com.botwithus.bot.cli.gui.notify.ToastFeed;
@@ -220,7 +220,7 @@ public final class ShellPreview extends Application {
     private int scenarioIndex;
     private int frame;
     private Controls ui;
-    private ScriptUiHost scriptUis;
+    private ScriptUiRenderer scriptUis;
     private Stage stage;
     private Shell shell;
     private ReportDialog reportDialog;
@@ -285,7 +285,7 @@ public final class ShellPreview extends Application {
         ImGui.getIO().setIniFilename(null);
         ImGui.getIO().addConfigFlags(ImGuiConfigFlags.NavEnableKeyboard);
         ui = new Controls(FontLoader.loadAll(SCALE, DEFAULT_FONT_PX), Motion.full(Motion.FrameClock.imGui()));
-        scriptUis = ScriptUiHost.withControls(AssertRouter.install(), new TypedChars(), ui);
+        scriptUis = ScriptUiRenderer.withControls(AssertRouter.install(), new TypedChars(), ui);
         ImGuiTheme.apply(SCALE);
         fbo = createFramebuffer();
         toastSettings = HostSettings.open(outDir.resolve("toast-settings"));

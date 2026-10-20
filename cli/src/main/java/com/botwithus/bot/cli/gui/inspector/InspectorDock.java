@@ -3,7 +3,7 @@ package com.botwithus.bot.cli.gui.inspector;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.nav.PageId;
-import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
 
 import imgui.ImDrawList;
 import imgui.ImGui;
@@ -37,7 +37,7 @@ public final class InspectorDock {
     private final InspectorSource source;
     private final ConfigInspector inspector;
     private final ScriptUiWindows windows;
-    private final ScriptUiHost scriptUis;
+    private final ScriptUiRenderer scriptUis;
     private float progress;
     private InspectorTarget lastTarget;
     /** The width the user dragged the drawer to, or {@code 0} until they do. */
@@ -47,7 +47,7 @@ public final class InspectorDock {
      * @param scriptUis draws the scripts' own UIs, in the drawer and popped out,
      *                  each in a sandbox a broken UI cannot take the host down from
      */
-    public InspectorDock(Controls ui, InspectorState state, InspectorSource source, ScriptUiHost scriptUis) {
+    public InspectorDock(Controls ui, InspectorState state, InspectorSource source, ScriptUiRenderer scriptUis) {
         this.ui = ui;
         this.state = state;
         this.source = source;

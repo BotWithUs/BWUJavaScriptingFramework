@@ -10,7 +10,7 @@ import java.util.function.Supplier;
  * script's current run. UI thread only.
  *
  * <p>Failures are counted per run, not per sandbox, because every failure
- * leaks a parked thread and a context: after {@link ScriptUiHost#MAX_FAILURES}
+ * leaks a parked thread and a context: after {@link ScriptUiRenderer#MAX_FAILURES}
  * the host stops offering a reload until the script is restarted, which is
  * what bounds the leak.</p>
  */
@@ -23,6 +23,8 @@ final class SlotState {
     private ImGuiAssertion lastFailure;
     private boolean isStopped;
     private boolean wantsKeyboard;
+    private boolean hasChromeAnswer;
+    private boolean drawsOwnChrome;
     private int lastFrame;
     private int generation;
 
@@ -94,6 +96,21 @@ final class SlotState {
 
     void wantsKeyboard(boolean wants) {
         wantsKeyboard = wants;
+    }
+
+    /** True once the UI has answered {@code drawsOwnChrome()} in a sandboxed frame. */
+    boolean hasChromeAnswer() {
+        return hasChromeAnswer;
+    }
+
+    /** The UI's latest {@code drawsOwnChrome()} answer; false before it has given one. */
+    boolean drawsOwnChrome() {
+        return drawsOwnChrome;
+    }
+
+    void drawsOwnChrome(boolean draws) {
+        hasChromeAnswer = true;
+        drawsOwnChrome = draws;
     }
 
     /** True when the slot was not drawn in the last {@code frames} frames before {@code frame}. */

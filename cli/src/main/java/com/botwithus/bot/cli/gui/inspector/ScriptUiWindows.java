@@ -3,15 +3,22 @@ package com.botwithus.bot.cli.gui.inspector;
 import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
-import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
+import com.botwithus.bot.cli.gui.scriptui.BackgroundDrag;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiHandle;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiSlot;
 
 import imgui.ImGui;
 import imgui.ImGuiViewport;
 import imgui.ImGuiWindowClass;
+import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiCond;
+import imgui.flag.ImGuiStyleVar;
 import imgui.flag.ImGuiViewportFlags;
 import imgui.flag.ImGuiWindowFlags;
 import imgui.type.ImBoolean;
+
+import org.lwjgl.glfw.GLFW;
 
 /**
  * The scripts' own UIs that are popped out of the drawer, each in an OS window
@@ -19,6 +26,17 @@ import imgui.type.ImBoolean;
  * into the host window just because it overlaps it. Closing one with its X
  * brings that UI back into the drawer. Drawn every frame after the shell,
  * whatever page or drawer is showing. Render thread only.
+ *
+ * <p>A UI that draws its own chrome gets a frameless window instead: no title
+ * bar, X, padding, border, background or visible resize grip, only what the
+ * script draws, and its OS window is transparent wherever the script draws
+ * nothing. It closes through its {@code ScriptUiHost}, moves by dragging any
+ * spot the script leaves free of widgets, and resizes from its edges. The UI
+ * is sandboxed like any other ({@link ScriptUiRenderer}), so the script never
+ * moves the window itself: the sandbox reports a press on no widget of the
+ * script's, and {@link BackgroundDrag} moves the window from the host's side.
+ * A UI that is stopped, or threw last frame, gets the framed window back, so
+ * it can still be closed.</p>
  */
 final class ScriptUiWindows {
 
@@ -31,11 +49,20 @@ final class ScriptUiWindows {
     private static final float HEIGHT_EM = 40.6f;
     /** Pivot for centring the first-use window on the host window. */
     private static final float CENTRE = 0.5f;
+    /** A frameless window: the script draws everything, scrolling included. */
+    private static final int FRAMELESS_FLAGS = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoBackground
+            | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
+    /** Fully transparent, as a packed ImGui colour. */
+    private static final int TRANSPARENT = 0;
+    /** The style vars {@link #pushFramelessStyle()} pushes: padding, border size, rounding. */
+    private static final int FRAMELESS_VARS = 3;
+    /** The colours {@link #pushFramelessStyle()} pushes: the resize grip's three states. */
+    private static final int FRAMELESS_COLOURS = 3;
 
     private final Controls ui;
     private final InspectorState state;
     private final InspectorSource source;
-    private final ScriptUiHost scriptUis;
+    private final ScriptUiRenderer scriptUis;
     /** The X button's flag, reset before each window; ImGui clears it when the X is clicked. */
     private final ImBoolean isOpen = new ImBoolean();
     /**
@@ -47,8 +74,12 @@ final class ScriptUiWindows {
      * every frame; it lives as long as the GUI.
      */
     private final ImGuiWindowClass ownViewport = new ImGuiWindowClass();
+    /** Moves a frameless pop-out whose background is dragged. */
+    private final BackgroundDrag drag = new BackgroundDrag();
+    /** Set this frame when a frameless pop-out's OS window is still to be created. */
+    private boolean isTransparentWindowDue;
 
-    ScriptUiWindows(Controls ui, InspectorState state, InspectorSource source, ScriptUiHost scriptUis) {
+    ScriptUiWindows(Controls ui, InspectorState state, InspectorSource source, ScriptUiRenderer scriptUis) {
         this.ui = ui;
         this.state = state;
         this.source = source;
@@ -58,27 +89,84 @@ final class ScriptUiWindows {
 
     /** Draws every popped-out script UI in its own window, in the order they were popped out. */
     void render() {
+        isTransparentWindowDue = false;
         for (InspectorTarget target : state.poppedOut(source)) {
             renderWindow(target);
         }
+        requestTransparentWindows(isTransparentWindowDue);
     }
 
-    /** One pop-out: its own OS window, which brings the UI back into the drawer when its X is clicked. */
+    /** One pop-out: its own OS window, which brings the UI back into the drawer when it is closed. */
     private void renderWindow(InspectorTarget target) {
+        ScriptUiSlot slot = target.scriptUiSlot(new ScriptUiHandle(() -> state.bringBack(target.subject()), true));
+        boolean isFrameless = scriptUis.drawsOwnChrome(slot);
         float fontSize = ui.m().fontSize();
         ImGuiViewport host = ImGui.getMainViewport();
         ImGui.setNextWindowPos(host.getPosX() + host.getSizeX() * CENTRE, host.getPosY() + host.getSizeY() * CENTRE,
                 ImGuiCond.FirstUseEver, CENTRE, CENTRE);
         ImGui.setNextWindowSize(fontSize * WIDTH_EM, fontSize * HEIGHT_EM, ImGuiCond.FirstUseEver);
         ImGui.setNextWindowClass(ownViewport);
+        if (isFrameless) {
+            renderFrameless(target, slot);
+        } else {
+            renderFramed(target, slot);
+        }
+    }
+
+    /** The host's window around the UI: title bar, X, padding and background. */
+    private void renderFramed(InspectorTarget target, ScriptUiSlot slot) {
         isOpen.set(true);
         if (ImGui.begin(titleOf(target), isOpen, ImGuiWindowFlags.NoCollapse)) {
-            scriptUis.draw(target.scriptUiSlot());
+            scriptUis.draw(slot);
         }
         ImGui.end();
         if (!isOpen.get()) {
             state.bringBack(target.subject());
         }
+    }
+
+    /**
+     * Only the UI. The frameless style is popped again straight after
+     * {@code begin}, so the popups and child windows the script opens keep the
+     * host's look.
+     */
+    private void renderFrameless(InspectorTarget target, ScriptUiSlot slot) {
+        String title = titleOf(target);
+        drag.beforeBegin(title);
+        pushFramelessStyle();
+        boolean isVisible = ImGui.begin(title, FRAMELESS_FLAGS);
+        ImGui.popStyleColor(FRAMELESS_COLOURS);
+        ImGui.popStyleVar(FRAMELESS_VARS);
+        if (!ImGui.getWindowViewport().getPlatformWindowCreated()) {
+            isTransparentWindowDue = true;
+        }
+        if (isVisible) {
+            drag.afterDraw(title, scriptUis.draw(slot));
+        }
+        ImGui.end();
+    }
+
+    /** No padding, border or rounding, and a resize grip that still works but is never drawn. */
+    private static void pushFramelessStyle() {
+        ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, 0f, 0f);
+        ImGui.pushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
+        ImGui.pushStyleVar(ImGuiStyleVar.WindowRounding, 0f);
+        ImGui.pushStyleColor(ImGuiCol.ResizeGrip, TRANSPARENT);
+        ImGui.pushStyleColor(ImGuiCol.ResizeGripHovered, TRANSPARENT);
+        ImGui.pushStyleColor(ImGuiCol.ResizeGripActive, TRANSPARENT);
+    }
+
+    /**
+     * Whether the OS windows ImGui creates at the end of this frame get a
+     * framebuffer whose alpha the desktop compositor honours. The GLFW backend
+     * creates a pop-out's OS window then, from the window hints as they stand,
+     * and its renderer clears a window that draws no background to transparent.
+     * So the hint is on only in a frame where a frameless pop-out's OS window
+     * is due, and off otherwise: the host window and every other pop-out keep
+     * an opaque framebuffer.
+     */
+    private static void requestTransparentWindows(boolean isTransparent) {
+        GLFW.glfwWindowHint(GLFW.GLFW_TRANSPARENT_FRAMEBUFFER, isTransparent ? GLFW.GLFW_TRUE : GLFW.GLFW_FALSE);
     }
 
     /**

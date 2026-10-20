@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * A well-behaved script UI must look exactly as it did before sandboxing. The
  * same UI is drawn straight into the host's context, inside the drawer's child
- * as master does, and through {@link ScriptUiHost}; both frames are flattened to
+ * as master does, and through {@link ScriptUiRenderer}; both frames are flattened to
  * vertices, clip rects and textures, and must match.
  *
  * <p>A failure is any vertex that differs in position (beyond {@link #TOLERANCE}),
@@ -53,10 +53,10 @@ class ScriptUiParityTest {
         List<Triangles.Vertex> direct = lastFrame(ui -> ui.render());
         List<Triangles.Vertex> sandboxed;
         AssertRouter router = AssertRouter.install();
-        ScriptUiHost[] host = new ScriptUiHost[1];
+        ScriptUiRenderer[] host = new ScriptUiRenderer[1];
         sandboxed = lastFrame(ui -> {
             if (host[0] == null) {
-                host[0] = new ScriptUiHost(router, new TypedChars(), () -> false);
+                host[0] = new ScriptUiRenderer(router, new TypedChars(), () -> false);
             }
             host[0].draw(new ScriptUiSlot("client/test/reference", "reference", ui, Instant.EPOCH));
         });

@@ -15,7 +15,7 @@ import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
 import com.botwithus.bot.cli.gui.inspector.SettingsFor.InheritedValue;
-import com.botwithus.bot.cli.gui.scriptui.ScriptUiHost;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -41,7 +41,8 @@ import java.util.Optional;
  * it does set says "own value" with a link back to the inherited one. The Script
  * UI tab, offered only when the script draws its own UI, frames that ImGui
  * without restyling it, with a button to pop it out into a window of its own;
- * while it is popped out the tab says so and offers to bring it back. The tab
+ * a UI that draws its own chrome gets no frame, only that button. While it is
+ * popped out the tab says so and offers to bring it back. The tab
  * has no footer: Apply and Reset act on the fields, which are not on screen there.</p>
  */
 final class ConfigInspector {
@@ -64,13 +65,13 @@ final class ConfigInspector {
 
     private final Controls ui;
     private final InspectorState state;
-    private final ScriptUiHost scriptUis;
+    private final ScriptUiRenderer scriptUis;
     /** The picker's selection, reset from the target every frame. */
     private final ImInt pickerChoice = new ImInt();
     private ConfigEdits edits;
     private InspectorSubject editsFor;
 
-    ConfigInspector(Controls ui, InspectorState state, ScriptUiHost scriptUis) {
+    ConfigInspector(Controls ui, InspectorState state, ScriptUiRenderer scriptUis) {
         this.ui = ui;
         this.state = state;
         this.scriptUis = scriptUis;
@@ -424,9 +425,30 @@ final class ConfigInspector {
         state.reopenIfRemembered(target.subject());
         if (state.isPoppedOut(target.subject())) {
             renderPoppedOut(target.subject());
+        } else if (scriptUis.drawsOwnChrome(target.scriptUiSlot())) {
+            renderOwnChromeScriptUi(target);
         } else {
             renderDockedScriptUi(target);
         }
+    }
+
+    /**
+     * A UI that draws its own chrome, docked: no frame and no "Drawn by" line
+     * around it, only the "Pop out" button on a row of its own above it, so the
+     * button never covers what the script draws.
+     */
+    private void renderOwnChromeScriptUi(InspectorTarget target) {
+        ImGuiTheme.Metrics m = ui.m();
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY();
+        float w = ImGui.getContentRegionAvailX();
+        float h = ImGui.getContentRegionAvailY();
+        float rowH = renderPopOutButton(target, x, y, w);
+        float top = rowH + m.u(1.5f);
+        ImGui.setCursorScreenPos(x, y + top);
+        ImGui.beginChild("##script-ui", w, Math.max(0f, h - top), false);
+        scriptUis.draw(target.scriptUiSlot());
+        ImGui.endChild();
     }
 
     private void renderDockedScriptUi(InspectorTarget target) {
@@ -460,7 +482,14 @@ final class ConfigInspector {
         ui.textCentredY(draw, cap, x, y, rowH, ImGuiTheme.COL_FG3, Icons.PUZZLE);
         ui.textCentredY(draw, cap, tx, y, rowH, ImGuiTheme.COL_FG3,
                 ui.ellipsize(cap, by, Math.max(0f, x + w - buttonW - m.u(2) - tx)));
-        ImGui.setCursorScreenPos(x + w - buttonW, y);
+        renderPopOutButton(target, x, y, w);
+        return rowH;
+    }
+
+    /** The "Pop out" button, right-aligned in the row at {@code x, y}; returns the row's height. */
+    private float renderPopOutButton(InspectorTarget target, float x, float y, float w) {
+        float rowH = ui.m().controlSmallHeight();
+        ImGui.setCursorScreenPos(x + w - ui.buttonWidth(Icons.WINDOW, POP_OUT, Tone.GHOST), y);
         if (ui.button("##script-ui-pop-out", Icons.WINDOW, POP_OUT, Tone.GHOST, true, rowH)) {
             state.popOut(target.subject());
         }

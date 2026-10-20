@@ -20,11 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link ScriptUiHost} in this JVM, against the real imgui-java natives. With
+ * {@link ScriptUiRenderer} in this JVM, against the real imgui-java natives. With
  * the guard working, a broken UI here only parks a thread; if the guard stops
  * working, imgui-java exits the test JVM, which Gradle reports as a failure.
  */
-class ScriptUiHostTest {
+class ScriptUiRendererTest {
 
     private static final String OWNER = "client/test/script";
     private static final Instant FIRST_RUN = Instant.parse("2026-10-12T10:00:00Z");
@@ -39,7 +39,7 @@ class ScriptUiHostTest {
     private static final int TEXT_CAPACITY = 32;
 
     private HeadlessHost host;
-    private ScriptUiHost scriptUis;
+    private ScriptUiRenderer scriptUis;
     private TypedChars typed;
     private final AtomicInteger reloadOffered = new AtomicInteger();
     private boolean isReloadClicked;
@@ -48,7 +48,7 @@ class ScriptUiHostTest {
     void setUp() {
         host = HeadlessHost.create();
         typed = new TypedChars();
-        scriptUis = new ScriptUiHost(AssertRouter.install(), typed, () -> {
+        scriptUis = new ScriptUiRenderer(AssertRouter.install(), typed, () -> {
             reloadOffered.incrementAndGet();
             return isReloadClicked;
         });
@@ -63,14 +63,14 @@ class ScriptUiHostTest {
     @Test
     void anAssertion_stopsTheUi_andOffersReload_untilThreeFailures() {
         ScriptUI broken = () -> ImGui.popStyleVar();
-        for (int failure = 1; failure <= ScriptUiHost.MAX_FAILURES; failure++) {
+        for (int failure = 1; failure <= ScriptUiRenderer.MAX_FAILURES; failure++) {
             isReloadClicked = false;
             frame(broken, FIRST_RUN);
             frame(broken, FIRST_RUN);
             SlotState state = state();
             assertTrue(state.isStopped(), "failure " + failure);
             assertEquals(failure, state.failures());
-            assertEquals(failure < ScriptUiHost.MAX_FAILURES, state.canReload());
+            assertEquals(failure < ScriptUiRenderer.MAX_FAILURES, state.canReload());
             isReloadClicked = true;
             frame(broken, FIRST_RUN);
             assertEquals(!state.canReload(), state.isStopped(), "after clicking Reload, failure " + failure);
@@ -81,7 +81,7 @@ class ScriptUiHostTest {
 
         assertEquals(offeredBefore, reloadOffered.get(), "Reload must not be drawn after the last failure");
         assertTrue(state().isStopped());
-        assertEquals(ScriptUiHost.MAX_FAILURES, state().failures());
+        assertEquals(ScriptUiRenderer.MAX_FAILURES, state().failures());
     }
 
     @Test

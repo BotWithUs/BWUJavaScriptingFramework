@@ -6,6 +6,7 @@ import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
 
 import imgui.ImGui;
+import imgui.ImGuiIO;
 import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiWindowFlags;
 
@@ -31,14 +32,19 @@ import java.util.function.BooleanSupplier;
  * never returns from {@code render()} still blocks the UI thread; see
  * {@link SandboxWorker} for why there is no timeout.</p>
  *
+ * <p>Every call into the script's UI object, {@code attach}, {@code render} and
+ * {@code drawsOwnChrome}, is made inside the sandbox. The host learns whether a
+ * UI draws its own chrome from {@link #drawsOwnChrome}, and whether a press
+ * landed on no widget of the script's from what {@link #draw} returns.</p>
+ *
  * <p>UI thread only. Call {@link #endFrame} once per host frame.</p>
  */
-public final class ScriptUiHost {
+public final class ScriptUiRenderer {
 
     /** Assertions per run of a script before Reload is withdrawn until the script is restarted. */
     public static final int MAX_FAILURES = 3;
 
-    private static final Logger log = LoggerFactory.getLogger(ScriptUiHost.class);
+    private static final Logger log = LoggerFactory.getLogger(ScriptUiRenderer.class);
 
     /** How long an undrawn UI keeps its sandbox, in host frames: about five seconds at 60 fps. */
     private static final int IDLE_FRAMES = 300;
@@ -62,34 +68,60 @@ public final class ScriptUiHost {
      * @param typed        characters typed since the last frame
      * @param reloadButton draws the stopped panel's Reload button; true when clicked
      */
-    public ScriptUiHost(AssertRouter router, TypedChars typed, BooleanSupplier reloadButton) {
+    public ScriptUiRenderer(AssertRouter router, TypedChars typed, BooleanSupplier reloadButton) {
         this.router = router;
         this.typed = typed;
         this.reloadButton = reloadButton;
     }
 
     /** The host's own: the Reload button in the shared widget kit's style. */
-    public static ScriptUiHost withControls(AssertRouter router, TypedChars typed, Controls ui) {
-        return new ScriptUiHost(router, typed,
+    public static ScriptUiRenderer withControls(AssertRouter router, TypedChars typed, Controls ui) {
+        return new ScriptUiRenderer(router, typed,
                 () -> ui.button("##script-ui-reload", Icons.ROTATE, RELOAD, Tone.SOFT, true));
     }
 
-    /** Draws {@code slot}'s UI in the space left in the host's current window. */
-    public void draw(ScriptUiSlot slot) {
-        SlotState state = slots.computeIfAbsent(slot.owner(), owner -> new SlotState(MAX_FAILURES));
-        state.observe(slot, ImGui.getFrameCount());
+    /**
+     * Draws {@code slot}'s UI in the space left in the host's current window.
+     *
+     * @return true when the left button went down this frame on the UI's
+     *         background, on none of its widgets: the host may take that press,
+     *         to move a frameless window. False whenever the UI was not drawn.
+     */
+    public boolean draw(ScriptUiSlot slot) {
+        SlotState state = observe(slot);
         float width = ImGui.getContentRegionAvailX();
         float height = ImGui.getContentRegionAvailY();
         if (width <= 0f || height <= 0f) {
-            return;
+            return false;
         }
         ImGui.beginChild(AREA_ID, width, height, false, AREA_FLAGS);
+        boolean isBackgroundPress = false;
         if (state.isStopped()) {
             renderStopped(state);
         } else {
-            renderSandboxed(slot, state, width, height);
+            isBackgroundPress = renderSandboxed(slot, state, width, height);
         }
         ImGui.endChild();
+        return isBackgroundPress;
+    }
+
+    /**
+     * Whether {@code slot}'s UI draws its own window chrome, as it answered in
+     * its last sandboxed frame. The host needs the answer before it opens the
+     * window the UI goes in, so the first time it is asked in a sandboxed frame
+     * of its own that nobody sees, which renders the UI once more. False while
+     * the UI is stopped, and after a frame in which it threw, so a broken UI
+     * gets the host's window, with its title bar and close button.
+     */
+    public boolean drawsOwnChrome(ScriptUiSlot slot) {
+        SlotState state = observe(slot);
+        if (state.isStopped()) {
+            return false;
+        }
+        if (!state.hasChromeAnswer()) {
+            askUnseen(slot, state);
+        }
+        return state.drawsOwnChrome();
     }
 
     /**
@@ -126,14 +158,44 @@ public final class ScriptUiHost {
         slots.values().forEach(SlotState::disposeSandbox);
     }
 
-    private void renderSandboxed(ScriptUiSlot slot, SlotState state, float width, float height) {
+    private SlotState observe(ScriptUiSlot slot) {
+        SlotState state = slots.computeIfAbsent(slot.owner(), owner -> new SlotState(MAX_FAILURES));
+        state.observe(slot, ImGui.getFrameCount());
+        return state;
+    }
+
+    /** Returns whether the frame saw a press on the UI's background. */
+    private boolean renderSandboxed(ScriptUiSlot slot, SlotState state, float width, float height) {
         PanelInput panel = PanelInput.submit(width, height);
         ScriptUiSandbox sandbox = state.sandbox(() -> newSandbox(slot, state));
-        FrameOutcome outcome = sandbox.render(slot.ui(), panel.frame(width, height, typed, style));
+        FrameOutcome outcome = sandbox.render(slot.ui(), slot.host(), panel.frame(width, height, typed, style));
         switch (outcome) {
-            case FrameOutcome.Drawn drawn -> composite(drawn, panel, state);
-            case FrameOutcome.Threw threw -> renderThrew(slot, threw.error(), panel);
+            case FrameOutcome.Drawn drawn -> {
+                composite(drawn, panel, state);
+                return drawn.isBackgroundPress() && panel.isOver();
+            }
+            case FrameOutcome.Threw threw -> {
+                state.drawsOwnChrome(false);
+                renderThrew(slot, threw.error(), panel);
+            }
             case FrameOutcome.Asserted asserted -> stop(slot, state, sandbox, asserted.assertion(), panel);
+            case FrameOutcome.Crashed crashed -> throw crashed.error();
+        }
+        return false;
+    }
+
+    /** One sandboxed frame with no pointer, no keyboard and nothing composited, only to hear the UI's answers. */
+    private void askUnseen(ScriptUiSlot slot, SlotState state) {
+        ImGuiIO io = ImGui.getIO();
+        FrameInput unseen = PanelInput.unseen(io.getDisplaySizeX(), io.getDisplaySizeY(), style);
+        ScriptUiSandbox sandbox = state.sandbox(() -> newSandbox(slot, state));
+        switch (sandbox.render(slot.ui(), slot.host(), unseen)) {
+            case FrameOutcome.Drawn drawn -> state.drawsOwnChrome(drawn.drawsOwnChrome());
+            case FrameOutcome.Threw threw -> {
+                log.debug("Script UI for {} threw: {}", slot.label(), threw.error().toString());
+                state.drawsOwnChrome(false);
+            }
+            case FrameOutcome.Asserted asserted -> failed(slot, state, sandbox, asserted.assertion());
             case FrameOutcome.Crashed crashed -> throw crashed.error();
         }
     }
@@ -150,6 +212,7 @@ public final class ScriptUiHost {
         }
         boolean isTyping = drawn.wantsKeyboard() && panel.isFocused();
         state.wantsKeyboard(isTyping);
+        state.drawsOwnChrome(drawn.drawsOwnChrome());
         if (isTyping) {
             HostFocus.hold(panel.itemId());
         }
@@ -166,12 +229,17 @@ public final class ScriptUiHost {
 
     private void stop(ScriptUiSlot slot, SlotState state, ScriptUiSandbox sandbox, ImGuiAssertion assertion,
                       PanelInput panel) {
+        failed(slot, state, sandbox, assertion);
+        ImGui.setCursorScreenPos(panel.originX(), panel.originY());
+        renderStopped(state);
+    }
+
+    private static void failed(ScriptUiSlot slot, SlotState state, ScriptUiSandbox sandbox,
+                               ImGuiAssertion assertion) {
         state.failed(assertion);
         log.warn("Script UI for {} broke a Dear ImGui rule and was stopped (failure {} of {} this run): {}."
                         + " Its render thread '{}' stays parked and its ImGui context is abandoned.",
                 slot.label(), state.failures(), MAX_FAILURES, assertion.describe(), sandbox.threadName());
-        ImGui.setCursorScreenPos(panel.originX(), panel.originY());
-        renderStopped(state);
     }
 
     private void renderStopped(SlotState state) {
