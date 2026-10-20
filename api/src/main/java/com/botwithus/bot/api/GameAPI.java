@@ -35,6 +35,7 @@ import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.SequenceType;
+import com.botwithus.bot.api.model.SpotAnimation;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
@@ -241,6 +242,16 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * {@code name()}. See {@link com.botwithus.bot.api.entities.Projectile}.</p>
      */
     Projectiles projectiles();
+
+    /**
+     * Low-level RPC: every world-anchored spot animation currently playing
+     * (graphics on a tile, not on an entity). Hits the producer on every call
+     * — fetch once per tick and filter client-side.
+     *
+     * <p>Plane is {@link SpotAnimation#UNKNOWN_PLANE} when the producer reply
+     * omits it.</p>
+     */
+    List<SpotAnimation> querySpotAnims();
 
     // Scene entity queries are SHM-backed as of v15 — read them via the
     // {@link #objects()} / {@link #groundItems()} facades, which in turn

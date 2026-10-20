@@ -32,6 +32,7 @@ import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
+import com.botwithus.bot.api.model.SpotAnimation;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.VarbitValue;
@@ -279,6 +280,11 @@ final class MockGameAPI implements GameAPI {
     @Override
     public Projectiles projectiles() {
         throw notStubbed("projectiles");
+    }
+
+    @Override
+    public List<SpotAnimation> querySpotAnims() {
+        throw notStubbed("querySpotAnims");
     }
 
     @Override
