@@ -1,9 +1,11 @@
 package com.botwithus.bot.cli.gui.inspector;
 
 import com.botwithus.bot.cli.gui.Controls;
+import com.botwithus.bot.cli.gui.FramelessChrome;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
 import com.botwithus.bot.cli.gui.scriptui.BackgroundDrag;
+import com.botwithus.bot.cli.gui.scriptui.BorderResize;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiHandle;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiSlot;
@@ -11,7 +13,6 @@ import com.botwithus.bot.cli.gui.scriptui.ScriptUiSlot;
 import imgui.ImGui;
 import imgui.ImGuiViewport;
 import imgui.ImGuiWindowClass;
-import imgui.flag.ImGuiCol;
 import imgui.flag.ImGuiCond;
 import imgui.flag.ImGuiStyleVar;
 import imgui.flag.ImGuiViewportFlags;
@@ -33,8 +34,10 @@ import org.lwjgl.glfw.GLFW;
  * nothing. It closes through its {@code ScriptUiHost}, moves by dragging any
  * spot the script leaves free of widgets, and resizes from its edges. The UI
  * is sandboxed like any other ({@link ScriptUiRenderer}), so the script never
- * moves the window itself: the sandbox reports a press on no widget of the
- * script's, and {@link BackgroundDrag} moves the window from the host's side.
+ * moves or sizes the window itself: the sandbox reports a press on no widget
+ * of the script's, and {@link BackgroundDrag} moves the window from the host's
+ * side, while {@link BorderResize} gives it a resize border along its edges
+ * like the frameless main window's.
  * A UI that is stopped, or threw last frame, gets the framed window back, so
  * it can still be closed.</p>
  */
@@ -49,15 +52,21 @@ final class ScriptUiWindows {
     private static final float HEIGHT_EM = 40.6f;
     /** Pivot for centring the first-use window on the host window. */
     private static final float CENTRE = 0.5f;
-    /** A frameless window: the script draws everything, scrolling included. */
+    /**
+     * The smallest a frameless window can be resized to, in body-font ems:
+     * enough to keep a script's own title bar and close button in reach.
+     */
+    private static final float MIN_WIDTH_EM = 12f;
+    private static final float MIN_HEIGHT_EM = 6f;
+    /**
+     * A frameless window: the script draws everything, scrolling included, and
+     * {@link BorderResize} resizes it, so Dear ImGui's own border and grip are off.
+     */
     private static final int FRAMELESS_FLAGS = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoBackground
-            | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
-    /** Fully transparent, as a packed ImGui colour. */
-    private static final int TRANSPARENT = 0;
+            | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse
+            | ImGuiWindowFlags.NoResize;
     /** The style vars {@link #pushFramelessStyle()} pushes: padding, border size, rounding. */
     private static final int FRAMELESS_VARS = 3;
-    /** The colours {@link #pushFramelessStyle()} pushes: the resize grip's three states. */
-    private static final int FRAMELESS_COLOURS = 3;
 
     private final Controls ui;
     private final InspectorState state;
@@ -76,6 +85,8 @@ final class ScriptUiWindows {
     private final ImGuiWindowClass ownViewport = new ImGuiWindowClass();
     /** Moves a frameless pop-out whose background is dragged. */
     private final BackgroundDrag drag = new BackgroundDrag();
+    /** Resizes a frameless pop-out from its edges. */
+    private final BorderResize resize = new BorderResize();
     /** Set this frame when a frameless pop-out's OS window is still to be created. */
     private boolean isTransparentWindowDue;
 
@@ -132,28 +143,27 @@ final class ScriptUiWindows {
      */
     private void renderFrameless(InspectorTarget target, ScriptUiSlot slot) {
         String title = titleOf(target);
+        float fontSize = ui.m().fontSize();
         drag.beforeBegin(title);
+        resize.beforeBegin(title, Math.round(fontSize * MIN_WIDTH_EM), Math.round(fontSize * MIN_HEIGHT_EM));
         pushFramelessStyle();
         boolean isVisible = ImGui.begin(title, FRAMELESS_FLAGS);
-        ImGui.popStyleColor(FRAMELESS_COLOURS);
         ImGui.popStyleVar(FRAMELESS_VARS);
         if (!ImGui.getWindowViewport().getPlatformWindowCreated()) {
             isTransparentWindowDue = true;
         }
         if (isVisible) {
-            drag.afterDraw(title, scriptUis.draw(slot));
+            boolean isPointerTaken = resize.takesPointer(title, FramelessChrome.resizeBorder(ui.m()));
+            drag.afterDraw(title, scriptUis.draw(slot, isPointerTaken));
         }
         ImGui.end();
     }
 
-    /** No padding, border or rounding, and a resize grip that still works but is never drawn. */
+    /** No padding, border or rounding. */
     private static void pushFramelessStyle() {
         ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, 0f, 0f);
         ImGui.pushStyleVar(ImGuiStyleVar.WindowBorderSize, 0f);
         ImGui.pushStyleVar(ImGuiStyleVar.WindowRounding, 0f);
-        ImGui.pushStyleColor(ImGuiCol.ResizeGrip, TRANSPARENT);
-        ImGui.pushStyleColor(ImGuiCol.ResizeGripHovered, TRANSPARENT);
-        ImGui.pushStyleColor(ImGuiCol.ResizeGripActive, TRANSPARENT);
     }
 
     /**

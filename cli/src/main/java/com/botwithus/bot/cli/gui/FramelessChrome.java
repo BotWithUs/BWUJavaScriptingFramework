@@ -12,7 +12,6 @@ import com.botwithus.bot.cli.gui.window.WindowRect;
 import imgui.ImGui;
 import imgui.ImGuiViewport;
 import imgui.flag.ImGuiMouseButton;
-import imgui.flag.ImGuiMouseCursor;
 import imgui.flag.ImGuiStyleVar;
 import imgui.flag.ImGuiWindowFlags;
 
@@ -72,9 +71,17 @@ public final class FramelessChrome implements WindowChrome {
     public FramelessChrome(Controls ui, WindowControls window, int minWidth, int minHeight) {
         this.ui = ui;
         this.window = window;
-        this.hitTest = new BorderHitTest(ui.m().u(BORDER_UNITS), ui.m().u(CORNER_UNITS));
+        this.hitTest = resizeBorder(ui.m());
         this.minWidth = minWidth;
         this.minHeight = minHeight;
+    }
+
+    /**
+     * The resize border a frameless window gets at text size {@code m}: this
+     * window's, and a frameless script pop-out's, so both feel the same.
+     */
+    public static BorderHitTest resizeBorder(ImGuiTheme.Metrics m) {
+        return new BorderHitTest(m.u(BORDER_UNITS), m.u(CORNER_UNITS));
     }
 
     // ── Window buttons ─────────────────────────────────────────────────────
@@ -219,11 +226,6 @@ public final class FramelessChrome implements WindowChrome {
     }
 
     private static void showCursor(ResizeEdge edge) {
-        ImGui.setMouseCursor(switch (edge) {
-            case NORTH, SOUTH -> ImGuiMouseCursor.ResizeNS;
-            case WEST, EAST -> ImGuiMouseCursor.ResizeEW;
-            case NORTH_WEST, SOUTH_EAST -> ImGuiMouseCursor.ResizeNWSE;
-            case NORTH_EAST, SOUTH_WEST -> ImGuiMouseCursor.ResizeNESW;
-        });
+        ImGui.setMouseCursor(edge.mouseCursor());
     }
 }

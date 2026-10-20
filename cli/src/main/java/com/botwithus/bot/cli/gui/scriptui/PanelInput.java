@@ -27,13 +27,18 @@ record PanelInput(float originX, float originY, int itemId, boolean isOver, bool
     /** Dear ImGui refuses a zero delta time; the host's first frame can report one. */
     private static final float MIN_DELTA_TIME = 1e-4f;
 
-    /** Submits the panel's input item at the cursor, sized {@code width} x {@code height}. */
-    static PanelInput submit(float width, float height) {
+    /**
+     * Submits the panel's input item at the cursor, sized {@code width} x {@code height}.
+     *
+     * @param isPointerTaken the host has the mouse this frame, so the panel is never {@link #isOver}
+     */
+    static PanelInput submit(float width, float height, boolean isPointerTaken) {
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         ImGui.invisibleButton(INPUT_ID, width, height, BUTTONS);
         boolean isHeld = ImGui.isItemActive() && isAnyButtonDown();
-        return new PanelInput(x, y, ImGui.getItemID(), ImGui.isItemHovered() || isHeld, ImGui.isWindowFocused());
+        boolean isOver = !isPointerTaken && (ImGui.isItemHovered() || isHeld);
+        return new PanelInput(x, y, ImGui.getItemID(), isOver, ImGui.isWindowFocused());
     }
 
     /** This frame's input for the sandbox, sized {@code width} x {@code height}. */

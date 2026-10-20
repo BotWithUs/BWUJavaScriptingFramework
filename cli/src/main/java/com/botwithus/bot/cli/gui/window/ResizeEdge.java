@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui.window;
 
+import imgui.flag.ImGuiMouseCursor;
+
 /** Which side or corner of the window a resize drag moves. */
 public enum ResizeEdge {
     NORTH(true, false, false, false),
@@ -41,5 +43,15 @@ public enum ResizeEdge {
     /** Moves the right edge. */
     public boolean isRight() {
         return isRight;
+    }
+
+    /** The resize cursor that shows this edge, as an {@code ImGuiMouseCursor}. */
+    public int mouseCursor() {
+        return switch (this) {
+            case NORTH, SOUTH -> ImGuiMouseCursor.ResizeNS;
+            case WEST, EAST -> ImGuiMouseCursor.ResizeEW;
+            case NORTH_WEST, SOUTH_EAST -> ImGuiMouseCursor.ResizeNWSE;
+            case NORTH_EAST, SOUTH_WEST -> ImGuiMouseCursor.ResizeNESW;
+        };
     }
 }

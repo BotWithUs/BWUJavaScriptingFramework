@@ -88,6 +88,17 @@ public final class ScriptUiRenderer {
      *         to move a frameless window. False whenever the UI was not drawn.
      */
     public boolean draw(ScriptUiSlot slot) {
+        return draw(slot, false);
+    }
+
+    /**
+     * {@link #draw(ScriptUiSlot)}, with the pointer possibly the host's.
+     *
+     * @param isPointerTaken the host has the mouse this frame, as a window's
+     *        resize border does: the UI sees no pointer, sets no cursor and
+     *        reports no press, and its keyboard is unaffected
+     */
+    public boolean draw(ScriptUiSlot slot, boolean isPointerTaken) {
         SlotState state = observe(slot);
         float width = ImGui.getContentRegionAvailX();
         float height = ImGui.getContentRegionAvailY();
@@ -99,7 +110,7 @@ public final class ScriptUiRenderer {
         if (state.isStopped()) {
             renderStopped(state);
         } else {
-            isBackgroundPress = renderSandboxed(slot, state, width, height);
+            isBackgroundPress = renderSandboxed(slot, state, width, height, isPointerTaken);
         }
         ImGui.endChild();
         return isBackgroundPress;
@@ -165,8 +176,9 @@ public final class ScriptUiRenderer {
     }
 
     /** Returns whether the frame saw a press on the UI's background. */
-    private boolean renderSandboxed(ScriptUiSlot slot, SlotState state, float width, float height) {
-        PanelInput panel = PanelInput.submit(width, height);
+    private boolean renderSandboxed(ScriptUiSlot slot, SlotState state, float width, float height,
+                                    boolean isPointerTaken) {
+        PanelInput panel = PanelInput.submit(width, height, isPointerTaken);
         ScriptUiSandbox sandbox = state.sandbox(() -> newSandbox(slot, state));
         FrameOutcome outcome = sandbox.render(slot.ui(), slot.host(), panel.frame(width, height, typed, style));
         switch (outcome) {
