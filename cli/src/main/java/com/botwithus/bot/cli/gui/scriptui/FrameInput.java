@@ -93,15 +93,19 @@ record FrameInput(float width, float height, float deltaTime, long fontPtr, floa
      * @param keysDown bit {@code key - FIRST_KEY} set for each keyboard key down
      * @param mods     {@code ImGuiKey.ImGuiMod_*} bits down
      * @param chars    characters typed this frame, as code points
+     * @param isFocusLost the panel lost keyboard focus since the last frame:
+     *                 nothing in the sandbox keeps it either
      */
-    record Keyboard(BitSet keysDown, int mods, int[] chars) {
+    record Keyboard(BitSet keysDown, int mods, int[] chars, boolean isFocusLost) {
 
         private static final int[] MODS = {
             ImGuiKey.ImGuiMod_Ctrl, ImGuiKey.ImGuiMod_Shift, ImGuiKey.ImGuiMod_Alt, ImGuiKey.ImGuiMod_Super,
         };
 
         /** Nothing down, nothing typed. */
-        static final Keyboard NONE = new Keyboard(new BitSet(), 0, new int[0]);
+        static final Keyboard NONE = new Keyboard(new BitSet(), 0, new int[0], false);
+        /** {@link #NONE}, on the frame the panel loses keyboard focus. */
+        static final Keyboard FOCUS_LOST = new Keyboard(new BitSet(), 0, new int[0], true);
 
         Keyboard {
             BitSet copy = new BitSet();

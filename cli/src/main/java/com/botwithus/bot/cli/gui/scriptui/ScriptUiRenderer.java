@@ -142,13 +142,15 @@ public final class ScriptUiRenderer {
 
     /**
      * Once per host frame, after everything is drawn: lets go of the host's
-     * active item held for a typing UI, and drops stray typing and idle sandboxes.
+     * active item held for a typing UI, and drops stray typing and idle
+     * sandboxes. A UI not drawn this frame is not typing.
      */
     public void endFrame() {
         typed.clear();
         int frame = ImGui.getFrameCount();
         for (SlotState state : slots.values()) {
             state.takeHeld().ifPresent(HostFocus::release);
+            state.endFrame(frame);
             if (state.isIdleSince(frame, IDLE_FRAMES)) {
                 state.disposeSandbox();
             }
@@ -174,8 +176,10 @@ public final class ScriptUiRenderer {
     /** Returns whether the frame saw a press on the UI's background. */
     private boolean renderSandboxed(ScriptUiSlot slot, SlotState state, float width, float height) {
         PanelInput panel = PanelInput.submit(width, height);
+        boolean isFocusLost = state.isFocusLost(panel.isFocused());
         ScriptUiSandbox sandbox = state.sandbox(() -> newSandbox(slot, state));
-        FrameOutcome outcome = sandbox.render(slot.ui(), slot.host(), panel.frame(width, height, typed, style));
+        FrameOutcome outcome = sandbox.render(slot.ui(), slot.host(),
+                panel.frame(width, height, typed, style, isFocusLost));
         switch (outcome) {
             case FrameOutcome.Drawn drawn -> {
                 composite(drawn, panel, state);
@@ -217,7 +221,7 @@ public final class ScriptUiRenderer {
         if (panel.isOver()) {
             ImGui.setMouseCursor(drawn.mouseCursor());
         }
-        boolean isTyping = drawn.wantsKeyboard() && panel.isFocused();
+        boolean isTyping = drawn.wantsKeyboard() && panel.isFocused() && !panel.isPressElsewhere();
         state.wantsKeyboard(isTyping);
         state.drawsOwnChrome(drawn.drawsOwnChrome());
         if (isTyping && !panel.isPressed()) {

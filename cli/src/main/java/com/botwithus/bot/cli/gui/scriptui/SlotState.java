@@ -27,6 +27,8 @@ final class SlotState {
     private ImGuiAssertion lastFailure;
     private boolean isStopped;
     private boolean wantsKeyboard;
+    /** The panel had keyboard focus in its last sandboxed frame. */
+    private boolean wasFocused;
     /** The panel item held for the host this frame ({@link HostFocus}), or {@link #NOT_HELD}. */
     private int heldItemId = NOT_HELD;
     private boolean hasChromeAnswer;
@@ -114,6 +116,24 @@ final class SlotState {
 
     void wantsKeyboard(boolean wants) {
         wantsKeyboard = wants;
+    }
+
+    /**
+     * Notes whether the panel has keyboard focus this frame.
+     *
+     * @return true when it had focus last frame and has lost it
+     */
+    boolean isFocusLost(boolean isFocused) {
+        boolean isLost = wasFocused && !isFocused;
+        wasFocused = isFocused;
+        return isLost;
+    }
+
+    /** Once per host frame, at its end: a panel not drawn on {@code frame} is not typing. */
+    void endFrame(int frame) {
+        if (frame != lastFrame) {
+            wantsKeyboard = false;
+        }
     }
 
     /** True once the UI has answered {@code drawsOwnChrome()} in a sandboxed frame. */

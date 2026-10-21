@@ -134,6 +134,9 @@ final class ScriptUiSandbox {
         input.applyTo(io);
         input.style().applyTo(ImGui.getStyle());
         ImGui.newFrame();
+        if (input.keyboard().isFocusLost()) {
+            HostFocus.dropAll();
+        }
         beginRoot(input);
         try {
             ui.attach(host);
