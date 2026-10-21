@@ -17,9 +17,10 @@ import java.util.BitSet;
  * @param originY screen position of the panel's top-left corner
  * @param itemId  the invisible button's id, for {@link HostFocus}
  * @param isOver  the mouse is the panel's: hovering it, or holding a press that started on it
+ * @param isPressed the input item is active from a press of its own this frame
  * @param isFocused the panel's window has keyboard focus
  */
-record PanelInput(float originX, float originY, int itemId, boolean isOver, boolean isFocused) {
+record PanelInput(float originX, float originY, int itemId, boolean isOver, boolean isPressed, boolean isFocused) {
 
     private static final String INPUT_ID = "##script-ui-input";
     private static final int BUTTONS = ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight
@@ -33,7 +34,8 @@ record PanelInput(float originX, float originY, int itemId, boolean isOver, bool
         float y = ImGui.getCursorScreenPosY();
         ImGui.invisibleButton(INPUT_ID, width, height, BUTTONS);
         boolean isHeld = ImGui.isItemActive() && isAnyButtonDown();
-        return new PanelInput(x, y, ImGui.getItemID(), ImGui.isItemHovered() || isHeld, ImGui.isWindowFocused());
+        return new PanelInput(x, y, ImGui.getItemID(), ImGui.isItemHovered() || isHeld, isHeld,
+                ImGui.isWindowFocused());
     }
 
     /** This frame's input for the sandbox, sized {@code width} x {@code height}. */
@@ -57,13 +59,19 @@ record PanelInput(float originX, float originY, int itemId, boolean isOver, bool
                 io.getFontGlobalScale(), pointer, keyboard, style);
     }
 
+    /**
+     * The mouse over the panel, or, when it is elsewhere, no position but the
+     * buttons as they are: a press elsewhere in the host is then a press on
+     * nothing to the script's UI, which ends its typing and closes its popups,
+     * as a press elsewhere did before script UIs had a context of their own.
+     */
     private FrameInput.Pointer pointer(ImGuiIO io) {
-        if (!isOver) {
-            return FrameInput.Pointer.AWAY;
-        }
         boolean[] buttons = new boolean[FrameInput.Pointer.buttonCount()];
         for (int button = 0; button < buttons.length; button++) {
             buttons[button] = io.getMouseDown(button);
+        }
+        if (!isOver) {
+            return FrameInput.Pointer.away(buttons);
         }
         return new FrameInput.Pointer(io.getMousePosX() - originX, io.getMousePosY() - originY, buttons,
                 io.getMouseWheelH(), io.getMouseWheel());

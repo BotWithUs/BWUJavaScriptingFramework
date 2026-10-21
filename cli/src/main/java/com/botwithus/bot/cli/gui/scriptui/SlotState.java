@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.gui.scriptui;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Supplier;
 
 /**
@@ -16,6 +17,9 @@ import java.util.function.Supplier;
  */
 final class SlotState {
 
+    /** Dear ImGui's id for no item. */
+    private static final int NOT_HELD = 0;
+
     private final int maxFailures;
     private ScriptUiSandbox sandbox;
     private Instant startedAt;
@@ -23,6 +27,8 @@ final class SlotState {
     private ImGuiAssertion lastFailure;
     private boolean isStopped;
     private boolean wantsKeyboard;
+    /** The panel item held for the host this frame ({@link HostFocus}), or {@link #NOT_HELD}. */
+    private int heldItemId = NOT_HELD;
     private boolean hasChromeAnswer;
     private boolean drawsOwnChrome;
     private int lastFrame;
@@ -88,6 +94,18 @@ final class SlotState {
 
     Optional<ImGuiAssertion> lastFailure() {
         return Optional.ofNullable(lastFailure);
+    }
+
+    /** Notes that {@code itemId} is held for the host until the frame ends. */
+    void held(int itemId) {
+        heldItemId = itemId;
+    }
+
+    /** The item held this frame, if any, which is no longer held once taken. */
+    OptionalInt takeHeld() {
+        int itemId = heldItemId;
+        heldItemId = NOT_HELD;
+        return itemId == NOT_HELD ? OptionalInt.empty() : OptionalInt.of(itemId);
     }
 
     boolean wantsKeyboard() {

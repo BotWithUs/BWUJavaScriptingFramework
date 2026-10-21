@@ -125,8 +125,11 @@ public final class ScriptUiRenderer {
     }
 
     /**
-     * True while a script UI's text field or keyboard navigation has the keyboard,
-     * as of the last frame: host-wide shortcuts should leave the keystroke alone.
+     * True while a script UI's text field is taking typing, or one of its items
+     * is active, as of the last frame: host-wide shortcuts should leave the
+     * keystroke alone. Shortcuts that run before the panel is drawn must ask
+     * this, because the host's own active item is held only from the panel to
+     * the end of the frame ({@link HostFocus}).
      */
     public boolean hasKeyboard() {
         for (SlotState state : slots.values()) {
@@ -137,11 +140,15 @@ public final class ScriptUiRenderer {
         return false;
     }
 
-    /** Once per host frame, after everything is drawn: drops stray typing and idle sandboxes. */
+    /**
+     * Once per host frame, after everything is drawn: lets go of the host's
+     * active item held for a typing UI, and drops stray typing and idle sandboxes.
+     */
     public void endFrame() {
         typed.clear();
         int frame = ImGui.getFrameCount();
         for (SlotState state : slots.values()) {
+            state.takeHeld().ifPresent(HostFocus::release);
             if (state.isIdleSince(frame, IDLE_FRAMES)) {
                 state.disposeSandbox();
             }
@@ -213,8 +220,9 @@ public final class ScriptUiRenderer {
         boolean isTyping = drawn.wantsKeyboard() && panel.isFocused();
         state.wantsKeyboard(isTyping);
         state.drawsOwnChrome(drawn.drawsOwnChrome());
-        if (isTyping) {
+        if (isTyping && !panel.isPressed()) {
             HostFocus.hold(panel.itemId());
+            state.held(panel.itemId());
         }
     }
 

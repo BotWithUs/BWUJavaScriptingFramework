@@ -28,6 +28,8 @@ final class HeadlessHost implements AutoCloseable {
     private static final long FONT_TEXTURE = 7L;
     private static final int HOST_FLAGS = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground
             | ImGuiWindowFlags.NoSavedSettings;
+    /** A pop-out keeps its title bar, as a framed pop-out does, but is placed by the test. */
+    private static final int POP_OUT_FLAGS = ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoCollapse;
     /** The vertical item spacing the drawer pushes around the script-UI child (ConfigInspector). */
     static final float DRAWER_ITEM_SPACING_Y = 6f;
 
@@ -53,14 +55,39 @@ final class HeadlessHost implements AutoCloseable {
 
     /** One host frame: {@code body} runs inside the host's top-level window. Returns the frame's draw data. */
     ImDrawData frame(Runnable body) {
+        return frame(body, () -> { }, () -> { });
+    }
+
+    /**
+     * One host frame as the shell runs it: {@code body} inside the host's
+     * top-level window, then {@code windows} at the top level, where the host
+     * opens its other windows (a popped-out script UI is one), then
+     * {@code endOfFrame} once everything is drawn and before Dear ImGui ends
+     * the frame, where the host calls {@code ScriptUiRenderer.endFrame()}.
+     */
+    ImDrawData frame(Runnable body, Runnable windows, Runnable endOfFrame) {
         ImGui.newFrame();
         ImGui.setNextWindowPos(0f, 0f);
         ImGui.setNextWindowSize(WIDTH, HEIGHT);
         ImGui.begin("host", HOST_FLAGS);
         body.run();
         ImGui.end();
+        windows.run();
+        endOfFrame.run();
         ImGui.render();
         return ImGui.getDrawData();
+    }
+
+    /**
+     * A top-level window of its own at ({@code x}, {@code y}), the way a
+     * popped-out script UI is one, with {@code inside} drawn in it.
+     */
+    static void window(String title, float x, float y, float width, float height, Runnable inside) {
+        ImGui.setNextWindowPos(x, y);
+        ImGui.setNextWindowSize(width, height);
+        ImGui.begin(title, POP_OUT_FLAGS);
+        inside.run();
+        ImGui.end();
     }
 
     /**

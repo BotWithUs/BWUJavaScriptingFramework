@@ -146,7 +146,18 @@ final class ScriptUiSandbox {
         ImGui.end();
         ImGui.render();
         return new FrameOutcome.Drawn(DrawCopy.capture(ImGui.getDrawData()), ImGui.getMouseCursor(),
-                io.getWantTextInput() || io.getWantCaptureKeyboard(), isBackgroundPress, drawsOwnChrome);
+                wantsKeyboard(io), isBackgroundPress, drawsOwnChrome);
+    }
+
+    /**
+     * A text field is taking typing, or one of the script's items is active.
+     * Deliberately not {@code WantCaptureKeyboard}: with keyboard navigation on,
+     * that stays true for as long as the root window has focus, which is from
+     * the first press on it onwards, and the host would then hold the
+     * keyboard, and with it every other item, for good.
+     */
+    private static boolean wantsKeyboard(ImGuiIO io) {
+        return io.getWantTextInput() || ImGui.isAnyItemActive();
     }
 
     /**

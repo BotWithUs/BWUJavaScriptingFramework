@@ -18,7 +18,7 @@ import java.util.BitSet;
  * @param deltaTime   seconds since the host's last frame, never zero
  * @param fontPtr     the host's current font, from the shared atlas
  * @param fontScale   the host's global font scale
- * @param pointer     the mouse, or {@link Pointer#AWAY} when it is not the panel's
+ * @param pointer     the mouse, or {@link Pointer#away} when it is not the panel's
  * @param keyboard    the keyboard, or {@link Keyboard#NONE} when the panel lacks focus
  * @param style       the host's style at the panel
  */
@@ -58,10 +58,15 @@ record FrameInput(float width, float height, float deltaTime, long fontPtr, floa
         private static final int BUTTONS = 5;
 
         /** The mouse is elsewhere: no position, every button up. */
-        static final Pointer AWAY = new Pointer(NO_POSITION, NO_POSITION, new boolean[BUTTONS], 0f, 0f);
+        static final Pointer AWAY = away(new boolean[BUTTONS]);
 
         Pointer {
             buttons = buttons.clone();
+        }
+
+        /** The mouse is elsewhere, with {@code buttons} down: no position, and no wheel. */
+        static Pointer away(boolean[] buttons) {
+            return new Pointer(NO_POSITION, NO_POSITION, buttons, 0f, 0f);
         }
 
         /** How many buttons Dear ImGui tracks ({@code ImGuiMouseButton_COUNT}). */
