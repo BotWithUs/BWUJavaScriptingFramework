@@ -8,7 +8,7 @@ sealed interface FrameOutcome {
      *
      * @param draw          what it drew, ready to composite into the host
      * @param mouseCursor   the cursor the UI asked for ({@code ImGuiMouseCursor})
-     * @param wantsKeyboard the UI has keyboard focus, e.g. a text field is active
+     * @param wantsKeyboard a text field of the UI's is taking typing, or one of its items is active
      * @param isBackgroundPress the left button went down this frame over the UI's own
      *                      windows but on none of its items: a press the host may
      *                      take for itself, to move a frameless window

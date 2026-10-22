@@ -17,9 +17,13 @@ import java.util.BitSet;
  * @param originY screen position of the panel's top-left corner
  * @param itemId  the invisible button's id, for {@link HostFocus}
  * @param isOver  the mouse is the panel's: hovering it, or holding a press that started on it
+ * @param isPressed the input item is active from a press of its own this frame
+ * @param isPressElsewhere a mouse button went down this frame and the panel is not
+ *                  hovered: the press is the host's, on a host item or window
  * @param isFocused the panel's window has keyboard focus
  */
-record PanelInput(float originX, float originY, int itemId, boolean isOver, boolean isFocused) {
+record PanelInput(float originX, float originY, int itemId, boolean isOver, boolean isPressed,
+                  boolean isPressElsewhere, boolean isFocused) {
 
     private static final String INPUT_ID = "##script-ui-input";
     private static final int BUTTONS = ImGuiButtonFlags.MouseButtonLeft | ImGuiButtonFlags.MouseButtonRight
@@ -32,14 +36,21 @@ record PanelInput(float originX, float originY, int itemId, boolean isOver, bool
         float x = ImGui.getCursorScreenPosX();
         float y = ImGui.getCursorScreenPosY();
         ImGui.invisibleButton(INPUT_ID, width, height, BUTTONS);
+        boolean isHovered = ImGui.isItemHovered();
         boolean isHeld = ImGui.isItemActive() && isAnyButtonDown();
-        return new PanelInput(x, y, ImGui.getItemID(), ImGui.isItemHovered() || isHeld, ImGui.isWindowFocused());
+        return new PanelInput(x, y, ImGui.getItemID(), isHovered || isHeld, isHeld,
+                isAnyButtonClicked() && !isHovered, ImGui.isWindowFocused());
     }
 
-    /** This frame's input for the sandbox, sized {@code width} x {@code height}. */
-    FrameInput frame(float width, float height, TypedChars typed, StyleSnapshot style) {
+    /**
+     * This frame's input for the sandbox, sized {@code width} x {@code height}.
+     *
+     * @param isFocusLost the panel had keyboard focus last frame and has lost it:
+     *        the sandbox drops its own focus too
+     */
+    FrameInput frame(float width, float height, TypedChars typed, StyleSnapshot style, boolean isFocusLost) {
         ImGuiIO io = ImGui.getIO();
-        return input(io, width, height, pointer(io), keyboard(io, typed), style);
+        return input(io, width, height, pointer(io), keyboard(io, typed, isFocusLost), style);
     }
 
     /**
@@ -57,21 +68,27 @@ record PanelInput(float originX, float originY, int itemId, boolean isOver, bool
                 io.getFontGlobalScale(), pointer, keyboard, style);
     }
 
+    /**
+     * The mouse over the panel, or, when it is elsewhere, no position but the
+     * buttons as they are: a press elsewhere in the host is then a press on
+     * nothing to the script's UI, which ends its typing and closes its popups,
+     * as a press elsewhere did before script UIs had a context of their own.
+     */
     private FrameInput.Pointer pointer(ImGuiIO io) {
-        if (!isOver) {
-            return FrameInput.Pointer.AWAY;
-        }
         boolean[] buttons = new boolean[FrameInput.Pointer.buttonCount()];
         for (int button = 0; button < buttons.length; button++) {
             buttons[button] = io.getMouseDown(button);
+        }
+        if (!isOver) {
+            return FrameInput.Pointer.away(buttons);
         }
         return new FrameInput.Pointer(io.getMousePosX() - originX, io.getMousePosY() - originY, buttons,
                 io.getMouseWheelH(), io.getMouseWheel());
     }
 
-    private FrameInput.Keyboard keyboard(ImGuiIO io, TypedChars typed) {
+    private FrameInput.Keyboard keyboard(ImGuiIO io, TypedChars typed, boolean isFocusLost) {
         if (!isFocused) {
-            return FrameInput.Keyboard.NONE;
+            return isFocusLost ? FrameInput.Keyboard.FOCUS_LOST : FrameInput.Keyboard.NONE;
         }
         BitSet down = new BitSet();
         for (int key = FrameInput.FIRST_KEY; key < FrameInput.END_KEY; key++) {
@@ -79,7 +96,16 @@ record PanelInput(float originX, float originY, int itemId, boolean isOver, bool
         }
         int mods = (io.getKeyCtrl() ? ImGuiKey.ImGuiMod_Ctrl : 0) | (io.getKeyShift() ? ImGuiKey.ImGuiMod_Shift : 0)
                 | (io.getKeyAlt() ? ImGuiKey.ImGuiMod_Alt : 0) | (io.getKeySuper() ? ImGuiKey.ImGuiMod_Super : 0);
-        return new FrameInput.Keyboard(down, mods, typed.take());
+        return new FrameInput.Keyboard(down, mods, typed.take(), false);
+    }
+
+    private static boolean isAnyButtonClicked() {
+        for (int button = 0; button < FrameInput.Pointer.buttonCount(); button++) {
+            if (ImGui.isMouseClicked(button)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isAnyButtonDown() {

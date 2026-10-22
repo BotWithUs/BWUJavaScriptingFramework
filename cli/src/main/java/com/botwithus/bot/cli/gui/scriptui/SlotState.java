@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.gui.scriptui;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.Supplier;
 
 /**
@@ -16,6 +17,9 @@ import java.util.function.Supplier;
  */
 final class SlotState {
 
+    /** Dear ImGui's id for no item. */
+    private static final int NOT_HELD = 0;
+
     private final int maxFailures;
     private ScriptUiSandbox sandbox;
     private Instant startedAt;
@@ -23,6 +27,10 @@ final class SlotState {
     private ImGuiAssertion lastFailure;
     private boolean isStopped;
     private boolean wantsKeyboard;
+    /** The panel had keyboard focus in its last sandboxed frame. */
+    private boolean wasFocused;
+    /** The panel item held for the host this frame ({@link HostFocus}), or {@link #NOT_HELD}. */
+    private int heldItemId = NOT_HELD;
     private boolean hasChromeAnswer;
     private boolean drawsOwnChrome;
     private int lastFrame;
@@ -90,12 +98,42 @@ final class SlotState {
         return Optional.ofNullable(lastFailure);
     }
 
+    /** Notes that {@code itemId} is held for the host until the frame ends. */
+    void held(int itemId) {
+        heldItemId = itemId;
+    }
+
+    /** The item held this frame, if any, which is no longer held once taken. */
+    OptionalInt takeHeld() {
+        int itemId = heldItemId;
+        heldItemId = NOT_HELD;
+        return itemId == NOT_HELD ? OptionalInt.empty() : OptionalInt.of(itemId);
+    }
+
     boolean wantsKeyboard() {
         return wantsKeyboard;
     }
 
     void wantsKeyboard(boolean wants) {
         wantsKeyboard = wants;
+    }
+
+    /**
+     * Notes whether the panel has keyboard focus this frame.
+     *
+     * @return true when it had focus last frame and has lost it
+     */
+    boolean isFocusLost(boolean isFocused) {
+        boolean isLost = wasFocused && !isFocused;
+        wasFocused = isFocused;
+        return isLost;
+    }
+
+    /** Once per host frame, at its end: a panel not drawn on {@code frame} is not typing. */
+    void endFrame(int frame) {
+        if (frame != lastFrame) {
+            wantsKeyboard = false;
+        }
     }
 
     /** True once the UI has answered {@code drawsOwnChrome()} in a sandboxed frame. */

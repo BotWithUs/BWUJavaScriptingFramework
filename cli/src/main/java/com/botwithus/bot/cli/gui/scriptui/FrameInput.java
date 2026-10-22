@@ -18,7 +18,7 @@ import java.util.BitSet;
  * @param deltaTime   seconds since the host's last frame, never zero
  * @param fontPtr     the host's current font, from the shared atlas
  * @param fontScale   the host's global font scale
- * @param pointer     the mouse, or {@link Pointer#AWAY} when it is not the panel's
+ * @param pointer     the mouse, or {@link Pointer#away} when it is not the panel's
  * @param keyboard    the keyboard, or {@link Keyboard#NONE} when the panel lacks focus
  * @param style       the host's style at the panel
  */
@@ -58,10 +58,15 @@ record FrameInput(float width, float height, float deltaTime, long fontPtr, floa
         private static final int BUTTONS = 5;
 
         /** The mouse is elsewhere: no position, every button up. */
-        static final Pointer AWAY = new Pointer(NO_POSITION, NO_POSITION, new boolean[BUTTONS], 0f, 0f);
+        static final Pointer AWAY = away(new boolean[BUTTONS]);
 
         Pointer {
             buttons = buttons.clone();
+        }
+
+        /** The mouse is elsewhere, with {@code buttons} down: no position, and no wheel. */
+        static Pointer away(boolean[] buttons) {
+            return new Pointer(NO_POSITION, NO_POSITION, buttons, 0f, 0f);
         }
 
         /** How many buttons Dear ImGui tracks ({@code ImGuiMouseButton_COUNT}). */
@@ -88,15 +93,19 @@ record FrameInput(float width, float height, float deltaTime, long fontPtr, floa
      * @param keysDown bit {@code key - FIRST_KEY} set for each keyboard key down
      * @param mods     {@code ImGuiKey.ImGuiMod_*} bits down
      * @param chars    characters typed this frame, as code points
+     * @param isFocusLost the panel lost keyboard focus since the last frame:
+     *                 nothing in the sandbox keeps it either
      */
-    record Keyboard(BitSet keysDown, int mods, int[] chars) {
+    record Keyboard(BitSet keysDown, int mods, int[] chars, boolean isFocusLost) {
 
         private static final int[] MODS = {
             ImGuiKey.ImGuiMod_Ctrl, ImGuiKey.ImGuiMod_Shift, ImGuiKey.ImGuiMod_Alt, ImGuiKey.ImGuiMod_Super,
         };
 
         /** Nothing down, nothing typed. */
-        static final Keyboard NONE = new Keyboard(new BitSet(), 0, new int[0]);
+        static final Keyboard NONE = new Keyboard(new BitSet(), 0, new int[0], false);
+        /** {@link #NONE}, on the frame the panel loses keyboard focus. */
+        static final Keyboard FOCUS_LOST = new Keyboard(new BitSet(), 0, new int[0], true);
 
         Keyboard {
             BitSet copy = new BitSet();
