@@ -358,16 +358,7 @@ class ScriptUiRendererTest {
     @Test
     void aPressOutsideThePanel_closesAPopupTheScriptOpened() {
         AtomicBoolean isPopupOpen = new AtomicBoolean();
-        ScriptUI ui = () -> {
-            if (ImGui.button("Open")) {
-                ImGui.openPopup("menu");
-            }
-            isPopupOpen.set(ImGui.beginPopup("menu"));
-            if (isPopupOpen.get()) {
-                ImGui.text("item");
-                ImGui.endPopup();
-            }
-        };
+        ScriptUI ui = popupOpener(isPopupOpen);
         Runnable frame = () -> hostFrame(ui, () -> { });
 
         click(FIRST_WIDGET_X, FIRST_WIDGET_Y, frame);
@@ -378,6 +369,27 @@ class ScriptUiRendererTest {
         idle(frame);
 
         assertFalse(isPopupOpen.get(), "a press elsewhere in the host closes the script's popup, as unsandboxed");
+    }
+
+    /**
+     * A right press closes Dear ImGui's popups without moving focus, so the
+     * panel keeps focus and only the host's buttons on the away pointer can
+     * tell the script that a press happened elsewhere.
+     */
+    @Test
+    void aRightPressOutsideThePanel_closesAPopupTheScriptOpened_thoughTheFocusStays() {
+        AtomicBoolean isPopupOpen = new AtomicBoolean();
+        ScriptUI ui = popupOpener(isPopupOpen);
+        Runnable frame = () -> hostFrame(ui, () -> { });
+
+        click(FIRST_WIDGET_X, FIRST_WIDGET_Y, frame);
+        idle(frame);
+        assertTrue(isPopupOpen.get(), "the script's button opens its popup");
+
+        click(ON_HOST_BUTTON_X, ON_HOST_BUTTON_Y, ImGuiMouseButton.Right, frame);
+        idle(frame);
+
+        assertFalse(isPopupOpen.get(), "a right press elsewhere closes the script's popup, as unsandboxed");
     }
 
     @Test
@@ -498,14 +510,32 @@ class ScriptUiRendererTest {
      * panel first appears, and Dear ImGui hovers windows from the frame before.
      */
     private static void click(float x, float y, Runnable frame) {
-        mouse(x, y, false);
+        click(x, y, ImGuiMouseButton.Left, frame);
+    }
+
+    private static void click(float x, float y, int button, Runnable frame) {
+        mouse(x, y, button, false);
         frame.run();
-        mouse(x, y, false);
+        mouse(x, y, button, false);
         frame.run();
-        mouse(x, y, true);
+        mouse(x, y, button, true);
         frame.run();
-        mouse(x, y, false);
+        mouse(x, y, button, false);
         frame.run();
+    }
+
+    /** A button that opens a popup, and reports each frame whether the popup is open. */
+    private static ScriptUI popupOpener(AtomicBoolean isPopupOpen) {
+        return () -> {
+            if (ImGui.button("Open")) {
+                ImGui.openPopup("menu");
+            }
+            isPopupOpen.set(ImGui.beginPopup("menu"));
+            if (isPopupOpen.get()) {
+                ImGui.text("item");
+                ImGui.endPopup();
+            }
+        };
     }
 
     private static void idle(Runnable frame) {
@@ -522,9 +552,13 @@ class ScriptUiRendererTest {
     }
 
     private static void mouse(float x, float y, boolean isDown) {
+        mouse(x, y, ImGuiMouseButton.Left, isDown);
+    }
+
+    private static void mouse(float x, float y, int button, boolean isDown) {
         ImGuiIO io = ImGui.getIO();
         io.addMousePosEvent(x, y);
-        io.addMouseButtonEvent(ImGuiMouseButton.Left, isDown);
+        io.addMouseButtonEvent(button, isDown);
     }
 
     private SlotState state() {
