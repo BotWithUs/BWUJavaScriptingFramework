@@ -150,6 +150,7 @@ Pure interface module (sole runtime dependency: `slf4j-api`, exposed transitivel
 - **`script/`** — `ManagementScript` SPI (cross-client orchestration), `ScriptManager`, `ScriptScheduler`, `TaskScript`, `ClientOrchestrator`.
 - **`ui/ScriptUI`** — Hook for scripts to render their own ImGui tab.
 - **`config/`** — `ConfigField` + `ScriptConfig` for runtime-editable, persisted script parameters.
+- **`voice/`** — `VoiceInput` (reached through `ScriptContext.getVoiceInput()`): offline speech recognition constrained to a phrase list, for voice-controlled script UIs. One host-wide recogniser; a new `listen` replaces the previous grammar. Parsing phrases into actions is the script's job.
 
 ### core (`com.botwithus.bot.core`)
 
@@ -168,6 +169,7 @@ Runtime, transports, RPC, script discovery, native bridges:
 - **`resolver/`** — Maven-coordinate script installer: discovers versions via `maven-metadata.xml`, fetches JAR + `.sha1`/`.sha256`/`.asc` sidecars, optional PGP verification, writes to `scripts/`, tracks installs in `~/.botwithus/installed-scripts.json`. Repository drivers are plugged in via `RepositoryDriver` ServiceLoader SPI.
 - **`crypto/`** — `SdnLoader` reflects into a JVM-injected `jdk.internal.sdn.SdnClassLoader` for signed scripts (see *Java rules exceptions* below).
 - **`cache/`** — Lazy NXT cache reader for cache-resident asset queries.
+- **`voice/`** — `VoiceInputService`, the host's `VoiceInput` over the speech engine Windows ships (SAPI 5.4, in-process recogniser), bound through FFM COM vtable calls (`Com`, with every slot, GUID and struct layout cited to `sapi.h` in `Sapi`). Off until the first `listen`; the engine and microphone are released when no session is open. `ScopedVoiceInput` closes a script's sessions when it stops. `SapiVoiceLiveTest` (harness) runs the native path against TTS-rendered WAVs; `:core:voiceDemo` listens on the real microphone.
 
 ### cli (`com.botwithus.bot.cli`)
 
@@ -357,7 +359,7 @@ Intentionally violated rule:
 
 ### Script runner threads are **platform** threads, not virtual
 
-`ScriptRunner.start()` and `ManagementScriptRunner.start()` use `Thread.ofPlatform()`, and `RpcClient.start()` does the same for `rpc-reader`. Each site carries a `// rule-exception:` comment pointing here.
+`ScriptRunner.start()` and `ManagementScriptRunner.start()` use `Thread.ofPlatform()`, and `RpcClient.start()` does the same for `rpc-reader`. `VoiceInputService` uses two more: `voice-callback` runs script callbacks (untrusted code, same reasoning), and `voice-engine` holds a COM apartment, which is bound to an OS thread and so cannot live on a virtual thread at all. Each site carries a `// rule-exception:` comment pointing here.
 
 Intentionally violated rule:
 

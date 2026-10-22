@@ -700,6 +700,7 @@ public class ImGuiApp extends Application {
         ctx.saveClients();
         ctx.stopAlerts();
         ctx.closeGamevals();
+        ctx.closeVoice();
         if (catalogueTicker != null) {
             catalogueTicker.shutdownNow();
         }

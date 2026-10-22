@@ -95,6 +95,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private volatile ScriptGate scriptGate;
     private volatile Runnable eventUnsubscriber;
     private volatile Runnable messageUnsubscriber;
+    private volatile Runnable voiceReleaser;
     private volatile Runnable watchdogArmer;
     private volatile RunnerListener runnerListener = RunnerListener.NONE;
     private volatile Supplier<RunLogging> runLogging = RunLogging::fileLess;
@@ -165,6 +166,15 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
      */
     public void setMessageUnsubscriber(Runnable messageUnsubscriber) {
         this.messageUnsubscriber = messageUnsubscriber;
+    }
+
+    /**
+     * Installs the hook that closes this script's voice sessions when it stops.
+     * Set by {@link ScriptRuntime#registerScript} to the per-script
+     * {@code ScopedVoiceInput}; null in test seams.
+     */
+    public void setVoiceReleaser(Runnable voiceReleaser) {
+        this.voiceReleaser = voiceReleaser;
     }
 
     public void setErrorHandler(ErrorHandler errorHandler) {
@@ -746,16 +756,17 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     }
 
     /**
-     * Hands this script's event and ISC subscriptions back, before anything else
-     * is released. Both buses hold handlers the script registered, and a handler
-     * left registered keeps running — and can keep driving the game — long after
-     * the script that registered it has stopped: {@code EventBusImpl} dispatches
-     * inline on the event-pump thread, and {@code MessageBusImpl} on a virtual
-     * thread of its own.
+     * Hands this script's event and ISC subscriptions and voice sessions back,
+     * before anything else is released. Each holds handlers the script registered,
+     * and a handler left registered keeps running — and can keep driving the game —
+     * long after the script that registered it has stopped: {@code EventBusImpl}
+     * dispatches inline on the event-pump thread, {@code MessageBusImpl} on a
+     * virtual thread of its own, and the voice input on its callback thread.
      */
     private void releaseSubscriptions(String name) {
         release(this.eventUnsubscriber, "Event", name);
         release(this.messageUnsubscriber, "ISC", name);
+        release(this.voiceReleaser, "Voice", name);
     }
 
     private void release(Runnable unsubscriber, String kind, String name) {

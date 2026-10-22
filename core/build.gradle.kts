@@ -386,3 +386,14 @@ tasks.register<JavaExec>("launcherFullPipe") {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
     System.getProperty(DEV_SCOPE_PROPERTY)?.let { systemProperty(DEV_SCOPE_PROPERTY, it) }
 }
+
+// A manual check of voice input on a real microphone (Windows): prints each of
+// "hello bot" / "stop" it hears from the default recording device, until "stop".
+//   ./gradlew :core:voiceDemo [--args="<seconds>"]
+tasks.register<JavaExec>("voiceDemo") {
+    description = "Listen on the default microphone for \"hello bot\" / \"stop\" and print what is heard"
+    group = "verification"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass = "com.botwithus.bot.core.voice.VoiceListenDemo"
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
