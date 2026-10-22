@@ -11,6 +11,7 @@ import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.runlog.AgentIdentity;
 import com.botwithus.bot.core.runlog.KnownNames;
 import com.botwithus.bot.core.runlog.RunLogs;
+import com.botwithus.bot.core.voice.ScopedVoiceInput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -332,6 +333,9 @@ public class ScriptRuntime {
             if (scoped.messages() != null) {
                 runner.setMessageUnsubscriber(scoped.messages()::unsubscribeAll);
             }
+            if (scoped.voice() != null) {
+                runner.setVoiceReleaser(scoped.voice()::closeAll);
+            }
             runner.setWatchdogArmer(this::ensureWatchdog);
             if (connectionName != null) {
                 runner.setConnectionName(connectionName);
@@ -352,13 +356,13 @@ public class ScriptRuntime {
     }
 
     /**
-     * A per-script context together with the two scoped buses inside it. They are
-     * carried out separately so the runner can be handed their
-     * {@code unsubscribeAll} hooks without re-testing the context's shape; both
-     * are null when the context isn't scopable (test mocks).
+     * A per-script context together with the two scoped buses and the scoped voice
+     * input inside it. They are carried out separately so the runner can be handed
+     * their release hooks without re-testing the context's shape; all three are
+     * null when the context isn't scopable (test mocks).
      */
     private record ScopedContext(ScriptContext context, ScopedEventBus bus,
-                                 ScopedMessageBus messages) {}
+                                 ScopedMessageBus messages, ScopedVoiceInput voice) {}
 
     /**
      * Builds a per-script {@link ScriptContext}: its own {@link ScopedEventBus}
@@ -371,13 +375,14 @@ public class ScriptRuntime {
         // is an interface so callers can substitute mocks (see test-support); only the
         // production ScriptContextImpl carries the with-publisher / with-bus hooks.
         if (!(context instanceof ScriptContextImpl impl)) {
-            return new ScopedContext(context, null, null);
+            return new ScopedContext(context, null, null, null);
         }
         // Always scope both buses, publisher factory or not: they are what let
         // cleanup take back the script's subscriptions, and a script whose
         // listeners or ISC handlers outlive it keeps acting on the game after Stop.
         ScopedEventBus bus = new ScopedEventBus(impl.getEventBus());
         ScopedMessageBus messages = new ScopedMessageBus(impl.getMessageBus());
+        ScopedVoiceInput voice = new ScopedVoiceInput(impl.getVoiceInput());
         String name = resolveScriptName(script);
         // Bound straight to the runner's own liveness state, which is created
         // here and handed to the runner below. isStopRequested() is documented
@@ -395,16 +400,17 @@ public class ScriptRuntime {
         ScriptContextImpl scoped = impl.withEventBus(bus)
                 .withScriptMessageBus(messages, name)
                 .withStopSignal(liveness::isStopRequested)
-                .withStopCallback(() -> stopOwnRun(name, liveness));
+                .withStopCallback(() -> stopOwnRun(name, liveness))
+                .withVoiceInput(voice);
         Function<String, ScriptContextPublisher> factory = this.publisherFactory;
         if (factory == null) {
-            return new ScopedContext(scoped, bus, messages);
+            return new ScopedContext(scoped, bus, messages, voice);
         }
         ScriptContextPublisher publisher = factory.apply(name);
         if (publisher == null || publisher == ScriptContextPublisher.NOOP) {
-            return new ScopedContext(scoped, bus, messages);
+            return new ScopedContext(scoped, bus, messages, voice);
         }
-        return new ScopedContext(scoped.withScriptContext(publisher), bus, messages);
+        return new ScopedContext(scoped.withScriptContext(publisher), bus, messages, voice);
     }
 
     private static String resolveScriptName(BotScript script) {

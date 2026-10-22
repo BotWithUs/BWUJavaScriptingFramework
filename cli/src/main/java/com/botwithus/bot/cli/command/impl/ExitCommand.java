@@ -20,6 +20,7 @@ public class ExitCommand implements Command {
         ctx.saveClients();
         ctx.stopAlerts();
         ctx.closeGamevals();
+        ctx.closeVoice();
         System.exit(0);
     }
 }
