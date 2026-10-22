@@ -78,6 +78,12 @@ final class ScriptUiWindows {
     private final BackgroundDrag drag = new BackgroundDrag();
     /** Set this frame when a frameless pop-out's OS window is still to be created. */
     private boolean isTransparentWindowDue;
+    /**
+     * The transparent-framebuffer hint as last sent to GLFW. It starts as
+     * GLFW's own default, off, so the hint is sent only when it changes: a
+     * frame with no frameless pop-out to create calls into GLFW not at all.
+     */
+    private boolean isTransparentRequested;
 
     ScriptUiWindows(Controls ui, InspectorState state, InspectorSource source, ScriptUiRenderer scriptUis) {
         this.ui = ui;
@@ -93,7 +99,10 @@ final class ScriptUiWindows {
         for (InspectorTarget target : state.poppedOut(source)) {
             renderWindow(target);
         }
-        requestTransparentWindows(isTransparentWindowDue);
+        if (isTransparentWindowDue != isTransparentRequested) {
+            requestTransparentWindows(isTransparentWindowDue);
+            isTransparentRequested = isTransparentWindowDue;
+        }
     }
 
     /** One pop-out: its own OS window, which brings the UI back into the drawer when it is closed. */
