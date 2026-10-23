@@ -1,6 +1,5 @@
 package com.botwithus.bot.core.launcher;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -14,14 +13,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The typed SDN fields decoded from the launcher's own golden fixtures, so the
  * field paths in {@link SdnWire} are held to what the launcher actually sends.
  *
- * <p>Disabled until the fixtures exist in the vendored copy: the launcher adds
- * them with its typed-reasons change ({@code sdn.bundle.req.msgpack} with
- * {@code allowPartial}, {@code sdn.bundle.req.legacy.msgpack} without it,
- * {@code sdn.bundle.resp.partial.msgpack}, {@code sdn.bundle.error.not_delivered.msgpack}),
- * and this directory is re-vendored from that merge. Chunk errors stay an untyped
- * {@code sdn_not_delivered}. Remove {@link Disabled} when re-vendoring.
+ * <p>The fixtures are vendored from the launcher's merge that added typed SDN
+ * reasons: {@code sdn.bundle.req} (with {@code allowPartial}),
+ * {@code sdn.bundle.req.legacy} (without it, which this host never sends),
+ * {@code sdn.bundle.resp.partial} and {@code sdn.bundle.error.not_delivered}. Chunk
+ * errors stay an untyped {@code sdn_not_delivered}.
  */
-@Disabled("pending re-vendoring from the launcher merge that adds the typed SDN fixtures")
 class LauncherSdnFixturesTest {
 
     /** The launcher's manifest names; each is its file name less {@code .msgpack}. */
