@@ -1,6 +1,8 @@
 package com.botwithus.bot.core.crypto;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * One courier delivery after its jars were handed to the runtime: a loader for
@@ -13,11 +15,24 @@ import java.util.List;
  *
  * @param jarCount how many jars the delivery carried, defined or not
  * @param jars     one entry per jar that defined, in delivery order
+ * @param refusal  the courier's reason code when it answered "no" instead of a
+ *                 bundle; empty otherwise
  */
-public record DefinedBundle(int jarCount, List<Jar> jars) {
+public record DefinedBundle(int jarCount, List<Jar> jars, Optional<String> refusal) {
 
     public DefinedBundle {
         jars = List.copyOf(jars);
+        Objects.requireNonNull(refusal, "refusal");
+    }
+
+    /** A delivery that arrived, as defined. */
+    public DefinedBundle(int jarCount, List<Jar> jars) {
+        this(jarCount, jars, Optional.empty());
+    }
+
+    /** The courier answered "no" for {@code reason} instead of delivering. */
+    public static DefinedBundle refused(String reason) {
+        return new DefinedBundle(0, List.of(), Optional.of(reason));
     }
 
     /** A delivery that never arrived, or could not be read. */

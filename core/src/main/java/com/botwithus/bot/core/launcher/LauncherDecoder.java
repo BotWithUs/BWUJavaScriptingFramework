@@ -36,7 +36,7 @@ final class LauncherDecoder {
     static SdnBundleOffer sdnBundleOffer(Value body) {
         return new SdnBundleOffer(WireValues.integer(body, "deliveryId", 0L), WireValues.integer(body, "size", 0L),
                 WireValues.binary(body, "sha256").orElseGet(() -> new byte[0]),
-                WireValues.integer(body, "chunkSize", 0L));
+                WireValues.integer(body, "chunkSize", 0L), SdnWire.delivered(body), SdnWire.failed(body));
     }
 
     /** @return {@code sdn.bundle_chunk}'s bytes; empty when absent, which the download refuses */

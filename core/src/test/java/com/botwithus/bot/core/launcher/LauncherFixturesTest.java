@@ -46,10 +46,12 @@ class LauncherFixturesTest {
      * Automation requests this host never sends. {@code hello.req} is the GUI's hello
      * ({@code clientKind:"gui"}). {@code hello.req.host.agentproto} is the native host's hello
      * ({@code hostKind:"native"}, with the optional {@code agentProtocol}). This host sends
-     * {@code hello.req.host}.
+     * {@code hello.req.host}. {@code sdn.bundle.req.legacy} is {@code sdn.bundle} without
+     * {@code allowPartial}, which this host never sends; it is vendored for launchers that
+     * still have to accept it.
      */
     private static final Set<String> NOT_SENT_BY_THIS_HOST =
-            Set.of("hello.req", "hello.req.host.agentproto");
+            Set.of("hello.req", "hello.req.host.agentproto", "sdn.bundle.req.legacy");
 
     @TestFactory
     Stream<DynamicTest> everyFixture_unpackThenRepack_isByteIdentical() {

@@ -227,8 +227,8 @@ final class LiveSubscriptions {
             case SdnInstallResult.DeliveryDisabled ignored -> fail(entry,
                     "This host was not started by the launcher, so it cannot install scripts. "
                             + "Start it from the BotWithUs launcher.");
-            case SdnInstallResult.CourierUnavailable ignored -> fail(entry,
-                    "The launcher did not deliver the script. Check it is still running, then try again.");
+            case SdnInstallResult.CourierUnavailable none -> fail(entry, none.text());
+            case SdnInstallResult.Refused refused -> fail(entry, refused.text());
             case SdnInstallResult.Failed failed -> fail(entry, failed.reason());
         }
     }

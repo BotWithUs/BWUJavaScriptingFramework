@@ -80,8 +80,61 @@ public sealed interface SdnInstallResult {
     record DeliveryDisabled() implements SdnInstallResult {
     }
 
-    /** The launcher never delivered the scripts — usually because it is not running. */
-    record CourierUnavailable() implements SdnInstallResult {
+    /** Why no launcher answer came. */
+    enum NoAnswer {
+        /** This host has no connection to the launcher. */
+        NOT_CONNECTED,
+        /** The launcher was connected but did not answer in time. */
+        TIMED_OUT,
+        /** The file route waited its whole timeout and nothing came. */
+        FILE_ROUTE_SILENT
+    }
+
+    /**
+     * The launcher never delivered the scripts, and never said why.
+     *
+     * @param why which kind of silence it was, which decides what the user is told
+     */
+    record CourierUnavailable(NoAnswer why) implements SdnInstallResult {
+
+        public CourierUnavailable {
+            Objects.requireNonNull(why, "why");
+        }
+
+        /** The file route's silence, the one cause before the launcher's pipe existed. */
+        public CourierUnavailable() {
+            this(NoAnswer.FILE_ROUTE_SILENT);
+        }
+
+        /** What the user is told. */
+        public String text() {
+            return switch (why) {
+                case NOT_CONNECTED -> SdnReasonText.NOT_CONNECTED_TEXT;
+                case TIMED_OUT -> SdnReasonText.TIMED_OUT_TEXT;
+                case FILE_ROUTE_SILENT -> SdnReasonText.FILE_ROUTE_SILENT_TEXT;
+            };
+        }
+    }
+
+    /**
+     * The launcher answered that it would not deliver, and nothing was delivered.
+     *
+     * @param refusals one per script it named, or a single one with no entry id when
+     *                 it named none; never empty
+     */
+    record Refused(List<ScriptRefusal> refusals) implements SdnInstallResult {
+
+        public Refused {
+            refusals = List.copyOf(refusals);
+            if (refusals.isEmpty()) {
+                throw new IllegalArgumentException("a refusal says at least one thing");
+            }
+        }
+
+        /** What the user is told: the first refusal's text. */
+        public String text() {
+            return refusals.getFirst().text();
+        }
     }
 
     /** Anything else that went wrong while requesting or loading. */

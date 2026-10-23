@@ -18,6 +18,7 @@ import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
+import com.botwithus.bot.core.sdn.SdnReasonText;
 import com.botwithus.bot.core.sdn.StoreCopies;
 
 import org.junit.jupiter.api.AfterEach;
@@ -583,6 +584,20 @@ class LiveStoreModelTest {
             assertTrue(assertInstanceOf(InstallActivity.Failed.class, after.install()).message()
                     .contains("com/example/Missing"));
             assertTrue(after.find("one").orElseThrow().isInstallable());
+        }
+
+        /** The old text told the user to check a launcher that was running; this one says what is true. */
+        @Test
+        void noLauncherConnection_saysSo_ratherThanAskingIfItIsRunning() {
+            launcherInstall = entries -> new SdnInstallResult.CourierUnavailable(
+                    SdnInstallResult.NoAnswer.NOT_CONNECTED);
+            LiveStoreModel model = model();
+
+            model.install(List.of("one"));
+            runDeferredInstalls();
+
+            assertEquals(SdnReasonText.NOT_CONNECTED_TEXT, assertInstanceOf(InstallActivity.Failed.class,
+                    model.view(StoreQuery.DEFAULT).install()).message());
         }
 
         @Test

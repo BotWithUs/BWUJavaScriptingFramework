@@ -1,17 +1,17 @@
 # Vendored: launcher protocol golden fixtures (automation surface)
 
 Source: `BotWithUs/BotWithUs-Launcher`, directory `protocol/fixtures/`, at commit
-`be62f173038fa6c4b7959e475f236c78468b3c93` (the merge of PR #53, the B1 Store-bundle
-amendment; launcher ADR 0007, section 3.3).
+`d07115099eaa9fdd8443fce51c98e21afa8f8525` (launcher `dev` after PRs #62-#67: typed SDN reasons, partial
+delivery and the legacy-request notice; launcher ADR 0007, section 3.3).
 
 **Only the automation-surface fixtures are vendored; the full surface stays in
 the private launcher repository.** A host speaks only the automation pipe, so
 the fixtures copied are those whose manifest `surface` includes `"automation"`:
-80 of 143.
+84 of 147.
 
 - Every `.msgpack` file is a byte-exact copy of the upstream file.
 - `manifest.json` is **derived**: the upstream manifest (blob
-  `229670346492e8d4dcb91ca17944e1d40a3f758f`) with only those entries kept, in upstream order,
+  `16bcbd3a4257e2d555a8aaa9c1e17ea49dd53f02`) with only those entries kept, in upstream order,
   values unchanged. It is not byte-identical to upstream.
 
 **Do not hand-edit.** A protocol change lands in the launcher first; this
@@ -30,7 +30,7 @@ Checks:
 
 `.gitattributes` here marks everything `-text`, so no checkout converts a line ending.
 
-## Blob ids at be62f17
+## Blob ids at d071150
 
 ```
 7eef37e00caa5e1c13682c39eea19cad4160eae3  hello.req.msgpack
@@ -108,9 +108,13 @@ f21d0a1e918f5310e1cec7948949c4a1adf660db  updates.status.resp.client.msgpack
 97a105a367a3995f868514f719af27f2ef0a7420  game_client.update_available.event.msgpack
 8215744be8457497abc8af62b5cb5e6da017e9c8  game_client.update_available.event.refused.msgpack
 cec3625d6ff8b020fcd08274781ebe4753e76564  events.subscribe.resp.game_client.msgpack
-1963c4b545bdc959f84bb6bf231c2dec45add811  sdn.bundle.req.msgpack
+486bed796a9b5e5adc69c9580c4123664f3b51c2  sdn.bundle.req.msgpack
+1963c4b545bdc959f84bb6bf231c2dec45add811  sdn.bundle.req.legacy.msgpack
 55a36221e0a3908b956773933dc89528b883f45d  sdn.bundle.resp.msgpack
+176b1ca4962adba45046f40d7b2731caa1188cb9  sdn.bundle.resp.partial.msgpack
 86181f1b86067e1e3e4cd102d02d364a0cb741ec  sdn.bundle_chunk.req.msgpack
 b70d4f5d5b580983253e7faa68c9f895836474d4  sdn.bundle_chunk.resp.msgpack
 71d623ebddc68d3d8c44590f45ddf142626e4b1f  error.sdn_not_delivered.msgpack
+c444cc998351b00dfb280d6655bba76cc2526ea3  sdn.bundle.error.not_delivered.msgpack
+09817a0f2c0299400ec875eeb0f9242a15852cae  sdn.legacy_request.event.msgpack
 ```

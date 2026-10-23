@@ -218,7 +218,7 @@ public final class StoreRestorer {
             return;
         }
         if (!deps.deliveryEnabled().getAsBoolean()) {
-            settleWithoutRunning("this host was not started by the launcher");
+            settleWithoutRunning("this host was not started by the launcher", false);
             return;
         }
         Optional<SdnCatalogueResult> shown = deps.catalogue().get();
@@ -227,7 +227,8 @@ public final class StoreRestorer {
         }
         Optional<SdnCatalogueResult.Delivered> catalogue = delivered(shown.get());
         if (catalogue.isEmpty()) {
-            settleWithoutRunning("the Store catalogue could not be read: " + describe(shown.get()));
+            settleWithoutRunning("the Store catalogue could not be read: " + describe(shown.get()),
+                    isLauncherSilent(shown.get()));
             return;
         }
         if (claim(isNudge)) {
@@ -295,6 +296,7 @@ public final class StoreRestorer {
         for (SdnCatalogueEntry entry : listed) {
             Optional<Outcome> stop = restoreOne(entry, tally);
             if (stop.isPresent()) {
+                // The tally is dropped: a stopped run counts no refusal, since its stop says nothing about a script.
                 return stop.get();
             }
         }
@@ -306,19 +308,68 @@ public final class StoreRestorer {
     private Optional<Outcome> restoreOne(SdnCatalogueEntry entry, RunTally tally) {
         return switch (deps.installer().apply(List.of(entry))) {
             case SdnInstallResult.Installed installed -> {
+                Optional<SdnInstallResult.ScriptRefusal> refusal = installed.refusalFor(entry.id());
+                if (refusal.isPresent()) {
+                    yield refused(entry, refusal.get(), tally);
+                }
                 restored(entry, installed, tally);
                 yield Optional.empty();
             }
             case SdnInstallResult.NothingSelected ignored -> Optional.empty();
             case SdnInstallResult.DeliveryDisabled ignored -> Optional.of(new Outcome(tally.isAnyRestored,
                     Optional.of("this host was not started by the launcher"), false));
-            case SdnInstallResult.CourierUnavailable ignored -> Optional.of(new Outcome(tally.isAnyRestored,
-                    Optional.of(entry.name() + ": the launcher did not deliver it"), true));
+            case SdnInstallResult.CourierUnavailable none -> Optional.of(new Outcome(tally.isAnyRestored,
+                    Optional.of(entry.name() + ": " + none.text()), true));
+            case SdnInstallResult.Refused refusedAll -> refused(entry, refusedAll.refusals().getFirst(), tally);
             case SdnInstallResult.Failed failed -> {
                 tally.refused(entry, failed.reason());
                 yield Optional.empty();
             }
         };
+    }
+
+    /**
+     * The launcher said why it would not deliver {@code entry}.
+     *
+     * <ul>
+     *   <li>A reason about the script that holds for every retry this run sets it
+     *       aside with the user's text.
+     *   <li>{@code not_owned} means this host is not the launcher's: nothing will be
+     *       delivered until it is restarted from the launcher, so every pending id is
+     *       set aside with that text, and no client connecting can help.
+     *   <li>Any other reason about the host, its launcher or its account stops the run
+     *       uncounted, since every other id would get the same answer.
+     *   <li>Anything else, an untyped refusal or a server error, is about the script
+     *       and counts toward {@link #REFUSALS_BEFORE_SET_ASIDE}.
+     * </ul>
+     *
+     * @return the run's outcome when it stops here
+     */
+    private Optional<Outcome> refused(SdnCatalogueEntry entry, SdnInstallResult.ScriptRefusal refusal,
+                                      RunTally tally) {
+        Optional<String> reason = refusal.reason();
+        if (reason.filter(SdnReasonText::isLastingForThisRun).isPresent()) {
+            setAsideAll(List.of(entry.id()), refusal.text());
+            return Optional.empty();
+        }
+        if (reason.filter(SdnReasonText.NOT_OWNED::equals).isPresent()) {
+            List<String> all = new ArrayList<>(pending());
+            setAsideAll(all, refusal.text());
+            return Optional.of(new Outcome(tally.isAnyRestored, Optional.of(refusal.text()), false));
+        }
+        if (reason.filter(SdnReasonText::isHostReason).isPresent()) {
+            return Optional.of(new Outcome(tally.isAnyRestored, Optional.of(refusal.text()),
+                    reason.filter(SdnReasonText::isLinkReason).isPresent()));
+        }
+        tally.refusedWith(entry, refusal.text(), reason.isEmpty());
+        return Optional.empty();
+    }
+
+    private void setAsideAll(List<String> ids, String text) {
+        log.info("SDN: not restoring {} Store script(s) this run: {}", ids.size(), text);
+        synchronized (lock) {
+            ids.forEach(id -> setAside.put(id, text));
+        }
     }
 
     private void restored(SdnCatalogueEntry entry, SdnInstallResult.Installed installed, RunTally tally) {
@@ -399,26 +450,47 @@ public final class StoreRestorer {
         private String failure;
 
         void refused(SdnCatalogueEntry entry, String reason) {
+            refusedWith(entry, entry.name() + ": " + reason, LauncherProtocol.ERROR_SDN_NOT_DELIVERED.equals(reason));
+        }
+
+        /** A refusal whose {@code text} already names the script. */
+        void refusedWith(SdnCatalogueEntry entry, String text, boolean isLink) {
             refusedIds.add(entry.id());
-            isLinkFailure |= LauncherProtocol.ERROR_SDN_NOT_DELIVERED.equals(reason);
+            isLinkFailure |= isLink;
             if (failure == null) {
-                failure = entry.name() + ": " + reason;
+                failure = text;
             }
         }
     }
 
     // ── Settling ───────────────────────────────────────────────────────────
 
-    /** Records a failure that needed no restore to find, at most once per wait, atomically. */
-    private void settleWithoutRunning(String reason) {
+    /**
+     * Records a failure that needed no restore to find, at most once per wait, atomically.
+     *
+     * @param isLinkFailure whether a client connecting could help, as it can when the
+     *                      launcher did not answer at all, which is most likely just
+     *                      after it updated itself
+     */
+    private void settleWithoutRunning(String reason, boolean isLinkFailure) {
         List<Runnable> toRun;
         synchronized (lock) {
             if (isRunning || isWaitingAfterFailure()) {
                 return;
             }
-            toRun = settleLocked(Outcome.failed(reason, false));
+            toRun = settleLocked(Outcome.failed(reason, isLinkFailure));
         }
-        finish(Outcome.failed(reason, false), toRun);
+        finish(Outcome.failed(reason, isLinkFailure), toRun);
+    }
+
+    private static boolean isLauncherSilent(SdnCatalogueResult shown) {
+        return switch (shown) {
+            case SdnCatalogueResult.CourierUnavailable ignored -> true;
+            case SdnCatalogueResult.Delivered ignored -> false;
+            case SdnCatalogueResult.NotSignedIn ignored -> false;
+            case SdnCatalogueResult.SubscriptionRequired ignored -> false;
+            case SdnCatalogueResult.Failed ignored -> false;
+        };
     }
 
     private void settle(Outcome outcome) {

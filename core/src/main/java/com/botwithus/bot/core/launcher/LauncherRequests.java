@@ -95,12 +95,17 @@ final class LauncherRequests {
                 .build();
     }
 
-    /** @return {@code sdn.bundle}'s body: the key to seal to, then the catalogue ids wanted */
+    /**
+     * @return {@code sdn.bundle}'s body: the key to seal to, the catalogue ids wanted,
+     *         and a request for a partial delivery, so one script that fails does not
+     *         cost the rest; a launcher that predates it ignores the flag
+     */
     static Value sdnBundle(byte[] publicKey, List<String> scriptIds) {
         List<Value> ids = scriptIds.stream().<Value>map(ValueFactory::newString).toList();
         return ValueFactory.newMapBuilder()
                 .put(key("publicKey"), ValueFactory.newBinary(publicKey.clone()))
                 .put(key("scriptIds"), ValueFactory.newArray(ids))
+                .put(key(SdnWire.ALLOW_PARTIAL), ValueFactory.newBoolean(true))
                 .build();
     }
 

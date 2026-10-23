@@ -117,7 +117,7 @@ class SdnBundleDownloadTest {
         ServedBundle refused = new ServedBundle(bytes(CHUNK), CHUNK);
         refused.offerError = "bad_request";
         assertAll(
-                () -> assertEquals(new SdnBundleFetch.Unavailable(LauncherException.SERVICE_UNAVAILABLE),
+                () -> assertEquals(new SdnBundleFetch.Unavailable(false),
                         SdnBundleDownload.fetch(lost, KEY, IDS)),
                 () -> assertEquals(new SdnBundleFetch.Failed("bad_request"),
                         SdnBundleDownload.fetch(refused, KEY, IDS)));
@@ -162,24 +162,34 @@ class SdnBundleDownloadTest {
         }
 
         @Override
-        public SdnBundleOffer requestSdnBundle(byte[] key, List<String> ids) {
+        public SdnCall<SdnBundleOffer> requestSdnBundle(byte[] key, List<String> ids) {
             publicKey = key.clone();
             scriptIds = List.copyOf(ids);
             if (offerError != null) {
-                throw new LauncherException(offerError, "sdn.bundle: refused");
+                return callEndingIn(offerError);
             }
-            return offer;
+            return new SdnCall.Answered<>(offer);
         }
 
         @Override
-        public byte[] sdnBundleChunk(long deliveryId, long index) {
+        public SdnCall<byte[]> sdnBundleChunk(long deliveryId, long index) {
             requestedIndices.add(index);
             if (chunkError != null || deliveryId != DELIVERY || index * chunkSize >= bundle.length) {
-                throw new LauncherException(chunkError != null ? chunkError
-                        : LauncherProtocol.ERROR_SDN_NOT_DELIVERED, "sdn.bundle_chunk: refused");
+                return callEndingIn(chunkError != null ? chunkError : LauncherProtocol.ERROR_SDN_NOT_DELIVERED);
             }
             int from = Math.toIntExact(index * chunkSize);
-            return tamper.apply(Arrays.copyOfRange(bundle, from, Math.min(bundle.length, from + chunkSize)));
+            return new SdnCall.Answered<>(
+                    tamper.apply(Arrays.copyOfRange(bundle, from, Math.min(bundle.length, from + chunkSize))));
         }
+    }
+
+    /** How {@link LauncherService} reports an error with {@code code}, as the fakes here speak it. */
+    static <T> SdnCall<T> callEndingIn(String code) {
+        return switch (code) {
+            case LauncherProtocol.ERROR_SDN_NOT_DELIVERED -> new SdnCall.Refused<>(SdnRefusal.unexplained());
+            case LauncherException.SERVICE_UNAVAILABLE, LauncherException.SERVICE_STOPPED ->
+                    new SdnCall.Unavailable<>(false);
+            default -> new SdnCall.Failed<>(code);
+        };
     }
 }

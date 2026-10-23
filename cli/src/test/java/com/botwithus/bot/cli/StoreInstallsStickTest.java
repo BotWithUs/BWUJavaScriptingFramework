@@ -18,6 +18,7 @@ import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
 import com.botwithus.bot.core.sdn.SdnInstaller;
 import com.botwithus.bot.core.sdn.SdnPipeRoute;
+import com.botwithus.bot.core.sdn.SdnReasonText;
 import com.botwithus.bot.core.sdn.StoreRestorer;
 
 import org.junit.jupiter.api.AfterEach;
@@ -306,8 +307,8 @@ class StoreInstallsStickTest {
         autoStart.onConnectionEstablished(conn, DISPLAY_NAME);
 
         assertTrue(output().contains("Script not found: " + SCRIPT_NAME + " (Store scripts could not be delivered "
-                + "again: " + SCRIPT_NAME + ": the launcher did not deliver it). It will start if the launcher "
-                + "delivers it later."), output());
+                + "again: " + SCRIPT_NAME + ": " + SdnReasonText.FILE_ROUTE_SILENT_TEXT + "). It will start if the "
+                + "launcher delivers it later."), output());
         assertFalse(output().contains("Waiting for the launcher"), output());
     }
 

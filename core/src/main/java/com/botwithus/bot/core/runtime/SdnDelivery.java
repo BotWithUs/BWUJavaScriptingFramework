@@ -3,6 +3,8 @@ package com.botwithus.bot.core.runtime;
 import com.botwithus.bot.api.BotScript;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
@@ -19,17 +21,30 @@ import java.util.function.Supplier;
  * @param jars     the jars that yielded at least one provider, in delivery order
  * @param stalls   the jars whose script did not finish constructing within the
  *                 host's budget; such a jar is not in {@code jars}
+ * @param refusal  the courier's reason code when it answered "no" instead of
+ *                 delivering; empty otherwise
  */
-public record SdnDelivery(int jarCount, List<Jar> jars, List<Stall> stalls) {
+public record SdnDelivery(int jarCount, List<Jar> jars, List<Stall> stalls, Optional<String> refusal) {
 
     public SdnDelivery {
         jars = List.copyOf(jars);
         stalls = List.copyOf(stalls);
+        Objects.requireNonNull(refusal, "refusal");
+    }
+
+    /** A delivery that arrived, some of whose scripts may have stalled. */
+    public SdnDelivery(int jarCount, List<Jar> jars, List<Stall> stalls) {
+        this(jarCount, jars, stalls, Optional.empty());
     }
 
     /** A delivery in which every script that was constructed finished in time. */
     public SdnDelivery(int jarCount, List<Jar> jars) {
         this(jarCount, jars, List.of());
+    }
+
+    /** The courier answered "no" for {@code reason}. */
+    public static SdnDelivery refused(String reason) {
+        return new SdnDelivery(0, List.of(), List.of(), Optional.of(reason));
     }
 
     /** Nothing arrived. */

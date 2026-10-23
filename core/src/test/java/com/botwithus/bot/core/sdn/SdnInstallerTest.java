@@ -90,6 +90,7 @@ class SdnInstallerTest {
             case SdnInstallResult.NothingSelected ignored -> fail("nothing selected");
             case SdnInstallResult.DeliveryDisabled ignored -> fail("delivery disabled");
             case SdnInstallResult.CourierUnavailable ignored -> fail("courier unavailable");
+            case SdnInstallResult.Refused refused -> fail(refused.text());
             case SdnInstallResult.Failed failed -> fail(failed.reason());
         };
     }
@@ -248,13 +249,14 @@ class SdnInstallerTest {
     }
 
     @Test
-    void install_jarCountDisagreesWithTheRequest_pairsAndRecordsNothing() {
-        SdnInstallResult.Installed result = installed(delivering(jars(new DeliveredScript()))
-                .install(List.of(entry("7"), entry("12"))));
+    void install_jarCountDisagreesWithTheRequest_isRefusedWhole() {
+        StoreShelf shelf = new StoreShelf();
+        SdnInstallResult result = new SdnInstaller(dir, () -> true, () -> jars(new DeliveredScript()),
+                SdnPipeRoute.none(), ledger(), shelf).install(List.of(entry("7"), entry("12")));
 
         assertAll(
-                () -> assertEquals(1, result.scripts().size(), "the scripts still load"),
-                () -> assertTrue(result.byEntryId().isEmpty(), "but none can be credited to an entry"),
+                () -> assertEquals(new SdnInstallResult.Failed(SdnReasonText.MISMATCH_TEXT), result),
+                () -> assertTrue(shelf.classes().isEmpty(), "nothing from a mismatched delivery is kept"),
                 () -> assertTrue(ledger().all().isEmpty()));
     }
 
