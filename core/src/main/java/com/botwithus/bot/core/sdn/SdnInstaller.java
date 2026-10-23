@@ -179,13 +179,26 @@ public final class SdnInstaller {
         if (!deliveryEnabled.getAsBoolean()) {
             return new SdnInstallResult.DeliveryDisabled();
         }
-        Optional<String> stalled = entries.stream().map(e -> stalledIds.get(e.id())).filter(Objects::nonNull)
-                .findFirst();
-        if (stalled.isPresent()) {
-            log.warn("SDN: not asking the launcher for {}: it stalled while loading earlier in this run",
-                    stalled.get());
-            return new SdnInstallResult.Failed(stalledMessage(stalled.get()));
+        List<SdnCatalogueEntry> stalled = entries.stream().filter(e -> stalledIds.containsKey(e.id())).toList();
+        List<SdnCatalogueEntry> rest = entries.stream().filter(e -> !stalledIds.containsKey(e.id())).toList();
+        stalled.forEach(e -> log.warn("SDN: not asking the launcher for {}: it stalled while loading earlier "
+                + "in this run", e.name()));
+        if (rest.isEmpty()) {
+            return new SdnInstallResult.Failed(stalledMessage(stalled.getFirst().name()));
         }
+        SdnInstallResult result = installLocked(rest);
+        return stalled.isEmpty() ? result : withStalled(result, stalled);
+    }
+
+    /**
+     * Why {@code entryId} cannot be installed again in this run, when its script
+     * stalled while loading earlier; empty for any other id.
+     */
+    public Optional<String> stalledReason(String entryId) {
+        return Optional.ofNullable(stalledIds.get(entryId)).map(SdnInstaller::stalledMessage);
+    }
+
+    private SdnInstallResult installLocked(List<SdnCatalogueEntry> entries) {
         ReentrantLock exchange = SdnRendezvous.exchangeLock(directory, REQUEST_SUFFIX);
         exchange.lock();
         try {
@@ -194,6 +207,20 @@ public final class SdnInstaller {
         } finally {
             exchange.unlock();
         }
+    }
+
+    /** The rest's result, with the entries left out because they stalled named in it when it installed. */
+    private static SdnInstallResult withStalled(SdnInstallResult result, List<SdnCatalogueEntry> stalled) {
+        return switch (result) {
+            case SdnInstallResult.Installed installed -> installed.withRefused(stalled.stream()
+                    .map(e -> new SdnInstallResult.ScriptRefusal(Optional.of(e.id()), Optional.empty(),
+                            stalledMessage(e.name())))
+                    .toList());
+            case SdnInstallResult.NothingSelected ignored -> result;
+            case SdnInstallResult.DeliveryDisabled ignored -> result;
+            case SdnInstallResult.CourierUnavailable ignored -> result;
+            case SdnInstallResult.Failed ignored -> result;
+        };
     }
 
     private SdnInstallResult exchange(List<SdnCatalogueEntry> entries) {
@@ -235,7 +262,7 @@ public final class SdnInstaller {
     /** The bytes arrived intact, so a delivery that loads nothing is a failure, not an absent launcher. */
     private SdnInstallResult installFetched(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
         if (!delivery.stalls().isEmpty()) {
-            return stalled(entries, delivery.stalls());
+            return stalled(entries, delivery);
         }
         if (delivery.isEmpty()) {
             return new SdnInstallResult.Failed("the delivered scripts could not be loaded");
@@ -246,7 +273,7 @@ public final class SdnInstaller {
     private SdnInstallResult loadDelivered(List<SdnCatalogueEntry> entries) {
         SdnDelivery delivery = awaitDelivery.get();
         if (!delivery.stalls().isEmpty()) {
-            return stalled(entries, delivery.stalls());
+            return stalled(entries, delivery);
         }
         if (delivery.isEmpty()) {
             return new SdnInstallResult.CourierUnavailable();
@@ -266,11 +293,15 @@ public final class SdnInstaller {
     /**
      * A script in the delivery never finished constructing. Nothing from the delivery
      * is installed, and the entry it was for fails fast for the rest of this run.
+     * A stall is credited to an entry only when the delivery can be paired with the
+     * request at all, as {@link #pair} requires; otherwise no innocent entry is marked
+     * and the message names the class.
      */
-    private SdnInstallResult stalled(List<SdnCatalogueEntry> entries, List<SdnDelivery.Stall> stalls) {
-        String name = stalls.getFirst().scriptClass();
-        for (SdnDelivery.Stall stall : stalls) {
-            if (stall.position() < entries.size()) {
+    private SdnInstallResult stalled(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
+        boolean isPairable = delivery.jarCount() == entries.size();
+        String name = delivery.stalls().getFirst().scriptClass();
+        for (SdnDelivery.Stall stall : delivery.stalls()) {
+            if (isPairable && stall.position() < entries.size()) {
                 SdnCatalogueEntry entry = entries.get(stall.position());
                 stalledIds.put(entry.id(), entry.name());
                 name = entry.name();

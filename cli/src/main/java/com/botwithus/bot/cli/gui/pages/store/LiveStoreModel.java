@@ -322,7 +322,8 @@ public final class LiveStoreModel implements StoreModel {
 
     private InstallActivity settle(SdnInstallResult result) {
         return switch (result) {
-            case SdnInstallResult.Installed installed -> new InstallActivity.Finished(register(installed.scripts()));
+            case SdnInstallResult.Installed installed -> new InstallActivity.Finished(
+                    register(installed.scripts()) + refusedLines(installed.refused()));
             case SdnInstallResult.NothingSelected ignored ->
                     new InstallActivity.Failed("Nothing was requested from the launcher.");
             case SdnInstallResult.DeliveryDisabled ignored -> new InstallActivity.Failed(DELIVERY_DISABLED);
@@ -348,6 +349,15 @@ public final class LiveStoreModel implements StoreModel {
         }
         return "Installed " + what + " on " + plural(live.size(), "client")
                 + ". Start them from Installed scripts or a client card.";
+    }
+
+    /** One sentence per requested script that was left out while the rest installed. */
+    private static String refusedLines(List<SdnInstallResult.ScriptRefusal> refused) {
+        StringBuilder lines = new StringBuilder();
+        for (SdnInstallResult.ScriptRefusal refusal : refused) {
+            lines.append(' ').append(refusal.text());
+        }
+        return lines.toString();
     }
 
     private static String plural(int n, String noun) {

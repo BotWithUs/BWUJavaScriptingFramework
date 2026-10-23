@@ -80,11 +80,24 @@ public final class StoreRestorer {
      * @param onRestored      handed the scripts each successful restore delivered
      * @param executor        runs each restore
      * @param clock           times the wait after a failure
+     * @param stalledReason   why an id cannot be installed again this run because its
+     *                        script stalled while loading; empty for any other id
      */
     public record Deps(InstalledScriptsLedger ledger, StoreShelf shelf,
                        Supplier<Optional<SdnCatalogueResult>> catalogue, BooleanSupplier deliveryEnabled,
                        Function<List<SdnCatalogueEntry>, SdnInstallResult> installer,
-                       Consumer<List<BotScript>> onRestored, Executor executor, InstantSource clock) {}
+                       Consumer<List<BotScript>> onRestored, Executor executor, InstantSource clock,
+                       Function<String, Optional<String>> stalledReason) {
+
+        /** Deps for an installer that never reports a stalled script. */
+        public Deps(InstalledScriptsLedger ledger, StoreShelf shelf,
+                    Supplier<Optional<SdnCatalogueResult>> catalogue, BooleanSupplier deliveryEnabled,
+                    Function<List<SdnCatalogueEntry>, SdnInstallResult> installer,
+                    Consumer<List<BotScript>> onRestored, Executor executor, InstantSource clock) {
+            this(ledger, shelf, catalogue, deliveryEnabled, installer, onRestored, executor, clock,
+                    id -> Optional.empty());
+        }
+    }
 
     /**
      * How one restore went.
@@ -265,6 +278,7 @@ public final class StoreRestorer {
         if (!catalogue.stale()) {
             setAsideUnlisted(wanted, listed);
         }
+        listed = withoutStalled(listed);
         if (listed.isEmpty()) {
             return new Outcome(false, Optional.empty(), false);
         }
@@ -342,6 +356,27 @@ public final class StoreRestorer {
                 }
             }
         }
+    }
+
+    /**
+     * Sets aside each entry whose script stalled while loading earlier in this run,
+     * with its own message: asking again would only fail fast, and it must not stand
+     * in the way of the rest.
+     */
+    private List<SdnCatalogueEntry> withoutStalled(List<SdnCatalogueEntry> listed) {
+        List<SdnCatalogueEntry> rest = new ArrayList<>();
+        for (SdnCatalogueEntry entry : listed) {
+            Optional<String> stalled = deps.stalledReason().apply(entry.id());
+            if (stalled.isEmpty()) {
+                rest.add(entry);
+                continue;
+            }
+            log.info("SDN: not restoring {} this run: {}", entry.name(), stalled.get());
+            synchronized (lock) {
+                setAside.put(entry.id(), stalled.get());
+            }
+        }
+        return rest;
     }
 
     private void setAsideUnlisted(Set<String> wanted, List<SdnCatalogueEntry> listed) {

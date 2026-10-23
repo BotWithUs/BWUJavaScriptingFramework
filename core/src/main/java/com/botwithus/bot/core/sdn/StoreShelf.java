@@ -1,11 +1,14 @@
 package com.botwithus.bot.core.sdn;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.core.runtime.BoundedConstruction;
+import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.SdnDelivery;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -48,8 +51,17 @@ public final class StoreShelf {
     /** Keyed by script class, in delivery order. Guarded by {@link #lock}. */
     private final Map<String, Copy> byClass = new LinkedHashMap<>();
 
+    /** How long one new instance may take to construct. */
+    private final Duration budget;
+
     /** An empty shelf; the host builds one and shares it. */
     public StoreShelf() {
+        this(SDNScriptLoader.CONSTRUCT_BUDGET);
+    }
+
+    /** As {@link #StoreShelf()}, with the budget for each new instance; for tests. */
+    public StoreShelf(Duration budget) {
+        this.budget = budget;
     }
 
     /**
@@ -88,13 +100,30 @@ public final class StoreShelf {
         }
         List<BotScript> copies = new ArrayList<>();
         for (Map.Entry<String, Copy> e : wanted) {
-            try {
-                copies.add(e.getValue().factory().get());
-            } catch (RuntimeException | LinkageError err) {
-                log.warn("SDN: could not make a new instance of Store script {}: {}", e.getKey(), err.toString());
-            }
+            copyOf(e.getKey(), e.getValue()).ifPresent(copies::add);
         }
         return copies;
+    }
+
+    /**
+     * One new instance, made within the same budget as the first, so a constructor
+     * that blocks costs that script on this client rather than the connect or reload
+     * that asked for it.
+     */
+    private Optional<BotScript> copyOf(String cls, Copy copy) {
+        return switch (BoundedConstruction.construct(cls, copy.factory(), budget)) {
+            case BoundedConstruction.Outcome.Built<BotScript> built -> Optional.of(built.instance());
+            case BoundedConstruction.Outcome.Threw<BotScript> threw -> {
+                log.warn("SDN: could not make a new instance of Store script {}: {}", cls, threw.error().toString());
+                yield Optional.empty();
+            }
+            case BoundedConstruction.Outcome.TimedOut<BotScript> timedOut -> {
+                log.error("SDN: a new instance of Store script {} did not finish constructing within {} s; "
+                        + "skipping it here", cls, timedOut.budget().toSeconds());
+                yield Optional.empty();
+            }
+            case BoundedConstruction.Outcome.Interrupted<BotScript> ignored -> Optional.empty();
+        };
     }
 
     /** The class names on the shelf. */

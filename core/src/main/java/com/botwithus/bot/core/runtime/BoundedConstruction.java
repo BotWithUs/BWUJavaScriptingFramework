@@ -23,10 +23,10 @@ import java.util.function.Supplier;
  * a thread. It is left running on a daemon thread, named after the script so a
  * thread dump points at it.
  */
-final class BoundedConstruction {
+public final class BoundedConstruction {
 
     /** How one construction ended. */
-    sealed interface Outcome<T> {
+    public sealed interface Outcome<T> {
 
         /** It returned {@code instance} after {@code took}. */
         record Built<T>(T instance, Duration took) implements Outcome<T> {}
@@ -36,6 +36,12 @@ final class BoundedConstruction {
 
         /** It had not returned when the budget ran out, and is still running. */
         record TimedOut<T>(Duration budget) implements Outcome<T> {}
+
+        /**
+         * The thread waiting for it was interrupted. Says nothing about the script,
+         * which is still running; the caller should stop rather than blame it.
+         */
+        record Interrupted<T>() implements Outcome<T> {}
     }
 
     private static final String THREAD_PREFIX = "sdn-construct-";
@@ -47,7 +53,7 @@ final class BoundedConstruction {
      * Runs {@code construct} on a new daemon thread named for {@code what} and waits
      * at most {@code budget} for it.
      */
-    static <T> Outcome<T> construct(String what, Supplier<T> construct, Duration budget) {
+    public static <T> Outcome<T> construct(String what, Supplier<T> construct, Duration budget) {
         FutureTask<T> task = new FutureTask<>(construct::get);
         // rule-exception: §Modern Java (virtual threads). This runs untrusted script
         // code that may never return; a platform thread keeps a stuck one from
@@ -64,7 +70,7 @@ final class BoundedConstruction {
             return new Outcome.Threw<>(e.getCause(), since(start));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return new Outcome.Threw<>(e, since(start));
+            return new Outcome.Interrupted<>();
         }
     }
 

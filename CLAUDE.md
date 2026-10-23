@@ -359,7 +359,7 @@ Intentionally violated rule:
 
 ### Script runner threads are **platform** threads, not virtual
 
-`ScriptRunner.start()` and `ManagementScriptRunner.start()` use `Thread.ofPlatform()`, and `RpcClient.start()` does the same for `rpc-reader`. Each site carries a `// rule-exception:` comment pointing here.
+`ScriptRunner.start()` and `ManagementScriptRunner.start()` use `Thread.ofPlatform()`, `RpcClient.start()` does the same for `rpc-reader`, and `BoundedConstruction.construct()` does the same for each `sdn-construct-<Script>` thread, which runs a delivered Store script's constructor and may never return. Each site carries a `// rule-exception:` comment pointing here.
 
 Intentionally violated rule:
 

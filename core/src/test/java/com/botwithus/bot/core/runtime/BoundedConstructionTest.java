@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -17,6 +18,8 @@ class BoundedConstructionTest {
     private static final Duration SHORT_BUDGET = Duration.ofMillis(200);
     private static final Duration LONG_BUDGET = Duration.ofSeconds(10);
     private static final long TEST_TIMEOUT_SECONDS = 10;
+    /** How many budgets the slow constructor takes. */
+    private static final int SLOW_FACTOR = 10;
 
     @Test
     void aConstructorThatReturns_isBuilt() {
@@ -61,17 +64,41 @@ class BoundedConstructionTest {
         }
     }
 
-    /** The budget counts construction only, so a caller that waited first still gets all of it. */
+    /**
+     * The budget is enforced while the construction runs. Fails for an implementation
+     * that waits for the constructor and checks the time afterwards: the call would
+     * take the whole sleep, not the budget.
+     */
     @Test
-    void theBudgetStartsWhenConstructionStarts() throws InterruptedException {
-        TimeUnit.MILLISECONDS.sleep(SHORT_BUDGET.toMillis() * 2);
+    void theBudgetCutsTheWaitShort_ratherThanBeingCheckedAfterwards() {
+        long slowMillis = SHORT_BUDGET.toMillis() * SLOW_FACTOR;
+        Instant start = Instant.now();
 
-        BoundedConstruction.Outcome<Object> outcome = BoundedConstruction.construct("AfterAWait", () -> {
-            sleepQuietly(SHORT_BUDGET.toMillis() / 2);
+        BoundedConstruction.Outcome<Object> outcome = BoundedConstruction.construct("Slow", () -> {
+            sleepQuietly(slowMillis);
             return new Object();
         }, SHORT_BUDGET);
 
-        assertInstanceOf(BoundedConstruction.Outcome.Built.class, outcome);
+        assertInstanceOf(BoundedConstruction.Outcome.TimedOut.class, outcome);
+        assertTrue(Duration.between(start, Instant.now()).toMillis() < slowMillis);
+    }
+
+    /** An interrupt is reported as such, not blamed on the script, and the flag is kept. */
+    @Test
+    void anInterruptedWait_isInterrupted_notAScriptFailure() {
+        CountDownLatch release = new CountDownLatch(1);
+        Thread.currentThread().interrupt();
+        try {
+            BoundedConstruction.Outcome<Object> outcome = BoundedConstruction.construct("Waiting", () -> {
+                awaitQuietly(release);
+                return new Object();
+            }, LONG_BUDGET);
+
+            assertInstanceOf(BoundedConstruction.Outcome.Interrupted.class, outcome);
+            assertTrue(Thread.interrupted(), "the interrupt flag is restored");
+        } finally {
+            release.countDown();
+        }
     }
 
     private static void awaitQuietly(CountDownLatch latch) {

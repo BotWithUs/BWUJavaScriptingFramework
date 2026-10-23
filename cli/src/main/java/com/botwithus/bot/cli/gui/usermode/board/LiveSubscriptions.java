@@ -221,7 +221,8 @@ final class LiveSubscriptions {
 
     private void settle(String clientId, SdnCatalogueEntry entry, SdnInstallResult result) {
         switch (result) {
-            case SdnInstallResult.Installed installed -> startDelivered(clientId, entry, installed);
+            case SdnInstallResult.Installed installed -> installed.refusalFor(entry.id()).ifPresentOrElse(
+                    refusal -> fail(entry, refusal.text()), () -> startDelivered(clientId, entry, installed));
             case SdnInstallResult.NothingSelected ignored -> fail(entry, "Nothing was requested from the launcher.");
             case SdnInstallResult.DeliveryDisabled ignored -> fail(entry,
                     "This host was not started by the launcher, so it cannot install scripts. "

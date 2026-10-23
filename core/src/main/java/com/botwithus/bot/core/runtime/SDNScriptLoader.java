@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.ServiceConfigurationError;
 import java.util.ServiceLoader;
 import java.util.function.Supplier;
@@ -172,13 +173,27 @@ public final class SDNScriptLoader {
     }
 
     private static SdnDelivery toDelivery(DefinedBundle bundle) {
+        return toDelivery(bundle, CONSTRUCT_BUDGET);
+    }
+
+    /**
+     * The delivery {@code bundle}'s jars make, each script constructed within
+     * {@code budget}. Package-private so a test can drive it with a plain loader and
+     * a short budget; production always passes {@link #CONSTRUCT_BUDGET}.
+     */
+    static SdnDelivery toDelivery(DefinedBundle bundle, Duration budget) {
         List<SdnDelivery.Jar> jars = new ArrayList<>();
         List<SdnDelivery.Stall> stalls = new ArrayList<>();
         for (DefinedBundle.Jar jar : bundle.jars()) {
-            switch (jarOf(jar, CONSTRUCT_BUDGET)) {
+            JarOutcome outcome = jarOf(jar, budget);
+            switch (outcome) {
                 case JarOutcome.Loaded loaded -> jars.add(loaded.jar());
                 case JarOutcome.Stalled stalled -> stalls.add(stalled.stall());
                 case JarOutcome.Empty ignored -> { }
+                case JarOutcome.Interrupted ignored -> {
+                    log.info("SDN: interrupted while loading the delivery; the remaining jars are not loaded");
+                    return new SdnDelivery(bundle.jarCount(), jars, stalls);
+                }
             }
         }
         SdnDelivery delivery = new SdnDelivery(bundle.jarCount(), jars, stalls);
@@ -195,6 +210,7 @@ public final class SDNScriptLoader {
         record Loaded(SdnDelivery.Jar jar) implements JarOutcome {}
         record Stalled(SdnDelivery.Stall stall) implements JarOutcome {}
         record Empty() implements JarOutcome {}
+        record Interrupted() implements JarOutcome {}
     }
 
     /**
@@ -209,25 +225,44 @@ public final class SDNScriptLoader {
         List<BotScript> scripts = new ArrayList<>();
         List<Supplier<BotScript>> copies = new ArrayList<>();
         for (ServiceLoader.Provider<BotScript> provider : providers) {
-            String cls = provider.type().getName();
-            log.info("SDN: constructing {}", cls);
-            switch (BoundedConstruction.construct(provider.type().getSimpleName(), provider::get, budget)) {
-                case BoundedConstruction.Outcome.Built<BotScript> built -> {
-                    log.info("SDN: constructed {} in {} ms", cls, built.took().toMillis());
-                    scripts.add(built.instance());
-                    copies.add(provider::get);
-                }
-                case BoundedConstruction.Outcome.Threw<BotScript> threw ->
-                        log.warn("SDN: {} threw while constructing, skipping it", cls, threw.error());
-                case BoundedConstruction.Outcome.TimedOut<BotScript> timedOut -> {
-                    log.error("SDN: {} did not finish constructing within {} s; its thread is left running "
-                            + "and the host must be restarted to load it", cls, timedOut.budget().toSeconds());
-                    return new JarOutcome.Stalled(new SdnDelivery.Stall(jar.position(), cls));
-                }
+            Optional<JarOutcome> stop = constructOne(jar, provider, budget, scripts, copies);
+            if (stop.isPresent()) {
+                return stop.get();
             }
         }
         return scripts.isEmpty() ? new JarOutcome.Empty()
                 : new JarOutcome.Loaded(new SdnDelivery.Jar(jar.position(), scripts, copies));
+    }
+
+    /**
+     * Makes one instance of {@code provider}, adding it and its factory on success.
+     *
+     * @return how the jar ends when it must stop at this provider; empty to go on
+     */
+    private static Optional<JarOutcome> constructOne(DefinedBundle.Jar jar, ServiceLoader.Provider<BotScript> provider,
+                                                     Duration budget, List<BotScript> scripts,
+                                                     List<Supplier<BotScript>> copies) {
+        String cls = provider.type().getName();
+        log.info("SDN: constructing {}", cls);
+        return switch (BoundedConstruction.construct(provider.type().getSimpleName(), provider::get, budget)) {
+            case BoundedConstruction.Outcome.Built<BotScript> built -> {
+                log.info("SDN: constructed {} in {} ms", cls, built.took().toMillis());
+                scripts.add(built.instance());
+                copies.add(provider::get);
+                yield Optional.empty();
+            }
+            case BoundedConstruction.Outcome.Threw<BotScript> threw -> {
+                log.warn("SDN: {} threw while constructing, skipping it", cls, threw.error());
+                yield Optional.empty();
+            }
+            case BoundedConstruction.Outcome.TimedOut<BotScript> timedOut -> {
+                log.error("SDN: {} did not finish constructing within {} s; its thread is left running "
+                        + "and the host must be restarted to load it", cls, timedOut.budget().toSeconds());
+                yield Optional.of(new JarOutcome.Stalled(new SdnDelivery.Stall(jar.position(), cls)));
+            }
+            case BoundedConstruction.Outcome.Interrupted<BotScript> ignored ->
+                    Optional.of(new JarOutcome.Interrupted());
+        };
     }
 
     /**

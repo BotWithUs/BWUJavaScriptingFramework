@@ -5,10 +5,13 @@ import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.core.runtime.SdnDelivery;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class StoreShelfTest {
 
     private static final String ID = "42";
+    private static final Duration SHORT_BUDGET = Duration.ofMillis(200);
+    private static final long TEST_TIMEOUT_SECONDS = 10;
 
     public static final class Shelved implements BotScript {
         @Override public void onStart(ScriptContext context) { }
@@ -64,6 +69,38 @@ class StoreShelfTest {
 
         assertEquals(1, copies.size());
         assertInstanceOf(Shelved.class, copies.getFirst());
+    }
+
+    /**
+     * S6: a copy whose constructor blocks is skipped after the budget, so the connect
+     * or reload asking for copies is not held. Fails if copies are made inline.
+     */
+    @Test
+    @Timeout(TEST_TIMEOUT_SECONDS)
+    void aCopyWhoseConstructorBlocks_isSkippedAfterTheBudget_andTheRestStillCome() {
+        StoreShelf shelf = new StoreShelf(SHORT_BUDGET);
+        CountDownLatch release = new CountDownLatch(1);
+        shelf.stock(Optional.of(ID), jar(new Shelved(), Shelved::new));
+        shelf.stock(Optional.of("43"), jar(new Broken(), () -> {
+            awaitQuietly(release);
+            return new Broken();
+        }));
+        try {
+            List<BotScript> copies = shelf.freshCopies();
+
+            assertEquals(1, copies.size());
+            assertInstanceOf(Shelved.class, copies.getFirst());
+        } finally {
+            release.countDown();
+        }
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Test

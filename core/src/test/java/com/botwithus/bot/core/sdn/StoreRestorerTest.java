@@ -396,6 +396,23 @@ class StoreRestorerTest {
         assertTrue(restoredCalled.get());
     }
 
+    /** S2: an id whose script stalled is set aside with its own message, and the others are still restored. */
+    @Test
+    void aStalledId_isSetAsideWithItsReason_andTheOthersAreRestored() throws IOException {
+        String stalled = "Restored " + OTHER_ID + " did not finish loading. Restart the host to try again.";
+        StoreRestorer restorer = new StoreRestorer(new StoreRestorer.Deps(ledgerWith(ID, OTHER_ID), shelf,
+                () -> Optional.of(new SdnCatalogueResult.Delivered(List.of(entry(ID), entry(OTHER_ID)), false)),
+                () -> true, this::deliverEach, restored::addAll, queued::add, now::get,
+                id -> id.equals(OTHER_ID) ? Optional.of(stalled) : Optional.empty()));
+
+        restorer.request();
+        runQueued();
+
+        assertEquals(Map.of(OTHER_ID, stalled), restorer.setAside());
+        assertEquals(1, launcherCalls.get(), "the stalled id is never asked for");
+        assertTrue(restorer.pending().isEmpty());
+    }
+
     private static void awaitQuietly(CountDownLatch latch) {
         try {
             latch.await();

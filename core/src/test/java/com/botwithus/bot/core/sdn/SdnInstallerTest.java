@@ -428,6 +428,44 @@ class SdnInstallerTest {
                 () -> assertTrue(ledger().all().isEmpty(), "nothing from a stalled delivery is recorded"));
     }
 
+    /**
+     * S2: a stalled id no longer fails a batch; the rest install, and the stalled one
+     * is named in the result with its own message.
+     */
+    @Test
+    void install_aBatchWithAStalledId_installsTheRest_andNamesTheStalledOne() {
+        AtomicInteger asked = new AtomicInteger();
+        SdnInstaller installer = new SdnInstaller(dir, () -> true, () -> asked.getAndIncrement() == 0
+                ? new SdnDelivery(1, List.of(), List.of(new SdnDelivery.Stall(0, DeliveredScript.class.getName())))
+                : jars(new DeliveredScript()), ledger());
+        installer.install(List.of(entry("7")));
+
+        SdnInstallResult.Installed installed = installed(installer.install(List.of(
+                entry("7", "Stuck One", DeliveredScript.class.getName(), BUILD), entry("12"))));
+
+        assertAll(
+                () -> assertEquals(1, installed.scriptsFor("12").size()),
+                () -> assertEquals(Optional.of(SdnInstaller.stalledMessage("Stuck One")),
+                        installed.refusalFor("7").map(SdnInstallResult.ScriptRefusal::text)),
+                () -> assertEquals(Optional.of(SdnInstaller.stalledMessage(DELIVERED_NAME)),
+                        installer.stalledReason("7")),
+                () -> assertEquals(Optional.empty(), installer.stalledReason("12")));
+    }
+
+    /** N1: a stall in a delivery that cannot be paired marks no entry, and its message names the class. */
+    @Test
+    void install_aStallInAnUnpairableDelivery_marksNoEntry() {
+        SdnInstaller installer = new SdnInstaller(dir, () -> true, () -> new SdnDelivery(2, List.of(),
+                List.of(new SdnDelivery.Stall(0, "com.example.Stuck"))), ledger());
+
+        SdnInstallResult result = installer.install(List.of(entry("7")));
+
+        assertAll(
+                () -> assertEquals(new SdnInstallResult.Failed(SdnInstaller.stalledMessage("com.example.Stuck")),
+                        result),
+                () -> assertEquals(Optional.empty(), installer.stalledReason("7")));
+    }
+
     /** What a delivery carries. */
     @ScriptManifest(name = DELIVERED_NAME)
     private static final class DeliveredScript implements BotScript {
