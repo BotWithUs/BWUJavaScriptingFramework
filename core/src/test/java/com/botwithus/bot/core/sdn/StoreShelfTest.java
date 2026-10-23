@@ -8,10 +8,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -92,6 +94,56 @@ class StoreShelfTest {
             assertInstanceOf(Shelved.class, copies.getFirst());
         } finally {
             release.countDown();
+        }
+    }
+
+    /**
+     * B1: a copy that overran its budget is remembered, so a second call costs no
+     * second budget and starts no second thread. Fails if each call retries it.
+     */
+    @Test
+    @Timeout(TEST_TIMEOUT_SECONDS)
+    void twoCallsOnABlockingCopy_costOneBudgetAndOneThread() {
+        StoreShelf shelf = new StoreShelf(SHORT_BUDGET);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger attempts = new AtomicInteger();
+        shelf.stock(Optional.of(ID), jar(new Broken(), () -> {
+            attempts.incrementAndGet();
+            awaitQuietly(release);
+            return new Broken();
+        }));
+        try {
+            shelf.freshCopies();
+            Instant second = Instant.now();
+            List<BotScript> again = shelf.freshCopies();
+
+            assertTrue(again.isEmpty());
+            assertTrue(Duration.between(second, Instant.now()).compareTo(SHORT_BUDGET) < 0,
+                    "the second call does not wait out another budget");
+            assertEquals(1, attempts.get());
+            assertEquals(1, Thread.getAllStackTraces().keySet().stream()
+                    .filter(t -> t.getName().equals("sdn-construct-" + Broken.class.getName())).count());
+        } finally {
+            release.countDown();
+        }
+    }
+
+    /** L2: an interrupted caller starts no copy at all, and keeps its interrupt. */
+    @Test
+    void anInterruptedCaller_startsNoCopy() {
+        StoreShelf shelf = new StoreShelf(SHORT_BUDGET);
+        AtomicInteger attempts = new AtomicInteger();
+        shelf.stock(Optional.of(ID), jar(new Shelved(), () -> {
+            attempts.incrementAndGet();
+            return new Shelved();
+        }));
+        Thread.currentThread().interrupt();
+        try {
+            assertTrue(shelf.freshCopies().isEmpty());
+            assertEquals(0, attempts.get());
+            assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
         }
     }
 

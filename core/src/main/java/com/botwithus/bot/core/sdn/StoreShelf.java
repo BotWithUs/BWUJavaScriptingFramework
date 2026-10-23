@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,6 +51,10 @@ public final class StoreShelf {
     private final Object lock = new Object();
     /** Keyed by script class, in delivery order. Guarded by {@link #lock}. */
     private final Map<String, Copy> byClass = new LinkedHashMap<>();
+    /** Classes a copy of which overran its budget this run. Guarded by {@link #lock}. */
+    private final Set<String> stalledCopies = new HashSet<>();
+    /** Which of {@link #stalledCopies} have been warned about. Guarded by {@link #lock}. */
+    private final Set<String> warnedStalled = new HashSet<>();
 
     /** How long one new instance may take to construct. */
     private final Duration budget;
@@ -76,6 +81,9 @@ public final class StoreShelf {
             for (int i = 0; i < jar.scripts().size(); i++) {
                 String cls = jar.scripts().get(i).getClass().getName();
                 byClass.put(cls, new Copy(catalogueId, jar.copies().get(i)));
+                // A new delivery is a new loader: its instances get a fresh chance.
+                stalledCopies.remove(cls);
+                warnedStalled.remove(cls);
                 classes.add(cls);
             }
         }
@@ -100,9 +108,35 @@ public final class StoreShelf {
         }
         List<BotScript> copies = new ArrayList<>();
         for (Map.Entry<String, Copy> e : wanted) {
+            if (Thread.currentThread().isInterrupted()) {
+                log.info("SDN: interrupted; not making the remaining {} Store script instance(s)",
+                        wanted.size() - copies.size());
+                break;
+            }
+            if (isStalled(e.getKey())) {
+                continue;
+            }
             copyOf(e.getKey(), e.getValue()).ifPresent(copies::add);
         }
         return copies;
+    }
+
+    /**
+     * Whether a copy of {@code cls} already overran its budget. Its thread is still
+     * running and holds the class, so another attempt would cost another budget and
+     * another thread for the same answer; it is skipped, with one WARN the first time.
+     */
+    private boolean isStalled(String cls) {
+        synchronized (lock) {
+            if (!stalledCopies.contains(cls)) {
+                return false;
+            }
+            if (warnedStalled.add(cls)) {
+                log.warn("SDN: not making new instances of Store script {} this run: an earlier one did not "
+                        + "finish constructing", cls);
+            }
+            return true;
+        }
     }
 
     /**
@@ -119,10 +153,16 @@ public final class StoreShelf {
             }
             case BoundedConstruction.Outcome.TimedOut<BotScript> timedOut -> {
                 log.error("SDN: a new instance of Store script {} did not finish constructing within {} s; "
-                        + "skipping it here", cls, timedOut.budget().toSeconds());
+                        + "making no more instances of it this run", cls, timedOut.budget().toSeconds());
+                synchronized (lock) {
+                    stalledCopies.add(cls);
+                }
                 yield Optional.empty();
             }
-            case BoundedConstruction.Outcome.Interrupted<BotScript> ignored -> Optional.empty();
+            case BoundedConstruction.Outcome.Interrupted<BotScript> ignored -> {
+                log.info("SDN: interrupted while making a new instance of Store script {}", cls);
+                yield Optional.empty();
+            }
         };
     }
 
