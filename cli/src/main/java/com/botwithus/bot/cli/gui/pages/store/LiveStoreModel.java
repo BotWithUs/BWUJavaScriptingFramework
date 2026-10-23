@@ -303,12 +303,21 @@ public final class LiveStoreModel implements StoreModel {
     private void runInstall(List<SdnCatalogueEntry> batch) {
         try {
             lastInstall = settle(installer.apply(batch));
-        } catch (RuntimeException e) {
-            log.warn("SDN: installing {} script(s) threw", batch.size(), e);
-            lastInstall = new InstallActivity.Failed("Something went wrong while installing: " + e.getMessage());
+        } catch (VirtualMachineError e) {
+            // Said on the row, then left to end the thread: the JVM is not in a state to go on.
+            lastInstall = thrown(batch, e);
+            throw e;
+        } catch (RuntimeException | Error e) {
+            lastInstall = thrown(batch, e);
         } finally {
             batch.forEach(e -> installing.remove(e.id()));
         }
+    }
+
+    /** The row's message for an install that threw; logged here, so no throw is silent. */
+    private static InstallActivity thrown(List<SdnCatalogueEntry> batch, Throwable e) {
+        log.error("SDN: installing {} script(s) threw", batch.size(), e);
+        return new InstallActivity.Failed("Something went wrong while installing: " + e);
     }
 
     private InstallActivity settle(SdnInstallResult result) {
@@ -332,6 +341,7 @@ public final class LiveStoreModel implements StoreModel {
         for (Connection conn : live) {
             registrar.registerOn(conn.getRuntime(), scripts);
         }
+        log.info("SDN: registered {} delivered script(s) on {} client(s)", scripts.size(), live.size());
         String what = plural(scripts.size(), "script");
         if (live.isEmpty()) {
             return "Installed " + what + ". Each client that connects gets them.";

@@ -17,16 +17,33 @@ import java.util.function.Supplier;
  * @param jarCount how many jars the delivery carried, including any that failed
  *                 to define or yielded no provider
  * @param jars     the jars that yielded at least one provider, in delivery order
+ * @param stalls   the jars whose script did not finish constructing within the
+ *                 host's budget; such a jar is not in {@code jars}
  */
-public record SdnDelivery(int jarCount, List<Jar> jars) {
+public record SdnDelivery(int jarCount, List<Jar> jars, List<Stall> stalls) {
 
     public SdnDelivery {
         jars = List.copyOf(jars);
+        stalls = List.copyOf(stalls);
+    }
+
+    /** A delivery in which every script that was constructed finished in time. */
+    public SdnDelivery(int jarCount, List<Jar> jars) {
+        this(jarCount, jars, List.of());
     }
 
     /** Nothing arrived. */
     public static SdnDelivery none() {
         return new SdnDelivery(0, List.of());
+    }
+
+    /**
+     * A jar whose script was still constructing when the host stopped waiting.
+     *
+     * @param position    the jar's zero-based place in the delivery
+     * @param scriptClass the provider that did not return
+     */
+    public record Stall(int position, String scriptClass) {
     }
 
     /** Every delivered script, in delivery order. */

@@ -3,6 +3,7 @@ package com.botwithus.bot.core.sdn;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
+import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.SdnDelivery;
 
 import com.google.gson.JsonArray;
@@ -400,6 +401,31 @@ class SdnInstallerTest {
                 () -> assertEquals(Set.of("7"), shelf.catalogueIds()),
                 () -> assertEquals(Set.of(DeliveredScript.class.getName()), shelf.classes()),
                 () -> assertSame(shelf, installer.shelf()));
+    }
+
+    /**
+     * A script that never finished constructing fails the install with the restart
+     * advice, and the same id then fails fast without asking the launcher again.
+     */
+    @Test
+    void install_aStalledScript_failsAndThenFailsFastUntilRestart() {
+        AtomicInteger asked = new AtomicInteger();
+        SdnInstaller installer = new SdnInstaller(dir, () -> true, () -> {
+            asked.incrementAndGet();
+            return new SdnDelivery(1, List.of(),
+                    List.of(new SdnDelivery.Stall(0, DeliveredScript.class.getName())));
+        }, ledger());
+
+        SdnInstallResult first = installer.install(List.of(entry("7")));
+        SdnInstallResult again = installer.install(List.of(entry("7")));
+
+        String expected = DELIVERED_NAME + " did not finish loading within "
+                + SDNScriptLoader.CONSTRUCT_BUDGET.toSeconds() + " seconds. Restart the host to try again.";
+        assertAll(
+                () -> assertEquals(expected, assertInstanceOf(SdnInstallResult.Failed.class, first).reason()),
+                () -> assertEquals(expected, assertInstanceOf(SdnInstallResult.Failed.class, again).reason()),
+                () -> assertEquals(1, asked.get(), "the retry must not ask the launcher and stall again"),
+                () -> assertTrue(ledger().all().isEmpty(), "nothing from a stalled delivery is recorded"));
     }
 
     /** What a delivery carries. */

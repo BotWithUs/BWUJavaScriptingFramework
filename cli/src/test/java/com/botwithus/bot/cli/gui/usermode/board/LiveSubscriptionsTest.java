@@ -273,4 +273,32 @@ class LiveSubscriptionsTest {
         assertEquals(0, installs.get(), "an update is never installed behind the user's back");
         assertNotNull(runtime.findRunner(SHARED_NAME).lastStartedAt());
     }
+    /**
+     * Fails at the base: the picker caught only RuntimeException, so an Error left
+     * the row on "Installing" for good, with nothing on the row to say why.
+     */
+    @Test
+    void start_installThatThrowsAnError_leavesInstallingWithAMessage() {
+        LiveSubscriptions subs = new LiveSubscriptions(() -> List.of(conn),
+                catalogue(entry(DeliveredWoodcutting.class.getName())), entries -> {
+                    throw new NoClassDefFoundError("com/example/Missing");
+                }, new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), List::of, Runnable::run);
+
+        subs.start(CLIENT, SCRIPT_ID);
+
+        SubscriptionState.Failed failed = assertInstanceOf(SubscriptionState.Failed.class, onlyRow(subs).state());
+        assertTrue(failed.message().contains("com/example/Missing"), failed::message);
+    }
+
+    /** The last guard: an installer that answers nothing the picker knows still settles the row. */
+    @Test
+    void start_installThatReturnsNull_stillLeavesInstalling() {
+        LiveSubscriptions subs = new LiveSubscriptions(() -> List.of(conn),
+                catalogue(entry(DeliveredWoodcutting.class.getName())), entries -> null,
+                new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), List::of, Runnable::run);
+
+        subs.start(CLIENT, SCRIPT_ID);
+
+        assertInstanceOf(SubscriptionState.Failed.class, onlyRow(subs).state());
+    }
 }
