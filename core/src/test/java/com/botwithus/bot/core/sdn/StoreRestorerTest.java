@@ -217,17 +217,16 @@ class StoreRestorerTest {
         assertEquals(1, launcherCalls.get());
     }
 
-    /** A part that failed for a passing reason is a failure, so the next attempt waits rather than hammers. */
+    /** A refusal for a passing reason is a failure, so the next attempt waits rather than hammers. */
     @Test
-    void aPartialDeliveryWithAPassingFailure_backsOff() throws IOException {
-        String text = SdnReasonText.of(Optional.of(SdnReasonText.NETWORK), "Restored", Optional.empty());
-        StoreRestorer restorer = restorer(ledgerWith(ID, OTHER_ID), List.of(entry(ID), entry(OTHER_ID)), entries -> {
-            SdnInstallResult.Installed delivered = assertInstanceOf(SdnInstallResult.Installed.class,
-                    deliverEach(entries.subList(0, 1)));
-            return new SdnInstallResult.Installed(delivered.scripts(), delivered.byEntryId(),
-                    List.of(new SdnInstallResult.ScriptRefusal(Optional.of(OTHER_ID),
-                            Optional.of(SdnReasonText.NETWORK), text)));
-        });
+    void aPassingRefusal_backsOff_andIsNotSetAside() throws IOException {
+        String text = SdnReasonText.of(Optional.of(SdnReasonText.SERVER_ERROR), "Restored " + OTHER_ID,
+                Optional.empty());
+        StoreRestorer restorer = restorer(ledgerWith(ID, OTHER_ID), List.of(entry(ID), entry(OTHER_ID)),
+                entries -> entries.getFirst().id().equals(OTHER_ID)
+                        ? new SdnInstallResult.Installed(List.of(), Map.of(), List.of(new SdnInstallResult
+                                .ScriptRefusal(Optional.of(OTHER_ID), Optional.of(SdnReasonText.SERVER_ERROR), text)))
+                        : deliverEach(entries));
 
         restorer.request();
         runQueued();

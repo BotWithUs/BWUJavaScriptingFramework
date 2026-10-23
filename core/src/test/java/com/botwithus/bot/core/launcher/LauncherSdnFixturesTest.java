@@ -15,23 +15,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * field paths in {@link SdnWire} are held to what the launcher actually sends.
  *
  * <p>Disabled until the fixtures exist in the vendored copy: the launcher adds
- * them with its typed-reasons change, and this directory is re-vendored from that
- * merge. The fixture names are the expected ones; correct them, if they differ,
- * when re-vendoring, and remove {@link Disabled}.
+ * them with its typed-reasons change ({@code sdn.bundle.req.msgpack} with
+ * {@code allowPartial}, {@code sdn.bundle.req.legacy.msgpack} without it,
+ * {@code sdn.bundle.resp.partial.msgpack}, {@code sdn.bundle.error.not_delivered.msgpack}),
+ * and this directory is re-vendored from that merge. Chunk errors stay an untyped
+ * {@code sdn_not_delivered}. Remove {@link Disabled} when re-vendoring.
  */
 @Disabled("pending re-vendoring from the launcher merge that adds the typed SDN fixtures")
 class LauncherSdnFixturesTest {
 
+    /** The launcher's manifest names; each is its file name less {@code .msgpack}. */
+    private static final String REQUEST = "sdn.bundle.req";
+    private static final String LEGACY_REQUEST = "sdn.bundle.req.legacy";
     private static final String PARTIAL_OFFER = "sdn.bundle.resp.partial";
-    private static final String TYPED_REFUSAL = "sdn.bundle.err.not_delivered";
+    private static final String TYPED_REFUSAL = "sdn.bundle.error.not_delivered";
 
     private static final LauncherFixtures FIXTURES = LauncherFixtures.load();
 
     @Test
-    void theRequest_asksForAPartialDelivery() {
-        Envelope request = Envelope.decode(FIXTURES.named("sdn.bundle.req").bytes());
+    void theRequest_asksForAPartialDelivery_andTheLegacyOneDoesNot() {
+        Envelope request = Envelope.decode(FIXTURES.named(REQUEST).bytes());
+        Envelope legacy = Envelope.decode(FIXTURES.named(LEGACY_REQUEST).bytes());
 
         assertTrue(WireValues.bool(request.body(), SdnWire.ALLOW_PARTIAL, false));
+        assertFalse(WireValues.bool(legacy.body(), SdnWire.ALLOW_PARTIAL, false));
     }
 
     @Test
