@@ -508,7 +508,8 @@ public class ImGuiApp extends Application {
     /** The Script Store over the host's catalogue; its "Open" goes to Installed scripts. */
     private StorePage storePage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
         LiveStoreModel model = new LiveStoreModel(sdnCatalogue, sdnInstaller::install,
-                new StoreRegistrar(sdnInstaller.shelf()), StoreCopies.of(sdnInstaller.ledger()), sdnInstaller::isDeliveryEnabled, favourites, ctx::getConnections,
+                new StoreRegistrar(sdnInstaller.shelf()), StoreCopies.of(sdnInstaller.ledger()),
+                sdnInstaller::isDeliveryEnabled, favourites, ctx::getConnections,
                 () -> ctx.getLastLoadReport().scripts(),
                 task -> Thread.ofVirtual().name("sdn-store-install").start(task), InstantSource.system());
         return new StorePage(ui, model, id -> pages.select(id));

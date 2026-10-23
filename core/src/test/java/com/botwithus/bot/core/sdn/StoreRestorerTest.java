@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -54,7 +55,7 @@ class StoreRestorerTest {
     }
 
     private static SdnCatalogueEntry entry(String id) {
-        return new SdnCatalogueEntry(id, "Restored", "author", "me", "1.0", "2", "", "",
+        return new SdnCatalogueEntry(id, "Restored " + id, "author", "me", "1.0", "2", "", "",
                 Restored.class.getName(), false, true, true, false, null, null, BUILD);
     }
 
@@ -130,7 +131,7 @@ class StoreRestorerTest {
         StoreRestorer restorer = restorer(ledgerWith(ID), List.of(entry(ID)), this::refuse);
         restorer.request();
         runQueued();
-        assertEquals(Optional.of("sdn_not_delivered"), restorer.lastFailure());
+        assertEquals(Optional.of("Restored " + ID + ": sdn_not_delivered"), restorer.lastFailure());
 
         now.set(NOW.plus(StoreRestorer.RETRY_AFTER).minusSeconds(1));
         restorer.request();
@@ -232,6 +233,141 @@ class StoreRestorerTest {
         assertEquals(Optional.of("this host was not started by the launcher"), restorer.lastFailure());
         assertFalse(restorer.isAwaited());
         assertEquals(0, launcherCalls.get());
+    }
+
+    // ── The review's fixes ──────────────────────────────────────────────────
+
+    /** Delivers every entry asked for except {@code refusedId}, which it refuses. */
+    private Function<List<SdnCatalogueEntry>, SdnInstallResult> refusing(String refusedId) {
+        return entries -> entries.getFirst().id().equals(refusedId) ? refuse(entries) : deliverEach(entries);
+    }
+
+    /**
+     * S1: after a failure a missing game client explains, a client connecting retries
+     * before the wait is over, once per failure. Fails if the nudge is just a request.
+     */
+    @Test
+    void aNudge_afterALinkFailure_retriesOnceBeforeTheWaitIsOver() throws IOException {
+        StoreRestorer restorer = restorer(ledgerWith(ID), List.of(entry(ID)), this::refuse);
+        restorer.request();
+        runQueued();
+
+        restorer.request();
+        assertTrue(queued.isEmpty(), "the timer still waits");
+        restorer.nudge();
+        restorer.nudge();
+        assertEquals(1, queued.size(), "one nudge retries; the second finds it running");
+        runQueued();
+        restorer.nudge();
+        assertEquals(1, queued.size(), "a new failure earns one more early retry");
+    }
+
+    /** A failure no client explains, such as a script that threw, is not retried early. */
+    @Test
+    void aNudge_afterAFailureNoClientExplains_waits() throws IOException {
+        StoreRestorer restorer = restorer(ledgerWith(ID), List.of(entry(ID)), entries -> {
+            throw new IllegalStateException("disk full");
+        });
+        restorer.request();
+        runQueued();
+
+        restorer.nudge();
+
+        assertTrue(queued.isEmpty());
+    }
+
+    /** S2: each id is asked for on its own, so one the launcher refuses costs only itself. */
+    @Test
+    void oneRefusedId_doesNotStopTheOthers_andTheFailureNamesIt() throws IOException {
+        StoreRestorer restorer = restorer(ledgerWith(ID, OTHER_ID), List.of(entry(ID), entry(OTHER_ID)),
+                refusing(OTHER_ID));
+
+        restorer.request();
+        runQueued();
+
+        assertEquals(Set.of(OTHER_ID), restorer.pending());
+        assertEquals(1, restored.size());
+        assertTrue(restorer.lastFailure().orElseThrow().contains("Restored " + OTHER_ID), restorer.lastFailure()::get);
+    }
+
+    /** S2: once the launcher has shown it can deliver, an id refused K times in a row is set aside. */
+    @Test
+    void anIdRefusedKTimesInARow_isSetAside_onceTheLauncherHasDelivered() throws IOException {
+        StoreRestorer restorer = restorer(ledgerWith(ID, OTHER_ID), List.of(entry(ID), entry(OTHER_ID)),
+                refusing(OTHER_ID));
+        for (int run = 0; run < StoreRestorer.REFUSALS_BEFORE_SET_ASIDE; run++) {
+            restorer.request();
+            runQueued();
+            now.set(now.get().plus(StoreRestorer.MAX_RETRY_AFTER));
+        }
+
+        assertTrue(restorer.setAside().containsKey(OTHER_ID));
+        assertTrue(restorer.pending().isEmpty());
+        restorer.request();
+        assertTrue(queued.isEmpty(), "never asked for again this run");
+    }
+
+    /** S2: with nothing ever delivered, refusals are not counted: a launcher with no link refuses all alike. */
+    @Test
+    void refusalsAreNotCounted_whileTheLauncherHasDeliveredNothing() throws IOException {
+        StoreRestorer restorer = restorer(ledgerWith(ID), List.of(entry(ID)), this::refuse);
+        for (int run = 0; run <= StoreRestorer.REFUSALS_BEFORE_SET_ASIDE; run++) {
+            restorer.request();
+            runQueued();
+            now.set(now.get().plus(StoreRestorer.MAX_RETRY_AFTER));
+        }
+
+        assertTrue(restorer.setAside().isEmpty());
+        assertEquals(Set.of(ID), restorer.pending());
+    }
+
+    /** S3: a stale catalogue may predate the purchase, so it sets nothing aside. */
+    @Test
+    void aStaleCatalogue_setsNothingAside() throws IOException {
+        StoreRestorer restorer = new StoreRestorer(new StoreRestorer.Deps(ledgerWith(ID, OTHER_ID), shelf,
+                () -> Optional.of(new SdnCatalogueResult.Delivered(List.of(entry(ID)), true)), () -> true,
+                this::deliverEach, restored::addAll, queued::add, now::get));
+
+        restorer.request();
+        runQueued();
+
+        assertTrue(restorer.setAside().isEmpty());
+        assertEquals(Set.of(OTHER_ID), restorer.pending());
+    }
+
+    /** S4: an Error from the install still settles the restore, so nothing is left waiting forever. */
+    @Test
+    void anErrorFromTheInstall_stillSettles() throws IOException {
+        StoreRestorer restorer = restorer(ledgerWith(ID), List.of(entry(ID)), entries -> {
+            throw new NoClassDefFoundError("com/example/Missing");
+        });
+        AtomicBoolean settled = new AtomicBoolean();
+        restorer.whenSettled(() -> settled.set(true));
+
+        restorer.request();
+        runQueued();
+
+        assertTrue(settled.get());
+        assertFalse(restorer.isAwaited());
+        assertTrue(restorer.lastFailure().orElseThrow().contains("com/example/Missing"));
+    }
+
+    /** S1: a caller told the restore failed is still called back when a later one delivers. */
+    @Test
+    void whenRestored_waitsThroughFailures_andRunsOnTheFirstRestoreThatDelivers() throws IOException {
+        AtomicInteger calls = new AtomicInteger();
+        StoreRestorer restorer = restorer(ledgerWith(ID), List.of(entry(ID)),
+                entries -> calls.getAndIncrement() == 0 ? refuse(entries) : deliverEach(entries));
+        AtomicBoolean restoredCalled = new AtomicBoolean();
+        restorer.whenRestored(() -> restoredCalled.set(true));
+
+        restorer.request();
+        runQueued();
+        assertFalse(restoredCalled.get(), "a failed restore does not call it");
+        restorer.nudge();
+        runQueued();
+
+        assertTrue(restoredCalled.get());
     }
 
     private static void awaitQuietly(CountDownLatch latch) {

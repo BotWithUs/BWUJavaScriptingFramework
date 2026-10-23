@@ -173,7 +173,8 @@ class LiveStoreModelTest {
         return new LiveStoreModel(refresher, entries -> {
             installRequests.add(List.copyOf(entries));
             return launcherInstall.apply(entries);
-        }, new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), () -> deliveryEnabled, favourites, () -> List.of(conn), () -> localScripts,
+        }, new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), () -> deliveryEnabled, favourites,
+                () -> List.of(conn), () -> localScripts,
                 queuedInstalls, InstantSource.fixed(NOW));
     }
 

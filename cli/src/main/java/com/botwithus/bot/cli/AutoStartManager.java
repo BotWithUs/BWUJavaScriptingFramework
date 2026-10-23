@@ -212,31 +212,50 @@ public class AutoStartManager {
      * says so with the restore's reason, so nothing waits on a restore that failed.
      */
     private void waitForStoreOrReport(Connection conn, List<String> missing, String displayName) {
-        Optional<StoreRestorer> restorer = ctx.storeRestorer();
-        boolean isWaiting = restorer.isPresent()
-                && restorer.get().whenSettled(() -> retryAfterRestore(conn, missing, displayName));
-        if (isWaiting) {
+        Optional<StoreRestorer> hoping = ctx.storeRestorer().filter(r -> !r.pending().isEmpty());
+        if (hoping.isEmpty()) {
+            reportNotFound(missing, ctx.storeRestorer(), false);
+            return;
+        }
+        StoreRestorer restorer = hoping.get();
+        // Whatever happens now, a later restore that brings scripts back tries these again.
+        restorer.whenRestored(() -> retryAfterRestore(conn, missing, displayName));
+        if (restorer.whenSettled(() -> reportIfStillFailing(missing, restorer))) {
             out().println("[AutoStart] Waiting for the launcher to deliver this PC's Store scripts before "
                     + "starting " + String.join(", ", missing) + " for " + displayName + ".");
             return;
         }
-        reportNotFound(missing, restorer);
+        reportNotFound(missing, hoping, true);
     }
 
+    /** Tries the names again after a restore delivered something; any still missing wait for the next. */
     private void retryAfterRestore(Connection conn, List<String> missing, String displayName) {
         if (!conn.isAlive()) {
             return;
         }
         List<String> stillMissing = startConfigured(conn, missing, displayName);
-        reportNotFound(stillMissing, ctx.storeRestorer());
+        if (!stillMissing.isEmpty()) {
+            waitForStoreOrReport(conn, stillMissing, displayName);
+        }
     }
 
-    private void reportNotFound(List<String> missing, Optional<StoreRestorer> restorer) {
+    private void reportIfStillFailing(List<String> missing, StoreRestorer restorer) {
+        if (restorer.lastFailure().isPresent()) {
+            reportNotFound(missing, Optional.of(restorer), true);
+        }
+    }
+
+    /**
+     * @param isStillHoping whether a later restore could still bring them, which the
+     *                      line then says, so the user knows not to restart for it
+     */
+    private void reportNotFound(List<String> missing, Optional<StoreRestorer> restorer, boolean isStillHoping) {
         String why = restorer.flatMap(StoreRestorer::lastFailure)
                 .map(reason -> " (Store scripts could not be delivered again: " + reason + ")")
                 .orElse("");
+        String later = isStillHoping ? " It will start if the launcher delivers it later." : "";
         for (String name : missing) {
-            out().println("[AutoStart] Script not found: " + name + why);
+            out().println("[AutoStart] Script not found: " + name + why + "." + later);
         }
     }
 

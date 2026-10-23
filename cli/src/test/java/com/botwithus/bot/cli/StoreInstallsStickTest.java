@@ -302,9 +302,34 @@ class StoreInstallsStickTest {
 
         autoStart.onConnectionEstablished(conn, DISPLAY_NAME);
 
-        assertTrue(output().contains("Script not found: " + SCRIPT_NAME
-                + " (Store scripts could not be delivered again: the launcher did not deliver them)"), output());
+        assertTrue(output().contains("Script not found: " + SCRIPT_NAME + " (Store scripts could not be delivered "
+                + "again: " + SCRIPT_NAME + ": the launcher did not deliver it). It will start if the launcher "
+                + "delivers it later."), output());
         assertFalse(output().contains("Waiting for the launcher"), output());
+    }
+
+    /**
+     * S1, end to end: after a restart the first restore fails for want of a game
+     * client, then a client connects, which retries at once, and the script starts.
+     * Fails if the connect waits out the backoff, or if auto-start gives up after
+     * the first failure.
+     */
+    @Test
+    @Timeout(START_TIMEOUT_SECONDS)
+    void autoStartAfterRestart_aFailedRestoreThenAConnect_startsTheScript() {
+        install(host());
+        AtomicInteger launcherCalls = new AtomicInteger();
+        Host restarted = host(() -> launcherCalls.getAndIncrement() == 0 ? SdnDelivery.none() : oneJar(), true);
+        AutoStartManager autoStart = autoStartFor(restarted);
+        restarted.restorer().request();
+        restarted.runQueuedRestores();
+        assertTrue(restarted.restorer().lastFailure().isPresent(), "the first restore failed");
+
+        Connection conn = client(restarted, "BotWithUs_1");
+        autoStart.onConnectionEstablished(conn, DISPLAY_NAME);
+        restarted.runQueuedRestores();
+
+        assertTrue(storeRunner(conn).isRunning());
     }
 
     private AutoStartManager autoStartFor(Host host) {

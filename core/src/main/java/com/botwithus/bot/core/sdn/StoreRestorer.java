@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.sdn;
 
 import com.botwithus.bot.api.BotScript;
+import com.botwithus.bot.core.launcher.LauncherProtocol;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,20 +28,21 @@ import java.util.stream.Collectors;
  * survives a host restart.
  *
  * <p>What to ask for is the {@link InstalledScriptsLedger}'s catalogue ids that no
- * script on the {@link StoreShelf} was delivered for. Only ids still in the
- * catalogue are asked for; an id the catalogue no longer lists (the subscription
- * lapsed, or the script was withdrawn) is set aside for the rest of this run with
- * its reason, so it is never asked for again and nothing waits on it.
+ * script on the {@link StoreShelf} was delivered for. Each id is asked for on its
+ * own, so one the launcher cannot deliver costs only itself. An id a fresh catalogue
+ * no longer lists is set aside for the rest of this run, and so is one the launcher
+ * refused {@value #REFUSALS_BEFORE_SET_ASIDE} times in a row once it had shown it
+ * could deliver others. A stale catalogue sets nothing aside: it may simply predate
+ * the purchase.
  *
- * <p>{@link #request} is the one trigger and is cheap to call often: the host calls
- * it on a timer from start-up, which alone is enough, and again whenever a client
- * connects, which only makes a retry come sooner. At most one restore is in flight,
- * however many callers ask at once, and after a failed one the next waits
- * {@link #RETRY_AFTER}, so neither many clients connecting together nor a launcher
- * that keeps refusing is asked in a burst.
+ * <p>{@link #request} is the timer's trigger and is enough on its own. {@link #nudge}
+ * is a client connecting: after a failure that a missing game client explains, it
+ * may start one restore before the wait is over, once per such failure. At most one
+ * restore is in flight however many callers ask, and after a failure the next waits
+ * {@link #RETRY_AFTER}, doubling to {@link #MAX_RETRY_AFTER}.
  *
- * <p>Thread-safe. The restore itself runs on the executor given, because it
- * blocks on the launcher.
+ * <p>Thread-safe. The restore itself runs on the executor given, because it blocks
+ * on the launcher.
  */
 public final class StoreRestorer {
 
@@ -49,6 +51,13 @@ public final class StoreRestorer {
 
     /** The longest wait between failed restores. */
     public static final Duration MAX_RETRY_AFTER = Duration.ofMinutes(10);
+
+    /**
+     * How many restores in a row may refuse one id, while delivering others, before
+     * it is set aside for the run. Three: one refusal can be a passing server error,
+     * three with the launcher demonstrably working is that script.
+     */
+    public static final int REFUSALS_BEFORE_SET_ASIDE = 3;
 
     /** Why an id is set aside when the catalogue does not list it. */
     static final String NOT_IN_CATALOGUE = "it is no longer in your Store catalogue";
@@ -75,16 +84,37 @@ public final class StoreRestorer {
                        Function<List<SdnCatalogueEntry>, SdnInstallResult> installer,
                        Consumer<List<BotScript>> onRestored, Executor executor, InstantSource clock) {}
 
+    /**
+     * How one restore went.
+     *
+     * @param isAnyRestored whether at least one script came back
+     * @param failure       why the rest did not, when something did not
+     * @param isLinkFailure whether a launcher with no game client to deliver through
+     *                      would explain the failure, so a client connecting is worth a retry
+     */
+    private record Outcome(boolean isAnyRestored, Optional<String> failure, boolean isLinkFailure) {
+
+        static Outcome failed(String failure, boolean isLinkFailure) {
+            return new Outcome(false, Optional.of(failure), isLinkFailure);
+        }
+    }
+
     private final Deps deps;
     private final Object lock = new Object();
     // Everything below is guarded by lock.
     private final Map<String, String> setAside = new HashMap<>();
-    private final List<Runnable> waiters = new ArrayList<>();
+    private final Map<String, Integer> refusalsInARow = new HashMap<>();
+    private final List<Runnable> settleWaiters = new ArrayList<>();
+    private final List<Runnable> restoreWaiters = new ArrayList<>();
     private boolean isRunning;
     private boolean hasAttempted;
     private Instant failedAt;
     private int failuresInARow;
     private String lastFailure;
+    private boolean isLinkFailure;
+    private boolean isNudgeSpent;
+    /** Whether any restore this run brought a script back, which shows the launcher can deliver. */
+    private boolean hasRestoredAny;
 
     public StoreRestorer(Deps deps) {
         this.deps = deps;
@@ -102,9 +132,7 @@ public final class StoreRestorer {
         return Set.copyOf(ids);
     }
 
-    /**
-     * Ids that will not be restored this run, with why. Only ever grows.
-     */
+    /** Ids that will not be restored this run, with why. Only ever grows. */
     public Map<String, String> setAside() {
         synchronized (lock) {
             return Map.copyOf(setAside);
@@ -121,8 +149,7 @@ public final class StoreRestorer {
     /**
      * Whether a restore is still to come that something could usefully wait for:
      * one is running, or none has been tried yet and there is something to restore.
-     * False after a failure, so a caller is told the reason rather than left waiting
-     * for a retry that may never succeed.
+     * False after a failure, so a caller is told the reason rather than left waiting.
      */
     public boolean isAwaited() {
         synchronized (lock) {
@@ -131,22 +158,45 @@ public final class StoreRestorer {
     }
 
     /**
-     * Runs {@code then} once the restore that is awaited settles, and returns true;
-     * returns false without running it when none is awaited. Atomic with
-     * {@link #isAwaited}, so a restore settling meanwhile cannot strand the waiter.
+     * Runs {@code then} once the awaited restore settles, however it went, and returns
+     * true; returns false without running it when none is awaited.
      */
     public boolean whenSettled(Runnable then) {
         synchronized (lock) {
             if (!isAwaitedLocked()) {
                 return false;
             }
-            waiters.add(then);
+            settleWaiters.add(then);
             return true;
         }
     }
 
-    /** Starts a restore if one is due; otherwise does nothing. Never blocks. */
+    /**
+     * Runs {@code then} after the next restore that brings any script back, however
+     * many fail before it. This is how a script reported missing after a failed
+     * restore still starts when a later one delivers it.
+     */
+    public void whenRestored(Runnable then) {
+        synchronized (lock) {
+            restoreWaiters.add(then);
+        }
+    }
+
+    /** Starts a restore if one is due; otherwise does nothing. Never blocks. The timer's trigger. */
     public void request() {
+        request(false);
+    }
+
+    /**
+     * A client connected. As {@link #request}, except that after a failure a missing
+     * game client explains, it starts a restore before the wait is over, once per
+     * such failure, since a connected client is what such a launcher was waiting for.
+     */
+    public void nudge() {
+        request(true);
+    }
+
+    private void request(boolean isNudge) {
         if (pending().isEmpty()) {
             return;
         }
@@ -158,77 +208,134 @@ public final class StoreRestorer {
         if (shown.isEmpty()) {
             return;
         }
-        Optional<List<SdnCatalogueEntry>> entries = deliveredEntries(shown.get());
-        if (entries.isEmpty()) {
+        Optional<SdnCatalogueResult.Delivered> catalogue = delivered(shown.get());
+        if (catalogue.isEmpty()) {
             settleWithoutRunning("the Store catalogue could not be read: " + describe(shown.get()));
             return;
         }
-        if (claim()) {
-            deps.executor().execute(() -> run(entries.get()));
+        if (claim(isNudge)) {
+            deps.executor().execute(() -> run(catalogue.get()));
         }
     }
 
     // ── One restore ────────────────────────────────────────────────────────
 
-    /** Takes the single in-flight slot, unless it is taken or a failure is too recent. */
-    private boolean claim() {
+    /** Takes the single in-flight slot, unless it is taken or the wait after a failure is not over. */
+    private boolean claim(boolean isNudge) {
         synchronized (lock) {
-            if (isRunning || isWaitingAfterFailure()) {
+            if (isRunning) {
                 return false;
+            }
+            if (isWaitingAfterFailure()) {
+                if (!isNudge || !isLinkFailure || isNudgeSpent) {
+                    return false;
+                }
+                isNudgeSpent = true;
+                log.info("SDN: a client connected; retrying the Store restore before the wait is over");
             }
             isRunning = true;
             return true;
         }
     }
 
-    private void run(List<SdnCatalogueEntry> catalogue) {
-        Optional<String> failure;
+    private void run(SdnCatalogueResult.Delivered catalogue) {
+        Outcome outcome;
         try {
-            failure = restore(catalogue);
-        } catch (RuntimeException e) {
-            log.warn("SDN: restoring Store scripts threw", e);
-            failure = Optional.of("something went wrong: " + e.getMessage());
+            outcome = restore(catalogue);
+        } catch (VirtualMachineError e) {
+            settle(Outcome.failed("something went wrong: " + e, false));
+            throw e;
+        } catch (RuntimeException | Error e) {
+            log.error("SDN: restoring Store scripts threw", e);
+            outcome = Outcome.failed("something went wrong: " + e, false);
         }
-        settle(failure);
+        settle(outcome);
     }
 
-    /** Asks for every pending id the catalogue lists. Returns why it failed, or empty. */
-    private Optional<String> restore(List<SdnCatalogueEntry> catalogue) {
+    /** Asks for each pending id the catalogue lists, one at a time. */
+    private Outcome restore(SdnCatalogueResult.Delivered catalogue) {
         Set<String> wanted = pending();
-        List<SdnCatalogueEntry> listed = catalogue.stream().filter(e -> wanted.contains(e.id())).toList();
-        setAsideUnlisted(wanted, listed);
+        List<SdnCatalogueEntry> listed = catalogue.entries().stream().filter(e -> wanted.contains(e.id()))
+                .toList();
+        if (!catalogue.stale()) {
+            setAsideUnlisted(wanted, listed);
+        }
         if (listed.isEmpty()) {
-            return Optional.empty();
+            return new Outcome(false, Optional.empty(), false);
         }
         log.info("SDN: asking the launcher again for {} Store script(s) installed on this PC", listed.size());
-        return switch (deps.installer().apply(listed)) {
-            case SdnInstallResult.Installed installed -> {
-                setAsideUndelivered(listed, installed);
-                deps.onRestored().accept(installed.scripts());
-                yield Optional.empty();
-            }
-            case SdnInstallResult.NothingSelected ignored -> Optional.empty();
-            case SdnInstallResult.DeliveryDisabled ignored ->
-                    Optional.of("this host was not started by the launcher");
-            case SdnInstallResult.CourierUnavailable ignored ->
-                    Optional.of("the launcher did not deliver them");
-            case SdnInstallResult.Failed failed -> Optional.of(failed.reason());
-        };
+        return restoreEach(listed);
     }
 
     /**
-     * Sets aside each id the delivery had no script for. Asking again would fetch
-     * the same delivery, so without this an unpairable one would be fetched forever.
+     * Restores each entry on its own. A launcher that is unreachable or not set up
+     * for this host stops the run, since every other id would fail the same way.
      */
-    private void setAsideUndelivered(List<SdnCatalogueEntry> listed, SdnInstallResult.Installed installed) {
-        List<String> missing = listed.stream().map(SdnCatalogueEntry::id)
-                .filter(id -> installed.scriptsFor(id).isEmpty()).toList();
-        if (missing.isEmpty()) {
+    private Outcome restoreEach(List<SdnCatalogueEntry> listed) {
+        RunTally tally = new RunTally();
+        for (SdnCatalogueEntry entry : listed) {
+            Optional<Outcome> stop = restoreOne(entry, tally);
+            if (stop.isPresent()) {
+                return stop.get();
+            }
+        }
+        countRefusals(tally.refusedIds, tally.isAnyRestored);
+        return new Outcome(tally.isAnyRestored, Optional.ofNullable(tally.failure), tally.isLinkFailure);
+    }
+
+    /** One entry's restore. Returns the run's outcome when it must stop here. */
+    private Optional<Outcome> restoreOne(SdnCatalogueEntry entry, RunTally tally) {
+        return switch (deps.installer().apply(List.of(entry))) {
+            case SdnInstallResult.Installed installed -> {
+                restored(entry, installed, tally);
+                yield Optional.empty();
+            }
+            case SdnInstallResult.NothingSelected ignored -> Optional.empty();
+            case SdnInstallResult.DeliveryDisabled ignored -> Optional.of(new Outcome(tally.isAnyRestored,
+                    Optional.of("this host was not started by the launcher"), false));
+            case SdnInstallResult.CourierUnavailable ignored -> Optional.of(new Outcome(tally.isAnyRestored,
+                    Optional.of(entry.name() + ": the launcher did not deliver it"), true));
+            case SdnInstallResult.Failed failed -> {
+                tally.refused(entry, failed.reason());
+                yield Optional.empty();
+            }
+        };
+    }
+
+    private void restored(SdnCatalogueEntry entry, SdnInstallResult.Installed installed, RunTally tally) {
+        if (installed.scriptsFor(entry.id()).isEmpty()) {
+            log.warn("SDN: not restoring {} this run: {}", entry.name(), NOT_DELIVERED);
+            synchronized (lock) {
+                setAside.put(entry.id(), NOT_DELIVERED);
+            }
             return;
         }
-        log.warn("SDN: not restoring {} installed Store script(s): {}", missing.size(), NOT_DELIVERED);
+        tally.isAnyRestored = true;
         synchronized (lock) {
-            missing.forEach(id -> setAside.put(id, NOT_DELIVERED));
+            refusalsInARow.remove(entry.id());
+        }
+        deps.onRestored().accept(installed.scripts());
+    }
+
+    /**
+     * Counts a refusal against each refused id once the launcher has shown, in this
+     * run or an earlier one since the host started, that it can deliver: then the id
+     * is the problem, not the link. Without that, nothing is counted, since a
+     * launcher with no game client refuses every id alike.
+     */
+    private void countRefusals(List<String> refusedIds, boolean isAnyRestoredNow) {
+        synchronized (lock) {
+            hasRestoredAny |= isAnyRestoredNow;
+            if (!hasRestoredAny) {
+                return;
+            }
+            for (String id : refusedIds) {
+                int refusals = refusalsInARow.merge(id, 1, Integer::sum);
+                if (refusals >= REFUSALS_BEFORE_SET_ASIDE) {
+                    setAside.put(id, "the launcher refused it " + refusals + " times in a row");
+                    log.warn("SDN: not restoring Store script {} this run: refused {} times in a row", id, refusals);
+                }
+            }
         }
     }
 
@@ -244,30 +351,65 @@ public final class StoreRestorer {
         }
     }
 
+    /** What one run has seen so far. Confined to the restore thread. */
+    private static final class RunTally {
+        private final List<String> refusedIds = new ArrayList<>();
+        private boolean isAnyRestored;
+        private boolean isLinkFailure;
+        private String failure;
+
+        void refused(SdnCatalogueEntry entry, String reason) {
+            refusedIds.add(entry.id());
+            isLinkFailure |= LauncherProtocol.ERROR_SDN_NOT_DELIVERED.equals(reason);
+            if (failure == null) {
+                failure = entry.name() + ": " + reason;
+            }
+        }
+    }
+
     // ── Settling ───────────────────────────────────────────────────────────
 
-    /** Records a failure that needed no restore to find, at most once per wait. */
+    /** Records a failure that needed no restore to find, at most once per wait, atomically. */
     private void settleWithoutRunning(String reason) {
+        List<Runnable> toRun;
         synchronized (lock) {
             if (isRunning || isWaitingAfterFailure()) {
                 return;
             }
+            toRun = settleLocked(Outcome.failed(reason, false));
         }
-        settle(Optional.of(reason));
+        finish(Outcome.failed(reason, false), toRun);
     }
 
-    private void settle(Optional<String> failure) {
+    private void settle(Outcome outcome) {
         List<Runnable> toRun;
         synchronized (lock) {
-            isRunning = false;
-            hasAttempted = true;
-            lastFailure = failure.orElse(null);
-            failedAt = failure.isPresent() ? deps.clock().instant() : null;
-            failuresInARow = failure.isPresent() ? failuresInARow + 1 : 0;
-            toRun = List.copyOf(waiters);
-            waiters.clear();
+            toRun = settleLocked(outcome);
         }
-        failure.ifPresent(reason -> log.warn("SDN: could not restore installed Store scripts: {}", reason));
+        finish(outcome, toRun);
+    }
+
+    /** The state change of a settle; returns the waiters to run once the lock is released. */
+    private List<Runnable> settleLocked(Outcome outcome) {
+        isRunning = false;
+        hasAttempted = true;
+        lastFailure = outcome.failure().orElse(null);
+        boolean isFailure = outcome.failure().isPresent();
+        failedAt = isFailure ? deps.clock().instant() : null;
+        failuresInARow = isFailure ? failuresInARow + 1 : 0;
+        isLinkFailure = outcome.isLinkFailure();
+        isNudgeSpent = false;
+        List<Runnable> toRun = new ArrayList<>(settleWaiters);
+        settleWaiters.clear();
+        if (outcome.isAnyRestored()) {
+            toRun.addAll(restoreWaiters);
+            restoreWaiters.clear();
+        }
+        return toRun;
+    }
+
+    private static void finish(Outcome outcome, List<Runnable> toRun) {
+        outcome.failure().ifPresent(reason -> log.warn("SDN: could not restore installed Store scripts: {}", reason));
         toRun.forEach(StoreRestorer::runQuietly);
     }
 
@@ -289,9 +431,9 @@ public final class StoreRestorer {
         return wait.compareTo(MAX_RETRY_AFTER) < 0 ? wait : MAX_RETRY_AFTER;
     }
 
-    private static Optional<List<SdnCatalogueEntry>> deliveredEntries(SdnCatalogueResult shown) {
+    private static Optional<SdnCatalogueResult.Delivered> delivered(SdnCatalogueResult shown) {
         return switch (shown) {
-            case SdnCatalogueResult.Delivered d -> Optional.of(d.entries());
+            case SdnCatalogueResult.Delivered d -> Optional.of(d);
             case SdnCatalogueResult.CourierUnavailable ignored -> Optional.empty();
             case SdnCatalogueResult.NotSignedIn ignored -> Optional.empty();
             case SdnCatalogueResult.SubscriptionRequired ignored -> Optional.empty();

@@ -952,10 +952,10 @@ public class CliContext {
 
     /**
      * Registers this host's Store scripts on a client that has just joined the table,
-     * each as a new instance, and nudges the restorer, since a client connecting is
-     * when a launcher that refused a restore for want of a game client can serve it.
-     * Done after the client is in the table, so a restore that settles meanwhile
-     * registers on it instead: either way it gets them.
+     * each as a new instance, and nudges the restorer: after a failure a missing game
+     * client explains, a client connecting starts a retry before the wait is over
+     * (see {@link StoreRestorer#nudge}). Done after the client is in the table, so a
+     * restore that settles meanwhile registers on it instead: either way it gets them.
      */
     private void giveStoreScripts(Connection conn) {
         ScriptRuntime runtime = conn.getRuntime();
@@ -964,7 +964,7 @@ public class CliContext {
         }
         StoreRestorer restorer = storeRestorer;
         if (restorer != null) {
-            restorer.request();
+            restorer.nudge();
         }
     }
 
