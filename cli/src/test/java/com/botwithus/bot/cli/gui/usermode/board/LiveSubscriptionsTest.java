@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui.usermode.board;
 
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
+import com.botwithus.bot.core.sdn.StoreShelf;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
@@ -119,7 +121,8 @@ class LiveSubscriptionsTest {
     private LiveSubscriptions subscriptions(Supplier<? extends Collection<Connection>> connections,
                                             SdnCatalogueEntry entry, BotScript delivery,
                                             List<LocalScript> locals) {
-        return new LiveSubscriptions(connections, catalogue(entry), delivers(delivery), StoreCopies.of(ledger),
+        return new LiveSubscriptions(connections, catalogue(entry), delivers(delivery),
+                new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger),
                 () -> locals, Runnable::run);
     }
 
@@ -263,7 +266,7 @@ class LiveSubscriptionsTest {
                     installs.incrementAndGet();
                     return new SdnInstallResult.Installed(List.of(), Map.of());
                 },
-                StoreCopies.of(ledger), List::of, Runnable::run);
+                new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), List::of, Runnable::run);
 
         subs.start(CLIENT, SCRIPT_ID);
 

@@ -6,6 +6,7 @@ import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.api.ui.ScriptUI;
 import com.botwithus.bot.cli.CliContext;
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.clients.ClientLifecycle;
 import com.botwithus.bot.cli.clients.ClientRecord;
@@ -107,7 +108,8 @@ public final class LiveClientBoard implements ClientBoard {
         this.commandExecutor = commandExecutor;
         this.profiles = new ResumeProfiles(ctx::getProfileStore, commandExecutor, clock);
         this.subscriptions = new LiveSubscriptions(ctx::getConnections, catalogue, installer::install,
-                StoreCopies.of(installer.ledger()), () -> loadedCatalog.locals(),
+                new StoreRegistrar(installer.shelf()), StoreCopies.of(installer.ledger()),
+                () -> loadedCatalog.locals(),
                 task -> Thread.ofVirtual().name("sdn-subscription-install").start(task));
         requestCatalogLoad();
     }

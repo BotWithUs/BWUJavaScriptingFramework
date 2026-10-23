@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.usermode.board;
 
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
@@ -28,13 +29,15 @@ public final class PickerScreen {
      * @param connections the host's clients, read fresh on every call
      * @param catalogue   the catalogue loop the Store page shares
      * @param installer   asks the launcher for catalogue scripts and loads them; blocks
+     * @param registrar   registers a delivery on a client, a new instance per client
      * @param storeCopies recognises a loaded Store copy by its install record
      */
     public PickerScreen(Supplier<? extends Collection<Connection>> connections, SdnCatalogueRefresher catalogue,
-                        Function<List<SdnCatalogueEntry>, SdnInstallResult> installer, StoreCopies storeCopies) {
+                        Function<List<SdnCatalogueEntry>, SdnInstallResult> installer, StoreRegistrar registrar,
+                        StoreCopies storeCopies) {
         // No local scripts: the check's premise is that only the Store can supply
         // these entries, so a local copy would decide the very state under test.
-        this.subscriptions = new LiveSubscriptions(connections, catalogue, installer, storeCopies, List::of,
+        this.subscriptions = new LiveSubscriptions(connections, catalogue, installer, registrar, storeCopies, List::of,
                 task -> Thread.ofVirtual().name("sdn-subscription-install").start(task));
     }
 

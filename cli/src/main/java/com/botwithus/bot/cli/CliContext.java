@@ -42,6 +42,7 @@ import com.botwithus.bot.cli.management.ScopedClientLauncher;
 import com.botwithus.bot.cli.management.ScopedClientOrchestrator;
 import com.botwithus.bot.cli.management.ScopedClientProvider;
 import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.cli.scripts.AfterReload;
 import com.botwithus.bot.cli.scripts.ManagementReload;
 import com.botwithus.bot.cli.scripts.ReloadSummary;
@@ -83,6 +84,8 @@ import com.botwithus.bot.core.runtime.ScriptFolder;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
+import com.botwithus.bot.core.sdn.StoreRestorer;
+import com.botwithus.bot.core.sdn.StoreShelf;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
 
@@ -108,6 +111,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -217,6 +221,10 @@ public class CliContext {
     private final ManagementSettings managementSettings;
 
     private final PidClaims pidClaims = new PidClaims();
+    /** Every Store delivery since the host started, in memory only; see {@link StoreShelf}. */
+    private final StoreShelf storeShelf = new StoreShelf();
+    /** Set by the entry point that has a Store; a host without one restores nothing. */
+    private volatile StoreRestorer storeRestorer;
     private volatile HostClientLauncher clientLauncher = new UnavailableHostClientLauncher();
 
     public CliContext(LogBuffer logBuffer, LogCapture logCapture) {
@@ -249,7 +257,7 @@ public class CliContext {
                 this::liveClient, connectionHistory, hostEvents::publish, clock, background);
         this.groupStore = new GroupStore(new GroupsFile(groupsFile));
         this.startWhenBack = new StartWhenBackQueue(groupsFile.resolveSibling(StartWhenBackQueue.FILE_NAME));
-        this.startWhenBackDrain = new StartWhenBackDrain(startWhenBack, this::liveRuntime, this::loadScripts,
+        this.startWhenBackDrain = new StartWhenBackDrain(startWhenBack, this::liveRuntime, this::clientScripts,
                 background, line -> out().println(line));
         this.managementTargets = new ManagementTargets(
                 new ManagementFile(groupsFile.resolveSibling(ManagementFile.FILE_NAME)), groupStore);
@@ -938,7 +946,26 @@ public class CliContext {
         }
         applySettings(conn);
         reportToHostEvents(conn);
+        giveStoreScripts(conn);
         return true;
+    }
+
+    /**
+     * Registers this host's Store scripts on a client that has just joined the table,
+     * each as a new instance, and nudges the restorer: after a failure a missing game
+     * client explains, a client connecting starts a retry before the wait is over
+     * (see {@link StoreRestorer#nudge}). Done after the client is in the table, so a
+     * restore that settles meanwhile registers on it instead: either way it gets them.
+     */
+    private void giveStoreScripts(Connection conn) {
+        ScriptRuntime runtime = conn.getRuntime();
+        if (runtime != null) {
+            storeShelf.freshCopies().forEach(runtime::registerScript);
+        }
+        StoreRestorer restorer = storeRestorer;
+        if (restorer != null) {
+            restorer.nudge();
+        }
     }
 
     /** The host settings that shape a connection: its RPC timeout and its runtime's stall threshold. */
@@ -1082,6 +1109,43 @@ public class CliContext {
 
     public List<BotScript> loadScripts() {
         return loadScriptReport().scripts();
+    }
+
+    /**
+     * Everything a client should have registered: one load pass over
+     * {@code scripts/}, then a new instance of each Store script this host holds.
+     * Call it once per client, as with {@link #loadScripts}, so no two clients share
+     * an instance.
+     */
+    public List<BotScript> clientScripts() {
+        List<BotScript> scripts = new ArrayList<>(loadScripts());
+        scripts.addAll(storeShelf.freshCopies());
+        return scripts;
+    }
+
+    /** The host's Store shelf; the installer stocks it and every client is given its scripts. */
+    public StoreShelf storeShelf() {
+        return storeShelf;
+    }
+
+    /** The host's Store restorer, when this entry point has a Store. */
+    public Optional<StoreRestorer> storeRestorer() {
+        return Optional.ofNullable(storeRestorer);
+    }
+
+    /** Sets the restorer the host nudges whenever a client connects. */
+    public void setStoreRestorer(StoreRestorer restorer) {
+        this.storeRestorer = restorer;
+    }
+
+    /** Registers a new instance of each of {@code delivered} on every live client. */
+    public void registerStoreScriptsOnLiveClients(List<BotScript> delivered) {
+        StoreRegistrar registrar = new StoreRegistrar(storeShelf);
+        for (Connection conn : getConnections()) {
+            if (conn.isAlive() && conn.getRuntime() != null) {
+                registrar.registerOn(conn.getRuntime(), delivered);
+            }
+        }
     }
 
     /**
@@ -1423,7 +1487,7 @@ public class CliContext {
 
     /** Built per call so each load pass goes through this object's own load methods. */
     private ScriptReloader newReloader() {
-        return new ScriptReloader(this::loadScripts, this::loadManagementScripts);
+        return new ScriptReloader(this::clientScripts, this::loadManagementScripts);
     }
 
     /**

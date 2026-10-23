@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -37,6 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -383,6 +385,21 @@ class SdnInstallerTest {
                     .forEach(id -> ids.add(id.getAsString()));
             return ids;
         }
+    }
+
+    /** Fails if a delivery is not kept: a later client or a reload would have nothing to register. */
+    @Test
+    void install_shelvesTheDeliveryUnderTheEntryItWasPairedWith() {
+        StoreShelf shelf = new StoreShelf();
+        SdnInstaller installer = new SdnInstaller(dir, () -> true, () -> jars(new DeliveredScript()),
+                SdnPipeRoute.none(), ledger(), shelf);
+
+        installed(installer.install(List.of(entry("7"))));
+
+        assertAll(
+                () -> assertEquals(Set.of("7"), shelf.catalogueIds()),
+                () -> assertEquals(Set.of(DeliveredScript.class.getName()), shelf.classes()),
+                () -> assertSame(shelf, installer.shelf()));
     }
 
     /** What a delivery carries. */

@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui.pages.store;
 
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
+import com.botwithus.bot.core.sdn.StoreShelf;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptContext;
@@ -171,7 +173,8 @@ class LiveStoreModelTest {
         return new LiveStoreModel(refresher, entries -> {
             installRequests.add(List.copyOf(entries));
             return launcherInstall.apply(entries);
-        }, StoreCopies.of(ledger), () -> deliveryEnabled, favourites, () -> List.of(conn), () -> localScripts,
+        }, new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), () -> deliveryEnabled, favourites,
+                () -> List.of(conn), () -> localScripts,
                 queuedInstalls, InstantSource.fixed(NOW));
     }
 

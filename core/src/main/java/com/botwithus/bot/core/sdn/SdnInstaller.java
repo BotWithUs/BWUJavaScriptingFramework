@@ -70,6 +70,7 @@ public final class SdnInstaller {
     private final Supplier<SdnDelivery> awaitDelivery;
     private final InstalledScriptsLedger ledger;
     private final SdnPipeRoute pipe;
+    private final StoreShelf shelf;
 
     /** Files only: the shared rendezvous directory, recording installs in the user's ledger. */
     public SdnInstaller() {
@@ -78,8 +79,16 @@ public final class SdnInstaller {
 
     /** The production installer: over {@code pipe} when the launcher offers it, else the shared directory. */
     public SdnInstaller(SdnPipeRoute pipe) {
+        this(pipe, new StoreShelf());
+    }
+
+    /**
+     * The production installer, shelving every delivery on {@code shelf} so the host
+     * can hand it to clients that connect later and keep it across a reload.
+     */
+    public SdnInstaller(SdnPipeRoute pipe, StoreShelf shelf) {
         this(SdnRendezvous.directory(), SdnDiskBundleSource::isEnabled, SDNScriptLoader::loadSdnDeliveryFromDisk,
-                pipe, InstalledScriptsLedger.inUserHome());
+                pipe, InstalledScriptsLedger.inUserHome(), shelf);
     }
 
     public SdnInstaller(Path directory, InstalledScriptsLedger ledger) {
@@ -108,11 +117,22 @@ public final class SdnInstaller {
      */
     public SdnInstaller(Path directory, BooleanSupplier deliveryEnabled, Supplier<SdnDelivery> awaitDelivery,
                         SdnPipeRoute pipe, InstalledScriptsLedger ledger) {
+        this(directory, deliveryEnabled, awaitDelivery, pipe, ledger, new StoreShelf());
+    }
+
+    /**
+     * As above, with the shelf deliveries are kept on.
+     *
+     * @param shelf holds every delivered script in memory, one per host
+     */
+    public SdnInstaller(Path directory, BooleanSupplier deliveryEnabled, Supplier<SdnDelivery> awaitDelivery,
+                        SdnPipeRoute pipe, InstalledScriptsLedger ledger, StoreShelf shelf) {
         this.directory = directory;
         this.deliveryEnabled = deliveryEnabled;
         this.awaitDelivery = awaitDelivery;
         this.pipe = pipe;
         this.ledger = ledger;
+        this.shelf = shelf;
     }
 
     /**
@@ -127,6 +147,11 @@ public final class SdnInstaller {
     /** The ledger this installer records into, for readers that show what the Store installed. */
     public InstalledScriptsLedger ledger() {
         return ledger;
+    }
+
+    /** The shelf every delivery is kept on. */
+    public StoreShelf shelf() {
+        return shelf;
     }
 
     /**
@@ -211,7 +236,20 @@ public final class SdnInstaller {
     private SdnInstallResult installDelivery(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
         Map<String, List<BotScript>> byEntryId = pair(entries, delivery);
         recordInstalls(entries, byEntryId);
+        shelve(entries, delivery, !byEntryId.isEmpty());
         return new SdnInstallResult.Installed(delivery.scripts(), byEntryId);
+    }
+
+    /**
+     * Keeps every delivered jar on the shelf, each under the entry it was paired
+     * with. An unpaired delivery is still shelved, under no entry: its scripts were
+     * delivered and are registered, so they should survive a reload too.
+     */
+    private void shelve(List<SdnCatalogueEntry> entries, SdnDelivery delivery, boolean isPaired) {
+        for (SdnDelivery.Jar jar : delivery.jars()) {
+            Optional<String> id = isPaired ? Optional.of(entries.get(jar.position()).id()) : Optional.empty();
+            shelf.stock(id, jar);
+        }
     }
 
     /**
