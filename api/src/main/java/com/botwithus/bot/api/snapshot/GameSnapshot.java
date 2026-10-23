@@ -121,8 +121,13 @@ public interface GameSnapshot {
      * Whether {@code ifaceId} is currently mounted in
      * {@code jag::InterfaceManager}'s open-subs hashmap — the engine's
      * canonical "this interface is open right now" signal. Backed by the v14
-     * SHM snapshot of the open-subs keyset (linear scan over a small
-     * keyset, typically &lt;20 entries this tick); no RPC round-trip.
+     * SHM snapshot of the open-subs keyset (linear scan over a few dozen
+     * entries this tick); no RPC round-trip.
+     *
+     * <p>A {@code true} is always conclusive. A {@code false} is conclusive only
+     * when {@link #isOpenInterfaceListComplete()} holds: if the producer could
+     * not read the table, or the list was truncated, a missing id may still be
+     * open.</p>
      *
      * <p>Use this for chain gates that need to wait for a dialog to appear
      * after a click that opens it (lodestone map, max-cape menu, dungeoneering
@@ -136,6 +141,67 @@ public interface GameSnapshot {
      */
     default boolean isInterfaceOpen(int ifaceId) {
         return false;
+    }
+
+    /**
+     * How many open sub-interfaces this snapshot lists — the set
+     * {@link #isInterfaceOpen(int)} searches. Never more than the producer's
+     * cap, so it can fall short of {@link #openInterfaceTotal()}.
+     *
+     * <p>Defaults to {@code 0} for test doubles; the live implementation overrides.</p>
+     */
+    default int openInterfaceCount() {
+        return 0;
+    }
+
+    /**
+     * How many sub-interfaces the client itself reports open this tick, or
+     * {@code 0} when that could not be read. Compare with
+     * {@link #openInterfaceCount()}, or use {@link #isOpenInterfaceListComplete()}.
+     *
+     * <p>Defaults to {@code 0} for test doubles; the live implementation overrides.</p>
+     */
+    default int openInterfaceTotal() {
+        return 0;
+    }
+
+    /**
+     * Whether the open-interface list is known to be complete this tick: the
+     * client's count was readable and every entry made it into the snapshot.
+     * Only then is a {@code false} from {@link #isInterfaceOpen(int)} proof
+     * that the interface is closed.
+     */
+    default boolean isOpenInterfaceListComplete() {
+        int total = openInterfaceTotal();
+        return total > 0 && openInterfaceCount() == total;
+    }
+
+    /**
+     * Every open sub-interface this snapshot lists, with how each was opened
+     * (wire v23) — the same {@link #openInterfaceCount()} entries
+     * {@link #isInterfaceOpen(int)} searches, in the producer's order.
+     *
+     * <p>The list is an immutable copy, so it may be kept past the tick. Like
+     * the ids, it can be incomplete; see {@link #isOpenInterfaceListComplete()}.</p>
+     *
+     * <p>Defaults to an empty list for test doubles; the live implementation overrides.</p>
+     */
+    default List<OpenInterface> openInterfaces() {
+        return List.of();
+    }
+
+    /**
+     * The open sub-interface {@code ifaceId} with its open type, or empty when
+     * it is not in this snapshot's list. {@code api.snapshot().openInterface(517)
+     * .map(OpenInterface::isModal)} asks whether the bank is open as a modal.
+     *
+     * <p>Empty is conclusive only when {@link #isOpenInterfaceListComplete()}
+     * holds, exactly as a {@code false} from {@link #isInterfaceOpen(int)} is.</p>
+     *
+     * <p>Defaults to scanning {@link #openInterfaces()}.</p>
+     */
+    default Optional<OpenInterface> openInterface(int ifaceId) {
+        return openInterfaces().stream().filter(open -> open.id() == ifaceId).findFirst();
     }
 
     interface Npcs {

@@ -20,6 +20,8 @@ import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.api.input.InputDialog;
+import com.botwithus.bot.api.input.KeyStroke;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
@@ -48,6 +50,8 @@ import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitType;
 import com.botwithus.bot.api.model.VarbitValue;
+import com.botwithus.bot.api.model.VarpRead;
+import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldPathConfig;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
@@ -55,12 +59,15 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.cache.NXTCache;
+import com.botwithus.bot.core.cache.VarpCacheInfo;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcRemoteException;
 import com.botwithus.bot.core.runtime.ScriptGate;
+import com.botwithus.bot.core.worldwalker.DisabledMoves;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
+import com.botwithus.bot.core.worldwalker.WwEvent;
 import com.botwithus.bot.core.worldwalker.WwGoal;
 import com.botwithus.bot.core.worldwalker.WwPathResult;
 import com.botwithus.bot.core.worldwalker.WwStatus;
@@ -73,10 +80,13 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -133,6 +143,9 @@ public class GameAPIImpl implements GameAPI {
      */
     private static final int VARP_CURRENT_HEALTH = 13537;
     private static final int VARP_MAX_HEALTH = 13538;
+    /** Positions of the two health varps in the batch fetchHealth sends. */
+    private static final int HEALTH_CURRENT_SLOT = 0;
+    private static final int HEALTH_MAX_SLOT = 1;
 
     private final RpcClient rpc;
     private final NXTCache cache;
@@ -156,6 +169,7 @@ public class GameAPIImpl implements GameAPI {
     private final Players playersFacade = new Players(this);
     private final Backpack backpackFacade = new Backpack(this);
     private final Bank bankFacade = new Bank(this);
+    private final InputDialog inputDialogFacade = new InputDialog(this);
     private final Equipment equipmentFacade = new Equipment(this);
     private final SceneObjects objectsFacade = new SceneObjects(this);
     private final GroundItems groundItemsFacade = new GroundItems(this);
@@ -233,6 +247,19 @@ public class GameAPIImpl implements GameAPI {
     private final Map<String, AtomicLong> walkRefusals = new ConcurrentHashMap<>();
 
     private volatile ScriptGate scriptGate;
+
+    /** Whether walks draw their route; see {@link #setDrawWalkerPath(boolean)}. */
+    private volatile boolean isDrawingWalkerPath;
+
+    /** Whether walks may plan as free-to-play; see {@link #setRestrictFreeToPlay(boolean)}. */
+    private volatile boolean isRestrictingFreeToPlay;
+
+    /**
+     * The path overlay of every walk whose executor has not finished, so a
+     * change of the setting reaches a walk already in progress. Usually one;
+     * briefly two while a preempted executor drains.
+     */
+    private final Set<WalkPathOverlay> liveOverlays = ConcurrentHashMap.newKeySet();
 
     /**
      * Installs the per-connection gate used to attribute walks to the script
@@ -341,6 +368,9 @@ public class GameAPIImpl implements GameAPI {
     public Bank bank() { return bankFacade; }
 
     @Override
+    public InputDialog inputDialog() { return inputDialogFacade; }
+
+    @Override
     public Equipment equipment() { return equipmentFacade; }
 
     @Override
@@ -440,20 +470,26 @@ public class GameAPIImpl implements GameAPI {
         return sample;
     }
 
+    /**
+     * Reads both life-point varps in one batch. Health is known only when the agent reports
+     * both varps as present: an absent varp reads 0 on a current agent, and treating that 0
+     * as a reading would report a living player at zero life points. A truncated batch is
+     * unknown too, rather than shifting one value into the other's slot.
+     */
     private HealthSample fetchHealth(int serverTick) {
-        List<Integer> values;
+        VarBatchReply reply;
         try {
-            values = getVarps(List.of(VARP_CURRENT_HEALTH, VARP_MAX_HEALTH));
+            reply = VarBatchReply.parse(rpc.callSync("get_varps",
+                    Map.of("ids", List.of(VARP_CURRENT_HEALTH, VARP_MAX_HEALTH))));
         } catch (RuntimeException e) {
             log.debug("Health varp read failed; reporting unknown health", e);
             return HealthSample.unknown(serverTick);
         }
-        // A producer that truncated the batch leaves the missing entries
-        // unknown rather than shifting one value into the other's slot.
-        if (values.size() < 2) {
+        if (!reply.isPresent(HEALTH_CURRENT_SLOT) || !reply.isPresent(HEALTH_MAX_SLOT)) {
             return HealthSample.unknown(serverTick);
         }
-        return new HealthSample(serverTick, values.get(0), values.get(1));
+        return new HealthSample(serverTick,
+                reply.value(HEALTH_CURRENT_SLOT), reply.value(HEALTH_MAX_SLOT));
     }
 
     @Override
@@ -473,11 +509,22 @@ public class GameAPIImpl implements GameAPI {
         return null;
     }
 
+    /**
+     * The host resolves its own cache source, so reaching this throw means the
+     * open itself failed rather than that nobody passed a flag — most often a
+     * missing {@code NXTCache.dll}, or live JS5 being unreachable on a machine
+     * with no local game cache. The message names those, because naming
+     * {@code -Dnxtcache.path} sent the last reader looking for a flag that has
+     * not been required since {@code NXTCache.openForHost()} landed.
+     */
     private NXTCache requireCache() {
         if (cache == null) {
             throw new IllegalStateException(
-                    "Config-type lookup requires NXTCache. Pass -Dnxtcache.path=<cache dir> "
-                            + "and -Dnxtcache.dll=<NXTCache.dll path> when launching.");
+                    "Config-type lookup requires NXTCache, and this host failed to open one. "
+                            + "Check the startup log for the NXTCache line: the usual causes are "
+                            + "a missing NXTCache.dll in ~/.botwithus/native/ and live JS5 being "
+                            + "unreachable on a machine with no local game cache. "
+                            + "-Dnxtcache.path=<cache dir> overrides the discovered source.");
         }
         return cache;
     }
@@ -603,38 +650,11 @@ public class GameAPIImpl implements GameAPI {
         rpc.callSync("destroy_script_handle", Map.of("handle", handle));
     }
 
-    // Builds a ComponentTrigger GameAction with the packed param convention the
-    // producer's DispatchComponentTrigger expects:
-    //   param1 = compHash = (iface << 16) | comp
-    //   param2 = (triggerType << 16) | (sub & 0xFFFF)
-    //   param3 = arg (key code, or packed (x << 16) | y press coords, or 0)
-    private static GameAction triggerAction(int interfaceId, int componentId,
-                                            int subId, int triggerType, int arg) {
-        int compHash = (interfaceId << 16) | (componentId & 0xFFFF);
-        int param2 = (triggerType << 16) | (subId & 0xFFFF);
-        return new GameAction(ActionTypes.COMPONENT_TRIGGER, compHash, param2, arg);
-    }
-
     @Override
     public void fireComponentTrigger(int interfaceId, int componentId, int subId,
                                      int triggerType, int arg) {
-        queueAction(triggerAction(interfaceId, componentId, subId, triggerType, arg));
-    }
-
-    @Override
-    public void fireKeyTrigger(int interfaceId, int componentId, String input) {
-        if (input == null || input.isEmpty()) {
-            return;
-        }
-        // One key (type-10) trigger per character, submitted as a single batched
-        // request so a multi-char string costs one RPC round-trip, not N. The
-        // producer drains the queue one action per tick (human-like cadence).
-        List<GameAction> batch = new ArrayList<>(input.length());
-        for (int i = 0; i < input.length(); i++) {
-            batch.add(triggerAction(interfaceId, componentId, -1,
-                    ActionTypes.TRIGGER_TYPE_KEY, input.charAt(i)));
-        }
-        queueActions(batch);
+        int wireArg = triggerType == ActionTypes.TRIGGER_TYPE_KEY ? KeyStroke.keyTriggerArg(arg) : arg;
+        queueAction(GameAction.componentTrigger(interfaceId, componentId, subId, triggerType, wireArg));
     }
 
     // ---------------------------------------------------------------- Interface tree walk
@@ -852,20 +872,164 @@ public class GameAPIImpl implements GameAPI {
             throw e;
         }
         WwGoal goal = new WwGoal(x, y, plane, exactDestTile ? 0 : 1);
-        Consumer<? super GameEvent> publisher = eventPublisher;
         Supplier<GameSnapshot> snapSrc = snapshotSource != null ? snapshotSource : () -> null;
-        WorldWalkerCallbackBridge bridge = new WorldWalkerCallbackBridge(
-                this, snapSrc, lease.cancel(), e -> log.info("ww-event: {}", e), goal);
+        Optional<WalkPathOverlay> built = Optional.empty();
+        Thread worker;
+        try {
+            DisabledMoves moves = walkMoves();
+            WalkPathOverlay overlay = newWalkOverlay(w, goal, moves, snapSrc, lease);
+            built = Optional.of(overlay);
+            worker = newWalkWorker(w, goal, moves, snapSrc, lease, overlay, x, y);
+        } catch (RuntimeException e) {
+            // Nothing was started: shut the overlay's worker and hand the lease back.
+            built.ifPresent(WalkPathOverlay::close);
+            releaseWalkLease(lease, WalkState.FAILED);
+            throw e;
+        }
+        // Registered only once nothing between here and the start can throw.
+        WalkPathOverlay overlay = built.orElseThrow();
+        liveOverlays.add(overlay);
+        if (!startWalkWorker(lease, worker)) {
+            closeWalkOverlay(overlay);
+        }
+    }
+
+    /** The walk's executor thread, built but not started; it closes {@code overlay} on exit. */
+    private Thread newWalkWorker(WorldWalker w, WwGoal goal, DisabledMoves moves,
+                                 Supplier<GameSnapshot> snapSrc, WalkLease lease,
+                                 WalkPathOverlay overlay, int x, int y) {
+        Consumer<? super GameEvent> publisher = eventPublisher;
+        WorldWalkerCallbackBridge bridge = newWalkBridge(goal, snapSrc, lease, overlay);
         // rule-exception: platform thread rather than virtual — see CLAUDE.md,
         // "Script runner threads are platform threads". This executor is
         // spawned from a script's own thread and inherits its gate tag, which
         // is what keeps its RPC calls attributable to the script that started
         // it.
-        Thread worker = Thread.ofPlatform()
+        return Thread.ofPlatform()
                 .name("ww-executor-" + System.nanoTime())
                 .daemon(true)
-                .unstarted(() -> runWalk(w, goal, bridge, lease, publisher, x, y));
-        startWalkWorker(lease, worker);
+                .unstarted(() -> runWalkThenCloseOverlay(
+                        () -> runWalk(w, goal, moves, bridge, lease, publisher, x, y), overlay));
+    }
+
+    /** The executor's callbacks, reporting progress to the log and to {@code overlay}. */
+    private WorldWalkerCallbackBridge newWalkBridge(WwGoal goal, Supplier<GameSnapshot> snapSrc,
+                                                    WalkLease lease, WalkPathOverlay overlay) {
+        Consumer<WwEvent> events = e -> {
+            log.info("ww-event: {}", e);
+            overlay.onEvent(e);
+        };
+        return new WorldWalkerCallbackBridge(this, snapSrc, lease.cancel(), events, goal,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS,
+                WorldWalkerCallbackBridge.Pacing.system(), overlay::onClick);
+    }
+
+    /** Runs {@code walk}, and closes {@code overlay} however it ends: the lease is gone. */
+    private void runWalkThenCloseOverlay(Runnable walk, WalkPathOverlay overlay) {
+        try {
+            walk.run();
+        } finally {
+            closeWalkOverlay(overlay);
+        }
+    }
+
+    /**
+     * Switches the WorldWalker path overlay on or off for every walk on this
+     * connection, including one already running: on draws its route at once,
+     * off clears whatever is drawn. Set by the host from its
+     * {@code overlay.drawWalkerPath} setting; off until then.
+     */
+    public void setDrawWalkerPath(boolean isOn) {
+        isDrawingWalkerPath = isOn;
+        liveOverlays.forEach(WalkPathOverlay::refresh);
+    }
+
+    /**
+     * Switches free-to-play routing on or off for walks and path queries on this
+     * connection. On, a walk started while the snapshot reads the account as not
+     * a member plans as free-to-play ({@link DisabledMoves#FREE_TO_PLAY}); a
+     * member account is never restricted. Read once at walk start, so a walk
+     * already running keeps the routing it started with. Set by the host from its
+     * {@code walking.freeToPlay} setting; off until then.
+     */
+    public void setRestrictFreeToPlay(boolean isOn) {
+        isRestrictingFreeToPlay = isOn;
+    }
+
+    /**
+     * The planner mask for a walk or query starting now: the free-to-play bit
+     * only when the setting is on and the account reads as not a member.
+     * Package-private so the rule is testable without the native library.
+     */
+    DisabledMoves walkMoves() {
+        return DisabledMoves.forWalk(isRestrictingFreeToPlay, currentLocalPlayer());
+    }
+
+    /**
+     * The path overlay for one walk. Built for every walk, whatever the setting
+     * says, so that turning the setting on mid-walk draws the walk in progress;
+     * while it is off the overlay only records progress.
+     *
+     * <p>The plan comes from a second query, because the executor never returns
+     * its own. A second bridge serves as that query's input reader: it is used
+     * only for {@code readCapability} and {@code readInstance}, so the overlay
+     * plans with exactly the capability snapshot (skills plus requirement varps)
+     * and instance grid the executor plans with, rather than {@code null}
+     * capabilities, which would admit every gated transition. Its event sink is a
+     * no-op and none of its clicking methods is ever called.</p>
+     *
+     * <p>The worker thread does not inherit the starting script's gate tag, so
+     * the overlay's draw calls are the host's: a script revoked mid-walk must not
+     * strand its walk's path on screen because the clear was refused.</p>
+     *
+     * <p>Not registered in {@link #liveOverlays} here; the caller registers it
+     * once the walk's executor thread exists.</p>
+     */
+    private WalkPathOverlay newWalkOverlay(WorldWalker w, WwGoal goal, DisabledMoves moves,
+                                           Supplier<GameSnapshot> snapSrc, WalkLease lease) {
+        WorldWalkerCallbackBridge inputs = new WorldWalkerCallbackBridge(
+                this, snapSrc, lease.cancel(), e -> { }, goal);
+        return new WalkPathOverlay(
+                new WalkPathLayout(lease.seq()),
+                start -> w.query(start, goal, inputs.readCapability(), inputs.readInstance(), moves),
+                new WalkPathOverlay.DrawSink(drawFacade),
+                this::currentTile,
+                () -> isDrawingWalkerPath,
+                newOverlayWorker(lease.seq()),
+                WalkPathLayout.TTL_MS / 2);
+    }
+
+    /**
+     * The overlay's single worker thread.
+     *
+     * <p>rule-exception: platform thread rather than virtual - see CLAUDE.md,
+     * "Script runner threads are platform threads". The worker makes the
+     * planner's Panama downcall, which pins a virtual thread's carrier for the
+     * length of a route search. It does not inherit the script's gate tag (see
+     * {@link #newWalkOverlay}), and delayed keep-alive redraws are dropped at
+     * shutdown so a closed walk's worker exits at once.</p>
+     */
+    private static ScheduledExecutorService newOverlayWorker(long walkSeq) {
+        ScheduledThreadPoolExecutor worker = new ScheduledThreadPoolExecutor(1, Thread.ofPlatform()
+                .name("ww-overlay-" + walkSeq)
+                .daemon(true)
+                .inheritInheritableThreadLocals(false)
+                .factory());
+        worker.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        worker.setRemoveOnCancelPolicy(true);
+        return worker;
+    }
+
+    private void closeWalkOverlay(WalkPathOverlay overlay) {
+        liveOverlays.remove(overlay);
+        overlay.close();
+    }
+
+    private Optional<WwTile> currentTile() {
+        LocalPlayer lp = currentLocalPlayer();
+        return lp == null
+                ? Optional.empty()
+                : Optional.of(new WwTile(lp.tileX(), lp.tileY(), lp.plane()));
     }
 
     /**
@@ -967,11 +1131,15 @@ public class GameAPIImpl implements GameAPI {
         return refusals == null ? 0L : refusals.get();
     }
 
-    private void runWalk(WorldWalker w, WwGoal goal, WorldWalkerCallbackBridge bridge,
-                         WalkLease lease, Consumer<? super GameEvent> publisher, int x, int y) {
+    private void runWalk(WorldWalker w, WwGoal goal, DisabledMoves moves,
+                         WorldWalkerCallbackBridge bridge, WalkLease lease,
+                         Consumer<? super GameEvent> publisher, int x, int y) {
         WwStatus status = WwStatus.FAILED;
         try {
-            status = w.runExecutor(goal, bridge);
+            if (moves.isFreeToPlay()) {
+                log.info("WorldWalker walk to ({},{}) is planned as free-to-play", x, y);
+            }
+            status = w.runExecutor(goal, bridge, moves);
             log.info("WorldWalker walk to ({},{}) finished: {}", x, y, status);
         } catch (Throwable t) {
             log.warn("WorldWalker executor threw", t);
@@ -1086,7 +1254,8 @@ public class GameAPIImpl implements GameAPI {
         WwTile start = new WwTile(lp.tileX(), lp.tileY(), lp.plane());
         WwGoal goal = new WwGoal(x, y, lp.plane(), 0);
         try {
-            return lazyWorldWalker().query(start, goal, null, currentInstance()) != null;
+            DisabledMoves moves = DisabledMoves.forWalk(isRestrictingFreeToPlay, lp);
+            return lazyWorldWalker().query(start, goal, null, currentInstance(), moves) != null;
         } catch (RuntimeException e) {
             log.debug("isReachable query failed: {}", e.toString());
             return false;
@@ -1121,7 +1290,7 @@ public class GameAPIImpl implements GameAPI {
         WwTile start = new WwTile(fromX, fromY, plane);
         WwGoal goal = new WwGoal(toX, toY, plane, 0);
         try {
-            WwPathResult result = lazyWorldWalker().query(start, goal, null, currentInstance());
+            WwPathResult result = lazyWorldWalker().query(start, goal, null, currentInstance(), walkMoves());
             if (result == null) {
                 return notFoundPath();
             }
@@ -1375,23 +1544,83 @@ public class GameAPIImpl implements GameAPI {
 
     // ---------------------------------------------------------------- Game variables (varp / varc / varbit)
     //
-    // varp / varc reads are raw producer round-trips (it walks the live variable
-    // hashmap on the game thread). Varbit decoding is composed here: read the
-    // varbit's base variable, then shift/mask with the bit range from the cache
-    // type config — the producer never needs to know about varbits.
-
-    // VarbitType.domainType discriminator: 0 means the base variable lives in
-    // the player-varp hashmap; any other value means it lives in the client-varc
-    // hashmap. Wire constant defined by the cache type config, not invented here.
-    private static final int VARBIT_DOMAIN_PLAYER = 0;
-
-    // A varbit packs into [lsb, msb] of a 32-bit int; any width > 32 is malformed.
-    private static final int VARBIT_MAX_WIDTH = 32;
+    // Varps go through VarpReader, which composes the agent's per-id state with the
+    // cache's varp definitions (see its javadoc for predicate and message). Every
+    // varp and varbit accessor, scalar or batch, uses the batch RPC: it is the one
+    // that carries per-id state, and one path means the int and read* forms agree.
+    // Varc reads stay raw: the agent reports no state for client variables.
 
     @Override
     public int getVarp(int varId) {
-        Map<String, Object> r = rpc.callSync("get_varp", Map.of("var_id", varId));
-        return getInt(r, "value");
+        return readVarp(varId).value();
+    }
+
+    @Override
+    public long getVarpLong(int varId) {
+        return readVarp(varId).value64();
+    }
+
+    @Override
+    public VarpRead readVarp(int varId) {
+        return readVarps(List.of(varId)).getFirst();
+    }
+
+    @Override
+    public List<VarpRead> readVarps(List<Integer> varIds) {
+        return varps().readVarps(varIds);
+    }
+
+    @Override
+    public List<Integer> getVarps(List<Integer> varIds) {
+        return readVarps(varIds).stream().map(VarpRead::value).toList();
+    }
+
+    @Override
+    public int getVarbit(int varbitId) {
+        return readVarbit(varbitId).value();
+    }
+
+    @Override
+    public VarbitRead readVarbit(int varbitId) {
+        return readVarbits(List.of(varbitId)).getFirst();
+    }
+
+    @Override
+    public List<VarbitRead> readVarbits(List<Integer> varbitIds) {
+        return varps().readVarbits(varbitIds);
+    }
+
+    @Override
+    public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
+        return readVarbits(varbitIds).stream()
+                .map(r -> new VarbitValue(r.id(), r.value()))
+                .toList();
+    }
+
+    /** Built per call: it captures this instance's overridable lookups. */
+    private VarpReader varps() {
+        return new VarpReader(rpc::callSync, this::getVarbitType, this::getVarpCacheInfo);
+    }
+
+    /**
+     * Resolves a varbit's type config from the cache.
+     *
+     * <p>Package-private and overridable rather than inlined, so the decode
+     * contract can be covered headlessly: {@link NXTCache} is a final class whose
+     * static initialiser loads a native library through Panama, so a unit test
+     * can neither construct nor mock one. See {@code GameAPIImplVarbitTest}.</p>
+     */
+    VarbitType getVarbitType(int varbitId) {
+        return requireCache().getVarbit(varbitId);
+    }
+
+    /**
+     * What the cache knows about a varp: exists with a default, no such varp, or
+     * unknown. Overridable for the same reason as {@link #getVarbitType}. A host with no
+     * cache answers "unknown", so varp reads still work, with defaults unverified.
+     */
+    VarpCacheInfo getVarpCacheInfo(int varId) {
+        return cache == null ? new VarpCacheInfo.Unknown() : cache.varpInfo(varId);
     }
 
     @Override
@@ -1407,25 +1636,11 @@ public class GameAPIImpl implements GameAPI {
     }
 
     @Override
-    public int getVarbit(int varbitId) {
-        VarbitType def = requireCache().getVarbit(varbitId);
-        if (def == null) {
-            return -1;
-        }
-        int base = def.domainType() == VARBIT_DOMAIN_PLAYER
-                ? getVarp(def.varId())
-                : getVarcInt(def.varId());
-        return decodeVarbitBits(def, base);
-    }
-
-    @Override
-    public List<Integer> getVarps(List<Integer> varIds) {
-        return readVarBatch("get_varps", varIds);
-    }
-
-    @Override
     public List<Integer> getVarcInts(List<Integer> varcIds) {
-        return readVarBatch("get_varcs_int", varcIds);
+        if (varcIds.isEmpty()) {
+            return List.of();
+        }
+        return VarBatchReply.parse(rpc.callSync("get_varcs_int", Map.of("ids", varcIds))).values();
     }
 
     @Override
@@ -1435,85 +1650,6 @@ public class GameAPIImpl implements GameAPI {
         }
         Map<String, Object> r = rpc.callSync("get_varcs_string", Map.of("ids", varcIds));
         return getStringList(r, "values");
-    }
-
-    private List<Integer> readVarBatch(String method, List<Integer> ids) {
-        if (ids.isEmpty()) {
-            return List.of();
-        }
-        Map<String, Object> r = rpc.callSync(method, Map.of("ids", ids));
-        return getIntList(r, "values");
-    }
-
-    @Override
-    public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
-        if (varbitIds.isEmpty()) {
-            return List.of();
-        }
-        // Resolve every def up front; partition into the two base-variable
-        // domains so each domain takes exactly one batched round-trip
-        // regardless of how many varbits share a base.
-        NXTCache cache = requireCache();
-        int n = varbitIds.size();
-        VarbitType[] defs = new VarbitType[n];
-        LinkedHashSet<Integer> varpBases = new LinkedHashSet<>();
-        LinkedHashSet<Integer> varcBases = new LinkedHashSet<>();
-        for (int i = 0; i < n; i++) {
-            VarbitType def = cache.getVarbit(varbitIds.get(i));
-            defs[i] = def;
-            if (def == null) {
-                continue;
-            }
-            (def.domainType() == VARBIT_DOMAIN_PLAYER ? varpBases : varcBases).add(def.varId());
-        }
-
-        Map<Integer, Integer> varpValueByBase = readBatchAsMap("get_varps", varpBases);
-        Map<Integer, Integer> varcValueByBase = readBatchAsMap("get_varcs_int", varcBases);
-
-        List<VarbitValue> out = new ArrayList<>(n);
-        for (int i = 0; i < n; i++) {
-            VarbitType def = defs[i];
-            int value = -1;
-            if (def != null) {
-                Map<Integer, Integer> values = def.domainType() == VARBIT_DOMAIN_PLAYER
-                        ? varpValueByBase
-                        : varcValueByBase;
-                Integer base = values.get(def.varId());
-                // Missing base → producer truncated the batch past its cap, or the
-                // base var isn't set. -1 matches getVarbit's sentinel for "unknown".
-                if (base != null) {
-                    value = decodeVarbitBits(def, base);
-                }
-            }
-            out.add(new VarbitValue(varbitIds.get(i), value));
-        }
-        return out;
-    }
-
-    private Map<Integer, Integer> readBatchAsMap(String method, LinkedHashSet<Integer> ids) {
-        if (ids.isEmpty()) {
-            return Map.of();
-        }
-        List<Integer> keys = List.copyOf(ids);
-        List<Integer> values = readVarBatch(method, keys);
-        // Pair by index up to min(keys, values) so a producer-side truncation
-        // leaves the dropped keys absent rather than mispaired with a wrong value.
-        int paired = Math.min(keys.size(), values.size());
-        Map<Integer, Integer> out = new LinkedHashMap<>(paired);
-        for (int i = 0; i < paired; i++) {
-            out.put(keys.get(i), values.get(i));
-        }
-        return out;
-    }
-
-    private static int decodeVarbitBits(VarbitType def, int base) {
-        int width = def.msb() - def.lsb() + 1;
-        if (width <= 0 || width > VARBIT_MAX_WIDTH) {
-            return -1;
-        }
-        // width == 32 would make (1 << 32) wrap to 1 in Java; treat as all bits.
-        int mask = width == VARBIT_MAX_WIDTH ? -1 : (1 << width) - 1;
-        return (base >>> def.lsb()) & mask;
     }
 
     // ---------------------------------------------------------------- Obj vars

@@ -45,6 +45,13 @@ import static org.mockito.Mockito.verify;
  */
 class GameAPIImplSceneObjectsTest {
 
+    /** Wall shape code (the RT4 {@code WALL_STRAIGHT} placement). */
+    private static final int WALL_SHAPE = 0;
+    /** Centrepiece shape code (the RT4 {@code CENTREPIECE_STRAIGHT} placement). */
+    private static final int CENTREPIECE_SHAPE = 10;
+    private static final int QUARTER_TURNS_ONE = 1;
+    private static final int QUARTER_TURNS_THREE = 3;
+
     private RpcClient rpc;
     private StubSnapshot snap;
     private Map<Integer, LocationType> locTypes;
@@ -221,6 +228,26 @@ class GameAPIImplSceneObjectsTest {
         assertEquals(50, door.typeId());
         assertEquals(50, door.resolvedId(), "a non-multiloc resolves to itself, never a sentinel");
         assertEquals("Door", door.name());
+    }
+
+    /**
+     * Shape and rotation ride on the snapshot row and must reach the script-facing wrapper.
+     * Distinct non-default values on two rows, so neither a dropped field (reads the compat
+     * default) nor a swapped pair (shape where rotation belongs) can satisfy the assertion.
+     */
+    @Test
+    void objectsCarryShapeAndRotationFromTheSnapshotRow() {
+        build();
+        snap.locs.add(shapedLoc(50, WALL_SHAPE, QUARTER_TURNS_THREE, 0, 0));
+        snap.locs.add(shapedLoc(51, CENTREPIECE_SHAPE, QUARTER_TURNS_ONE, 1, 0));
+
+        SceneObject wall = api.objects().query().withId(50).first();
+        SceneObject centrepiece = api.objects().query().withId(51).first();
+
+        assertEquals(WALL_SHAPE, wall.shape());
+        assertEquals(QUARTER_TURNS_THREE, wall.rotation());
+        assertEquals(CENTREPIECE_SHAPE, centrepiece.shape());
+        assertEquals(QUARTER_TURNS_ONE, centrepiece.rotation());
     }
 
     @Test
@@ -422,6 +449,11 @@ class GameAPIImplSceneObjectsTest {
     /** Direct LOCATION row whose morphvarp transform resolved to a different definition. */
     private static Location morphLoc(int baseId, int resolvedId, int tileX, int tileY, int plane) {
         return new Location(baseId, baseId, -1, tileX, tileY, plane, 10, 0, 0, resolvedId);
+    }
+
+    /** Direct LOCATION row with an explicit shape and rotation. */
+    private static Location shapedLoc(int locId, int shape, int rotation, int tileX, int tileY) {
+        return new Location(locId, locId, -1, tileX, tileY, 0, shape, rotation, 0);
     }
 
     /** Direct LOCATION row — typeId is irrelevant (entity classifier); the

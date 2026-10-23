@@ -3,7 +3,9 @@ package com.botwithus.bot.api.event;
 /**
  * Fired when the client login state changes (e.g., lobby to logged in).
  *
- * <p>Common states: {@code 10} = lobby, {@code 20} = loading, {@code 30} = logged in.</p>
+ * <p>Settled states: {@code 10} = login screen, {@code 20} = lobby, {@code 30} = in a world.
+ * Other codes are not settled states; {@code 0} means the agent could not resolve
+ * the client yet.</p>
  *
  * @param oldState  the previous login state value
  * @param newState  the new login state value

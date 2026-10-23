@@ -11,6 +11,7 @@ import com.botwithus.bot.api.snapshot.Location;
 import com.botwithus.bot.api.snapshot.LocationFilter;
 import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.NpcFilter;
+import com.botwithus.bot.api.snapshot.OpenInterface;
 import com.botwithus.bot.api.snapshot.Player;
 import com.botwithus.bot.api.snapshot.PlayerFilter;
 import com.botwithus.bot.api.snapshot.Projectile;
@@ -127,7 +128,8 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 // GameAPIImpl.getLocalPlayer fills them from get_varps.
                 LocalPlayer.HEALTH_UNKNOWN,
                 LocalPlayer.HEALTH_UNKNOWN,
-                skills);
+                skills,
+                lpv.orientation());
     }
 
     @Override
@@ -180,6 +182,37 @@ public final class GameSnapshotImpl implements GameSnapshot {
         return view.isInterfaceOpen(ifaceId);
     }
 
+    @Override
+    public int openInterfaceCount() {
+        return view.openIfaceCount();
+    }
+
+    @Override
+    public int openInterfaceTotal() {
+        return view.openIfaceTotal();
+    }
+
+    @Override
+    public boolean isOpenInterfaceListComplete() {
+        return view.isOpenIfaceListComplete();
+    }
+
+    @Override
+    public List<OpenInterface> openInterfaces() {
+        return view.openInterfaces();
+    }
+
+    @Override
+    public Optional<OpenInterface> openInterface(int ifaceId) {
+        int count = view.openIfaceCount();
+        for (int i = 0; i < count; i++) {
+            if (view.openIfaceAt(i) == ifaceId) {
+                return Optional.of(OpenInterface.fromWire(ifaceId, view.openIfaceFlagsAt(i)));
+            }
+        }
+        return Optional.empty();
+    }
+
     private static Npc toNpc(NpcEntry e) {
         return new Npc(
                 e.serverIndex(),
@@ -193,7 +226,8 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.stanceId(),
                 e.hp(),
                 e.maxHp(),
-                e.spotAnimId());
+                e.spotAnimId(),
+                e.orientation());
     }
 
     private static Player toPlayer(PlayerEntry e) {
@@ -207,7 +241,8 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.animationId(),
                 e.stanceId(),
                 e.combatLevel(),
-                e.spotAnimId());
+                e.spotAnimId(),
+                e.orientation());
     }
 
     private static GroundItem toGroundItem(GroundItemEntry e) {

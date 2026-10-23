@@ -166,6 +166,62 @@ class GameAPIImplEntitiesTest {
         assertEquals(LocalPlayer.HEALTH_UNKNOWN, lp.maxHealth());
     }
 
+    /**
+     * An absent health varp reads 0 on an agent that reports state. Taking that 0 as a
+     * reading would report a living player at zero life points.
+     */
+    @Test
+    void getLocalPlayerReportsUnknownHealthWhenAVarpIsAbsent() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of());
+        stubHealthReply(Map.of("values", List.of(0, 9900),
+                "found", List.of(false, true), "states", List.of(1, 2)));
+
+        LocalPlayer lp = api.getLocalPlayer();
+
+        assertEquals(LocalPlayer.HEALTH_UNKNOWN, lp.currentHealth());
+        assertFalse(lp.hasHealth());
+    }
+
+    @Test
+    void getLocalPlayerReportsUnknownHealthWhenTheReadWasUnavailable() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of());
+        stubHealthReply(Map.of("values", List.of(-1, -1),
+                "found", List.of(false, false), "states", List.of(0, 0)));
+
+        assertFalse(api.getLocalPlayer().hasHealth());
+    }
+
+    /** An agent from before state sends found only; found == true is exactly "present". */
+    @Test
+    void getLocalPlayerReadsHealthFromAnAgentThatSendsFoundOnly() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of());
+        stubHealthReply(Map.of("values", List.of(2400, 9900), "found", List.of(true, true)));
+
+        assertEquals(2400, api.getLocalPlayer().currentHealth());
+    }
+
+    @Test
+    void getLocalPlayerReportsUnknownHealthWhenFoundOnlySaysMissing() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of());
+        stubHealthReply(Map.of("values", List.of(-1, 9900), "found", List.of(false, true)));
+
+        assertFalse(api.getLocalPlayer().hasHealth());
+    }
+
+    /** No state and no found says nothing about presence: fail closed. */
+    @Test
+    void getLocalPlayerReportsUnknownHealthWhenTheReplyCarriesNoPresence() {
+        build();
+        snap.self = makeSelf(0, 0, 0, List.of());
+        stubHealthReply(Map.of("values", List.of(2400, 9900)));
+
+        assertFalse(api.getLocalPlayer().hasHealth());
+    }
+
     @Test
     void getLocalPlayerSkipsHealthReadWhenNotInGame() {
         build();
@@ -338,10 +394,14 @@ class GameAPIImplEntitiesTest {
 
     // ---------------------------------------------------------------- helpers
 
-    /** Canned reply for the batched current/max life-point read. */
+    /** Canned reply for the batched current/max life-point read, both varps present. */
     private void stubHealthVarps(int current, int max) {
-        when(rpc.callSync(eq("get_varps"), anyMap()))
-                .thenReturn(Map.<String, Object>of("values", List.of(current, max)));
+        stubHealthReply(Map.of("values", List.of(current, max),
+                "found", List.of(true, true), "states", List.of(2, 2)));
+    }
+
+    private void stubHealthReply(Map<String, Object> reply) {
+        when(rpc.callSync(eq("get_varps"), anyMap())).thenReturn(reply);
     }
 
     private static LocalPlayer makeSelf(int x, int y, int plane, List<Skill> skills) {

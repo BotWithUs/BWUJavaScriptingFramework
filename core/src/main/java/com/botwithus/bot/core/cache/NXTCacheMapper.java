@@ -16,6 +16,7 @@ import java.util.Map;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
 import static com.botwithus.bot.core.impl.MapHelper.getInt;
+import static com.botwithus.bot.core.impl.MapHelper.getIntOr;
 import static com.botwithus.bot.core.impl.MapHelper.getIntList;
 import static com.botwithus.bot.core.impl.MapHelper.getMapList;
 import static com.botwithus.bot.core.impl.MapHelper.getObjectMap;
@@ -53,6 +54,10 @@ final class NXTCacheMapper {
                 getInt(j, "category"),
                 getInt(j, "notedID"),
                 getInt(j, "wearpos"),
+                // Extra slots the item blocks while worn; a two-handed weapon
+                // carries the shield slot here. Absent on older dumps.
+                getIntOr(j, "wearpos2", ItemType.NO_WEARPOS),
+                getIntOr(j, "wearpos3", ItemType.NO_WEARPOS),
                 getBool(j, "isAllowedOnGE"),
                 getStringList(j, "groundOptions"),
                 // The cache's "componentOptions" carries the inventory/UI

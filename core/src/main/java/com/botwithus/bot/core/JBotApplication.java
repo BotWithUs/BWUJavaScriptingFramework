@@ -50,7 +50,7 @@ public final class JBotApplication {
             RpcClient rpc = new RpcClient(pipe);
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
-            NXTCache nxtCache = openNxtCacheOrNull();
+            NXTCache nxtCache = openNxtCacheOrNull(pid);
             GamevalIndex gamevals = SqliteGamevalIndex.openDefaultOrEmpty();
 
             // Pump owns the SHM mapping; we open it before constructing
@@ -116,17 +116,21 @@ public final class JBotApplication {
         }
     }
 
-    private static NXTCache openNxtCacheOrNull() {
+    /**
+     * Opens the process-wide cache handle. See
+     * {@link NXTCache#openForHost(long)} for the source precedence — this path
+     * needs no {@code -D} flag, and the one it took is logged there. The pid is
+     * the one already parsed out of the agent's pipe name above, so the cache is
+     * resolved from the client actually being driven rather than from a list of
+     * places a client is usually installed. Null only on a genuine open failure,
+     * which leaves config-type lookups throwing the same clear error they did
+     * before.
+     */
+    private static NXTCache openNxtCacheOrNull(long clientPid) {
         try {
-            NXTCache c = NXTCache.tryOpenFromSystemProperty();
-            if (c != null) {
-                log.info("NXTCache opened (config-type lookups now cache-backed)");
-            } else {
-                log.debug("NXTCache not configured — set -Dnxtcache.path=<dir> to enable config-type lookups");
-            }
-            return c;
+            return NXTCache.openForHost(clientPid);
         } catch (Throwable t) {
-            log.warn("NXTCache failed to open: {}", t.getMessage());
+            log.warn("NXTCache failed to open, config-type lookups will throw: {}", t.getMessage());
             return null;
         }
     }

@@ -3,6 +3,7 @@ package com.botwithus.bot.api.entities;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.snapshot.Orientation;
 import com.botwithus.bot.api.model.NpcType;
 
 import java.util.List;
@@ -116,6 +117,14 @@ public final class Npc implements EntityContext {
      *  Only the first concurrent spot anim is surfaced here — subscribe to
      *  {@code SpotAnimEvent} for every newly-started one. */
     public int spotAnimId()        { return raw.spotAnimId(); }
+
+    /**
+     * Which way this NPC is facing (wire v21): its rendered facing, interpolated while it turns.
+     * Use {@link Orientation#compass()} or {@link Orientation#degrees()} to read it, and
+     * {@link Orientation#isSameFacingAs} to compare two, never {@code equals}; the client can
+     * read an angle back one unit short. Unknown when the producer could not read one.
+     */
+    public Orientation orientation() { return raw.orientation(); }
 
     // ---------------- Definition ----------------
 

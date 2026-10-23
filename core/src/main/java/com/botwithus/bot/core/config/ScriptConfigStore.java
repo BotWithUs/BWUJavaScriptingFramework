@@ -92,7 +92,13 @@ public final class ScriptConfigStore {
                 .resolve(safeName(scriptName) + ".json");
     }
 
-    private static String safeName(String name) {
+    /**
+     * The file-name form of a script name or account bucket. Lossy: two names
+     * differing only in the characters it replaces share a file. Package-private
+     * so {@link ManagementSettingsStore} finds a management script's flat config
+     * by exactly this rule when it migrates it.
+     */
+    static String safeName(String name) {
         return name.replaceAll("[^a-zA-Z0-9_\\-]", "_");
     }
 }

@@ -1,0 +1,26 @@
+<configuration>
+  <!-- The SDN live check's log: the console, as the host's own config has, plus
+       a file the check reads back at the end for the evidence only a log has. -->
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>INFO</level>
+    </filter>
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level [%X{script.name:-system}] %logger{20} - %msg%n</pattern>
+    </encoder>
+  </appender>
+  <appender name="RUN_FILE" class="ch.qos.logback.core.FileAppender">
+    <file>${botwithus.sdnlive.hostLog}</file>
+    <append>false</append>
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>INFO</level>
+    </filter>
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] [%X{script.name:-system}] %logger{36} - %msg%n</pattern>
+    </encoder>
+  </appender>
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="RUN_FILE"/>
+  </root>
+</configuration>

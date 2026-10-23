@@ -109,6 +109,16 @@ class LogBufferAppenderTest {
     }
 
     @Test
+    void anAttachedThrowable_reachesTheBuffer_withItsTrace() {
+        testLogger.error("onLoop error in Foo", new IllegalStateException("bad state"));
+
+        String message = logBuffer.tail(1).getFirst().message();
+        assertTrue(message.startsWith("onLoop error in Foo"), message);
+        assertTrue(message.contains("java.lang.IllegalStateException: bad state"), message);
+        assertTrue(message.contains("\tat "), message);
+    }
+
+    @Test
     void capturesMultipleEvents() {
         testLogger.info("first");
         testLogger.warn("second");

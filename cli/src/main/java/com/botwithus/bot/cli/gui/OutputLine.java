@@ -8,11 +8,13 @@ import java.util.List;
  */
 public final class OutputLine {
 
-    public record Segment(String text, float r, float g, float b, float a, boolean bold) {
-        public Segment(String text, float r, float g, float b) {
-            this(text, r, g, b, 1.0f, false);
-        }
-    }
+    /**
+     * A run of text in one style.
+     *
+     * @param color packed imgui colour, alpha included
+     * @param bold  drawn a little lighter, the console's stand-in for a bold face
+     */
+    public record Segment(String text, int color, boolean bold) {}
 
     public enum Type { TEXT, IMAGE, PROGRESS, STREAM }
 
@@ -54,8 +56,8 @@ public final class OutputLine {
         return new OutputLine(Type.TEXT, List.copyOf(segments), 0, 0, 0, null, 0, null);
     }
 
-    public static OutputLine text(String plainText, float r, float g, float b) {
-        return text(List.of(new Segment(plainText, r, g, b, 1.0f, false)));
+    public static OutputLine text(String plainText, int color) {
+        return text(List.of(new Segment(plainText, color, false)));
     }
 
     public static OutputLine image(int texId, int width, int height) {

@@ -14,10 +14,14 @@ import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.api.gameval.GamevalType;
+import com.botwithus.bot.api.input.InputDialog;
+import com.botwithus.bot.api.input.KeyStroke;
+import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.EnumType;
+import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
@@ -67,10 +71,18 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
 
     /**
      * Value the gameval-named variable reads return when the name does not
-     * resolve — the same sentinel {@link #getVarp(int)} yields for an unset
-     * variable, so callers need only one "no value" check.
+     * resolve — the same "no value" sentinel {@link #getVarp(int)} yields for a
+     * varp that does not exist or could not be read.
+     *
+     * <p>It is <b>not</b> the value of an unset varp. An unset varp reads its type
+     * default, which is usually {@code 0} and, for object-typed varps, is itself
+     * {@code -1}; a set varp can hold {@code -1} too. So {@code -1} never means
+     * "unset" on its own: ask {@link #readVarp(int)} or {@link #varpState(int)}.</p>
      */
     int UNRESOLVED_VARIABLE = -1;
+
+    /** Sub-component id meaning "the component itself" in a component trigger. */
+    int TOP_LEVEL_COMPONENT = -1;
 
     // ---------------------------------------------------------------- Snapshot
 
@@ -126,14 +138,25 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * {@link #getVarp(int)}.
      *
      * <p>Returns {@link #UNRESOLVED_VARIABLE} when the name does not resolve —
-     * the same value {@link #getVarp(int)} already yields for an unset variable,
-     * so a host with no gameval index deployed degrades rather than killing the
-     * script. Use {@code gamevals().require(...)} explicitly when you would
+     * the same value {@link #getVarp(int)} yields for a varp that does not exist
+     * or could not be read — so a host with no gameval index deployed degrades
+     * rather than killing the script. An unset varp is different: it reads its
+     * type default. Use {@code gamevals().require(...)} explicitly when you would
      * rather fail fast.</p>
      */
     default int getVarp(String gameval) {
         OptionalInt id = gamevals().id(GamevalType.VARP, gameval);
         return id.isPresent() ? getVarp(id.getAsInt()) : UNRESOLVED_VARIABLE;
+    }
+
+    /**
+     * Full 64-bit value of a player variable named by its gameval. Convenience over
+     * {@link #getVarpLong(int)}; {@link #UNRESOLVED_VARIABLE} when the name does not
+     * resolve.
+     */
+    default long getVarpLong(String gameval) {
+        OptionalInt id = gamevals().id(GamevalType.VARP, gameval);
+        return id.isPresent() ? getVarpLong(id.getAsInt()) : UNRESOLVED_VARIABLE;
     }
 
     /**
@@ -291,8 +314,10 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     /**
      * Returns one of the local player's skill stats by skill type id.
      * {@code null} when not in-game or the skill isn't in the published
-     * skills array. Ids match the in-game {@code StatType.id} (e.g. 26
-     * for Divination, 6 for Magic).
+     * skills array. Ids match the in-game {@code StatType.id} (e.g. 25
+     * for Divination, 26 for Invention, 6 for Magic); take them from
+     * {@link com.botwithus.bot.api.util.Skills} rather than writing the
+     * number.
      *
      * <p>Read out of the snapshot — no RPC round-trip.</p>
      */
@@ -376,19 +401,69 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * @param subId       sub-component id, or {@code -1} for the top-level component
      * @param triggerType event type — {@code 9} = click, {@code 10} = key
      *                    (see {@code ActionTypes.TRIGGER_TYPE_*})
-     * @param arg         type-dependent argument: key code for key triggers;
+     * @param arg         type-dependent argument. For key triggers, either form:
+     *                    <ul>
+     *                      <li>a bare Jagex <b>key code</b> ({@code 0..0xFFFF}, e.g.
+     *                          {@link KeyStroke#CODE_ENTER}): sent as a key-down with
+     *                          no character, {@code (arg << 16) | 0};</li>
+     *                      <li>a packed {@link KeyStroke#packed()}
+     *                          ({@code (keyCode << 16) | keyChar}, non-zero high
+     *                          half): sent unchanged. Use this to type a character
+     *                          ({@code KeyStroke.character(c).packed()}).</li>
+     *                    </ul>
+     *                    See {@link KeyStroke#keyTriggerArg(int)}. For click triggers,
      *                    packed {@code (x << 16) | y} component-relative press
-     *                    coordinates for click triggers; {@code 0} if unused
+     *                    coordinates. {@code 0} if unused.
      */
     void fireComponentTrigger(int interfaceId, int componentId, int subId, int triggerType, int arg);
 
     /**
-     * Fires a key (type-10) CS2 trigger on a component once per character of
-     * {@code input}, submitted as a single batched action-queue request (one RPC
-     * round-trip). Characters dispatch one per game tick. Convenience over
-     * {@link #fireComponentTrigger} for the common "type into a component" case.
+     * Fires a component's key (type-10) CS2 trigger once per stroke, in order, as
+     * a single batched action-queue request (one RPC round-trip). The agent
+     * dispatches one queued action per game tick, so {@code n} strokes take
+     * {@code n} ticks to land. A component with no key trigger — an input dialog
+     * that has already closed, for one — drops the strokes silently.
+     *
+     * <p>For the game's own input dialog, {@link #inputDialog()} is the checked
+     * way in: it validates what it types against the dialog's mode and submits.</p>
+     *
+     * @return the number of strokes queued
      */
-    void fireKeyTrigger(int interfaceId, int componentId, String input);
+    default int fireKeys(int interfaceId, int componentId, List<KeyStroke> keys) {
+        if (keys.isEmpty()) {
+            return 0;
+        }
+        List<GameAction> batch = keys.stream()
+                .map(key -> GameAction.componentTrigger(interfaceId, componentId,
+                        TOP_LEVEL_COMPONENT, ActionTypes.TRIGGER_TYPE_KEY, key.packed()))
+                .toList();
+        return queueActions(batch);
+    }
+
+    /**
+     * Types {@code input} into a component through its key (type-10) CS2 trigger,
+     * one {@link KeyStroke#character(char)} per character, batched as by
+     * {@link #fireKeys}. <b>Types only — it does not submit</b>; follow it with
+     * {@code fireKeys(interfaceId, componentId, List.of(KeyStroke.ENTER))}, or use
+     * {@link #inputDialog()}, which types and submits in one batch. A {@code null}
+     * or empty {@code input} queues nothing.
+     *
+     * @throws IllegalArgumentException when {@code input} holds a character that
+     *                                  is not printable ASCII
+     */
+    default void fireKeyTrigger(int interfaceId, int componentId, String input) {
+        if (input == null || input.isEmpty()) {
+            return;
+        }
+        List<KeyStroke> keys = input.chars().mapToObj(c -> KeyStroke.character((char) c)).toList();
+        fireKeys(interfaceId, componentId, keys);
+    }
+
+    /**
+     * The game's text/amount input dialog (withdraw-X, add-friend, ...). Singleton
+     * per {@link GameAPI}.
+     */
+    InputDialog inputDialog();
 
     // ---------------------------------------------------------------- Interface components
 

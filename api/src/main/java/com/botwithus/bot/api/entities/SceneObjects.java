@@ -162,7 +162,9 @@ public final class SceneObjects {
                             l.resolvedId(),  // resolvedId -> the definition lookup
                             l.tileX(), l.tileY(), l.plane(),
                             "",
-                            List.of()),
+                            List.of(),
+                            l.shape(),
+                            l.rotation()),
                     typeLookup);
         }
 

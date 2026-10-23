@@ -1,214 +1,407 @@
 package com.botwithus.bot.cli.gui.notify;
 
-import com.botwithus.bot.api.event.ConnectionLostEvent;
-import com.botwithus.bot.api.event.EventBus;
-import com.botwithus.bot.api.event.ReconnectStateChangedEvent;
-import com.botwithus.bot.api.event.ScriptCrashedEvent;
-import com.botwithus.bot.api.event.ScriptLoadFailedEvent;
-import com.botwithus.bot.api.runtime.ReconnectState;
-import com.botwithus.bot.cli.gui.GuiHelpers;
+import com.botwithus.bot.cli.events.ClientKey;
+import com.botwithus.bot.cli.gui.Controls;
+import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.Icons;
+import com.botwithus.bot.cli.gui.notify.Notification.Action;
+import com.botwithus.bot.cli.gui.notify.Notification.Kind;
+import com.botwithus.bot.cli.report.ReportSubject;
 
 import imgui.ImDrawList;
+import imgui.ImFont;
 import imgui.ImGui;
-import imgui.ImVec2;
+import imgui.flag.ImDrawFlags;
+import imgui.flag.ImGuiStyleVar;
+import imgui.flag.ImGuiWindowFlags;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collection;
-import java.util.Deque;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Queue;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.Consumer;
 
 /**
- * Fixed-position overlay rendering transient banners for failure events
- * (connection drops, reconnect transitions, script crashes, script-load
- * failures). Pure {@link EventBus}-driven — no Logback appender, no polling.
+ * The toasts in the top-right corner. {@link ToastFeed} decides what to say and
+ * posts it here from the host event thread; this overlay takes the posts in on
+ * the render thread, once per frame, and draws them.
  *
- * <p>Each notification has a TTL (default {@link #DEFAULT_TTL}); expired
- * banners are culled on the next {@link #render} pass. The notification
- * queue is an <em>instance</em> field, not static — one overlay per app.
+ * <p>Toasts stack under the top bar on the right, newest first, at most three:
+ * a fourth pushes the oldest out. Each slides in, shows a life bar draining over
+ * its lifetime, and slides out; one with no lifetime (an error) stays until its
+ * close button is pressed.</p>
  *
- * <p>{@link #subscribeTo} wires the four event types this overlay cares
- * about. Bus subscriptions retain the lambdas, so re-subscribing on a fresh
- * bus is the supported way to attach a new connection.</p>
+ * <p>A client has at most one toast about its connection. A newer one takes its
+ * place, so a drop, its retries and its recovery read as one toast changing
+ * rather than a stack of them; a retry updates a "not responding" toast in place,
+ * without sliding in again.</p>
  */
-public final class NotificationOverlay {
+public final class NotificationOverlay implements ToastSink {
 
-    static final Duration DEFAULT_TTL = Duration.ofSeconds(6);
-    private static final int MAX_VISIBLE = 5;
-    private static final float OVERLAY_WIDTH = 360f;
-    private static final float OVERLAY_MARGIN = 12f;
-    private static final float ROW_HEIGHT = 56f;
-    private static final float ROW_GAP = 6f;
+    private static final int MAX_VISIBLE = 3;
+    private static final float WIDTH_EM = 20f;
+    private static final float ICON_COL_EM = 1.333f;
+    private static final float SLIDE_EM = 1.067f;
+    private static final float LIFE_BAR_PX = 2f;
+    private static final float LIFE_ALPHA = 0.5f;
+    private static final float LINE = 1.35f;
+    private static final float SHADOW_EM = 0.267f;
+    private static final float SPINNER_STROKE_PX = 2f;
+    private static final float SPINNER_PERIOD_S = 0.9f;
+    private static final float SPINNER_SWEEP = (float) (Math.PI / 2);
+    private static final long MILLIS_PER_SECOND = 1000L;
+    private static final float SECONDS_PER_MILLI = 0.001f;
+    private static final float SPINNER_TRACK_ALPHA = 0.2f;
+    private static final String REPORT_LABEL = "Send report to script author";
 
-    private final Deque<Notification> active = new ConcurrentLinkedDeque<>();
-    private final Clock clock;
-
-    public NotificationOverlay() {
-        this(Clock.systemDefaultZone());
+    /** A post or a withdrawal, waiting for the render thread. */
+    private sealed interface Inbox {
+        record Post(Toast toast) implements Inbox { }
+        record Withdraw(ClientKey client) implements Inbox { }
     }
+
+    private final Queue<Inbox> inbox = new ConcurrentLinkedQueue<>();
+    /** On screen, oldest first. Touched on the render thread only, via {@link #update}. */
+    private final List<Notification> active = new ArrayList<>();
+    private final Clock clock;
+    /** Opens the report dialog; until set, no toast shows "Send report to script author". */
+    private Consumer<ReportSubject> reportHandler;
 
     public NotificationOverlay(Clock clock) {
         this.clock = clock;
     }
 
-    /** Visible-notifications snapshot — exposed for tests. */
-    public Collection<Notification> active() {
-        return active;
+    /**
+     * Shows "Send report to script author" on the toasts that carry a script,
+     * and has it open the report dialog through {@code handler}. Render thread.
+     */
+    public void setReportHandler(Consumer<ReportSubject> handler) {
+        this.reportHandler = handler;
+    }
+
+    @Override
+    public void post(Toast toast) {
+        inbox.add(new Inbox.Post(toast));
+    }
+
+    @Override
+    public void withdraw(ClientKey client) {
+        inbox.add(new Inbox.Withdraw(client));
+    }
+
+    /** The toasts on screen, oldest first, as of the last {@link #update}. */
+    public List<Notification> active() {
+        return List.copyOf(active);
     }
 
     /**
-     * Wires this overlay's event handlers onto the supplied bus. Safe to call
-     * multiple times (each call adds new listeners) — typically invoked once
-     * per connection's event bus.
+     * Takes in what was posted since the last call, then drops the toasts that
+     * have gone. Called by {@link #render}; exposed so tests need no GL context.
      */
-    public void subscribeTo(EventBus bus) {
-        bus.subscribe(ConnectionLostEvent.class, this::onConnectionLost);
-        bus.subscribe(ReconnectStateChangedEvent.class, this::onReconnectStateChanged);
-        bus.subscribe(ScriptCrashedEvent.class, this::onScriptCrashed);
-        bus.subscribe(ScriptLoadFailedEvent.class, this::onScriptLoadFailed);
-    }
-
-    /**
-     * Renders the overlay. Should be called once per frame near the end of
-     * the app's frame loop, after the main window content has drawn so the
-     * banners float above everything else.
-     */
-    public void render() {
-        Instant now = clock.instant();
-        cullExpired(now);
-        if (active.isEmpty()) {
-            return;
+    public void update() {
+        Inbox next = inbox.poll();
+        while (next != null) {
+            switch (next) {
+                case Inbox.Post post -> show(post.toast());
+                case Inbox.Withdraw withdraw -> connectionToast(Optional.of(withdraw.client()))
+                        .ifPresent(i -> dismiss(active.get(i)));
+            }
+            next = inbox.poll();
         }
-        renderBanners();
-    }
-
-    private void cullExpired(Instant now) {
+        Instant now = clock.instant();
         active.removeIf(n -> n.isExpired(now));
     }
 
-    private void renderBanners() {
-        var viewport = ImGui.getMainViewport();
-        float vpX = viewport.getPosX();
-        float vpY = viewport.getPosY();
-        float vpW = viewport.getSizeX();
+    /**
+     * Updates, then draws the toasts. Call once per frame after the main window
+     * so they float above it.
+     *
+     * @param top      screen y the stack starts at (just under the top bar)
+     * @param onAction runs a toast's action button; the toast is then dismissed
+     */
+    public void render(Controls ui, float top, Consumer<Notification> onAction) {
+        update();
+        if (active.isEmpty()) {
+            return;
+        }
+        List<Notification> visible = newestFirst();
+        ImGuiTheme.Metrics m = ui.m();
+        var vp = ImGui.getMainViewport();
+        float width = Math.min(ui.fonts().body().getFontSize() * WIDTH_EM, vp.getSizeX() - m.u(3) * 2f);
+        float x = vp.getPosX() + vp.getSizeX() - m.u(3) - width;
+        float total = -m.u(2);
+        for (Notification n : visible) {
+            total += height(ui, n, width) + m.u(2);
+        }
+        beginStackWindow(x, top, width, total);
+        float y = top;
+        for (Notification n : visible) {
+            y += drawToast(ui, n, x, y, width, onAction) + m.u(2);
+        }
+        ImGui.end();
+        ImGui.popStyleVar();
+    }
 
-        float x = vpX + vpW - OVERLAY_WIDTH - OVERLAY_MARGIN;
-        float y = vpY + OVERLAY_MARGIN;
+    private List<Notification> newestFirst() {
+        List<Notification> out = new ArrayList<>(active.reversed());
+        return out.subList(0, Math.min(out.size(), MAX_VISIBLE));
+    }
 
-        ImDrawList draw = ImGui.getForegroundDrawList();
-        int idx = 0;
-        for (Notification n : active) {
-            if (idx >= MAX_VISIBLE) {
-                break;
+    // ── Taking posts in ────────────────────────────────────────────────────
+
+    /**
+     * Shows {@code toast}: in place of the client's connection toast if it is
+     * one and there is one, else as a new toast if it may open one.
+     */
+    private void show(Toast toast) {
+        Optional<Integer> same = toast.kind().isConnectionState()
+                ? connectionToast(toast.client())
+                : Optional.empty();
+        if (same.isEmpty()) {
+            if (toast.canOpen()) {
+                add(fresh(toast));
             }
-            drawBanner(draw, n, x, y);
-            y += ROW_HEIGHT + ROW_GAP;
-            idx++;
+            return;
+        }
+        int at = same.get();
+        Notification old = active.get(at);
+        if (old.kind().isOutage() && toast.kind().isOutage()) {
+            active.set(at, new Notification(old.id(), toast.kind(), toast.title(), toast.message(),
+                    toast.client(), old.createdAt(), old.expiresAt(), toast.report()));
+        } else {
+            active.remove(at);
+            add(fresh(toast));
         }
     }
 
-    private static void drawBanner(ImDrawList draw, Notification n, float x, float y) {
-        int bg = ImGuiTheme.imCol32(
-                ImGuiTheme.SURFACE_R, ImGuiTheme.SURFACE_G, ImGuiTheme.SURFACE_B, 0.95f);
-        int border = severityBorder(n.severity());
-        int accent = severityAccent(n.severity());
-        String icon = severityIcon(n.severity());
-
-        draw.addRectFilled(x, y, x + OVERLAY_WIDTH, y + ROW_HEIGHT, bg, 6f);
-        draw.addRect(x, y, x + OVERLAY_WIDTH, y + ROW_HEIGHT, border, 6f);
-        // Left accent bar
-        draw.addRectFilled(x, y + 2f, x + 3f, y + ROW_HEIGHT - 2f, accent, 2f);
-
-        int titleCol = ImGuiTheme.imCol32(
-                ImGuiTheme.TEXT_R, ImGuiTheme.TEXT_G, ImGuiTheme.TEXT_B, 0.95f);
-        int msgCol = ImGuiTheme.imCol32(
-                ImGuiTheme.TEXT_SEC_R, ImGuiTheme.TEXT_SEC_G, ImGuiTheme.TEXT_SEC_B, 0.85f);
-
-        draw.addText(x + 14f, y + 8f, accent, icon);
-        ImVec2 iconSize = new ImVec2();
-        ImGui.calcTextSize(iconSize, icon);
-        draw.addText(x + 14f + iconSize.x + 8f, y + 8f, titleCol, n.title());
-        draw.addText(x + 14f, y + 8f + ImGui.getTextLineHeightWithSpacing(),
-                msgCol, truncate(n.message(), 60));
+    private Notification fresh(Toast toast) {
+        Instant now = clock.instant();
+        return new Notification(UUID.randomUUID(), toast.kind(), toast.title(), toast.message(), toast.client(),
+                now, toast.lifetime().map(now::plus), toast.report());
     }
 
-    private static String truncate(String s, int max) {
-        if (s == null) {
-            return "";
+    /** Adds {@code n} as the newest toast, pushing the oldest out past {@link #MAX_VISIBLE}. */
+    private void add(Notification n) {
+        active.add(n);
+        while (active.size() > MAX_VISIBLE) {
+            active.removeFirst();
         }
-        return s.length() <= max ? s : s.substring(0, max - 1) + "…";
     }
 
-    private static int severityBorder(Notification.Severity sev) {
-        return switch (sev) {
-            case INFO -> ImGuiTheme.imCol32(ImGuiTheme.BLUE_R, ImGuiTheme.BLUE_G, ImGuiTheme.BLUE_B, 0.45f);
-            case WARN -> ImGuiTheme.imCol32(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 0.55f);
-            case ERROR -> ImGuiTheme.imCol32(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 0.65f);
-        };
-    }
-
-    private static int severityAccent(Notification.Severity sev) {
-        return switch (sev) {
-            case INFO -> ImGuiTheme.imCol32(ImGuiTheme.BLUE_R, ImGuiTheme.BLUE_G, ImGuiTheme.BLUE_B, 1f);
-            case WARN -> ImGuiTheme.imCol32(ImGuiTheme.YELLOW_R, ImGuiTheme.YELLOW_G, ImGuiTheme.YELLOW_B, 1f);
-            case ERROR -> ImGuiTheme.imCol32(ImGuiTheme.RED_R, ImGuiTheme.RED_G, ImGuiTheme.RED_B, 1f);
-        };
-    }
-
-    private static String severityIcon(Notification.Severity sev) {
-        return switch (sev) {
-            case INFO -> Icons.INFO;
-            case WARN -> Icons.WARNING;
-            case ERROR -> Icons.WARNING;
-        };
-    }
-
-    // ── Event handlers ──────────────────────────────────────────────────────
-
-    private void onConnectionLost(ConnectionLostEvent ev) {
-        String msg = ev.cause() != null
-                ? ev.cause().getClass().getSimpleName() + ": " + ev.cause().getMessage()
-                : "Pipe closed";
-        push(Notification.Severity.ERROR, "Connection lost: " + ev.connectionName(), msg);
-    }
-
-    private void onReconnectStateChanged(ReconnectStateChangedEvent ev) {
-        switch (ev.state()) {
-            case ReconnectState.Connected c ->
-                    push(Notification.Severity.INFO, "Reconnected", ev.connectionName());
-            case ReconnectState.Reconnecting r ->
-                    push(Notification.Severity.WARN, "Reconnecting " + ev.connectionName(),
-                            "attempt " + r.attempt() + " in " + r.nextDelayMs() + "ms");
-            case ReconnectState.GivingUp g ->
-                    push(Notification.Severity.ERROR, "Giving up on " + ev.connectionName(),
-                            "after " + g.attempts() + " attempts");
-            case ReconnectState.Disconnected d -> {
-                // Disconnected itself is covered by ConnectionLostEvent — skip
-                // to avoid double-notifying.
+    /** Where the toast about {@code client}'s connection is, if one is on screen. */
+    private Optional<Integer> connectionToast(Optional<ClientKey> client) {
+        for (int i = 0; i < active.size(); i++) {
+            Notification n = active.get(i);
+            if (n.kind().isConnectionState() && n.client().equals(client)) {
+                return Optional.of(i);
             }
         }
+        return Optional.empty();
     }
 
-    private void onScriptCrashed(ScriptCrashedEvent ev) {
-        push(Notification.Severity.ERROR,
-                "Script crashed: " + ev.scriptName(),
-                ev.crash().phase() + " — " + ev.crash().cause().getClass().getSimpleName());
+    private static void beginStackWindow(float x, float y, float w, float h) {
+        ImGui.setNextWindowPos(x, y);
+        ImGui.setNextWindowSize(w, h);
+        ImGui.pushStyleVar(ImGuiStyleVar.WindowPadding, 0f, 0f);
+        int flags = ImGuiWindowFlags.NoDecoration | ImGuiWindowFlags.NoBackground
+                | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.NoFocusOnAppearing
+                | ImGuiWindowFlags.NoNav | ImGuiWindowFlags.NoMove;
+        ImGui.begin("##toasts", flags);
     }
 
-    private void onScriptLoadFailed(ScriptLoadFailedEvent ev) {
-        push(Notification.Severity.WARN,
-                "Failed to load " + ev.jar().getFileName(),
-                ev.cause().getClass().getSimpleName() + ": " + ev.cause().getMessage());
+    // ── One toast ──────────────────────────────────────────────────────────
+
+    private float bodyWidth(Controls ui, float width) {
+        return width - ui.m().u(3) * 2f - ui.fonts().body().getFontSize() * ICON_COL_EM - ui.m().u(2);
     }
 
-    private void push(Notification.Severity severity, String title, String message) {
-        Notification n = new Notification(UUID.randomUUID(), severity, title,
-                message != null ? message : "",
-                clock.instant().plus(DEFAULT_TTL));
-        active.addLast(n);
+    private ImFont bodyFont(Controls ui, Notification n) {
+        return n.kind().isMonoBody() ? ui.fonts().monoCaption() : ui.fonts().caption();
+    }
+
+    private float height(Controls ui, Notification n, float width) {
+        ImGuiTheme.Metrics m = ui.m();
+        ImFont body = bodyFont(ui, n);
+        int lines = ui.wrap(body, n.message(), bodyWidth(ui, width)).size();
+        float h = m.u(3) * 2f + ui.fonts().small().getFontSize() * LINE + lines * body.getFontSize() * LINE;
+        return h + actionRows(ui, n, width) * (m.u(1.5f) + m.controlSmallHeight());
+    }
+
+    private float drawToast(Controls ui, Notification n, float x0, float y, float width,
+                            Consumer<Notification> onAction) {
+        ImGuiTheme.Metrics m = ui.m();
+        float h = height(ui, n, width);
+        float in = ui.motion().ease(progress(n.createdAt(), ImGuiTheme.DURATION_S));
+        float out = n.expiresAt()
+                .map(end -> ui.motion().ease(progress(end.minus(slide()), ImGuiTheme.DURATION_S)))
+                .orElse(0f);
+        float alpha = in * (1f - out);
+        float x = x0 + (1f - alpha) * ui.fonts().body().getFontSize() * SLIDE_EM;
+        ImDrawList draw = ImGui.getWindowDrawList();
+        float r = m.radiusXl();
+        float shadow = ui.fonts().body().getFontSize() * SHADOW_EM;
+        draw.addRectFilled(x, y + shadow, x + width, y + h, Controls.scaleAlpha(ImGuiTheme.COL_SHADOW, alpha), r);
+        draw.addRectFilled(x, y, x + width, y + h, Controls.scaleAlpha(ImGuiTheme.COL_ELEVATED, alpha), r);
+        draw.addRect(x + 0.5f, y + 0.5f, x + width - 0.5f, y + h - 0.5f,
+                Controls.scaleAlpha(ImGuiTheme.COL_BORDER, alpha), r);
+        int accent = colorOf(n.kind());
+        drawContent(ui, draw, n, x, y, width, alpha, accent);
+        drawLifeBar(draw, n, x, y + h, width, r, Controls.scaleAlpha(accent, LIFE_ALPHA * alpha));
+        drawButtons(ui, n, x, y, width, h, onAction);
+        return h;
+    }
+
+    private void drawContent(Controls ui, ImDrawList draw, Notification n, float x, float y, float width,
+                             float alpha, int accent) {
+        ImGuiTheme.Metrics m = ui.m();
+        float pad = m.u(3);
+        ImFont title = ui.fonts().smallMedium();
+        float lineH = ui.fonts().small().getFontSize() * LINE;
+        float iconX = x + pad;
+        if (n.kind() == Kind.RECONNECTING) {
+            drawSpinner(draw, iconX + ui.fonts().caption().getFontSize() * 0.5f, y + pad + lineH * 0.5f,
+                    ui.fonts().caption().getFontSize() * 0.5f, Controls.scaleAlpha(accent, alpha));
+        } else {
+            ui.textCentredY(draw, ui.fonts().small(), iconX, y + pad, lineH, Controls.scaleAlpha(accent, alpha),
+                    iconOf(n.kind()));
+        }
+        float tx = x + pad + ui.fonts().body().getFontSize() * ICON_COL_EM + m.u(2);
+        float closeW = m.controlSmallHeight();
+        ui.textCentredY(draw, title, tx, y + pad, lineH, Controls.scaleAlpha(ImGuiTheme.COL_FG, alpha),
+                ui.ellipsize(title, n.title(), x + width - pad - closeW - tx));
+        ImFont body = bodyFont(ui, n);
+        float by = y + pad + lineH;
+        for (String line : ui.wrap(body, n.message(), bodyWidth(ui, width))) {
+            ui.text(draw, body, tx, by, Controls.scaleAlpha(ImGuiTheme.COL_FG2, alpha), line);
+            by += body.getFontSize() * LINE;
+        }
+    }
+
+    private void drawButtons(Controls ui, Notification n, float x, float y, float width, float h,
+                             Consumer<Notification> onAction) {
+        ImGuiTheme.Metrics m = ui.m();
+        float pad = m.u(3);
+        float closeW = m.controlSmallHeight();
+        ImGui.setCursorScreenPos(x + width - pad - closeW + m.u(1), y + pad - m.u(1));
+        if (ui.button("##toast-x-" + n.id(), Icons.XMARK, "", Tone.ICON, true, closeW)) {
+            dismiss(n);
+        }
+        float tx = x + pad + ui.fonts().body().getFontSize() * ICON_COL_EM + m.u(2);
+        float rowH = m.controlSmallHeight();
+        float lastRowY = y + h - pad - rowH;
+        boolean isStacked = actionRows(ui, n, width) > 1;
+        float actionX = tx;
+        Optional<ReportSubject> report = offeredReport(n);
+        if (report.isPresent()) {
+            ImGui.setCursorScreenPos(tx, isStacked ? lastRowY - rowH - m.u(1.5f) : lastRowY);
+            if (ui.button("##toast-r-" + n.id(), null, REPORT_LABEL, Tone.SOFT, true, rowH)) {
+                reportHandler.accept(report.get());
+            }
+            actionX = isStacked ? tx : tx + ui.buttonWidth(null, REPORT_LABEL, Tone.SOFT) + m.u(2);
+        }
+        if (n.kind().action() != Action.NONE) {
+            ImGui.setCursorScreenPos(actionX, lastRowY);
+            if (ui.button("##toast-a-" + n.id(), null, n.kind().action().label(), Tone.GHOST, true, rowH)) {
+                onAction.accept(n);
+                dismiss(n);
+            }
+        }
+    }
+
+    /** The report a toast's button would send: only when it carries one and a handler is set. */
+    private Optional<ReportSubject> offeredReport(Notification n) {
+        return reportHandler == null ? Optional.empty() : n.report();
+    }
+
+    /**
+     * How many rows of buttons a toast has: none, one, or two when "Send report"
+     * and its action do not fit side by side.
+     */
+    private int actionRows(Controls ui, Notification n, float width) {
+        boolean hasAction = n.kind().action() != Action.NONE;
+        boolean hasReport = offeredReport(n).isPresent();
+        if (!hasReport) {
+            return hasAction ? 1 : 0;
+        }
+        if (!hasAction) {
+            return 1;
+        }
+        float both = ui.buttonWidth(null, REPORT_LABEL, Tone.SOFT) + ui.m().u(2)
+                + ui.buttonWidth(null, n.kind().action().label(), Tone.GHOST);
+        return both <= bodyWidth(ui, width) ? 1 : 2;
+    }
+
+    /** The time left, drained along the bottom edge. A toast that stays until closed has none. */
+    private void drawLifeBar(ImDrawList draw, Notification n, float x, float bottom, float width, float r, int col) {
+        if (n.expiresAt().isEmpty()) {
+            return;
+        }
+        float left = 1f - progress(n.createdAt(), secondsBetween(n.createdAt(), n.expiresAt().get()));
+        if (left <= 0f) {
+            return;
+        }
+        draw.pushClipRect(x, bottom - LIFE_BAR_PX, x + width * left, bottom, true);
+        draw.addRectFilled(x, bottom - r * 2f, x + width, bottom, col, r, ImDrawFlags.RoundCornersBottom);
+        draw.popClipRect();
+    }
+
+    private static void drawSpinner(ImDrawList draw, float cx, float cy, float r, int col) {
+        draw.addCircle(cx, cy, r, Controls.scaleAlpha(col, SPINNER_TRACK_ALPHA), 0, SPINNER_STROKE_PX);
+        float a0 = (float) ((ImGui.getTime() % SPINNER_PERIOD_S) / SPINNER_PERIOD_S * Math.PI * 2);
+        draw.pathClear();
+        draw.pathArcTo(cx, cy, r, a0, a0 + SPINNER_SWEEP);
+        draw.pathStroke(col, 0, SPINNER_STROKE_PX);
+    }
+
+    private float progress(Instant from, float spanSeconds) {
+        float elapsed = secondsBetween(from, clock.instant());
+        return spanSeconds <= 0f ? 1f : Math.max(0f, Math.min(1f, elapsed / spanSeconds));
+    }
+
+    private static float secondsBetween(Instant a, Instant b) {
+        return Duration.between(a, b).toMillis() * SECONDS_PER_MILLI;
+    }
+
+    /** How long a toast takes to slide in or out. */
+    private static Duration slide() {
+        return Duration.ofMillis((long) (ImGuiTheme.DURATION_S * MILLIS_PER_SECOND));
+    }
+
+    /** Starts the slide-out now by pulling the expiry in to one slide's length. */
+    private void dismiss(Notification n) {
+        Instant soon = clock.instant().plus(slide());
+        int at = active.indexOf(n);
+        boolean isLeavingLater = n.expiresAt().map(soon::isBefore).orElse(true);
+        if (at >= 0 && isLeavingLater) {
+            active.set(at, n.expiringAt(soon));
+        }
+    }
+
+    private static String iconOf(Kind kind) {
+        return switch (kind) {
+            case CONNECTION_LOST -> Icons.WARNING;
+            case RECONNECTING -> Icons.SPINNER;
+            case GAVE_UP -> Icons.PLUG_XMARK;
+            case CLIENT_CLOSED -> Icons.POWER;
+            case RECONNECTED, CLIENT_RESUMED -> Icons.LINK;
+            case SCRIPT_STALLED -> Icons.HOURGLASS;
+            case SCRIPT_CRASHED -> Icons.CIRCLE_XMARK;
+            case LOAD_FAILED -> Icons.FILE_XMARK;
+        };
+    }
+
+    private static int colorOf(Kind kind) {
+        return switch (kind) {
+            case CONNECTION_LOST, RECONNECTING, SCRIPT_STALLED -> ImGuiTheme.COL_WARN;
+            case RECONNECTED, CLIENT_RESUMED -> ImGuiTheme.COL_ACCENT;
+            case CLIENT_CLOSED -> ImGuiTheme.COL_FG2;
+            case GAVE_UP, SCRIPT_CRASHED, LOAD_FAILED -> ImGuiTheme.COL_DANGER;
+        };
     }
 }

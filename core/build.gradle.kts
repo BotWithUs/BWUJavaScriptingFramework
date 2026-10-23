@@ -39,9 +39,19 @@ tasks.named<Test>("test") {
     // elsewhere:
     //   ./gradlew :core:test -Dbotwithus.gameval=<path>\gameval.sqlite
     System.getProperty("botwithus.gameval")?.let { systemProperty("botwithus.gameval", it) }
+    // The NXTCache live tests load the NXTCache.dll this names, else the deployed one.
+    // Only the DLL is forwarded, not the cache source, so discovery still runs:
+    //   ./gradlew :core:test -Dnxtcache.dll=<path to NXTCache.dll>
+    System.getProperty("nxtcache.dll")?.let { systemProperty("nxtcache.dll", it) }
     // sqlite-jdbc System.load()s its native lib when the gameval tests open an
     // index; without this the JVM prints a restricted-method warning per fork.
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // The launcher protocol's opt-in checks (tasks below) need a launcher
+    // checkout or Windows; they never run here, so they never count as skipped.
+    filter {
+        excludeTestsMatching(LAUNCHER_DRIFT_TEST)
+        excludeTestsMatching(LAUNCHER_SCOPE_LIVE_TEST)
+    }
 }
 
 tasks.register<JavaExec>("benchmark") {
@@ -80,6 +90,37 @@ tasks.register<JavaExec>("eventPumpProbe") {
     mainClass = "com.botwithus.bot.core.shm.EventPumpProbe"
 }
 
+tasks.register<Test>("nxtCacheResolutionTest") {
+    description = "Proves a host with no -D flag opens a usable NXTCache and answers a " +
+            "real config-type lookup (requires a deployed NXTCache.dll)"
+    group = "verification"
+    useJUnitPlatform()
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    // Opt in to the one case that reaches the network, so the CI-run `test`
+    // task stays offline while this task covers the leg a machine with no
+    // local game cache actually lands on.
+    systemProperty("nxtcache.smoke.live", "true")
+    // Forward only what the invoking command line sets. With nothing set the
+    // discovery case runs; with -Dnxtcache.path=<dir> the override case runs.
+    // Deliberately NOT wired to local.properties: a dev override baked in here
+    // would mean the discovery leg never got exercised on a dev box, which is
+    // the one leg a shipped install depends on.
+    listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.cache.NXTCacheHostResolutionLiveTest")
+    }
+    // The verdict depends on what is on disk, not on inputs Gradle can see.
+    outputs.upToDateWhen { false }
+}
+
 tasks.register<Test>("worldwalkerE2ETest") {
     description = "End-to-end Panama upcall test against a real worldwalker.dll + artifact"
     group = "verification"
@@ -88,7 +129,7 @@ tasks.register<Test>("worldwalkerE2ETest") {
     // gates on WorldWalkerExecutorE2ETest cause the case to skip cleanly when
     // either prop is missing, so this task is safe to run unconditionally.
     jvmArgs("--enable-native-access=ALL-UNNAMED")
-    listOf("worldwalker.dll", "worldwalker.testArtifact").forEach { key ->
+    listOf("worldwalker.dll", "worldwalker.testArtifact", "worldwalker.f2pArtifact").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {
@@ -99,6 +140,7 @@ tasks.register<Test>("worldwalkerE2ETest") {
     classpath = sourceSets["test"].runtimeClasspath
     filter {
         includeTestsMatching("com.botwithus.bot.core.worldwalker.WorldWalkerExecutorE2ETest")
+        includeTestsMatching("com.botwithus.bot.core.worldwalker.WorldWalkerFreeToPlayE2ETest")
     }
 }
 
@@ -134,6 +176,29 @@ tasks.register<Test>("liveDialogContinueTest") {
     classpath = sourceSets["test"].runtimeClasspath
     filter {
         includeTestsMatching("com.botwithus.bot.core.impl.LiveDialogContinueTest")
+    }
+}
+
+tasks.register<Test>("liveInputDialogTest") {
+    description = "Live withdraw-X / deposit-X through the input dialog (MUTATES the game — moves items " +
+            "between backpack and bank, then back)"
+    group = "verification"
+    useJUnitPlatform()
+    systemProperty("botwithus.smoke.input", "true")
+    // -Dbotwithus.input.pid=<pid> -Dbotwithus.input.item=<id> -Dbotwithus.input.amount=<n>
+    // -Dbotwithus.input.openBank=<actionId>,<locId>,<x>,<y>
+    listOf("pid", "item", "amount", "openBank").forEach { key ->
+        System.getProperty("botwithus.input.$key")?.let { systemProperty("botwithus.input.$key", it) }
+    }
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.impl.LiveInputDialogTest")
     }
 }
 
@@ -176,6 +241,7 @@ tasks.register<Test>("liveSmokeTest") {
     filter {
         includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveLocationsSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveDynamicRegionSmokeTest")
+        includeTestsMatching("com.botwithus.bot.core.impl.snapshot.LiveOpenInterfacesSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.rpc.LiveStaleRpcSmokeTest")
         includeTestsMatching("com.botwithus.bot.core.rpc.LiveRetiredWalkerRpcTest")
         includeTestsMatching("com.botwithus.bot.core.impl.LiveComponentApiSmokeTest")
@@ -195,10 +261,13 @@ tasks.register<Test>("harnessTest") {
     // botwithus.harness.pid scopes LiveProtocolLockstepTest to the one client
     // the rest of the run is testing. Without it that gate would attach to
     // whichever agent it found first, and could certify a different process
-    // than the run then exercises.
+    // than the run then exercises. botwithus.live.expectOpenIfaces names the
+    // interfaces the caller opened first, for LiveOpenInterfacesSmokeTest, and
+    // botwithus.live.expectOpenIfaceTypes the open type each must have (<id>:<type>).
     listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live",
-           "worldwalker.dll", "worldwalker.artifact",
-           "botwithus.harness.pid").forEach { key ->
+           "worldwalker.dll", "worldwalker.artifact", "worldwalker.teleports", "botwithus.live.walks",
+           "botwithus.live.expectOpenIfaces",
+           "botwithus.live.expectOpenIfaceTypes", "botwithus.harness.pid").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {
@@ -256,4 +325,64 @@ tasks.register<Test>("sdnValidationTest") {
     filter {
         includeTestsMatching("com.botwithus.bot.core.crypto.SdnForgedEnvelopeTest")
     }
+}
+
+// ── Launcher protocol (launcher ADR 0007, A6) ──────────────────────────────
+
+val LAUNCHER_DRIFT_TEST = "com.botwithus.bot.core.launcher.LauncherFixtureDriftTest"
+val LAUNCHER_SCOPE_LIVE_TEST = "com.botwithus.bot.core.launcher.LauncherScopeLiveTest"
+val DEV_SCOPE_PROPERTY = "botwithus.dev.serviceScope"
+
+// The vendored fixtures (src/test/resources/launcher-protocol) against the
+// launcher repository at the sha VENDOR.md names. Needs a launcher checkout:
+//   ./gradlew :core:launcherFixtureDriftTest [-Pbotwithus.launcher.repo=<path>]
+// It defaults to the sibling ../BotWithUs-Launcher and reports skipped (not
+// run) when there is none.
+tasks.register<Test>("launcherFixtureDriftTest") {
+    description = "Compare the vendored launcher protocol fixtures with the launcher repo"
+    group = "verification"
+    useJUnitPlatform()
+    val repo = (project.findProperty("botwithus.launcher.repo") as String?)
+        ?: rootProject.projectDir.resolve("../BotWithUs-Launcher").absolutePath
+    systemProperty("botwithus.launcher.repo", repo)
+    testLogging {
+        events("passed", "failed", "skipped")
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching(LAUNCHER_DRIFT_TEST)
+    }
+}
+
+// The service scope read through Panama, against whoami and tasklist and any
+// visible real-scope service pipe. Windows only:
+//   ./gradlew :core:launcherLiveTest
+tasks.register<Test>("launcherLiveTest") {
+    description = "Check the launcher service scope on this Windows session"
+    group = "verification"
+    useJUnitPlatform()
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out")
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching(LAUNCHER_SCOPE_LIVE_TEST)
+    }
+}
+
+// A development tool for the launcher acceptance runs (FullPipeDriver): drives
+// the service's full pipe for the few calls a host test cannot make itself.
+//   ./gradlew :core:launcherFullPipe --args="hosts"
+// Add -Dbotwithus.dev.serviceScope=true to the JVM (and BWU_DEV_SVC_SCOPE to the
+// environment) to reach a sandboxed Debug service.
+tasks.register<JavaExec>("launcherFullPipe") {
+    description = "Drive the launcher service's full pipe (development tool)"
+    group = "verification"
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass = "com.botwithus.bot.core.launcher.FullPipeDriver"
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    System.getProperty(DEV_SCOPE_PROPERTY)?.let { systemProperty(DEV_SCOPE_PROPERTY, it) }
 }

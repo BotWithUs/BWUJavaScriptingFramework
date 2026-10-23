@@ -5,61 +5,176 @@ import imgui.ImGuiStyle;
 import imgui.flag.ImGuiCol;
 
 /**
- * Color constants and imgui style setup for the BotWithUs dark theme.
- * All colors in 0.0-1.0 float range.
+ * The BotWithUs dark theme: the colour tokens every page draws with, the
+ * durations and sizes they animate and lay out by, and the imgui style setup.
  */
 public final class ImGuiTheme {
 
-    // Background layers (deep navy, layered for depth)
-    public static final float BG_R = 0x0d / 255f, BG_G = 0x0f / 255f, BG_B = 0x14 / 255f;
-    public static final float SURFACE_R = 0x14 / 255f, SURFACE_G = 0x17 / 255f, SURFACE_B = 0x1f / 255f;
-    public static final float INPUT_BG_R = 0x1a / 255f, INPUT_BG_G = 0x1e / 255f, INPUT_BG_B = 0x28 / 255f;
-    public static final float ELEVATED_R = 0x1f / 255f, ELEVATED_G = 0x23 / 255f, ELEVATED_B = 0x2e / 255f;
+    // ── Palette ────────────────────────────────────────────────────────────
+    // The navy greys and status hues as 0xRRGGBB. Private: everything outside
+    // this class takes a packed COL_* token instead, so a colour has one name.
 
-    // Text hierarchy
-    public static final float TEXT_R = 0xec / 255f, TEXT_G = 0xed / 255f, TEXT_B = 0xf0 / 255f;
-    public static final float TEXT_SEC_R = 0x9c / 255f, TEXT_SEC_G = 0x9e / 255f, TEXT_SEC_B = 0xa8 / 255f;
-    public static final float DIM_TEXT_R = 0x7a / 255f, DIM_TEXT_G = 0x7d / 255f, DIM_TEXT_B = 0x88 / 255f;
+    private static final int RGB_BG = 0x0d0f14;
+    private static final int RGB_SURFACE = 0x14171f;
+    private static final int RGB_INPUT_BG = 0x1a1e28;
+    private static final int RGB_ELEVATED = 0x1f232e;
+    private static final int RGB_BORDER = 0x2a2e3a;
+    private static final int RGB_SCRIM = 0x050609;
+    private static final int RGB_BLACK = 0x000000;
+    private static final int RGB_WHITE = 0xffffff;
 
-    // Accent — refined emerald (#4ade80)
-    public static final float ACCENT_R = 0x4a / 255f, ACCENT_G = 0xde / 255f, ACCENT_B = 0x80 / 255f;
+    private static final int RGB_FG = 0xecedf0;
+    private static final int RGB_FG2 = 0x9c9ea8;
+    private static final int RGB_FG3 = 0x7a7d88;
 
-    // Secondary accent — soft blue (#60a5fa)
-    public static final float BLUE_ACCENT_R = 0x60 / 255f, BLUE_ACCENT_G = 0xa5 / 255f, BLUE_ACCENT_B = 0xfa / 255f;
+    /** Emerald: running, healthy. */
+    private static final int RGB_ACCENT = 0x4ade80;
+    private static final int RGB_ACCENT_HOVER = 0x6ee79a;
+    private static final int RGB_ACCENT_PRESS = 0x34c46c;
+    /** Blue: working on it. */
+    private static final int RGB_INFO = 0x60a5fa;
+    /** Amber: needs a look soon. */
+    private static final int RGB_WARN = 0xfbbd23;
+    /** Red: stopped against your will. */
+    private static final int RGB_DANGER = 0xf87171;
+    private static final int RGB_MAGENTA = 0xc084fc;
+    private static final int RGB_CYAN = 0x67e8f9;
 
-    // Semantic colors
-    public static final float RED_R = 0xf8 / 255f, RED_G = 0x71 / 255f, RED_B = 0x71 / 255f;
-    public static final float GREEN_R = 0x4a / 255f, GREEN_G = 0xde / 255f, GREEN_B = 0x80 / 255f;
-    public static final float YELLOW_R = 0xfb / 255f, YELLOW_G = 0xbd / 255f, YELLOW_B = 0x23 / 255f;
-    public static final float BLUE_R = 0x60 / 255f, BLUE_G = 0xa5 / 255f, BLUE_B = 0xfa / 255f;
-    public static final float MAGENTA_R = 0xc0 / 255f, MAGENTA_G = 0x84 / 255f, MAGENTA_B = 0xfc / 255f;
-    public static final float CYAN_R = 0x67 / 255f, CYAN_G = 0xe8 / 255f, CYAN_B = 0xf9 / 255f;
-    public static final float ORANGE_R = 0xfb / 255f, ORANGE_G = 0x92 / 255f, ORANGE_B = 0x3c / 255f;
+    private static final int CHANNEL_MAX = 0xFF;
+    private static final float CHANNEL_SCALE = 255f;
+    private static final int RED_SHIFT = 16;
+    private static final int GREEN_SHIFT = 8;
+    private static final int BLUE_SHIFT_PACKED = 16;
+    private static final int ALPHA_SHIFT = 24;
 
-    // Sidebar
-    public static final float SIDEBAR_BG_R = 0x10 / 255f, SIDEBAR_BG_G = 0x13 / 255f, SIDEBAR_BG_B = 0x1a / 255f;
+    // ── Design tokens ──────────────────────────────────────────────────────
+    // Where the shell and every page take their colours, sizes, radii and
+    // durations from. Colours are the palette above, packed once; soft tints are
+    // alpha over the same hue, never a new colour. Sizes are ratios of the body
+    // font (see Metrics).
 
-    // Border
-    public static final float BORDER_R = 0x2a / 255f, BORDER_G = 0x2e / 255f, BORDER_B = 0x3a / 255f;
+    private static final float SOFT_ALPHA = 0.12f;
+    private static final float SOFT_HOVER_ALPHA = 0.20f;
+    private static final float BORDER_HOVER_ALPHA = 0.18f;
+    private static final float SCRIM_ALPHA = 0.66f;
+    private static final float SHADOW_ALPHA = 0.35f;
 
-    private ImGuiTheme() {}
+    public static final int COL_BG = col(RGB_BG, 1f);
+    public static final int COL_SURFACE = col(RGB_SURFACE, 1f);
+    public static final int COL_ELEVATED = col(RGB_ELEVATED, 1f);
+    public static final int COL_BORDER = col(RGB_BORDER, 1f);
+    public static final int COL_BORDER_HOVER = col(RGB_FG, BORDER_HOVER_ALPHA);
+    public static final int COL_SCRIM = col(RGB_SCRIM, SCRIM_ALPHA);
+    public static final int COL_SHADOW = col(RGB_BLACK, SHADOW_ALPHA);
+
+    public static final int COL_FG = col(RGB_FG, 1f);
+    public static final int COL_FG2 = col(RGB_FG2, 1f);
+    public static final int COL_FG3 = col(RGB_FG3, 1f);
+
+    public static final int COL_ACCENT = col(RGB_ACCENT, 1f);
+    public static final int COL_ACCENT_HOVER = col(RGB_ACCENT_HOVER, 1f);
+    public static final int COL_ACCENT_PRESS = col(RGB_ACCENT_PRESS, 1f);
+    public static final int COL_ON_ACCENT = COL_BG;
+    public static final int COL_ACCENT_SOFT = col(RGB_ACCENT, SOFT_ALPHA);
+    public static final int COL_ACCENT_SOFT_HOVER = col(RGB_ACCENT, SOFT_HOVER_ALPHA);
+    public static final int COL_INFO = col(RGB_INFO, 1f);
+    public static final int COL_INFO_SOFT = col(RGB_INFO, SOFT_ALPHA);
+    public static final int COL_WARN = col(RGB_WARN, 1f);
+    public static final int COL_WARN_SOFT = col(RGB_WARN, SOFT_ALPHA);
+    public static final int COL_DANGER = col(RGB_DANGER, 1f);
+    public static final int COL_DANGER_SOFT = col(RGB_DANGER, SOFT_ALPHA);
+    public static final int COL_DANGER_SOFT_HOVER = col(RGB_DANGER, SOFT_HOVER_ALPHA);
+    public static final int COL_FOCUS = COL_INFO;
 
     /**
-     * Map SGR color code (30-37) to float[]{r, g, b}.
+     * Terminal hues, not status colours: the console's ANSI palette, its prompt
+     * target and the Events tab's event names.
      */
-    public static float[] ansiColorFloat(int code) {
-        return switch (code) {
-            case 30 -> new float[]{BG_R, BG_G, BG_B};           // black -> background
-            case 31 -> new float[]{RED_R, RED_G, RED_B};
-            case 32 -> new float[]{GREEN_R, GREEN_G, GREEN_B};
-            case 33 -> new float[]{YELLOW_R, YELLOW_G, YELLOW_B};
-            case 34 -> new float[]{BLUE_R, BLUE_G, BLUE_B};
-            case 35 -> new float[]{MAGENTA_R, MAGENTA_G, MAGENTA_B};
-            case 36 -> new float[]{CYAN_R, CYAN_G, CYAN_B};
-            case 37 -> new float[]{TEXT_R, TEXT_G, TEXT_B};       // white -> text
-            default -> new float[]{TEXT_R, TEXT_G, TEXT_B};
-        };
+    public static final int COL_MAGENTA = col(RGB_MAGENTA, 1f);
+    public static final int COL_CYAN = col(RGB_CYAN, 1f);
+
+    /** Hover and toggle feedback. */
+    public static final float DURATION_FAST_S = 0.12f;
+    /** Drawer, modal and toast slides; card entrance. */
+    public static final float DURATION_S = 0.20f;
+    /** Full period of the loading alpha pulse — the only looping animation. */
+    public static final float PULSE_PERIOD_S = 1.4f;
+    /** Opacity of a disabled control. */
+    public static final float DISABLED_ALPHA = 0.45f;
+
+    /**
+     * Every size the redesign uses, derived from the body font size so it scales
+     * with DPI the way the font does. The ratios are the prototype's pixel values
+     * over its 15 px base; {@code u} is its 4 px spacing unit.
+     *
+     * @param fontSize body font size in pixels, the unit all ratios multiply
+     */
+    public record Metrics(float fontSize) {
+
+        private static final float UNIT = 0.25f;
+        private static final float CONTROL = 2f;
+        private static final float CONTROL_SMALL = 1.733f;
+        private static final float TOP_BAR = 2.933f;
+        private static final float STATUS_BAR = 1.733f;
+        private static final float DRAWER = 34f;
+        private static final float DRAWER_MIN = 20f;
+        private static final float DRAWER_MAX_FRACTION = 0.75f;
+        private static final float DRAWER_GRIP = 0.4f;
+        private static final float CARD_MIN = 19.33f;
+        private static final float LANE = 1.467f;
+        private static final float BAR = 0.2f;
+        private static final float BAR_GAP = 0.133f;
+        private static final float CHIP = 1.467f;
+        private static final float ICON_TILE = 2.133f;
+        private static final float INSET_MIN = 6.133f;
+        private static final float DOT = 0.4f;
+        private static final float RADIUS_SMALL = 0.267f;
+        private static final float RADIUS = 0.4f;
+        private static final float RADIUS_LARGE = 0.533f;
+        private static final float RADIUS_XL = 0.667f;
+        private static final float FOCUS_WIDTH = 0.133f;
+        private static final float HAIRLINE = 1f;
+
+        /** One spacing unit; {@code u(3)} is the prototype's {@code --sp-3}. */
+        public float u(float units) {
+            return Math.round(fontSize * UNIT) * units;
+        }
+
+        public float controlHeight() { return fontSize * CONTROL; }
+        public float controlSmallHeight() { return fontSize * CONTROL_SMALL; }
+        public float topBarHeight() { return fontSize * TOP_BAR; }
+        public float statusBarHeight() { return fontSize * STATUS_BAR; }
+        /**
+         * The inspector drawer's width: {@code preferred} when the user has dragged
+         * it, else the default, kept between a readable minimum and a share of
+         * {@code available} that leaves the page beside it usable.
+         *
+         * @param preferred the width the user dragged to, or {@code 0} for the default
+         * @param available the width the page and drawer share
+         */
+        public float drawerWidth(float preferred, float available) {
+            float wanted = preferred > 0f ? preferred : fontSize * DRAWER;
+            float max = available * DRAWER_MAX_FRACTION;
+            return Math.min(Math.max(wanted, Math.min(fontSize * DRAWER_MIN, max)), max);
+        }
+        public float drawerGrip() { return Math.max(HAIRLINE, fontSize * DRAWER_GRIP); }
+        public float cardMinWidth() { return fontSize * CARD_MIN; }
+        public float laneHeight() { return fontSize * LANE; }
+        public float barWidth() { return Math.max(HAIRLINE, fontSize * BAR); }
+        public float barGap() { return Math.max(HAIRLINE, fontSize * BAR_GAP); }
+        public float chipHeight() { return fontSize * CHIP; }
+        public float iconTile() { return fontSize * ICON_TILE; }
+        public float insetMinHeight() { return fontSize * INSET_MIN; }
+        public float dot() { return fontSize * DOT; }
+        public float radiusSmall() { return fontSize * RADIUS_SMALL; }
+        public float radius() { return fontSize * RADIUS; }
+        public float radiusLarge() { return fontSize * RADIUS_LARGE; }
+        public float radiusXl() { return fontSize * RADIUS_XL; }
+        public float focusWidth() { return Math.max(HAIRLINE, fontSize * FOCUS_WIDTH); }
+        public float hairline() { return HAIRLINE; }
     }
+
+    private ImGuiTheme() {}
 
     /**
      * Convert RGBA floats (0-1) to packed ImGui color integer (IM_COL32 format).
@@ -68,11 +183,12 @@ public final class ImGuiTheme {
         return ((int)(a * 255f) << 24) | ((int)(b * 255f) << 16) | ((int)(g * 255f) << 8) | (int)(r * 255f);
     }
 
-    /**
-     * Apply the dark theme to the current imgui context with DPI scale factor of 1.0.
-     */
-    public static void apply() {
-        apply(1.0f);
+    /** Packs a palette {@code 0xRRGGBB} at {@code alpha} into imgui's ABGR order. */
+    private static int col(int rgb, float alpha) {
+        int r = (rgb >>> RED_SHIFT) & CHANNEL_MAX;
+        int g = (rgb >>> GREEN_SHIFT) & CHANNEL_MAX;
+        int b = rgb & CHANNEL_MAX;
+        return ((int) (alpha * CHANNEL_SCALE) << ALPHA_SHIFT) | (b << BLUE_SHIFT_PACKED) | (g << GREEN_SHIFT) | r;
     }
 
     /**
@@ -87,6 +203,12 @@ public final class ImGuiTheme {
         applyTextAndButtonColors(style);
         applyHeaderTabAndTableColors(style);
         applyScrollbarAndWidgetColors(style);
+    }
+
+    /** Sets one style colour to palette {@code rgb} at {@code alpha}, in imgui's float form. */
+    private static void setColor(ImGuiStyle style, int colorIndex, int rgb, float alpha) {
+        style.setColor(colorIndex, ((rgb >>> RED_SHIFT) & CHANNEL_MAX) / CHANNEL_SCALE,
+                ((rgb >>> GREEN_SHIFT) & CHANNEL_MAX) / CHANNEL_SCALE, (rgb & CHANNEL_MAX) / CHANNEL_SCALE, alpha);
     }
 
     /** Window-frame rounding, padding, item spacing, border sizes. */
@@ -115,69 +237,69 @@ public final class ImGuiTheme {
     }
 
     private static void applyWindowAndBorderColors(ImGuiStyle style) {
-        style.setColor(ImGuiCol.WindowBg, BG_R, BG_G, BG_B, 1f);
-        style.setColor(ImGuiCol.ChildBg, BG_R, BG_G, BG_B, 0f);
-        style.setColor(ImGuiCol.PopupBg, SURFACE_R, SURFACE_G, SURFACE_B, 0.97f);
-        style.setColor(ImGuiCol.Border, BORDER_R, BORDER_G, BORDER_B, 0.6f);
-        style.setColor(ImGuiCol.BorderShadow, 0f, 0f, 0f, 0f);
+        setColor(style, ImGuiCol.WindowBg, RGB_BG, 1f);
+        setColor(style, ImGuiCol.ChildBg, RGB_BG, 0f);
+        setColor(style, ImGuiCol.PopupBg, RGB_SURFACE, 0.97f);
+        setColor(style, ImGuiCol.Border, RGB_BORDER, 0.6f);
+        setColor(style, ImGuiCol.BorderShadow, RGB_BLACK, 0f);
     }
 
     private static void applyInputAndTitleColors(ImGuiStyle style) {
-        style.setColor(ImGuiCol.FrameBg, INPUT_BG_R, INPUT_BG_G, INPUT_BG_B, 1f);
-        style.setColor(ImGuiCol.FrameBgHovered, ELEVATED_R, ELEVATED_G, ELEVATED_B, 1f);
-        style.setColor(ImGuiCol.FrameBgActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.18f);
-        style.setColor(ImGuiCol.TitleBg, SURFACE_R, SURFACE_G, SURFACE_B, 1f);
-        style.setColor(ImGuiCol.TitleBgActive, ELEVATED_R, ELEVATED_G, ELEVATED_B, 1f);
-        style.setColor(ImGuiCol.TitleBgCollapsed, SURFACE_R, SURFACE_G, SURFACE_B, 0.6f);
+        setColor(style, ImGuiCol.FrameBg, RGB_INPUT_BG, 1f);
+        setColor(style, ImGuiCol.FrameBgHovered, RGB_ELEVATED, 1f);
+        setColor(style, ImGuiCol.FrameBgActive, RGB_ACCENT, 0.18f);
+        setColor(style, ImGuiCol.TitleBg, RGB_SURFACE, 1f);
+        setColor(style, ImGuiCol.TitleBgActive, RGB_ELEVATED, 1f);
+        setColor(style, ImGuiCol.TitleBgCollapsed, RGB_SURFACE, 0.6f);
     }
 
     private static void applyTextAndButtonColors(ImGuiStyle style) {
-        style.setColor(ImGuiCol.Text, TEXT_R, TEXT_G, TEXT_B, 1f);
-        style.setColor(ImGuiCol.TextDisabled, DIM_TEXT_R, DIM_TEXT_G, DIM_TEXT_B, 1f);
-        style.setColor(ImGuiCol.Button, ACCENT_R, ACCENT_G, ACCENT_B, 0.18f);
-        style.setColor(ImGuiCol.ButtonHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.30f);
-        style.setColor(ImGuiCol.ButtonActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.45f);
+        setColor(style, ImGuiCol.Text, RGB_FG, 1f);
+        setColor(style, ImGuiCol.TextDisabled, RGB_FG3, 1f);
+        setColor(style, ImGuiCol.Button, RGB_ACCENT, 0.18f);
+        setColor(style, ImGuiCol.ButtonHovered, RGB_ACCENT, 0.30f);
+        setColor(style, ImGuiCol.ButtonActive, RGB_ACCENT, 0.45f);
     }
 
     private static void applyHeaderTabAndTableColors(ImGuiStyle style) {
-        style.setColor(ImGuiCol.Header, ACCENT_R, ACCENT_G, ACCENT_B, 0.12f);
-        style.setColor(ImGuiCol.HeaderHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.22f);
-        style.setColor(ImGuiCol.HeaderActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.35f);
+        setColor(style, ImGuiCol.Header, RGB_ACCENT, 0.12f);
+        setColor(style, ImGuiCol.HeaderHovered, RGB_ACCENT, 0.22f);
+        setColor(style, ImGuiCol.HeaderActive, RGB_ACCENT, 0.35f);
 
-        style.setColor(ImGuiCol.Tab, SURFACE_R, SURFACE_G, SURFACE_B, 1f);
-        style.setColor(ImGuiCol.TabHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.35f);
-        style.setColor(ImGuiCol.TabActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.22f);
-        style.setColor(ImGuiCol.TabUnfocused, SURFACE_R, SURFACE_G, SURFACE_B, 1f);
-        style.setColor(ImGuiCol.TabUnfocusedActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.15f);
+        setColor(style, ImGuiCol.Tab, RGB_SURFACE, 1f);
+        setColor(style, ImGuiCol.TabHovered, RGB_ACCENT, 0.35f);
+        setColor(style, ImGuiCol.TabActive, RGB_ACCENT, 0.22f);
+        setColor(style, ImGuiCol.TabUnfocused, RGB_SURFACE, 1f);
+        setColor(style, ImGuiCol.TabUnfocusedActive, RGB_ACCENT, 0.15f);
 
-        style.setColor(ImGuiCol.TableHeaderBg, SURFACE_R, SURFACE_G, SURFACE_B, 1f);
-        style.setColor(ImGuiCol.TableBorderStrong, BORDER_R, BORDER_G, BORDER_B, 0.5f);
-        style.setColor(ImGuiCol.TableBorderLight, BORDER_R, BORDER_G, BORDER_B, 0.25f);
-        style.setColor(ImGuiCol.TableRowBg, 0f, 0f, 0f, 0f);
-        style.setColor(ImGuiCol.TableRowBgAlt, 1f, 1f, 1f, 0.02f);
+        setColor(style, ImGuiCol.TableHeaderBg, RGB_SURFACE, 1f);
+        setColor(style, ImGuiCol.TableBorderStrong, RGB_BORDER, 0.5f);
+        setColor(style, ImGuiCol.TableBorderLight, RGB_BORDER, 0.25f);
+        setColor(style, ImGuiCol.TableRowBg, RGB_BLACK, 0f);
+        setColor(style, ImGuiCol.TableRowBgAlt, RGB_WHITE, 0.02f);
 
-        style.setColor(ImGuiCol.Separator, BORDER_R, BORDER_G, BORDER_B, 0.4f);
-        style.setColor(ImGuiCol.SeparatorHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.5f);
-        style.setColor(ImGuiCol.SeparatorActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.8f);
+        setColor(style, ImGuiCol.Separator, RGB_BORDER, 0.4f);
+        setColor(style, ImGuiCol.SeparatorHovered, RGB_ACCENT, 0.5f);
+        setColor(style, ImGuiCol.SeparatorActive, RGB_ACCENT, 0.8f);
     }
 
     private static void applyScrollbarAndWidgetColors(ImGuiStyle style) {
-        style.setColor(ImGuiCol.ScrollbarBg, BG_R, BG_G, BG_B, 0.3f);
-        style.setColor(ImGuiCol.ScrollbarGrab, DIM_TEXT_R, DIM_TEXT_G, DIM_TEXT_B, 0.4f);
-        style.setColor(ImGuiCol.ScrollbarGrabHovered, TEXT_SEC_R, TEXT_SEC_G, TEXT_SEC_B, 0.5f);
-        style.setColor(ImGuiCol.ScrollbarGrabActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.8f);
+        setColor(style, ImGuiCol.ScrollbarBg, RGB_BG, 0.3f);
+        setColor(style, ImGuiCol.ScrollbarGrab, RGB_FG3, 0.4f);
+        setColor(style, ImGuiCol.ScrollbarGrabHovered, RGB_FG2, 0.5f);
+        setColor(style, ImGuiCol.ScrollbarGrabActive, RGB_ACCENT, 0.8f);
 
-        style.setColor(ImGuiCol.CheckMark, ACCENT_R, ACCENT_G, ACCENT_B, 1f);
-        style.setColor(ImGuiCol.SliderGrab, ACCENT_R, ACCENT_G, ACCENT_B, 0.7f);
-        style.setColor(ImGuiCol.SliderGrabActive, ACCENT_R, ACCENT_G, ACCENT_B, 1f);
-        style.setColor(ImGuiCol.PlotHistogram, ACCENT_R, ACCENT_G, ACCENT_B, 0.8f);
-        style.setColor(ImGuiCol.PlotHistogramHovered, ACCENT_R, ACCENT_G, ACCENT_B, 1f);
-        style.setColor(ImGuiCol.TextSelectedBg, ACCENT_R, ACCENT_G, ACCENT_B, 0.25f);
+        setColor(style, ImGuiCol.CheckMark, RGB_ACCENT, 1f);
+        setColor(style, ImGuiCol.SliderGrab, RGB_ACCENT, 0.7f);
+        setColor(style, ImGuiCol.SliderGrabActive, RGB_ACCENT, 1f);
+        setColor(style, ImGuiCol.PlotHistogram, RGB_ACCENT, 0.8f);
+        setColor(style, ImGuiCol.PlotHistogramHovered, RGB_ACCENT, 1f);
+        setColor(style, ImGuiCol.TextSelectedBg, RGB_ACCENT, 0.25f);
 
-        style.setColor(ImGuiCol.ResizeGrip, ACCENT_R, ACCENT_G, ACCENT_B, 0.1f);
-        style.setColor(ImGuiCol.ResizeGripHovered, ACCENT_R, ACCENT_G, ACCENT_B, 0.4f);
-        style.setColor(ImGuiCol.ResizeGripActive, ACCENT_R, ACCENT_G, ACCENT_B, 0.7f);
+        setColor(style, ImGuiCol.ResizeGrip, RGB_ACCENT, 0.1f);
+        setColor(style, ImGuiCol.ResizeGripHovered, RGB_ACCENT, 0.4f);
+        setColor(style, ImGuiCol.ResizeGripActive, RGB_ACCENT, 0.7f);
 
-        style.setColor(ImGuiCol.NavHighlight, ACCENT_R, ACCENT_G, ACCENT_B, 0.8f);
+        setColor(style, ImGuiCol.NavHighlight, RGB_ACCENT, 0.8f);
     }
 }

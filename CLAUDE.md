@@ -39,13 +39,16 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 
 - **Pipe name**: producer publishes `\\.\pipe\BotWithUs_<pid>`. Java side: `core/.../pipe/PipeClient.java` (`NAME_PREFIX`, `firstAvailableOrThrow`), all `new PipeClient(...)` callers.
 - **SHM mapping**: producer publishes `Local\nxt_snapshot_<pid>`. Java side: `core/.../shm/Layout.java` (`MAPPING_NAME_PREFIX`), `SharedRegion`.
-- **Wire protocol version**: `Layout.PROTOCOL_VERSION` (currently `20`) must equal `kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h` (and the `static_assert(nxt::ipc::kProtocolVersion == 20, ...)` in `NXTDebugger/src/attach/Session.h`). `SharedRegion.open()` validates and refuses mismatched versions. `core/.../shm/LayoutWireOffsetsTest` pins the version, the dynamic-region block offsets and `SNAPSHOT_SIZE` as hardcoded literals so a cap edit on either side of the wire makes the two disagree loudly.
+- **Wire protocol version**: `Layout.PROTOCOL_VERSION` (currently `23`) must equal `kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h` (and the `static_assert(nxt::ipc::kProtocolVersion == 23, ...)` in `NXTDebugger/src/attach/Session.h`). `SharedRegion.open()` validates and refuses mismatched versions. `core/.../shm/LayoutWireOffsetsTest` pins the version, the dynamic-region block offsets and `SNAPSHOT_SIZE` as hardcoded literals so a cap edit on either side of the wire makes the two disagree loudly.
+- **Open-interface flags** (v23): `openIfaceFlags[256]` (`Layout.SNAP_OPENIFACEFLAGS_OFFSET`) is index-parallel to `openIfaces[]`, one u8 per id; only `[0, openIfaceCount)` is meaningful. Bits 0-2 are the client's raw open type (0 modal, 1 overlay, 3 client-script child, 7 unknown), bit 3 is set when a client script opened it, bits 4-7 are reserved and ignored on decode. The **bit** layout lives on `api/.../snapshot/OpenInterface` (`TYPE_MASK`, `FLAG_CLIENT_OPENED`), the same one-home rule as `DynamicRegion`; scripts reach it through `GameSnapshot.openInterfaces()` / `openInterface(id)` and `OpenInterface.isModal()`. The type is kept raw rather than as an enum so a newly seen value is carried, not lost. Inserting the array moved every field from `_padAfterOpenIfaces` on by exactly 256 (`SNAPSHOT_SIZE` 411832); `Layout` derives the tail as one running chain, and `LayoutWireOffsetsTest` plus `GameSnapshotOpenInterfaceFlagsTest` pin the moved offsets as literals.
 - **Dynamic regions** (v19): `GameSnapshot.dynamicRegion()` publishes the client's instance chunk-descriptor grid — the table that maps an instance tile back to the static tile it was copied from, so a static-baked navigation layer can path inside a player-owned house or a Dungeoneering floor. Byte offsets live in `Layout` (`DYNREGION_*`, `SNAP_DYN*`); the **bit** layout of a descriptor lives on `api/.../snapshot/DynamicRegion` because scripts decode it and `api` cannot depend on `core` — one home, not two copies. The snapshot-backed region is a flyweight over shared memory, so anything retaining it past the tick must copy it — prefer `DynamicRegion.copyOfStable(snapshot)`, which re-checks `publishSeq()` around the copy, over bare `copyOf(...)`: the grid is up to 64 KB read out of a live double-buffered mapping with no seqlock, and a half-stale grid resolves to plausible wrong tiles rather than failing. Two traps the javadoc is loud about and reviewers should stay loud about: origin/max are **mapsquares** while `gridW`/`gridH` are **chunks**, and `maxMapX`/`maxMapY` bound the loaded window rather than the resolvable grid.
+- **Entity facing** (v21): `Npc` / `Player` / `LocalPlayer` carry an `Orientation` decoded from a `u16` on each row (`Layout.NPC_ORIENTATION_OFFSET` / `PLAYER_ORIENTATION_OFFSET` / `LP_ORIENTATION_OFFSET`). `0xFFFF` is unknown; anything else outside `0..16383` is a producer bug that the decode path (`OrientationWireDecoder`, one per `SharedRegion`) turns into unknown plus one WARN per session. It never throws out of a snapshot read, while `new Orientation(bad)` does throw. The zero offset `Orientation.NORTH_RAW = 8192` comes from static analysis and awaits a live check. Compare facings with `isSameFacingAs` (one-unit tolerance), never `equals`: the client's conversion truncates, so an angle can read back one unit short.
 - **The snapshot's three clocks** (v18): `GameSnapshot.serverTick()` is the 600ms server tick and the one scripts should pace against; `gameCycle()` is the client's ~20ms counter and the unit `Projectile.startCycle()`/`endCycle()` use; `publishSeq()` is the producer's republish counter — same cadence as `gameCycle()` but a different number space, so never compare them. `publishSeq()` was called `tickId()` through v17, and pacing off it ran ~30x fast.
 - **Event-type discriminators**: `Layout.EVT_*` mirrors `kEvent*` enum in `NXTLibrary/src/ipc/Events.h`. Decoder switch arms in `EventRingReader` must cover every type the producer emits.
 - **Wire body shapes**: each `api/.../event/*Event.java` constructor mirrors a POD struct in `NXTLibrary/src/ipc/Events.h`. Field order is load-bearing for the byte-offset decoders.
 - **Snapshot field offsets**: `Layout.SNAP_*` / `LP_*` / `NPC_*` / `PLAYER_*` / `LOC_*` mirror `NXTLibrary/src/ipc/SharedLayout.h`. Static_asserts on the C++ side will catch divergent strides at compile time, but the Java side is untyped — keep the offset constants in lockstep.
 - **RPC method names + param shapes**: each `rpc.callSync(<name>, ...)` in `GameAPIImpl` (and its `domain/*API` mixin partials) matches a handler in `NXTLibrary/src/rpc/Handlers.cpp`. New RPCs land in both files together. Note the component query surface: `get_component` + `get_interface_tree` decode through the shared `GameAPIImpl.decodeComponent`, both surfaced via the `api.components()` facade (`api/.../component/`). The component map carries a stable `category` code (producer's `WireCategory` → `ComponentType`); it is **additive over the RPC pipe**, so it does **not** bump `PROTOCOL_VERSION` (that gates only the SHM snapshot layout). A producer predating `category` decodes to `0` → `ComponentType.UNKNOWN`.
+- **Key triggers** (`ActionTypes.COMPONENT_TRIGGER` 5003, trigger type 10): `param3` is `KeyStroke.packed()` = `(int16 keyCode << 16) | uint16 keyChar`, unpacked by `DispatchComponentTrigger` in `NXTLibrary/src/game/Actions.cpp`. On the raw wire a bare key code is read as a *character* (`84` types a `T`), so `fireComponentTrigger` keeps its documented key-code form by normalising a key-trigger `arg` with a zero high half to `(arg << 16)` (`KeyStroke.keyTriggerArg`) and passing a packed one through; `fireKeys` sends packed strokes unchanged. Printable characters travel in the char half (`KeyStroke.character(c)` = `(-1, c)`); Enter/Backspace/Escape travel in the code half (`(84|85|13, 0)`). `api.inputDialog()` (`api/input/InputDialog`) targets MESLAYER **1469:4**, not 1469:0, which has no triggers. It reads the mode from varc 5 and the text from varc-string 2506, and it validates against the per-mode limits before typing. Additive: no `PROTOCOL_VERSION` bump.
 - **Per-item obj vars**: `get_obj_vars` (RPC, `GameAPIImpl.getObjVars` → `GameAPI` / `InventoryContainer.getSlotVars`/`getAllSlotVars`) returns `{slots:[{slot, vars:[{id,value}]}]}` for a container's items — the per-instance `ObjVarDomain` state (augmentation XP, charges). `EVT_OBJ_VAR_CHANGE` (13, `ObjVarChangeEvent`, body `{invId,slot,varId,oldValue,newValue}`) reports per-slot value changes. Producer: `Handle_GetObjVars` + `EmitObjVarChanges` in `NXTLibrary`. Both **additive** — no `PROTOCOL_VERSION` bump (new event type + new RPC; the SHM snapshot layout is unchanged).
 - **Debug drawing** (`api/draw/`, `api.draw()`): the nine `debug_draw_*` / `highlight_component` handlers in `NXTLibrary/src/rpc/Handlers.cpp`, bound by `core/impl/DrawCodec.java` (encode/decode) and `GameAPIImpl`'s `DrawAPI` methods. **Additive over the RPC pipe — no `PROTOCOL_VERSION` bump**; the overlay store is not in shared memory. Caps are mirrored into `api/draw/DrawLimits.java` from `NXTLibrary/src/overlay/DrawTypes.h` (`kMaxDrawCmds`, `kMaxKeyChars`, `kMaxTextSlots`, `kPolySlotPoints`, `kMaxDrawCoord`, `kMaxDrawExtent`, `kMaxResolveTargets`) plus `kDrawBatchMax` in `Handlers.cpp` — change a cap on the producer and change it here in the same logical change. Four wire behaviours the API is deliberately loud about rather than smoothing over, because each one lets a naive wrapper lie to a scripter:
   - **`debug_draw_set_batch` reports per-item refusals inside a *successful* reply** (`{count, dropped, error}`, first error only). `DrawFrame.flush()` returns that as `DrawBatchResult` and `close()` logs a WARN when anything was dropped. It never throws **for a refused command** — a debug overlay must not be able to take a script's tick down — but a *transport* failure does propagate, because that is a dead pipe rather than a failed drawing, and swallowing it would hide it. See the bullet below for what that leaves behind. Note the batch *does* hard-error on an over-size `items` array and on a malformed item, which `NXTDebugger/wire/PROTOCOL.md` ("does not fail") does not say.
@@ -90,14 +93,20 @@ Three things that will bite if changed carelessly:
 
 ### CI and branch protection
 
-`master` is governed by two rulesets, both with an empty bypass list — they apply to org admins too.
+`master` is the integration branch: pull requests target it and branches start from it. (`develop` still exists on the remote, but it is far behind `master` and holds a few commits that were never merged. Do not branch from it or target it.) Two rulesets apply, both with an empty bypass list, so they bind org admins too:
 
-- **`master protection`** — PRs only, one approving review (GitHub forbids self-approval, so this genuinely needs a second person), stale reviews dismissed on push, the `build` check green, and no force-push or deletion.
-- **`release tags are immutable`** — `v*` tags cannot be deleted, moved, or force-updated, which is what makes "a published version is never replaced" true at the git level and not just by workflow convention.
+- **`master protection`** (branch `master`):
+  - changes land only through a pull request;
+  - the `build` check must be green (not strict, so the branch does not have to be up to date with `master` first);
+  - no force-push and no deletion;
+  - stale reviews are dismissed on push.
+
+  It requires **zero** approving reviews, and that is deliberate. The user reviews and merges PRs personally. GitHub forbids approving your own PR, so a required approval would need a second person that the project does not have. Agents open PRs and leave the merge to the user.
+- **`release tags are immutable`** (tags `v*`) — a release tag cannot be deleted, moved, or force-updated. That is what makes "a published version is never replaced" true at the git level and not just by workflow convention.
 
 `ci.yml` provides the required `build` check. **Its job must stay named `build`** — the required-check context is matched by job name, so renaming the job blocks every merge to `master` until the ruleset is updated to match.
 
-**CI does not run `./gradlew build`.** It builds `:api :core :test-support :quest-core :skilling-core`, the modules that compile from a bare clone. `cli` needs `NXTCache.dll`, `worldwalker.dll`, an Atlas database and a jlink JDK home from `local.properties`; `example-script` and `sdn-test-script` reference quest constants that `quest-core` only generates when `quest.research.dir` points at the research data, and emits as a stub otherwise. Adding a module to CI means making it build without `local.properties` first.
+**CI does not run `./gradlew build`.** It builds `:api :core :test-support :quest-core :skilling-core` and runs `:cli:check` (the `cli` tests, plus compiling the `preview` source set). `cli` needs nothing from `local.properties` to configure or test — every key it reads is optional and used only by `run` and the jlink/jpackage tasks — so keep it that way: a key that becomes required at configuration time breaks CI. The preview renders (`:cli:renderPreviews`, `:cli:previewSmokeTest`) need a desktop with OpenGL and are not run in CI. `example-script` and `sdn-test-script` stay out: they reference quest constants that `quest-core` only generates when `quest.research.dir` points at the research data, and emits as a stub otherwise. Pull requests run CI whatever branch they target, so stacked PRs are checked too.
 
 ### Machine-specific paths (`local.properties`)
 
@@ -166,6 +175,33 @@ ImGui-based GUI + interactive command system (`JBotApplication`, `gui/ImGuiApp`)
 
 The CLI run task places the API JAR on the **module path** (not classpath) so `LocalScriptLoader` can build child `ModuleLayer`s that reference the API module.
 
+**Script UIs are sandboxed (`cli/.../gui/scriptui/`).** Each script's `ScriptUI.render()` runs in its own `ImGuiContext`, on its own platform thread (`script-ui <name> #<n>`), while the UI thread waits. What it drew is then composited into the host's panel. The design follows from three facts about imgui-java 1.90, which bundles Dear ImGui **1.90.9**:
+
+1. `ImAssertCallback.imAssert` calls `System.exit(1)` whether the callback returns or throws an `Exception`.
+2. Native code continues past a failed `IM_ASSERT` when the callback throws an `Error`, and some checks guard an out-of-bounds read or write.
+3. imgui-java binds no stack sizes, so there is nothing to repair the host's context to.
+
+So `AssertRouter`, the one assert handler, **parks the script's render thread for good** on an assertion. The native call never resumes, and the context and thread are abandoned (leaked). Asserts on any other thread keep imgui-java's exit, so a host bug still fails loudly. Things to keep straight when editing it:
+
+- **Never add a timeout** to `SandboxWorker.run`. An abandoned render thread could resume and call ImGui with the host's context current.
+- **Never let script code reach the host's context.** That includes draw-list callbacks and anything invoked after `ImGui.setCurrentContext(host)` on the UI thread.
+- The 3-failures-per-run limit in `ScriptUiRenderer` (`MAX_FAILURES`, reset by a new `lastStartedAt`) is what **bounds the leak**. Keep it.
+- **Never call `ImGuiIO.setIniFilename` with a non-null value, anywhere in the process.** imgui-java's setter frees the field's old value whenever the last value *any* context was given was non-null, because it tracks that in one process-wide static. A fresh sandbox's `IniFilename` is a string literal, so after the host once set its path that way, creating a sandbox killed the process with heap corruption (`0xC0000374`). `cli/.../gui/HostIni` loads and saves the host's layout file by hand for this reason. `ScriptUiGuardForkTest.anIniPathSetThroughImGuiIo_makesTheFirstSandboxCorruptTheHeap` pins the hazard.
+- **Every call into a `ScriptUI` happens in the sandbox frame**: `attach`, `render`, and `drawsOwnChrome` (asked after `render`, inside the root window). `ScriptUiRenderer.drawsOwnChrome(slot)` serves the last answer and asks in an unseen sandbox frame the first time, because the host needs it before it opens the window. Do not "simplify" it into a direct call on the UI thread: that is script code with the host's context current.
+- **A frameless pop-out is moved by the host, not by Dear ImGui.** `PanelInput`'s invisible button means every press over a panel lands on an item, so ImGui never drags the window. The sandbox reports a left press over its root on no item (`FrameOutcome.Drawn.isBackgroundPress`), and `BackgroundDrag` moves the window with `setNextWindowPos`. `BackgroundDragTest` pins both directions, including a hovered widget that is not yet active, which is the only case the `isAnyItemHovered` check decides.
+- **A frameless pop-out is resized by the host too.** The same panel covers the window's edges, so Dear ImGui's own edge resize never fires there, and `ScriptUiRenderer.composite` sets the script's cursor over ImGui's resize cursor every frame. The window is `NoResize`, and `BorderResize` hit-tests a band along its edges with the main window's `BorderHitTest` (`FramelessChrome.resizeBorder`) before the UI is drawn, then sizes it with `setNextWindowPos/Size` from a `ResizeDrag`. While the band has the pointer, the UI is drawn with `isPointerTaken`: no hover, press or cursor reaches the script, so no `BackgroundDrag` starts either. The band is offered only while no button is held, so a drag on a script widget that crosses the edge stays the script's. `BorderResizeTest` pins every edge and corner and the precedence cases.
+  - **With a typing script UI** (the hold below), a border press still resizes: the hold is released at the end of each frame, so the band's check, which runs before the panel, never sees it. `BorderResize` also hovers with `AllowWhenBlockedByActiveItem` as a second guard. The script still sees the pointer as `Pointer.away` with the buttons down and no position, so no script widget under the band is hit, and the script's text field lets go as it would for a press anywhere outside it. `BorderResizeWhileTypingTest` pins all of this, plus the main window's button and drag strip taking the next press after a resize.
+- **The host holds an active item for a typing script UI for one frame only.** `HostFocus.hold` makes the panel's input item the host's active item from where the panel is drawn, and `ScriptUiRenderer.endFrame` lets it go. An active item is global to the host's context, so a hold carried into the next frame takes every press from every other item there: the page's Start buttons, the frameless top bar's `##window-drag`, and Dear ImGui's click-to-focus. Shipped that way, one click in a script's UI locked the host's GUI. Five rules keep it from coming back:
+  - Host shortcuts that run before the panel must ask `ScriptUiRenderer.hasKeyboard()`, as `InspectorDock.handleEscape` does. `isAnyItemActive()` is false there.
+  - The sandbox reports `wantsKeyboard` from `WantTextInput` or an active item of its own, never from `WantCaptureKeyboard`. With keyboard navigation on, that stays true for as long as the sandbox's root has focus, which is forever after the first press.
+  - A pointer that is not the panel's still carries the host's buttons (`FrameInput.Pointer.away`), with no position. A press elsewhere is then a press on nothing to the script: its text field lets go and its popups close, as they did before sandboxing. The position must stay invalid, or a press elsewhere lands on a script widget.
+  - Nothing is held in a frame whose press is not the panel's (`PanelInput.isPressElsewhere`: a button went down and the panel is not hovered). The hold starts where the panel is drawn, so it would take that press from every host item drawn after the panel, and the first click on one would be lost.
+  - Focus that leaves the panel without a press (a host window taking it) reaches the sandbox as `FrameInput.Keyboard.FOCUS_LOST`, which focuses no window there (`HostFocus.dropAll`), so the script's field lets go instead of staying active unseen. A slot not drawn in a frame stops reporting `wantsKeyboard` at `endFrame`.
+
+  `ScriptUiRendererTest`, `HostInputWhileTypingTest` (host buttons before and after the panel) and `inspector/InspectorDockFocusTest` pin all of this. The last drives the real drawer.
+- **One sandbox per script (owner), not per `ScriptUI` object.** A script may return a new object from every `getUI()`. Keying by object made a thread and a context per frame, and lost combo and scroll state.
+- Parity is pinned by `ScriptUiParityTest`, which compares vertices, colours, clip rects and textures with what master drew. Containment is pinned by `ScriptUiGuardForkTest`, which forks a JVM per breaker with the guard on (must exit 0) and off (a fatal breaker must exit 1).
+
 ### example-script (`com.botwithus.bot.scripts.example`)
 
 Reference scripts: `ExampleScript` (Script UI demo), `WoodcuttingFletcherScript`, `LocationProbeScript`, `WalkToFlagScript`, `DivinationScript`. Build auto-copies the JAR into `scripts/`.
@@ -217,8 +253,9 @@ Three things to keep straight when extending it:
   polls a typo in `onLoop`. Keep new lookup sites on that side of the line.
 - **Everything degrades; nothing throws for a missing name.** Including
   `getVarp`/`getVarbit`/`getVarcInt(String)`, which return
-  `GameAPI.UNRESOLVED_VARIABLE` (`-1`, the same sentinel the `int` overloads
-  already use for an unset variable). "No index deployed" is the *default* state
+  `GameAPI.UNRESOLVED_VARIABLE` (`-1`, the same "no value" sentinel the `int`
+  overloads use for a varp that does not exist or could not be read; an *unset*
+  varp reads its type default instead, see *Varp state* below). "No index deployed" is the *default* state
   today, so a throw there would kill scripts on an otherwise healthy host. Use
   `gamevals().require(...)` explicitly to opt into fail-fast.
 - **A closed index degrades too.** `close()` sets a flag; already-memoised
@@ -244,6 +281,30 @@ Three things to keep straight when extending it:
 format change fails loud rather than misreading rows. `GamevalTypeTest` pins the
 41 `etype` strings, and `GamevalIndexLiveTest` checks a deployed index for drift
 (it skips when none is present).
+
+## Varp state
+
+Varps are set lazily by the server, so a varp at its default usually has no client entry.
+`VariableAPI.readVarp` / `readVarps` / `readVarbit` / `readVarbits` return a `VarpState`:
+`SET`, `DEFAULT_NOT_SET_CLIENTSIDE` (value = the cache's type default, `defaultVerified`
+false when the cache could not say), `NO_SUCH_VARP`, `UNAVAILABLE` (not in game, still
+entering the world, bad id, timeout). The plain `int` accessors return the same value.
+Things to keep straight:
+
+- **The predicate is the agent's `states[]`; the value is only the message**
+  (`core/impl/VarpReader`, over `VarBatchReply`). Never infer "unset" from `0` or `-1`: a
+  set varp can hold `-1`, and so does an object-typed varp at its default.
+- **An unset varbit decodes its base's default**, as the game does, so over a `-1`-default
+  base every bit reads as set. (In the current cache no player-domain varbit sits on a
+  `-1`-default varp, so in practice unset player varbits read 0.)
+- **The cache lookup** (`NXTCache.varpInfo`, `nxt_get_varp_info`) is bound as an optional
+  symbol: an older NXTCache.dll still loads, with defaults unverified. It runs only after a
+  background warm-up (`startVarpInfoWarmup`, called by `openForHost`), so no script thread
+  pays for the first load. OK and NOT_FOUND answers are memoised; failures are retried.
+  The struct mirror is `core/cache/VarpInfoAbi`, pinned by `VarpInfoAbiTest`.
+- **Batches are split at 256 ids**, the agent's cap, so no id is silently dropped.
+- **LONG varps:** `value()` / `getVarp` are the low 32 bits; `value64()` / `getVarpLong`
+  the whole value.
 
 This is separate from `skilling-core`'s `Atlas` (`resolved.sqlite`), which still
 owns recipes, gather spots and closures and has its own gameval methods against
@@ -271,8 +332,8 @@ These two files bridge into `jdk.internal.sdn.SdnClassLoader` — a class inject
 
 Intentionally violated rules:
 
-- **§Banned 1 (Reflection)** — `Class.forName("jdk.internal.sdn.SdnClassLoader")`, `MethodHandles.privateLookupIn(...)`, `getDeclaredConstructor(...).setAccessible(true)`, `MethodHandle.invoke(...)`. The class is identified by name only; there is no compile-time symbol to import. The reflection is wrapped in three named methods (`getSdnClass`, `getPubkey0Handle`, `getLockdown0Handle`) so the bridge is small and inspectable.
-- **§Banned 5 (Mutable static)** — the `pubkey0Handle`, `lockdown0Handle`, and `sdnClass` static fields in `SdnLoader`, and the `lockdownCalled` flag in `SDNScriptLoader`, hold cached lookups into the same JVM-injected class. The cached lookups are process-global because the JVM-injected class is process-global; instance-scoping them would buy nothing but per-call reflection cost. `lockdownCalled` is one-way (false → true) and gates a one-shot native call that must not run twice.
+- **§Banned 1 (Reflection)** — `Class.forName("jdk.internal.sdn.SdnClassLoader")`, `MethodHandles.privateLookupIn(...)`, `getDeclaredConstructor(...).setAccessible(true)`, `MethodHandle.invoke(...)`. The class is identified by name only; there is no compile-time symbol to import. The reflection is wrapped in four named methods (`getSdnClass`, `getPubkey0Handle`, `getLockdown0Handle`, `getModuleHandles`) so the bridge is small and inspectable. `moduleOf` calls the loader's `descriptor()` / `moduleFinder()` through those handles, types the results with `Class.cast` and tests the loader with `Class.isInstance`, both for the same reason; on a runtime without the two methods it answers empty and every SDN jar loads unnamed, as before.
+- **§Banned 5 (Mutable static)** — the `pubkey0Handle`, `lockdown0Handle`, `moduleHandles` and `sdnClass` static fields in `SdnLoader`, and the `lockdownCalled` flag in `SDNScriptLoader`, hold cached lookups into the same JVM-injected class. The cached lookups are process-global because the JVM-injected class is process-global; instance-scoping them would buy nothing but per-call reflection cost. `lockdownCalled` is one-way (false → true) and gates a one-shot native call that must not run twice.
 
 Everywhere else in the project, both rules are enforced as written.
 
@@ -285,6 +346,16 @@ Intentionally violated rule:
 - **§Banned 5 (Mutable static behind a getter)** — `ConnectionContext` exposes static `set/get/clear` over a process-global `InheritableThreadLocal`. Removing the static read API would require modifying the CLI to consume the context through an injected supplier; the producing side (`ScriptRunner`, `ManagementScriptRunner`, `RpcClient`) takes the tagger / cleaner as constructor-injected `Consumer<String>` / `Runnable` so the runners themselves no longer reach for the global state directly. The static class remains as the explicit, named cross-cutting context seam.
 
 The pattern is *request context*, not *singleton service*: the value is per-thread, not shared, and the static API is the standard way to expose thread-local context to code (such as a custom `PrintStream`) that cannot accept an injected handle. Future-Java alternative: `ScopedValue` (preview in Java 21, stable in 25). When `ScopedValue` becomes baseline, revisit.
+
+### `core/.../sdn/SdnRendezvous.java` exchange locks
+
+`SdnRendezvous.exchangeLock(directory, requestSuffix)` hands out a fair `ReentrantLock` from a static `ConcurrentMap`, one per (directory, exchange). `SdnInstaller.install()` holds one for the whole request → wait → load → delete sequence, and `SdnCatalogueSource.fetch()` holds another.
+
+Intentionally violated rule:
+
+- **§Banned 5 (Mutable static)** — the lock map is process-global state. The launcher exchange has one request file per host *process*, named by pid, so the thing being guarded is process-global by construction and the guard has to match its scope. An injected lock excludes only the callers that were wired with the same instance. That is exactly the gap a real race slipped through: the Store panel and Normal mode's picker each install, and a lock held per caller let them overwrite each other's request. Keying by directory rather than using one lock keeps unrelated temp directories (tests) and the two exchanges, which use different files, from queueing behind each other.
+
+`SdnInstallerTest.install_twoInstallersAtOnce_takeTheRendezvousOneAtATime` and `SdnCatalogueSourceTest.fetch_whileTheRendezvousIsHeld_waitsWithoutWritingARequest` go red if the lock is removed or stops being shared between instances.
 
 ### Script runner threads are **platform** threads, not virtual
 
@@ -299,5 +370,9 @@ Intentionally violated rule:
 Script runners are also the wrong *shape* for virtual threads: virtual threads pay off for many short-lived, mostly-blocked tasks, whereas there are few script runners, they live for the whole session, and they are CPU-active every loop. On a platform thread the OS preempts a runaway script, so it costs CPU share and nothing else — and `Thread.interrupt()` / `InheritableThreadLocal` semantics are unchanged.
 
 Threads created *by* a script's thread (notably `ww-executor-<nanos>` in `GameAPIImpl.walkWorldPathAsync`) inherit its `InheritableThreadLocal`s, which is what lets the runtime attribute their RPC calls back to the owning script. Don't convert these back to virtual threads without re-checking that attribution.
+
+The script-UI render threads (`script-ui <name> #<n>`, `cli/.../gui/scriptui/SandboxWorker`) are platform for a third reason: a failed Dear ImGui assertion parks one **inside a native call, for good** (see the *Script UIs are sandboxed* note under *cli*). A virtual thread there would pin its carrier forever, so each failure would remove one carrier from every virtual thread in the JVM.
+
+The WorldWalker path overlay's worker (`ww-overlay-<walkSeq>`, `GameAPIImpl.newOverlayWorker`) is platform for a different reason: it makes the planner's Panama downcall (`WorldWalker.query`), which pins a virtual thread's carrier for the length of a route search. It deliberately does **not** inherit the script's tag, so its draw calls are the host's and its cleanup is not refused when the script that started the walk is revoked.
 
 Everything else in the host — `ScriptContextChannel`'s worker, `ReconnectController`, `MessageBusImpl` dispatch, the CLI's scan loops — stays virtual. Only the untrusted-code threads and the one RPC thread they could starve are platform.

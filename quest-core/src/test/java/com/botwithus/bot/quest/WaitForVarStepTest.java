@@ -6,6 +6,7 @@ import com.botwithus.bot.quest.steps.WaitForVarStep;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,7 +41,7 @@ class WaitForVarStepTest {
     void executeIsAlwaysDoneSinceWorkLivesInSuccess() {
         WaitForVarStep step = new WaitForVarStep(2492, 2);
         ScriptContext ctx = Mockito.mock(ScriptContext.class, RETURNS_DEEP_STUBS);
-        QuestId quest = new QuestId(257, "Cook's Assistant", new int[]{ 2492 });
+        QuestId quest = new QuestId(257, "Cook's Assistant", List.of(TrackerVar.varp(2492)));
         QuestContext qctx = new QuestContext(
                 ctx, quest, new QuestState(Map.of(2492, 1)),
                 System.currentTimeMillis() + 5_000, 0);
@@ -53,7 +54,7 @@ class WaitForVarStepTest {
     void successResolvesWhenTrackerStateMatches() {
         WaitForVarStep step = new WaitForVarStep(2492, 2);
         ScriptContext ctx = Mockito.mock(ScriptContext.class, RETURNS_DEEP_STUBS);
-        QuestId quest = new QuestId(257, "Cook's Assistant", new int[]{ 2492 });
+        QuestId quest = new QuestId(257, "Cook's Assistant", List.of(TrackerVar.varp(2492)));
 
         QuestContext stillInProgress = new QuestContext(
                 ctx, quest, new QuestState(Map.of(2492, 1)),

@@ -18,21 +18,38 @@ import com.botwithus.bot.cli.command.impl.PingCommand;
 import com.botwithus.bot.cli.command.impl.PlayerCommand;
 import com.botwithus.bot.cli.command.impl.ProfileCommand;
 import com.botwithus.bot.cli.command.impl.ReloadCommand;
+import com.botwithus.bot.cli.command.impl.ReportCommand;
 import com.botwithus.bot.cli.command.impl.ScreenshotCommand;
 import com.botwithus.bot.cli.command.impl.ScriptsCommand;
 import com.botwithus.bot.cli.command.impl.UnmountCommand;
-import com.botwithus.bot.cli.config.CliConfig;
+import com.botwithus.bot.cli.diag.FreeToPlayRoutingSwitch;
+import com.botwithus.bot.cli.diag.MetricsCollection;
+import com.botwithus.bot.cli.diag.WalkerPathOverlay;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
+import com.botwithus.bot.cli.log.RunLogBootstrap;
 import com.botwithus.bot.cli.output.AnsiCodes;
+import com.botwithus.bot.cli.report.ScriptReports;
+import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.launcher.LauncherHost;
+import com.botwithus.bot.core.launcher.DevGate;
+import com.botwithus.bot.core.launcher.CloseRequest;
 import com.botwithus.bot.core.pipe.PipeException;
 import com.botwithus.bot.core.rpc.RpcException;
+import com.botwithus.bot.core.runlog.RunLogs;
+import com.botwithus.bot.core.sdn.InstalledScriptsLedger;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.Scanner;
 
 public final class JBotCli {
+
+    private static final Logger log = LoggerFactory.getLogger(JBotCli.class);
 
     private JBotCli() {}
 
@@ -61,10 +78,20 @@ public final class JBotCli {
         LogBuffer logBuffer = new LogBuffer();
         LogCapture logCapture = new LogCapture(logBuffer);
         logCapture.install();
+        RunLogs runLogs = RunLogBootstrap.start(logCapture);
 
         PrintStream out = logCapture.getOriginalOut();
         CliContext ctx = new CliContext(logBuffer, logCapture);
+        ctx.setRunLogs(runLogs);
         ctx.loadGroups();
+        ctx.loadClients();
+        ctx.setSettings(HostSettings.openForHost(HostSettings.defaultBaseDir()));
+        ctx.startAlerts();
+        Optional<LauncherHost> launcherHost = LauncherHost.register(ctx, LauncherHost.CLI_LABEL,
+                DevGate.fromSystemProperties(), JBotCli::onCloseRequested);
+        new MetricsCollection(ctx.getSettings()).bind(ctx);
+        new WalkerPathOverlay(ctx.getSettings()).bind(ctx);
+        new FreeToPlayRoutingSwitch(ctx.getSettings()).bind(ctx);
         CommandRegistry registry = new CommandRegistry();
 
         // Register commands
@@ -79,10 +106,12 @@ public final class JBotCli {
         registry.register(new UnmountCommand());
         registry.register(new MetricsCommand());
         registry.register(new ProfileCommand());
-        registry.register(new ConfigCommand(CliConfig.defaults()));
+        registry.register(new ConfigCommand(ctx.getSettings()));
         registry.register(new ActionsCommand());
         registry.register(new EventsCommand());
         registry.register(new PlayerCommand());
+        registry.register(new ReportCommand(
+                ScriptReports.forHost(ctx, InstalledScriptsLedger.inUserHome()::find)));
         registry.register(new ClearCommand());
         registry.register(new ExitCommand());
 
@@ -134,5 +163,17 @@ public final class JBotCli {
                 out.println("Error: " + e.getMessage());
             }
         }
+        launcherHost.ifPresent(LauncherHost::close);
+    }
+
+    /**
+     * The headless host has no window to ask the user in, and stdin belongs to
+     * the command prompt, so a close request is one log line and no answer
+     * (launcher ADR 0007, section 6.3, as the native host does). The update
+     * applies once this host exits.
+     */
+    private static void onCloseRequested(CloseRequest request) {
+        log.info("BotWithUs: a data update is waiting for this host to close (request {})",
+                request.requestId());
     }
 }

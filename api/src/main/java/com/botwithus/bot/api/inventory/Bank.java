@@ -3,6 +3,7 @@ package com.botwithus.bot.api.inventory;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.gameval.GamevalRef;
 import com.botwithus.bot.api.gameval.GamevalType;
+import com.botwithus.bot.api.input.InputDialog;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.InventoryItem;
@@ -40,7 +41,7 @@ public final class Bank extends InventoryContainer {
     /** Backpack items shown inside the bank interface ({@code BANK__INVENTORY_CLICK}). */
     public static final int BACKPACK_COMPONENT = 15;
     /** Withdraw-X / Deposit-X input layer ({@code MESLAYER}). */
-    public static final int INPUT_INTERFACE = 1469;
+    public static final int INPUT_INTERFACE = InputDialog.INTERFACE_ID;
 
     private static final GamevalRef BANK_INTERFACE =
             new GamevalRef(GamevalType.INTERFACE, "BANK", INTERFACE_ID);
@@ -81,8 +82,6 @@ public final class Bank extends InventoryContainer {
     private static final int OP_ENTER_AMOUNT = 6;
     /** Sub-index for a plain button with no sub-component selection. */
     private static final int NO_SUB_INDEX = -1;
-    /** Component of the input layer that receives the typed amount. */
-    private static final int INPUT_COMPONENT = 0;
 
     /** Highest preset number the quick-preset buttons reach. */
     private static final int MAX_PRESET = 18;
@@ -216,13 +215,21 @@ public final class Bank extends InventoryContainer {
         return clickBackpackItem(itemId, OP_ENTER_AMOUNT);
     }
 
-    /** Finish a deposit-X or withdraw-X by submitting the amount. */
+    /**
+     * Finish a deposit-X or withdraw-X: type {@code amount} into the enter-amount
+     * dialog and submit it, through {@link InputDialog#enterAmount(long)}. Returns
+     * false, sending nothing, when the bank is not open or the dialog is not
+     * asking for an amount. A {@code true} return means queued: the digits and
+     * Enter land one per game tick, so the item count moves that many ticks
+     * later.
+     *
+     * @throws IllegalArgumentException when {@code amount} is negative
+     */
     public boolean finishTransferX(int amount) {
         if (!isOpen() || !isInputOpen()) {
             return false;
         }
-        api.fireKeyTrigger(INPUT_LAYER.resolve(api.gamevals()), INPUT_COMPONENT, String.valueOf(amount));
-        return true;
+        return api.inputDialog().enterAmount(amount);
     }
 
     // ---------------------------------------------------------------- Withdraws

@@ -4,6 +4,8 @@ import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.ClientManager;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.GroupMembers;
+import com.botwithus.bot.cli.groups.ClientGroup;
 import com.botwithus.bot.cli.command.Command;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.output.AnsiCodes;
@@ -12,6 +14,7 @@ import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 
 import java.util.List;
+import java.util.Optional;
 
 public class ScriptsCommand implements Command {
 
@@ -43,10 +46,10 @@ public class ScriptsCommand implements Command {
             if (conns.isEmpty()) {
                 ctx.out().println("No active connections in group '" + groupName + "'.");
                 // Warn about disconnected members
-                var group = ctx.getGroup(groupName);
-                if (group == null) {
+                Optional<ClientGroup> group = ctx.findGroup(groupName);
+                if (group.isEmpty()) {
                     ctx.out().println("Group not found: " + groupName);
-                } else if (!group.getConnectionNames().isEmpty()) {
+                } else if (!group.get().members().isEmpty()) {
                     ctx.out().println("All connections in the group are disconnected.");
                 }
                 return;
@@ -238,14 +241,13 @@ public class ScriptsCommand implements Command {
     }
 
     private void warnDisconnected(String groupName, List<Connection> activeConns, CliContext ctx) {
-        var group = ctx.getGroup(groupName);
-        if (group == null) {
+        Optional<ClientGroup> group = ctx.findGroup(groupName);
+        if (group.isEmpty()) {
             return;
         }
-        for (String connName : group.getConnectionNames()) {
-            if (activeConns.stream().noneMatch(c -> c.getName().equals(connName))) {
-                ctx.out().println("[" + connName + "] " + AnsiCodes.colorize("Warning: disconnected, skipped.", AnsiCodes.YELLOW));
-            }
+        for (String uuid : GroupMembers.offline(group.get(), activeConns)) {
+            ctx.out().println("[" + ctx.describeAccount(uuid) + "] "
+                    + AnsiCodes.colorize("Warning: disconnected, skipped.", AnsiCodes.YELLOW));
         }
     }
 

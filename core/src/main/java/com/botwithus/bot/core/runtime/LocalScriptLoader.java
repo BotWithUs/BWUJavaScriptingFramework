@@ -18,7 +18,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.ServiceLoader;
-import java.util.Set;
 
 /**
  * Discovers BotScript implementations from local JAR files in a scripts directory.
@@ -144,6 +143,15 @@ public final class LocalScriptLoader {
      * used to swallow errors at the bottom of the module-load loop.
      */
     public static LoadReport loadReport(Path scriptsDir) {
+        return loadReport(scriptsDir, staging);
+    }
+
+    /**
+     * {@link #loadReport(Path)} through an explicit staging area. Package-private
+     * so tests stage under a temporary root rather than the real
+     * {@code ~/.botwithus/staged-scripts} a running host shares.
+     */
+    static LoadReport loadReport(Path scriptsDir, ScriptJarStaging staging) {
         if (!Files.isDirectory(scriptsDir)) {
             log.info("Scripts directory not found: {}", scriptsDir.toAbsolutePath());
             log.info("Creating it — drop script JARs there and restart.");
@@ -168,28 +176,19 @@ public final class LocalScriptLoader {
     }
 
     /**
-     * Defines a child {@link ModuleLayer} per staged JAR and collects what each
-     * one yielded. Every {@link ScriptLoadResult} names the JAR the scripter
-     * built, not the staged copy it was loaded from.
+     * Defines a child {@link ModuleLayer} per loadable JAR and collects what each
+     * one yielded, newest JAR first. Every {@link ScriptLoadResult} names the JAR
+     * the scripter built, not the staged copy it was loaded from.
      */
     private static LoadReport loadStaged(ScriptJarStaging.Staged staged, List<Path> jars) {
+        StagedModules.Probe probe = StagedModules.probe(staged, jars);
         List<ScriptLoadResult> results = new ArrayList<>();
-        staged.failures().forEach((jar, error) ->
-                results.add(ScriptLoadResult.failure(jar, error, List.of())));
-        List<Path> loadable = jars.stream()
-                .filter(jar -> !staged.failures().containsKey(jar))
-                .toList();
-
-        ModuleFinder finder = ModuleFinder.of(staged.dir());
-        Set<ModuleReference> moduleReferences = finder.findAll();
-        if (moduleReferences.isEmpty()) {
-            log.info("No modules found in JARs. Ensure each JAR has a module-info with 'provides BotScript with ...'");
-            loadable.stream()
-                    .map(j -> ScriptLoadResult.failure(j,
-                            new IllegalStateException(
-                                    "JAR is not a Java module — missing module-info.java with 'provides BotScript with ...'"),
-                            List.of()))
-                    .forEach(results::add);
+        probe.rejected().forEach((jar, error) -> {
+            log.warn("Not loading {}: {}", jar.getFileName(), error.getMessage());
+            results.add(ScriptLoadResult.failure(jar, error, List.of()));
+        });
+        if (probe.modules().isEmpty()) {
+            log.info("No loadable modules. Ensure each JAR has a module-info with 'provides BotScript with ...'");
             return new LoadReport(results);
         }
 
@@ -198,8 +197,8 @@ public final class LocalScriptLoader {
         }
 
         ModuleLayer bootLayer = ModuleLayer.boot();
-        for (ModuleReference ref : moduleReferences) {
-            results.addAll(loadOneModule(ref, finder, bootLayer, staged));
+        for (ModuleReference ref : probe.modules()) {
+            results.addAll(loadOneModule(ref, probe.finder(), bootLayer, staged));
         }
         return new LoadReport(results);
     }

@@ -16,6 +16,17 @@ import java.util.List;
 public final class AnsiOutputBuffer {
 
     private static final int MAX_LINES = 10_000;
+    /** Opacity of text written in SGR 2, the faint style. */
+    private static final float DIM_ALPHA = 0.6f;
+    /** SGR foreground codes: 30-37 pick one of eight colours, 39 goes back to the default. */
+    private static final int SGR_FG_FIRST = 30;
+    private static final int SGR_FG_LAST = 37;
+    private static final int SGR_FG_DEFAULT = 39;
+    /** The eight SGR foreground colours in code order, 30 (black, drawn as the background) to 37 (white). */
+    private static final int[] SGR_PALETTE = {
+        ImGuiTheme.COL_BG, ImGuiTheme.COL_DANGER, ImGuiTheme.COL_ACCENT, ImGuiTheme.COL_WARN,
+        ImGuiTheme.COL_INFO, ImGuiTheme.COL_MAGENTA, ImGuiTheme.COL_CYAN, ImGuiTheme.COL_FG,
+    };
 
     private final List<OutputLine> lines = new ArrayList<>();
     private volatile boolean dirty = true;
@@ -23,6 +34,11 @@ public final class AnsiOutputBuffer {
 
     public AnsiOutputBuffer() {
         this.printStream = new PrintStream(new AnsiParsingOutputStream(), true, StandardCharsets.UTF_8);
+    }
+
+    /** The theme colour for SGR foreground code {@code code}, one of 30-37. */
+    private static int sgrColor(int code) {
+        return SGR_PALETTE[code - SGR_FG_FIRST];
     }
 
     /** Get the PrintStream that parses ANSI codes and appends to this buffer. */
@@ -77,11 +93,11 @@ public final class AnsiOutputBuffer {
     }
 
     /** Complete a progress line by replacing it with a text message. */
-    public void completeProgressWithText(OutputLine handle, String message, float r, float g, float b) {
+    public void completeProgressWithText(OutputLine handle, String message, int color) {
         synchronized (lines) {
             int idx = lines.indexOf(handle);
             if (idx >= 0) {
-                lines.set(idx, OutputLine.text(message, r, g, b));
+                lines.set(idx, OutputLine.text(message, color));
             }
             dirty = true;
         }
@@ -140,9 +156,7 @@ public final class AnsiOutputBuffer {
         private final List<OutputLine.Segment> pendingSegments = new ArrayList<>();
 
         private State state = State.NORMAL;
-        private float fgR = ImGuiTheme.TEXT_R;
-        private float fgG = ImGuiTheme.TEXT_G;
-        private float fgB = ImGuiTheme.TEXT_B;
+        private int fg = ImGuiTheme.COL_FG;
         private boolean bold = false;
         private boolean dim = false;
 
@@ -203,8 +217,8 @@ public final class AnsiOutputBuffer {
             String text = textBuffer.toString(StandardCharsets.UTF_8);
             textBuffer.reset();
 
-            float a = dim ? 0.6f : 1.0f;
-            pendingSegments.add(new OutputLine.Segment(text, fgR, fgG, fgB, a, bold));
+            int color = dim ? Controls.scaleAlpha(fg, DIM_ALPHA) : fg;
+            pendingSegments.add(new OutputLine.Segment(text, color, bold));
         }
 
         private void flushLine() {
@@ -265,13 +279,10 @@ public final class AnsiOutputBuffer {
                         if (n >= 90 && n <= 97) {
                             mapped = n - 60; // bright → normal
                         }
-                        if (mapped >= 30 && mapped <= 37) {
-                            float[] c = ImGuiTheme.ansiColorFloat(mapped);
-                            fgR = c[0]; fgG = c[1]; fgB = c[2];
-                        } else if (n == 39) {
-                            fgR = ImGuiTheme.TEXT_R;
-                            fgG = ImGuiTheme.TEXT_G;
-                            fgB = ImGuiTheme.TEXT_B;
+                        if (mapped >= SGR_FG_FIRST && mapped <= SGR_FG_LAST) {
+                            fg = sgrColor(mapped);
+                        } else if (n == SGR_FG_DEFAULT) {
+                            fg = ImGuiTheme.COL_FG;
                         }
                     }
                 }
@@ -279,9 +290,7 @@ public final class AnsiOutputBuffer {
         }
 
         private void resetAttributes() {
-            fgR = ImGuiTheme.TEXT_R;
-            fgG = ImGuiTheme.TEXT_G;
-            fgB = ImGuiTheme.TEXT_B;
+            fg = ImGuiTheme.COL_FG;
             bold = false;
             dim = false;
         }

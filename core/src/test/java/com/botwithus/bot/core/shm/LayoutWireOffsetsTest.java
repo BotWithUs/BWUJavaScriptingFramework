@@ -23,9 +23,47 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LayoutWireOffsetsTest {
 
     @Test
-    void protocolVersionIsTwenty() {
-        assertEquals(20, Layout.PROTOCOL_VERSION,
+    void protocolVersionIsTwentyThree() {
+        assertEquals(23, Layout.PROTOCOL_VERSION,
                 "PROTOCOL_VERSION must equal kProtocolVersion in SharedLayout.h");
+    }
+
+    /**
+     * v22 raised the open-interface cap from 64 to 256 and put {@code openIfaceTotal}
+     * between the count and the array, with a u32 pad after the array. Each field is
+     * pinned on its own so a reorder inside the block cannot pass by keeping the sum.
+     */
+    @Test
+    void openInterfaceBlockIsPinned() {
+        assertEquals(256, Layout.OPEN_IFACE_CAP, "kOpenIfaceCap");
+        assertEquals(320376, Layout.SNAP_OPENIFACECOUNT_OFFSET, "offsetof(Snapshot, openIfaceCount)");
+        assertEquals(320380, Layout.SNAP_OPENIFACETOTAL_OFFSET, "offsetof(Snapshot, openIfaceTotal)");
+        assertEquals(320384, Layout.SNAP_OPENIFACES_OFFSET, "offsetof(Snapshot, openIfaces)");
+        assertEquals(321408, Layout.SNAP_OPENIFACEFLAGS_OFFSET, "offsetof(Snapshot, openIfaceFlags)");
+        assertEquals(321664, Layout.SNAP_OPENIFACEPAD_OFFSET,
+                "offsetof(Snapshot, _padAfterOpenIfaces)");
+        assertEquals(321668, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, "offsetof(Snapshot, groundItemCount)");
+        assertEquals(321672, Layout.SNAP_GROUNDITEMS_OFFSET, "offsetof(Snapshot, groundItems)");
+    }
+
+    /**
+     * v23 put one flags byte per open-interface slot between the id array and the pad. The
+     * array must be exactly the cap long, so a flag can never sit at a different index from
+     * the id it describes.
+     */
+    @Test
+    void openInterfaceFlagsAreIndexParallelToTheIds() {
+        assertEquals(Layout.SNAP_OPENIFACES_OFFSET + Layout.OPEN_IFACE_CAP * Integer.BYTES,
+                Layout.SNAP_OPENIFACEFLAGS_OFFSET, "flags start where the id array ends");
+        assertEquals(Layout.OPEN_IFACE_CAP,
+                Layout.SNAP_OPENIFACEPAD_OFFSET - Layout.SNAP_OPENIFACEFLAGS_OFFSET,
+                "one flags byte per id slot");
+    }
+
+    @Test
+    void projectileBlockIsPinned() {
+        assertEquals(338056, Layout.SNAP_PROJECTILECOUNT_OFFSET, "offsetof(Snapshot, projectileCount)");
+        assertEquals(338060, Layout.SNAP_PROJECTILES_OFFSET, "offsetof(Snapshot, projectiles)");
     }
 
     /**
@@ -41,19 +79,34 @@ class LayoutWireOffsetsTest {
                 "resolvedId is the last field; the row ends immediately after it");
     }
 
+    /**
+     * v21 appended a {@code u16 orientation} (plus a u16 pad) to NpcEntry and PlayerEntry and
+     * gave LocalPlayer's old u32 pad to it, keeping LocalPlayer at 552.
+     */
     @Test
-    void gameCycleMovedByExactlyTheLocationRowGrowth() {
-        assertEquals(332932, Layout.SNAP_GAMECYCLE_OFFSET,
-                "v20 widened the location row; gameCycle shifts with everything after it");
-        assertEquals(300164 + Layout.LOCATION_CAP * 4, Layout.SNAP_GAMECYCLE_OFFSET,
-                "the shift must be exactly kLocationCap * 4 -- the cost of resolvedId");
+    void entityRowsCarryOrientationAtTheV21Offsets() {
+        assertEquals(40, Layout.NPC_ENTRY_SIZE, "sizeof(ipc::NpcEntry)");
+        assertEquals(36, Layout.NPC_ORIENTATION_OFFSET, "offsetof(NpcEntry, orientation)");
+        assertEquals(32, Layout.PLAYER_ENTRY_SIZE, "sizeof(ipc::PlayerEntry)");
+        assertEquals(28, Layout.PLAYER_ORIENTATION_OFFSET, "offsetof(PlayerEntry, orientation)");
+        assertEquals(552, Layout.LOCAL_PLAYER_SIZE, "sizeof(ipc::LocalPlayer)");
+        assertEquals(32, Layout.LP_ORIENTATION_OFFSET, "offsetof(LocalPlayer, orientation)");
+        assertEquals(41544, Layout.SNAP_PLAYERS_OFFSET, "offsetof(Snapshot, players)");
+    }
+
+    @Test
+    void gameCycleMovedByExactlyTheOpenInterfaceGrowth() {
+        assertEquals(346252, Layout.SNAP_GAMECYCLE_OFFSET,
+                "v23 grew the open-interface block; gameCycle shifts with everything after");
+        assertEquals(345996 + Layout.OPEN_IFACE_CAP, Layout.SNAP_GAMECYCLE_OFFSET,
+                "the v23 shift must be exactly one flags byte per slot = 256");
     }
 
     @Test
     void dynamicRegionBlockOffsetsArePinned() {
-        assertEquals(332936, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
-        assertEquals(332972, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
-        assertEquals(332976, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
+        assertEquals(346256, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
+        assertEquals(346292, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
+        assertEquals(346296, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
     }
 
     @Test
@@ -96,7 +149,7 @@ class LayoutWireOffsetsTest {
 
     @Test
     void snapshotSizeIsPinned() {
-        assertEquals(398512, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
+        assertEquals(411832, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
     }
 
     /**

@@ -26,18 +26,16 @@ import java.util.stream.Stream;
  *
  * <p>Account profiles: {@code ~/.botwithus/profiles/<accountUuid>.properties}
  * <p>Group profiles: {@code ~/.botwithus/profiles/groups/<GroupName>.properties}
- * <p>Global settings: {@code ~/.botwithus/autostart.properties}
+ *
+ * <p>The host-wide auto-connect settings that used to live beside these, in
+ * {@code autostart.properties}, are now part of the host's settings store in the
+ * {@code cli} module, which migrates that file on first run.
  */
 public final class ScriptProfileStore {
 
     private static final Logger log = LoggerFactory.getLogger(ScriptProfileStore.class);
-    private static final long DEFAULT_SCAN_INTERVAL_MS = 5000L;
-    private static final String DEFAULT_SCAN_INTERVAL_MS_STR = Long.toString(DEFAULT_SCAN_INTERVAL_MS);
-    private final Path baseDir;
     private final Path profilesDir;
     private final Path groupsDir;
-    private final Path settingsFile;
-    private final Properties globalSettings = new Properties();
 
     /**
      * Human-readable summary for an account profile, surfaced through
@@ -56,68 +54,9 @@ public final class ScriptProfileStore {
     }
 
     public ScriptProfileStore(Path baseDir) {
-        this.baseDir = baseDir;
         this.profilesDir = baseDir.resolve("profiles");
         this.groupsDir = profilesDir.resolve("groups");
-        this.settingsFile = baseDir.resolve("autostart.properties");
         LegacyConfigCleanup.runIfNeeded(baseDir);
-        loadSettings();
-    }
-
-    // --- Global settings ---
-
-    private void loadSettings() {
-        if (!Files.exists(settingsFile)) {
-            return;
-        }
-        try (Reader r = Files.newBufferedReader(settingsFile)) {
-            globalSettings.load(r);
-        } catch (IOException e) {
-            log.error("Failed to load settings: {}", e.getMessage());
-        }
-    }
-
-    public void saveSettings() {
-        try {
-            Files.createDirectories(baseDir);
-            try (Writer w = Files.newBufferedWriter(settingsFile)) {
-                globalSettings.store(w, "JBotWithUs Auto-Start Settings");
-            }
-        } catch (IOException e) {
-            log.error("Failed to save settings: {}", e.getMessage());
-        }
-    }
-
-    public boolean isAutoConnect() {
-        return Boolean.parseBoolean(globalSettings.getProperty("autoConnect", "true"));
-    }
-
-    public void setAutoConnect(boolean enabled) {
-        globalSettings.setProperty("autoConnect", String.valueOf(enabled));
-    }
-
-    public String getPipePrefix() {
-        return globalSettings.getProperty("pipePrefix", "BotWithUs");
-    }
-
-    public void setPipePrefix(String prefix) {
-        globalSettings.setProperty("pipePrefix", prefix);
-    }
-
-    public boolean isProbeLobby() {
-        return Boolean.parseBoolean(globalSettings.getProperty("probeLobby", "true"));
-    }
-
-    public long getScanIntervalMs() {
-        try {
-            return Long.parseLong(globalSettings.getProperty("scanIntervalMs", DEFAULT_SCAN_INTERVAL_MS_STR));
-        } catch (NumberFormatException e) {
-            return DEFAULT_SCAN_INTERVAL_MS;
-        }
-    }
-
-    public Properties getSettings() {
-        return globalSettings;
     }
 
     // --- Per-account profiles ---

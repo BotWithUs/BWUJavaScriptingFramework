@@ -7,6 +7,7 @@ import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.runtime.Phase;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -39,6 +40,39 @@ class ScriptRunnerTest {
         runner.stop();
         Thread.sleep(100);
         assertFalse(runner.isRunning());
+    }
+
+    @Test
+    void lastStartedAt_isNullBeforeStartAndMovesOnRestart() throws Exception {
+        ScriptRunner runner = new ScriptRunner(simpleScript(-1), mock(ScriptContext.class));
+        assertNull(runner.lastStartedAt(), "never started");
+
+        Instant before = Instant.now();
+        runner.start();
+        Instant first = runner.lastStartedAt();
+        assertNotNull(first);
+        assertFalse(first.isBefore(before), "stamped at start, not earlier");
+
+        assertTrue(runner.awaitStop(2_000), "onLoop returned -1, so the run ends");
+        Thread.sleep(5);
+        runner.start();
+        assertTrue(runner.lastStartedAt().isAfter(first), "a restart restamps");
+        runner.stop();
+    }
+
+    @Test
+    void lastStartedAt_precedesTheCrashOfThatRun() throws Exception {
+        BotScript script = new BotScript() {
+            @Override public void onStart(ScriptContext ctx) {}
+            @Override public int onLoop() { throw new IllegalStateException("boom"); }
+            @Override public void onStop() {}
+        };
+        ScriptRunner runner = new ScriptRunner(script, mock(ScriptContext.class));
+        runner.start();
+        assertTrue(runner.awaitStop(2_000));
+
+        Instant crashed = runner.health().lastCrash().orElseThrow().when();
+        assertFalse(crashed.isBefore(runner.lastStartedAt()), "this run's crash is not older than its start");
     }
 
     @Test

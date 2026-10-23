@@ -15,6 +15,7 @@ package com.botwithus.bot.api.snapshot;
  * @param hp             current HP
  * @param maxHp          max HP
  * @param spotAnimId     first active spot anim (graphic) id, or {@code -1} if none
+ * @param orientation    rendered facing (wire v21); {@link Orientation#unknown()} when not read
  */
 public record Npc(
         int serverIndex,
@@ -28,8 +29,17 @@ public record Npc(
         int stanceId,
         int hp,
         int maxHp,
-        int spotAnimId
+        int spotAnimId,
+        Orientation orientation
 ) {
+
+    /** Builds a row with an unknown facing; kept so pre-v21 callers compile unchanged. */
+    public Npc(int serverIndex, int typeId, int tileX, int tileY, int plane, int flags,
+               int followingIndex, int animationId, int stanceId, int hp, int maxHp,
+               int spotAnimId) {
+        this(serverIndex, typeId, tileX, tileY, plane, flags, followingIndex, animationId,
+                stanceId, hp, maxHp, spotAnimId, Orientation.unknown());
+    }
 
     /** Bit 0 of {@link #flags()}; mirrors {@code FLAG_MOVING} on the wire. */
     private static final int FLAG_MOVING = 1;

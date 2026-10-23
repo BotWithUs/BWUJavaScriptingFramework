@@ -44,6 +44,9 @@ public final class SharedRegion implements AutoCloseable {
 
     private boolean closed;
 
+    /** One per session, so an out-of-contract facing is logged once per attach. */
+    private final OrientationWireDecoder orientations = new OrientationWireDecoder();
+
     /**
      * Pipe-name prefix the producer uses; matches NXTLibrary's pipe-server
      * format {@code BotWithUs_<pid>}. Discovery here piggy-backs on the same
@@ -316,7 +319,7 @@ public final class SharedRegion implements AutoCloseable {
      * publish, so don't cache the returned view across ticks.
      */
     public SnapshotView snapshot() {
-        return new SnapshotView(currentSnapshot());
+        return new SnapshotView(currentSnapshot(), orientations);
     }
 
     @Override

@@ -1,18 +1,21 @@
 # Required status check for master. Runs on every PR so a merge cannot land
-# code that fails to compile or test.
+# code that fails to compile or test. Pull requests run it whatever branch they
+# target, so a PR stacked on another PR's branch is checked too.
 #
-# Scope note: this deliberately does NOT run `./gradlew build`. The `cli`,
-# `example-script` and `sdn-test-script` modules cannot build on a clean
-# checkout — `cli` wants NXTCache.dll, worldwalker.dll, an Atlas database and a
-# jlink JDK home from `local.properties`, and the script modules reference quest
-# constants that `quest-core` only generates when `quest.research.dir` points at
-# the research data (without it the codegen emits a stub). The modules below are
-# the ones that build hermetically from a bare clone.
+# Scope note: this deliberately does NOT run `./gradlew build`.
+# - `example-script` and `sdn-test-script` reference quest constants that
+#   `quest-core` only generates when `quest.research.dir` points at the research
+#   data (without it the codegen emits a stub), so they cannot build from a bare
+#   clone.
+# - `cli` is checked (its tests, plus compiling the dev preview source set) but
+#   not packaged. Nothing it reads from `local.properties` is needed for that:
+#   every key is optional, and only the run and packaging tasks use them. The
+#   preview renders themselves need a desktop with OpenGL, so they are not run
+#   here.
 name: CI
 
 on:
   pull_request:
-    branches: [master, develop]
   push:
     branches: [master, develop]
 
@@ -41,7 +44,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew :api:build :core:build :test-support:build \
-                    :quest-core:build :skilling-core:build
+                    :quest-core:build :skilling-core:build :cli:check
 
       - name: Upload test results
         if: ${{ !cancelled() }}
