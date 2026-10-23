@@ -61,8 +61,8 @@ public final class SdnReasonText {
             case NOT_SIGNED_IN -> "Sign in to the BotWithUs launcher, then try again.";
             case NO_LINK -> "The launcher isn't connected to BotWithUs right now. Try again in a moment. "
                     + "If it keeps happening, start a game client from the launcher first.";
-            case HEARTBEAT_REFUSED -> "BotWithUs refused this launcher session. Sign out of the launcher "
-                    + "and back in, then try again.";
+            case HEARTBEAT_REFUSED -> "BotWithUs couldn't confirm this launcher session. Try again in a minute. "
+                    + "If it keeps happening, sign out of the launcher and back in.";
             case SESSION_REJECTED -> "Your launcher login has expired. Sign in again, then try again.";
             case NOT_ENTITLED -> "Subscription needed: your account doesn't have " + name
                     + ". Subscribe on the website, then try again.";

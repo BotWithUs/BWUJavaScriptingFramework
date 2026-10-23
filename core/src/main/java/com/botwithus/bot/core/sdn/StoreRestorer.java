@@ -296,6 +296,7 @@ public final class StoreRestorer {
         for (SdnCatalogueEntry entry : listed) {
             Optional<Outcome> stop = restoreOne(entry, tally);
             if (stop.isPresent()) {
+                // The tally is dropped: a stopped run counts no refusal, since its stop says nothing about a script.
                 return stop.get();
             }
         }
