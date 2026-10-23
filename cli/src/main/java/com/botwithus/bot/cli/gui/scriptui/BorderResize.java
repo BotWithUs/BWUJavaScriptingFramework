@@ -106,10 +106,14 @@ public final class BorderResize {
     /**
      * The edge the mouse is over in the current window's band, if it is free to
      * start a resize there. The window counts as hovered even while an item is
-     * active: once the script's UI has keyboard focus, {@link HostFocus} keeps
-     * the panel's own input item active every frame, which would otherwise hide
-     * the band for good after the first press in the window. An item held by a
-     * mouse button is still respected, through the held-button check.
+     * active. {@link HostFocus} holds the panel's input item for a typing UI only
+     * from where the panel is drawn to the end of the frame, so no hold is in
+     * place here today and the band works without this flag. It stays as the
+     * second of two guards: if a hold ever outlived its frame again, it would
+     * otherwise hide the band for good after the first press in the window.
+     * {@code BorderResizeWhileTypingTest} fails only when both guards are gone.
+     * An item held by a mouse button is still respected, through the
+     * held-button check.
      */
     private static Optional<ResizeEdge> edgeUnderMouse(BorderHitTest border) {
         boolean isHeldElsewhere = isAnyButtonDown() && !ImGui.isMouseClicked(ImGuiMouseButton.Left);
