@@ -306,7 +306,8 @@ public class ImGuiApp extends Application {
         StoreRestorer restorer = new StoreRestorer(new StoreRestorer.Deps(sdnInstaller.ledger(),
                 sdnInstaller.shelf(), sdnCatalogue::shown, sdnInstaller::isDeliveryEnabled, sdnInstaller::install,
                 ctx::registerStoreScriptsOnLiveClients,
-                task -> Thread.ofVirtual().name("sdn-store-restore").start(task), InstantSource.system()));
+                task -> Thread.ofVirtual().name("sdn-store-restore").start(task), InstantSource.system(),
+                sdnInstaller::stalledReason));
         ctx.setStoreRestorer(restorer);
         catalogueTicker.scheduleWithFixedDelay(restorer::request, STORE_RESTORE_FIRST_SECONDS,
                 STORE_RESTORE_EVERY_SECONDS, TimeUnit.SECONDS);

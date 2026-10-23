@@ -22,7 +22,9 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
@@ -71,6 +73,12 @@ public final class SdnInstaller {
     private final InstalledScriptsLedger ledger;
     private final SdnPipeRoute pipe;
     private final StoreShelf shelf;
+    /**
+     * Catalogue ids whose script did not finish constructing, each with its name.
+     * Its thread is still running and holds the class's initialisation, so another
+     * attempt in this process would only stall again: they fail fast until restart.
+     */
+    private final Map<String, String> stalledIds = new ConcurrentHashMap<>();
 
     /** Files only: the shared rendezvous directory, recording installs in the user's ledger. */
     public SdnInstaller() {
@@ -171,6 +179,26 @@ public final class SdnInstaller {
         if (!deliveryEnabled.getAsBoolean()) {
             return new SdnInstallResult.DeliveryDisabled();
         }
+        List<SdnCatalogueEntry> stalled = entries.stream().filter(e -> stalledIds.containsKey(e.id())).toList();
+        List<SdnCatalogueEntry> rest = entries.stream().filter(e -> !stalledIds.containsKey(e.id())).toList();
+        stalled.forEach(e -> log.warn("SDN: not asking the launcher for {}: it stalled while loading earlier "
+                + "in this run", e.name()));
+        if (rest.isEmpty()) {
+            return new SdnInstallResult.Failed(stalledMessage(stalled.getFirst().name()));
+        }
+        SdnInstallResult result = installLocked(rest);
+        return stalled.isEmpty() ? result : withStalled(result, stalled);
+    }
+
+    /**
+     * Why {@code entryId} cannot be installed again in this run, when its script
+     * stalled while loading earlier; empty for any other id.
+     */
+    public Optional<String> stalledReason(String entryId) {
+        return Optional.ofNullable(stalledIds.get(entryId)).map(SdnInstaller::stalledMessage);
+    }
+
+    private SdnInstallResult installLocked(List<SdnCatalogueEntry> entries) {
         ReentrantLock exchange = SdnRendezvous.exchangeLock(directory, REQUEST_SUFFIX);
         exchange.lock();
         try {
@@ -179,6 +207,20 @@ public final class SdnInstaller {
         } finally {
             exchange.unlock();
         }
+    }
+
+    /** The rest's result, with the entries left out because they stalled named in it when it installed. */
+    private static SdnInstallResult withStalled(SdnInstallResult result, List<SdnCatalogueEntry> stalled) {
+        return switch (result) {
+            case SdnInstallResult.Installed installed -> installed.withRefused(stalled.stream()
+                    .map(e -> new SdnInstallResult.ScriptRefusal(Optional.of(e.id()), Optional.empty(),
+                            stalledMessage(e.name())))
+                    .toList());
+            case SdnInstallResult.NothingSelected ignored -> result;
+            case SdnInstallResult.DeliveryDisabled ignored -> result;
+            case SdnInstallResult.CourierUnavailable ignored -> result;
+            case SdnInstallResult.Failed ignored -> result;
+        };
     }
 
     private SdnInstallResult exchange(List<SdnCatalogueEntry> entries) {
@@ -219,6 +261,9 @@ public final class SdnInstaller {
 
     /** The bytes arrived intact, so a delivery that loads nothing is a failure, not an absent launcher. */
     private SdnInstallResult installFetched(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
+        if (!delivery.stalls().isEmpty()) {
+            return stalled(entries, delivery);
+        }
         if (delivery.isEmpty()) {
             return new SdnInstallResult.Failed("the delivered scripts could not be loaded");
         }
@@ -227,6 +272,9 @@ public final class SdnInstaller {
 
     private SdnInstallResult loadDelivered(List<SdnCatalogueEntry> entries) {
         SdnDelivery delivery = awaitDelivery.get();
+        if (!delivery.stalls().isEmpty()) {
+            return stalled(entries, delivery);
+        }
         if (delivery.isEmpty()) {
             return new SdnInstallResult.CourierUnavailable();
         }
@@ -235,9 +283,37 @@ public final class SdnInstaller {
 
     private SdnInstallResult installDelivery(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
         Map<String, List<BotScript>> byEntryId = pair(entries, delivery);
+        log.info("SDN: paired {} of {} requested script(s) with the jar delivered for it", byEntryId.size(),
+                entries.size());
         recordInstalls(entries, byEntryId);
         shelve(entries, delivery, !byEntryId.isEmpty());
         return new SdnInstallResult.Installed(delivery.scripts(), byEntryId);
+    }
+
+    /**
+     * A script in the delivery never finished constructing. Nothing from the delivery
+     * is installed, and the entry it was for fails fast for the rest of this run.
+     * A stall is credited to an entry only when the delivery can be paired with the
+     * request at all, as {@link #pair} requires; otherwise no innocent entry is marked
+     * and the message names the class.
+     */
+    private SdnInstallResult stalled(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
+        boolean isPairable = delivery.jarCount() == entries.size();
+        String name = delivery.stalls().getFirst().scriptClass();
+        for (SdnDelivery.Stall stall : delivery.stalls()) {
+            if (isPairable && stall.position() < entries.size()) {
+                SdnCatalogueEntry entry = entries.get(stall.position());
+                stalledIds.put(entry.id(), entry.name());
+                name = entry.name();
+            }
+        }
+        return new SdnInstallResult.Failed(stalledMessage(name));
+    }
+
+    /** What the user is told about a script that did not finish loading. */
+    static String stalledMessage(String name) {
+        return name + " did not finish loading within " + SDNScriptLoader.CONSTRUCT_BUDGET.toSeconds()
+                + " seconds. Restart the host to try again.";
     }
 
     /**
@@ -266,6 +342,7 @@ public final class SdnInstaller {
         }
         try {
             ledger.record(byClass);
+            log.info("SDN: recorded {} install(s) in {}", byClass.size(), ledger.file().getFileName());
         } catch (IOException e) {
             log.warn("SDN: installed {} script(s), but could not record them in {}: {}",
                     byClass.size(), ledger.file(), e.getMessage());

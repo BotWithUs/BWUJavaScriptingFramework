@@ -303,17 +303,27 @@ public final class LiveStoreModel implements StoreModel {
     private void runInstall(List<SdnCatalogueEntry> batch) {
         try {
             lastInstall = settle(installer.apply(batch));
-        } catch (RuntimeException e) {
-            log.warn("SDN: installing {} script(s) threw", batch.size(), e);
-            lastInstall = new InstallActivity.Failed("Something went wrong while installing: " + e.getMessage());
+        } catch (VirtualMachineError e) {
+            // Said on the row, then left to end the thread: the JVM is not in a state to go on.
+            lastInstall = thrown(batch, e);
+            throw e;
+        } catch (RuntimeException | Error e) {
+            lastInstall = thrown(batch, e);
         } finally {
             batch.forEach(e -> installing.remove(e.id()));
         }
     }
 
+    /** The row's message for an install that threw; logged here, so no throw is silent. */
+    private static InstallActivity thrown(List<SdnCatalogueEntry> batch, Throwable e) {
+        log.error("SDN: installing {} script(s) threw", batch.size(), e);
+        return new InstallActivity.Failed("Something went wrong while installing: " + e);
+    }
+
     private InstallActivity settle(SdnInstallResult result) {
         return switch (result) {
-            case SdnInstallResult.Installed installed -> new InstallActivity.Finished(register(installed.scripts()));
+            case SdnInstallResult.Installed installed -> new InstallActivity.Finished(
+                    register(installed.scripts()) + refusedLines(installed.refused()));
             case SdnInstallResult.NothingSelected ignored ->
                     new InstallActivity.Failed("Nothing was requested from the launcher.");
             case SdnInstallResult.DeliveryDisabled ignored -> new InstallActivity.Failed(DELIVERY_DISABLED);
@@ -332,12 +342,22 @@ public final class LiveStoreModel implements StoreModel {
         for (Connection conn : live) {
             registrar.registerOn(conn.getRuntime(), scripts);
         }
+        log.info("SDN: registered {} delivered script(s) on {} client(s)", scripts.size(), live.size());
         String what = plural(scripts.size(), "script");
         if (live.isEmpty()) {
             return "Installed " + what + ". Each client that connects gets them.";
         }
         return "Installed " + what + " on " + plural(live.size(), "client")
                 + ". Start them from Installed scripts or a client card.";
+    }
+
+    /** One sentence per requested script that was left out while the rest installed. */
+    private static String refusedLines(List<SdnInstallResult.ScriptRefusal> refused) {
+        StringBuilder lines = new StringBuilder();
+        for (SdnInstallResult.ScriptRefusal refusal : refused) {
+            lines.append(' ').append(refusal.text());
+        }
+        return lines.toString();
     }
 
     private static String plural(int n, String noun) {

@@ -565,6 +565,26 @@ class LiveStoreModelTest {
                     .message().contains("disk full"));
         }
 
+        /**
+         * Fails at the base: an Error escaped the install boundary, so the row left
+         * "Installing" with no message at all.
+         */
+        @Test
+        void anInstallThatThrowsAnError_stillSettlesWithAMessage() {
+            launcherInstall = entries -> {
+                throw new NoClassDefFoundError("com/example/Missing");
+            };
+            LiveStoreModel model = model();
+
+            model.install(List.of("one"));
+            runDeferredInstalls();
+
+            StoreView after = model.view(StoreQuery.DEFAULT);
+            assertTrue(assertInstanceOf(InstallActivity.Failed.class, after.install()).message()
+                    .contains("com/example/Missing"));
+            assertTrue(after.find("one").orElseThrow().isInstallable());
+        }
+
         @Test
         void deliveryDisabled_neverAsksTheLauncher_andSaysHowToFixIt() {
             deliveryEnabled = false;
