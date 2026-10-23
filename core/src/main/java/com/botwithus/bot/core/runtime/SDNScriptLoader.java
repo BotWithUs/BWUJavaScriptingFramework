@@ -182,6 +182,9 @@ public final class SDNScriptLoader {
      * a short budget; production always passes {@link #CONSTRUCT_BUDGET}.
      */
     static SdnDelivery toDelivery(DefinedBundle bundle, Duration budget) {
+        if (bundle.refusal().isPresent()) {
+            return SdnDelivery.refused(bundle.refusal().get());
+        }
         List<SdnDelivery.Jar> jars = new ArrayList<>();
         List<SdnDelivery.Stall> stalls = new ArrayList<>();
         for (DefinedBundle.Jar jar : bundle.jars()) {

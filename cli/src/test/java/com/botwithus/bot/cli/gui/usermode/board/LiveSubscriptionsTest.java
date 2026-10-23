@@ -16,6 +16,7 @@ import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
+import com.botwithus.bot.core.sdn.SdnReasonText;
 import com.botwithus.bot.core.sdn.StoreCopies;
 
 import org.junit.jupiter.api.AfterEach;
@@ -30,6 +31,7 @@ import java.time.InstantSource;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -300,5 +302,20 @@ class LiveSubscriptionsTest {
         subs.start(CLIENT, SCRIPT_ID);
 
         assertInstanceOf(SubscriptionState.Failed.class, onlyRow(subs).state());
+    }
+    /** A partial delivery without this script fails the row with the launcher's reason, in the user's words. */
+    @Test
+    void start_partialDeliveryWithoutThisScript_failsTheRowWithItsReason() {
+        String text = "Subscription needed: your account doesn't have " + SHARED_NAME + ".";
+        LiveSubscriptions subs = new LiveSubscriptions(() -> List.of(conn),
+                catalogue(entry(DeliveredWoodcutting.class.getName())),
+                entries -> new SdnInstallResult.Installed(List.of(), Map.of(), List.of(
+                        new SdnInstallResult.ScriptRefusal(Optional.of(SCRIPT_ID),
+                                Optional.of(SdnReasonText.NOT_ENTITLED), text))),
+                new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), List::of, Runnable::run);
+
+        subs.start(CLIENT, SCRIPT_ID);
+
+        assertEquals(new SubscriptionState.Failed(text), onlyRow(subs).state());
     }
 }

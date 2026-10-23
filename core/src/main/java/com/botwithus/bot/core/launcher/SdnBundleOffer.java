@@ -1,6 +1,8 @@
 package com.botwithus.bot.core.launcher;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * The service's answer to {@code sdn.bundle}: what it will hand over, and how
@@ -14,11 +16,22 @@ import java.util.Objects;
  * @param size       the bundle's length in bytes
  * @param sha256     the SHA-256 of the whole bundle
  * @param chunkSize  the length of every chunk but the last
+ * @param delivered  the catalogue id of each jar in the bundle, in jar order; empty
+ *                   when the launcher predates partial delivery and sent no list
+ * @param failed     the requested scripts the launcher could not deliver
  */
-public record SdnBundleOffer(long deliveryId, long size, byte[] sha256, long chunkSize) {
+public record SdnBundleOffer(long deliveryId, long size, byte[] sha256, long chunkSize,
+                             Optional<List<String>> delivered, List<SdnScriptFailure> failed) {
 
     public SdnBundleOffer {
         sha256 = Objects.requireNonNull(sha256, "sha256").clone();
+        delivered = Objects.requireNonNull(delivered, "delivered").map(List::copyOf);
+        failed = List.copyOf(failed);
+    }
+
+    /** An offer from a launcher that predates partial delivery: it says nothing of which jar is which. */
+    public SdnBundleOffer(long deliveryId, long size, byte[] sha256, long chunkSize) {
+        this(deliveryId, size, sha256, chunkSize, Optional.empty(), List.of());
     }
 
     /** @return a copy of the digest */

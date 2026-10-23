@@ -28,6 +28,7 @@ import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StoreRestorerTest {
@@ -195,6 +196,47 @@ class StoreRestorerTest {
         assertEquals(Map.of(ID, StoreRestorer.NOT_DELIVERED), restorer.setAside());
         assertTrue(queued.isEmpty());
         assertEquals(1, launcherCalls.get());
+    }
+
+    /** A refusal that will be the same on every retry sets the id aside with the user's text. */
+    @Test
+    void aLastingRefusal_setsTheIdAsideWithItsText_andIsNotRetried() throws IOException {
+        String text = SdnReasonText.of(Optional.of(SdnReasonText.NOT_ENTITLED), "Restored", Optional.empty());
+        StoreRestorer restorer = restorer(ledgerWith(ID), List.of(entry(ID)), entries -> {
+            launcherCalls.incrementAndGet();
+            return new SdnInstallResult.Refused(List.of(new SdnInstallResult.ScriptRefusal(Optional.of(ID),
+                    Optional.of(SdnReasonText.NOT_ENTITLED), text)));
+        });
+
+        restorer.request();
+        runQueued();
+        restorer.request();
+
+        assertEquals(Map.of(ID, text), restorer.setAside());
+        assertTrue(restorer.pending().isEmpty());
+        assertEquals(1, launcherCalls.get());
+    }
+
+    /** A part that failed for a passing reason is a failure, so the next attempt waits rather than hammers. */
+    @Test
+    void aPartialDeliveryWithAPassingFailure_backsOff() throws IOException {
+        String text = SdnReasonText.of(Optional.of(SdnReasonText.NETWORK), "Restored", Optional.empty());
+        StoreRestorer restorer = restorer(ledgerWith(ID, OTHER_ID), List.of(entry(ID), entry(OTHER_ID)), entries -> {
+            SdnInstallResult.Installed delivered = assertInstanceOf(SdnInstallResult.Installed.class,
+                    deliverEach(entries.subList(0, 1)));
+            return new SdnInstallResult.Installed(delivered.scripts(), delivered.byEntryId(),
+                    List.of(new SdnInstallResult.ScriptRefusal(Optional.of(OTHER_ID),
+                            Optional.of(SdnReasonText.NETWORK), text)));
+        });
+
+        restorer.request();
+        runQueued();
+        restorer.request();
+
+        assertEquals(Optional.of(text), restorer.lastFailure());
+        assertEquals(Set.of(OTHER_ID), restorer.pending());
+        assertTrue(queued.isEmpty(), "the retry waits");
+        assertTrue(restorer.setAside().isEmpty());
     }
 
     @Test

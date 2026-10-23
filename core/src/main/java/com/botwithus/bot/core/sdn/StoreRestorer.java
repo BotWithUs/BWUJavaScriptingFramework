@@ -306,19 +306,42 @@ public final class StoreRestorer {
     private Optional<Outcome> restoreOne(SdnCatalogueEntry entry, RunTally tally) {
         return switch (deps.installer().apply(List.of(entry))) {
             case SdnInstallResult.Installed installed -> {
-                restored(entry, installed, tally);
+                installed.refusalFor(entry.id()).ifPresentOrElse(refusal -> refused(entry, refusal, tally),
+                        () -> restored(entry, installed, tally));
                 yield Optional.empty();
             }
             case SdnInstallResult.NothingSelected ignored -> Optional.empty();
             case SdnInstallResult.DeliveryDisabled ignored -> Optional.of(new Outcome(tally.isAnyRestored,
                     Optional.of("this host was not started by the launcher"), false));
-            case SdnInstallResult.CourierUnavailable ignored -> Optional.of(new Outcome(tally.isAnyRestored,
-                    Optional.of(entry.name() + ": the launcher did not deliver it"), true));
+            case SdnInstallResult.CourierUnavailable none -> Optional.of(new Outcome(tally.isAnyRestored,
+                    Optional.of(entry.name() + ": " + none.text()), true));
+            case SdnInstallResult.Refused refusedAll -> {
+                refused(entry, refusedAll.refusals().getFirst(), tally);
+                yield Optional.empty();
+            }
             case SdnInstallResult.Failed failed -> {
                 tally.refused(entry, failed.reason());
                 yield Optional.empty();
             }
         };
+    }
+
+    /**
+     * The launcher said why it would not deliver {@code entry}. A reason that holds
+     * for every retry this run sets it aside with the user's text; any other is a
+     * refusal like an untyped one, and one a missing game client explains lets a
+     * client connecting retry early.
+     */
+    private void refused(SdnCatalogueEntry entry, SdnInstallResult.ScriptRefusal refusal, RunTally tally) {
+        if (refusal.reason().filter(SdnReasonText::isLastingForThisRun).isPresent()) {
+            log.info("SDN: not restoring {} this run: {}", entry.name(), refusal.text());
+            synchronized (lock) {
+                setAside.put(entry.id(), refusal.text());
+            }
+            return;
+        }
+        tally.refusedWith(entry, refusal.text(), refusal.reason().filter(r -> !SdnReasonText.isLinkReason(r))
+                .isEmpty());
     }
 
     private void restored(SdnCatalogueEntry entry, SdnInstallResult.Installed installed, RunTally tally) {
@@ -399,10 +422,15 @@ public final class StoreRestorer {
         private String failure;
 
         void refused(SdnCatalogueEntry entry, String reason) {
+            refusedWith(entry, entry.name() + ": " + reason, LauncherProtocol.ERROR_SDN_NOT_DELIVERED.equals(reason));
+        }
+
+        /** A refusal whose {@code text} already names the script. */
+        void refusedWith(SdnCatalogueEntry entry, String text, boolean isLink) {
             refusedIds.add(entry.id());
-            isLinkFailure |= LauncherProtocol.ERROR_SDN_NOT_DELIVERED.equals(reason);
+            isLinkFailure |= isLink;
             if (failure == null) {
-                failure = entry.name() + ": " + reason;
+                failure = text;
             }
         }
     }

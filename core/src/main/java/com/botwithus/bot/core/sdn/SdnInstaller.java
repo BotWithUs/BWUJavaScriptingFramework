@@ -2,10 +2,11 @@ package com.botwithus.bot.core.sdn;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.core.crypto.SdnDiskBundleSource;
-import com.botwithus.bot.core.launcher.LauncherProtocol;
 import com.botwithus.bot.core.launcher.SdnBundleChannel;
 import com.botwithus.bot.core.launcher.SdnBundleDownload;
 import com.botwithus.bot.core.launcher.SdnBundleFetch;
+import com.botwithus.bot.core.launcher.SdnRefusal;
+import com.botwithus.bot.core.launcher.SdnScriptFailure;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.SdnDelivery;
 
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
@@ -39,7 +41,9 @@ import java.util.function.Supplier;
  * tried. Only when the method is absent (an older launcher) or no launcher
  * answers does the install fall back to the file courier described below,
  * unchanged. A launcher that refuses ({@code sdn_not_delivered}) is reported as
- * {@link SdnInstallResult.Failed} carrying that code and nothing more.
+ * {@link SdnInstallResult.Refused}, in the user's words for the reason it gave;
+ * a launcher that gives none gets the generic text. When the launcher lists which
+ * script each jar is, jars are paired by that list rather than by position.
  *
  * <p>The host names the scripts it wants and the launcher does the fetching, so
  * the credential stays in the one process that already holds it. What comes back
@@ -219,6 +223,7 @@ public final class SdnInstaller {
             case SdnInstallResult.NothingSelected ignored -> result;
             case SdnInstallResult.DeliveryDisabled ignored -> result;
             case SdnInstallResult.CourierUnavailable ignored -> result;
+            case SdnInstallResult.Refused ignored -> result;
             case SdnInstallResult.Failed ignored -> result;
         };
     }
@@ -251,43 +256,108 @@ public final class SdnInstaller {
         }
         log.info("SDN: requested {} script(s) from the launcher over its pipe", scriptIds.size());
         return switch (SdnBundleDownload.fetch(channel, key, scriptIds)) {
-            case SdnBundleFetch.Fetched fetched -> installFetched(entries, pipe.define().apply(fetched.bundle()));
-            case SdnBundleFetch.NotDelivered ignored ->
-                    new SdnInstallResult.Failed(LauncherProtocol.ERROR_SDN_NOT_DELIVERED);
-            case SdnBundleFetch.Unavailable ignored -> new SdnInstallResult.CourierUnavailable();
+            case SdnBundleFetch.Fetched fetched -> installFetched(entries, fetched);
+            case SdnBundleFetch.NotDelivered notDelivered -> refused(entries, notDelivered.refusal());
+            case SdnBundleFetch.Unavailable none -> new SdnInstallResult.CourierUnavailable(
+                    none.isTimedOut() ? SdnInstallResult.NoAnswer.TIMED_OUT : SdnInstallResult.NoAnswer.NOT_CONNECTED);
             case SdnBundleFetch.Failed failed -> new SdnInstallResult.Failed(failed.reason());
         };
     }
 
-    /** The bytes arrived intact, so a delivery that loads nothing is a failure, not an absent launcher. */
-    private SdnInstallResult installFetched(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
+    /**
+     * The bytes arrived intact. Each jar is paired with the id the launcher listed for
+     * it, or with its request position when an older launcher listed none, and a
+     * bundle whose jar count disagrees is refused before any of its scripts is made.
+     * A delivery that then loads nothing is a failure, not an absent launcher.
+     */
+    private SdnInstallResult installFetched(List<SdnCatalogueEntry> entries, SdnBundleFetch.Fetched fetched) {
+        List<SdnCatalogueEntry> inJarOrder = fetched.delivered().map(ids -> inOrder(entries, ids)).orElse(entries);
+        OptionalInt jars = SdnDiskBundleSource.jarCountOf(fetched.bundle());
+        if (jars.isPresent() && jars.getAsInt() != inJarOrder.size()) {
+            log.error("SDN: the bundle holds {} jar(s) but {} were listed for it; nothing from it is loaded",
+                    jars.getAsInt(), inJarOrder.size());
+            return new SdnInstallResult.Failed(SdnReasonText.MISMATCH_TEXT);
+        }
+        SdnDelivery delivery = pipe.define().apply(fetched.bundle());
         if (!delivery.stalls().isEmpty()) {
-            return stalled(entries, delivery);
+            return stalled(inJarOrder, delivery);
         }
         if (delivery.isEmpty()) {
             return new SdnInstallResult.Failed("the delivered scripts could not be loaded");
         }
-        return installDelivery(entries, delivery);
+        return installDelivery(inJarOrder, delivery, refusalsOf(entries, fetched.failed()));
     }
 
     private SdnInstallResult loadDelivered(List<SdnCatalogueEntry> entries) {
         SdnDelivery delivery = awaitDelivery.get();
+        if (delivery.refusal().isPresent()) {
+            return fileRouteRefused(entries, delivery.refusal().get());
+        }
         if (!delivery.stalls().isEmpty()) {
             return stalled(entries, delivery);
         }
         if (delivery.isEmpty()) {
-            return new SdnInstallResult.CourierUnavailable();
+            return new SdnInstallResult.CourierUnavailable(SdnInstallResult.NoAnswer.FILE_ROUTE_SILENT);
         }
-        return installDelivery(entries, delivery);
+        if (delivery.jarCount() != entries.size()) {
+            log.error("SDN: requested {} script(s) but the courier delivered {} jar(s); nothing from it is "
+                    + "registered", entries.size(), delivery.jarCount());
+            return new SdnInstallResult.Failed(SdnReasonText.MISMATCH_TEXT);
+        }
+        return installDelivery(entries, delivery, List.of());
     }
 
-    private SdnInstallResult installDelivery(List<SdnCatalogueEntry> entries, SdnDelivery delivery) {
+    private SdnInstallResult installDelivery(List<SdnCatalogueEntry> entries, SdnDelivery delivery,
+                                             List<SdnInstallResult.ScriptRefusal> refused) {
         Map<String, List<BotScript>> byEntryId = pair(entries, delivery);
-        log.info("SDN: paired {} of {} requested script(s) with the jar delivered for it", byEntryId.size(),
+        log.info("SDN: paired {} of {} delivered script(s) with the jar delivered for it", byEntryId.size(),
                 entries.size());
         recordInstalls(entries, byEntryId);
         shelve(entries, delivery, !byEntryId.isEmpty());
-        return new SdnInstallResult.Installed(delivery.scripts(), byEntryId);
+        return new SdnInstallResult.Installed(delivery.scripts(), byEntryId, refused);
+    }
+
+    /** The requested entries in the order the launcher listed their jars; the list was checked already. */
+    private static List<SdnCatalogueEntry> inOrder(List<SdnCatalogueEntry> entries, List<String> ids) {
+        Map<String, SdnCatalogueEntry> byId = new LinkedHashMap<>();
+        entries.forEach(e -> byId.putIfAbsent(e.id(), e));
+        return ids.stream().map(byId::get).filter(Objects::nonNull).toList();
+    }
+
+    /** What the launcher said for each script it could not deliver, in the user's words. */
+    private static List<SdnInstallResult.ScriptRefusal> refusalsOf(List<SdnCatalogueEntry> entries,
+                                                                   List<SdnScriptFailure> failed) {
+        return failed.stream().map(f -> new SdnInstallResult.ScriptRefusal(Optional.of(f.scriptId()),
+                Optional.of(f.reason()), SdnReasonText.of(Optional.of(f.reason()), nameOf(entries, f.scriptId()),
+                        f.cfRay()))).toList();
+    }
+
+    /** The launcher refused the whole request; its reason becomes the user's text. */
+    private static SdnInstallResult refused(List<SdnCatalogueEntry> entries, SdnRefusal refusal) {
+        List<SdnInstallResult.ScriptRefusal> each = refusalsOf(entries, refusal.failed());
+        if (!each.isEmpty()) {
+            return new SdnInstallResult.Refused(each);
+        }
+        String name = refusal.scriptId().map(id -> nameOf(entries, id)).orElseGet(() -> nameOf(entries));
+        return new SdnInstallResult.Refused(List.of(new SdnInstallResult.ScriptRefusal(refusal.scriptId(),
+                refusal.reason(), SdnReasonText.of(refusal.reason(), name, refusal.cfRay()))));
+    }
+
+    /** The file route's courier answered "no"; an error file naming no reason gets the generic text. */
+    private static SdnInstallResult fileRouteRefused(List<SdnCatalogueEntry> entries, String reason) {
+        Optional<String> code = reason.isEmpty() ? Optional.empty() : Optional.of(reason);
+        return new SdnInstallResult.Refused(List.of(new SdnInstallResult.ScriptRefusal(Optional.empty(), code,
+                SdnReasonText.of(code, nameOf(entries), Optional.empty()))));
+    }
+
+    /** The catalogue name for {@code id}, falling back to the id when it was not requested. */
+    private static String nameOf(List<SdnCatalogueEntry> entries, String id) {
+        return entries.stream().filter(e -> e.id().equals(id)).map(SdnCatalogueEntry::name).findFirst().orElse(id);
+    }
+
+    /** The one script's name when one was requested, else a phrase for them all. */
+    private static String nameOf(List<SdnCatalogueEntry> entries) {
+        return entries.size() == 1 ? entries.getFirst().name() : "these scripts";
     }
 
     /**

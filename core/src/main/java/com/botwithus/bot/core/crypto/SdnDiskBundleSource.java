@@ -5,14 +5,20 @@ import com.botwithus.bot.core.sdn.SdnRendezvous;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
+
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Disk-based SDN bundle source — the file-courier half of the production
@@ -42,6 +48,12 @@ public final class SdnDiskBundleSource {
     public static final String DIR_PROP = SdnRendezvous.DIR_PROP;
 
     private static final int ENVELOPE_LEN = 168;
+
+    /** The courier's answer when it will not deliver: {@code {"reason": "<code>"}}. */
+    private static final String REFUSAL_SUFFIX = ".sdnerr";
+    private static final String REFUSAL_REASON = "reason";
+    /** What an error file that names no reason is read as. */
+    private static final String REFUSAL_UNREADABLE = "";
 
     /**
      * Sanity bound on the jar count, so a mis-framed file is rejected rather
@@ -79,6 +91,7 @@ public final class SdnDiskBundleSource {
         long pid = SdnRendezvous.currentPid();
         Path pubFile = dir.resolve(pid + ".pub");
         Path bundleFile = dir.resolve(pid + ".sdn");
+        Path refusalFile = dir.resolve(pid + REFUSAL_SUFFIX);
         try {
             Files.createDirectories(dir);
             byte[] pub = SdnLoader.clientPublicKey();
@@ -86,25 +99,48 @@ public final class SdnDiskBundleSource {
             log.info("SDN: published {} ({} bytes); awaiting bundle in {} (timeout {})",
                     pubFile.getFileName(), pub.length, dir, timeout);
 
-            byte[] bundle = SdnRendezvous.awaitFile(bundleFile, timeout);
-            if (bundle == null) {
-                // Naming the directory matters: the launcher resolves it from the
-                // BWU_SDN_DIR environment variable while this process reads the
-                // botwithus.sdn.dir system property, so the two can disagree and
-                // the only symptom is this timeout. Without the path it reads as
-                // "the courier is not running" and sends you to the wrong process.
-                log.info("SDN: no bundle delivered within {} in {} — is the courier "
-                        + "running, and is it writing to the same directory?", timeout, dir);
-                return DefinedBundle.none();
-            }
-            return defineBundle(bundle, parent);
+            return switch (SdnRendezvous.awaitEither(bundleFile, refusalFile, timeout)) {
+                case SdnRendezvous.Arrival.Wanted wanted -> defineBundle(wanted.bytes(), parent);
+                case SdnRendezvous.Arrival.Refusal refusal -> refusalOf(refusal.bytes());
+                case SdnRendezvous.Arrival.Nothing nothing -> {
+                    // Naming the directory matters: the launcher resolves it from the
+                    // BWU_SDN_DIR environment variable while this process reads the
+                    // botwithus.sdn.dir system property, so the two can disagree and
+                    // the only symptom is this timeout. Without the path it reads as
+                    // "the courier is not running" and sends you to the wrong process.
+                    log.info("SDN: no bundle delivered within {} in {} — is the courier "
+                            + "running, and is it writing to the same directory?", timeout, dir);
+                    yield DefinedBundle.none();
+                }
+            };
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("SDN disk bundle load interrupted");
+            return DefinedBundle.none();
         } catch (Exception e) {
             log.error("SDN disk bundle load failed: {}", e.getMessage());
             return DefinedBundle.none();
         } finally {
             SdnRendezvous.deleteQuietly(pubFile);
             SdnRendezvous.deleteQuietly(bundleFile);
+            SdnRendezvous.deleteQuietly(refusalFile);
         }
+    }
+
+    /** The courier's error file, read as its reason code; an unreadable one names none. */
+    static DefinedBundle refusalOf(byte[] errorFile) {
+        String reason = REFUSAL_UNREADABLE;
+        try {
+            JsonElement root = JsonParser.parseString(new String(errorFile, StandardCharsets.UTF_8));
+            JsonElement named = root.isJsonObject() ? root.getAsJsonObject().get(REFUSAL_REASON) : null;
+            if (named != null && named.isJsonPrimitive() && named.getAsJsonPrimitive().isString()) {
+                reason = named.getAsString();
+            }
+        } catch (JsonParseException e) {
+            log.warn("SDN: the courier's error file is not readable: {}", e.getMessage());
+        }
+        log.warn("SDN: the courier refused this request (reason {})", reason.isEmpty() ? "not given" : reason);
+        return DefinedBundle.refused(reason);
     }
 
     /**
@@ -142,6 +178,19 @@ public final class SdnDiskBundleSource {
         }
         log.info("SDN: bundle delivered, {} of {} jar(s) defined", defined.size(), jars.size());
         return new DefinedBundle(jars.size(), defined);
+    }
+
+    /**
+     * How many jars {@code bundle} says it holds, read without copying them, so a
+     * bundle that disagrees with what was asked for is refused before anything in
+     * it is defined. Empty when the bundle is too short or names an impossible count.
+     */
+    public static OptionalInt jarCountOf(byte[] bundle) {
+        if (bundle.length < Integer.BYTES + ENVELOPE_LEN) {
+            return OptionalInt.empty();
+        }
+        int count = ByteBuffer.wrap(bundle).order(ByteOrder.BIG_ENDIAN).getInt();
+        return count > 0 && count <= MAX_BUNDLE_JARS ? OptionalInt.of(count) : OptionalInt.empty();
     }
 
     /**

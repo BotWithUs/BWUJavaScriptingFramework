@@ -136,7 +136,7 @@ final class ServiceSession implements AutoCloseable {
             return response.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
         } catch (TimeoutException e) {
             ChannelClosedException noAnswer = new ChannelClosedException(
-                    "the service did not answer " + method + " within " + timeout.toSeconds() + " s", e);
+                    "the service did not answer " + method + " within " + timeout.toSeconds() + " s", e, true);
             closeWith(noAnswer);
             throw noAnswer;
         } catch (ExecutionException e) {

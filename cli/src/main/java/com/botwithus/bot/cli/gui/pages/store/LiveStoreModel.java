@@ -327,8 +327,8 @@ public final class LiveStoreModel implements StoreModel {
             case SdnInstallResult.NothingSelected ignored ->
                     new InstallActivity.Failed("Nothing was requested from the launcher.");
             case SdnInstallResult.DeliveryDisabled ignored -> new InstallActivity.Failed(DELIVERY_DISABLED);
-            case SdnInstallResult.CourierUnavailable ignored -> new InstallActivity.Failed(
-                    "The launcher did not deliver the scripts. Check it is still running, then try again.");
+            case SdnInstallResult.CourierUnavailable none -> new InstallActivity.Failed(none.text());
+            case SdnInstallResult.Refused refused -> new InstallActivity.Failed(refused.text());
             case SdnInstallResult.Failed failed -> new InstallActivity.Failed("Could not install: " + failed.reason());
         };
     }

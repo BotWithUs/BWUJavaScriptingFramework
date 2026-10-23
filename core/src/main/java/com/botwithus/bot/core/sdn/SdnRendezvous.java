@@ -95,6 +95,38 @@ public final class SdnRendezvous {
         return null;
     }
 
+    /** What {@link #awaitEither} found first. */
+    public sealed interface Arrival {
+
+        /** The file that was waited for. */
+        record Wanted(byte[] bytes) implements Arrival {}
+
+        /** The other side's error file. */
+        record Refusal(byte[] bytes) implements Arrival {}
+
+        /** Neither, within the timeout. */
+        record Nothing() implements Arrival {}
+    }
+
+    /**
+     * Waits for {@code wanted} or {@code refusal}, whichever appears first, so a
+     * courier that answers "no" is heard at once rather than after the timeout.
+     */
+    public static Arrival awaitEither(Path wanted, Path refusal, Duration timeout)
+            throws IOException, InterruptedException {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (Files.exists(wanted)) {
+                return new Arrival.Wanted(Files.readAllBytes(wanted));
+            }
+            if (Files.exists(refusal)) {
+                return new Arrival.Refusal(Files.readAllBytes(refusal));
+            }
+            Thread.sleep(POLL_MILLIS);
+        }
+        return new Arrival.Nothing();
+    }
+
     /**
      * Publishes {@code data} at {@code target} so that no reader ever sees a
      * partially written file. Falls back to a plain move on filesystems that
