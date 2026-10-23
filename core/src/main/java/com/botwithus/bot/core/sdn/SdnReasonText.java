@@ -86,6 +86,19 @@ public final class SdnReasonText {
     }
 
     /**
+     * Whether {@code reason} is about this host, its launcher or its account rather
+     * than the script asked for: every other script would get the same answer, so a
+     * restore stops at it and does not count it against the script.
+     */
+    public static boolean isHostReason(String reason) {
+        return switch (reason) {
+            case NO_LINK, TIMEOUT, NETWORK, NOT_OWNED, NOT_SIGNED_IN, HEARTBEAT_REFUSED, SESSION_REJECTED,
+                 CLOUDFLARE_CHALLENGE -> true;
+            default -> false;
+        };
+    }
+
+    /**
      * Whether a refusal for {@code reason} could pass once a game client connects or
      * the network recovers, so a client connecting is worth an early retry.
      */

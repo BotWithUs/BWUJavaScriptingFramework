@@ -454,6 +454,88 @@ class StoreRestorerTest {
         assertTrue(restorer.pending().isEmpty());
     }
 
+    // ── Second pass ─────────────────────────────────────────────────────────
+
+    private static SdnInstallResult refusedFor(SdnCatalogueEntry entry, String reason) {
+        return new SdnInstallResult.Refused(List.of(new SdnInstallResult.ScriptRefusal(Optional.of(entry.id()),
+                Optional.of(reason), SdnReasonText.of(Optional.of(reason), entry.name(), Optional.empty()))));
+    }
+
+    private void everyRetry(StoreRestorer restorer, int runs) {
+        for (int run = 0; run < runs; run++) {
+            restorer.request();
+            runQueued();
+            now.set(now.get().plus(StoreRestorer.MAX_RETRY_AFTER));
+        }
+    }
+
+    /**
+     * B2, the reviewer's scenario: A is restored, then the launcher's link idles out
+     * and B is refused no_link on every retry. Fails if a host-level refusal counts
+     * against B: it would be set aside for the run although a client would fix it.
+     */
+    @Test
+    void aHostLevelRefusal_isNotCountedAgainstTheScript() throws IOException {
+        StoreRestorer restorer = restorer(ledgerWith(ID, OTHER_ID), List.of(entry(ID), entry(OTHER_ID)),
+                entries -> entries.getFirst().id().equals(OTHER_ID)
+                        ? refusedFor(entries.getFirst(), SdnReasonText.NO_LINK) : deliverEach(entries));
+
+        everyRetry(restorer, StoreRestorer.REFUSALS_BEFORE_SET_ASIDE + 1);
+
+        assertTrue(restorer.setAside().isEmpty());
+        assertEquals(Set.of(OTHER_ID), restorer.pending());
+    }
+
+    /** B2: a server error is about the script, so it does count. */
+    @Test
+    void aServerError_countsTowardsSettingTheScriptAside() throws IOException {
+        StoreRestorer restorer = restorer(ledgerWith(ID, OTHER_ID), List.of(entry(ID), entry(OTHER_ID)),
+                entries -> entries.getFirst().id().equals(OTHER_ID)
+                        ? refusedFor(entries.getFirst(), SdnReasonText.SERVER_ERROR) : deliverEach(entries));
+
+        everyRetry(restorer, StoreRestorer.REFUSALS_BEFORE_SET_ASIDE);
+
+        assertTrue(restorer.setAside().containsKey(OTHER_ID));
+    }
+
+    /**
+     * B2: not_owned stops the run at the first id, sets every pending id aside with
+     * the restart text, and a client connecting does not retry.
+     */
+    @Test
+    void notOwned_stopsTheRun_setsAllAside_andIsNotNudged() throws IOException {
+        StoreRestorer restorer = restorer(ledgerWith(ID, OTHER_ID), List.of(entry(ID), entry(OTHER_ID)), entries -> {
+            launcherCalls.incrementAndGet();
+            return refusedFor(entries.getFirst(), SdnReasonText.NOT_OWNED);
+        });
+
+        restorer.request();
+        runQueued();
+        restorer.nudge();
+
+        String text = SdnReasonText.of(Optional.of(SdnReasonText.NOT_OWNED), "Restored " + ID, Optional.empty());
+        assertEquals(Map.of(ID, text, OTHER_ID, text), restorer.setAside());
+        assertEquals(1, launcherCalls.get(), "the run stops at the first id");
+        assertTrue(queued.isEmpty());
+    }
+
+    /** L3: a launcher that did not answer the catalogue at all arms the early retry too. */
+    @Test
+    void aSilentCatalogue_armsTheNudge() throws IOException {
+        AtomicReference<SdnCatalogueResult> shown = new AtomicReference<>(new SdnCatalogueResult.CourierUnavailable());
+        StoreRestorer restorer = new StoreRestorer(new StoreRestorer.Deps(ledgerWith(ID), shelf,
+                () -> Optional.of(shown.get()), () -> true, this::deliverEach, restored::addAll, queued::add,
+                now::get));
+        restorer.request();
+        shown.set(new SdnCatalogueResult.Delivered(List.of(entry(ID)), false));
+
+        restorer.request();
+        assertTrue(queued.isEmpty(), "the timer waits");
+        restorer.nudge();
+
+        assertEquals(1, queued.size());
+    }
+
     private static void awaitQuietly(CountDownLatch latch) {
         try {
             latch.await();
