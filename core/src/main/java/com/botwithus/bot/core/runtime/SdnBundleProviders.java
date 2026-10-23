@@ -52,31 +52,40 @@ final class SdnBundleProviders {
      */
     static <S> List<S> load(ClassLoader loader, Optional<SdnModule> module, ModuleLayer parent,
                             Class<S> service) {
+        return providers(loader, module, parent, service).stream().map(ServiceLoader.Provider::get).toList();
+    }
+
+    /**
+     * As {@link #load}, but the providers themselves rather than one instance of
+     * each. {@link ServiceLoader.Provider#get()} makes a new instance on every call,
+     * which is how each client gets its own copy of a delivered script while the
+     * jar itself is only ever defined once, in memory.
+     */
+    static <S> List<ServiceLoader.Provider<S>> providers(ClassLoader loader, Optional<SdnModule> module,
+                                                         ModuleLayer parent, Class<S> service) {
         if (module.isPresent()) {
             return fromModule(loader, module.get(), parent, service);
         }
         return fromUnnamed(loader, service);
     }
 
-    private static <S> List<S> fromModule(ClassLoader loader, SdnModule module, ModuleLayer parent,
-                                          Class<S> service) {
+    private static <S> List<ServiceLoader.Provider<S>> fromModule(ClassLoader loader, SdnModule module,
+                                                                  ModuleLayer parent, Class<S> service) {
         Configuration cf = parent.configuration()
                 .resolveAndBind(module.finder(), ModuleFinder.of(), Set.of(module.name()));
         ModuleLayer layer = ModuleLayer.defineModules(cf, List.of(parent), name -> loader).layer();
-        List<S> found = ServiceLoader.load(layer, service).stream()
+        List<ServiceLoader.Provider<S>> found = ServiceLoader.load(layer, service).stream()
                 .filter(provider -> provider.type().getModule().getLayer() == layer)
-                .map(ServiceLoader.Provider::get)
                 .toList();
-        found.forEach(p -> log.info("SDN: loaded {} from module {}", p.getClass().getName(), module.name()));
+        found.forEach(p -> log.info("SDN: loaded {} from module {}", p.type().getName(), module.name()));
         return found;
     }
 
-    private static <S> List<S> fromUnnamed(ClassLoader loader, Class<S> service) {
-        List<S> found = ServiceLoader.load(service, loader).stream()
+    private static <S> List<ServiceLoader.Provider<S>> fromUnnamed(ClassLoader loader, Class<S> service) {
+        List<ServiceLoader.Provider<S>> found = ServiceLoader.load(service, loader).stream()
                 .filter(provider -> provider.type().getClassLoader() == loader)
-                .map(ServiceLoader.Provider::get)
                 .toList();
-        found.forEach(p -> log.info("SDN: loaded {} (no module descriptor)", p.getClass().getName()));
+        found.forEach(p -> log.info("SDN: loaded {} (no module descriptor)", p.type().getName()));
         return found;
     }
 }

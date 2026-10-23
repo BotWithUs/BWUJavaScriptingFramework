@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.gui.usermode.board;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
@@ -53,6 +54,7 @@ final class LiveSubscriptions {
     private final Supplier<? extends Collection<Connection>> connections;
     private final SdnCatalogueRefresher refresher;
     private final Function<List<SdnCatalogueEntry>, SdnInstallResult> installer;
+    private final StoreRegistrar registrar;
     private final StoreCopies storeCopies;
     private final Supplier<List<LocalScript>> localScripts;
     private final Executor installExecutor;
@@ -63,17 +65,19 @@ final class LiveSubscriptions {
     /**
      * @param connections   the host's connections, read fresh on every call
      * @param installer     asks the launcher for catalogue scripts and loads them; blocks
+     * @param registrar     registers a delivery on a client, a new instance per client
      * @param storeCopies   recognises a loaded Store copy and finds its install record,
      *                      which says whether a newer build is out
      * @param localScripts  the picker's local catalogue, as last loaded
      */
     LiveSubscriptions(Supplier<? extends Collection<Connection>> connections, SdnCatalogueRefresher refresher,
                       Function<List<SdnCatalogueEntry>, SdnInstallResult> installer,
-                      StoreCopies storeCopies,
+                      StoreRegistrar registrar, StoreCopies storeCopies,
                       Supplier<List<LocalScript>> localScripts, Executor installExecutor) {
         this.connections = connections;
         this.refresher = refresher;
         this.installer = installer;
+        this.registrar = registrar;
         this.storeCopies = storeCopies;
         this.localScripts = localScripts;
         this.installExecutor = installExecutor;
@@ -212,7 +216,7 @@ final class LiveSubscriptions {
      */
     private void startDelivered(String clientId, SdnCatalogueEntry entry, SdnInstallResult.Installed installed) {
         for (Connection conn : liveConnections()) {
-            installed.scripts().forEach(conn.getRuntime()::registerScript);
+            registrar.registerOn(conn.getRuntime(), installed.scripts());
         }
         List<BotScript> paired = installed.scriptsFor(entry.id());
         Optional<BotScript> chosen = SubscriptionMatch.scriptToStart(entry, paired, LiveSubscriptions::registeredName);

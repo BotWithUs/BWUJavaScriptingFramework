@@ -10,6 +10,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.runtime.ScriptRunner;
+import com.botwithus.bot.core.sdn.StoreRestorer;
 import com.botwithus.bot.core.shm.SharedRegion;
 
 import org.slf4j.Logger;
@@ -17,8 +18,10 @@ import org.slf4j.LoggerFactory;
 
 import java.io.PrintStream;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 
@@ -158,14 +161,25 @@ public class AutoStartManager {
             return;
         }
 
-        // Load available scripts and start matching ones
-        ScriptRuntime runtime = conn.getRuntime();
-        List<BotScript> available = ctx.loadScripts();
-        List<BotScript> blueprints = ctx.loadBlueprints();
+        List<String> missing = startConfigured(conn, scriptNames, displayName);
+        if (!missing.isEmpty()) {
+            waitForStoreOrReport(conn, missing, displayName);
+        }
+    }
 
+    /**
+     * Starts each of {@code scriptNames} on {@code conn}: an already-registered runner,
+     * else a local script, a Store script this host holds, or a blueprint of that name.
+     *
+     * @return the names nothing was found for, in order
+     */
+    private List<String> startConfigured(Connection conn, List<String> scriptNames, String displayName) {
+        ScriptRuntime runtime = conn.getRuntime();
+        List<BotScript> available = ctx.clientScripts();
+        List<BotScript> blueprints = ctx.loadBlueprints();
+        List<String> missing = new ArrayList<>();
         int started = 0;
         for (String targetName : scriptNames) {
-            // Check if already registered
             ScriptRunner existing = runtime.findRunner(targetName);
             if (existing != null) {
                 if (!existing.isRunning()) {
@@ -174,8 +188,6 @@ public class AutoStartManager {
                 }
                 continue;
             }
-
-            // Find in available scripts
             BotScript match = findScript(targetName, available);
             if (match == null) {
                 match = findScript(targetName, blueprints);
@@ -184,12 +196,47 @@ public class AutoStartManager {
                 runtime.startScript(match);
                 started++;
             } else {
-                out().println("[AutoStart] Script not found: " + targetName);
+                missing.add(targetName);
             }
         }
-
         if (started > 0) {
             out().println("[AutoStart] Started " + started + " script(s) for " + displayName + ".");
+        }
+        return missing;
+    }
+
+    /**
+     * A name not found may be a Store script this PC installed that the launcher has
+     * not delivered again yet. While that restore is still to come, waits for it and
+     * tries the names again; otherwise, or when they are still missing after it,
+     * says so with the restore's reason, so nothing waits on a restore that failed.
+     */
+    private void waitForStoreOrReport(Connection conn, List<String> missing, String displayName) {
+        Optional<StoreRestorer> restorer = ctx.storeRestorer();
+        boolean isWaiting = restorer.isPresent()
+                && restorer.get().whenSettled(() -> retryAfterRestore(conn, missing, displayName));
+        if (isWaiting) {
+            out().println("[AutoStart] Waiting for the launcher to deliver this PC's Store scripts before "
+                    + "starting " + String.join(", ", missing) + " for " + displayName + ".");
+            return;
+        }
+        reportNotFound(missing, restorer);
+    }
+
+    private void retryAfterRestore(Connection conn, List<String> missing, String displayName) {
+        if (!conn.isAlive()) {
+            return;
+        }
+        List<String> stillMissing = startConfigured(conn, missing, displayName);
+        reportNotFound(stillMissing, ctx.storeRestorer());
+    }
+
+    private void reportNotFound(List<String> missing, Optional<StoreRestorer> restorer) {
+        String why = restorer.flatMap(StoreRestorer::lastFailure)
+                .map(reason -> " (Store scripts could not be delivered again: " + reason + ")")
+                .orElse("");
+        for (String name : missing) {
+            out().println("[AutoStart] Script not found: " + name + why);
         }
     }
 

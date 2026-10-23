@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.usermode.board;
 
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
@@ -124,11 +125,12 @@ class SdnInstallScreensAgreeTest {
                 () -> new SdnCatalogueResult.Delivered(List.of(shape.entry()), false), Runnable::run,
                 InstantSource.fixed(NOW), () -> MID_JITTER);
         catalogue.requestNow();
-        LiveStoreModel store = new LiveStoreModel(catalogue, installer::install, StoreCopies.of(ledger),
+        LiveStoreModel store = new LiveStoreModel(catalogue, installer::install,
+                new StoreRegistrar(installer.shelf()), StoreCopies.of(ledger),
                 installer::isDeliveryEnabled, new FavouritesStore(home, Runnable::run), () -> List.of(conn),
                 List::of, Runnable::run, InstantSource.fixed(NOW));
         LiveSubscriptions picker = new LiveSubscriptions(() -> List.of(conn), catalogue, installer::install,
-                StoreCopies.of(ledger), List::of, Runnable::run);
+                new StoreRegistrar(installer.shelf()), StoreCopies.of(ledger), List::of, Runnable::run);
         return new Screens(store, picker);
     }
 

@@ -11,7 +11,10 @@ import org.slf4j.LoggerFactory;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.ServiceConfigurationError;
+import java.util.ServiceLoader;
+import java.util.function.Supplier;
 
 /**
  * Facade that combines local script loading (JAR files) and SDN script loading
@@ -96,7 +99,9 @@ public final class SDNScriptLoader {
             ClassLoader sdnClassLoader = sdnLoader.loadScriptBundle(
                     SDNScriptLoader.class.getClassLoader());
 
-            List<BotScript> scripts = providersFrom(sdnClassLoader);
+            List<BotScript> scripts = providersFrom(sdnClassLoader).stream()
+                    .map(ServiceLoader.Provider::get)
+                    .toList();
 
             if (scripts.isEmpty()) {
                 log.info("No BotScript providers found in SDN bundle.");
@@ -105,7 +110,7 @@ public final class SDNScriptLoader {
             }
 
             return scripts;
-        } catch (Exception e) {
+        } catch (Exception | ServiceConfigurationError e) {
             log.error("SDN script loading failed: {}", e.getMessage());
             return List.of();
         }
@@ -162,10 +167,7 @@ public final class SDNScriptLoader {
     private static SdnDelivery toDelivery(DefinedBundle bundle) {
         List<SdnDelivery.Jar> jars = new ArrayList<>();
         for (DefinedBundle.Jar jar : bundle.jars()) {
-            List<BotScript> found = providersFrom(jar.loader());
-            if (!found.isEmpty()) {
-                jars.add(new SdnDelivery.Jar(jar.position(), found));
-            }
+            jarOf(jar).ifPresent(jars::add);
         }
         SdnDelivery delivery = new SdnDelivery(bundle.jarCount(), jars);
         if (bundle.jarCount() > 0 && delivery.isEmpty()) {
@@ -174,6 +176,22 @@ public final class SDNScriptLoader {
             log.info("Loaded {} script(s) from {} SDN jar(s).", delivery.scripts().size(), jars.size());
         }
         return delivery;
+    }
+
+    /** The scripts one defined jar provides, with a factory for each; empty when it provides none. */
+    private static Optional<SdnDelivery.Jar> jarOf(DefinedBundle.Jar jar) {
+        List<BotScript> scripts = new ArrayList<>();
+        List<Supplier<BotScript>> copies = new ArrayList<>();
+        try {
+            for (ServiceLoader.Provider<BotScript> provider : providersFrom(jar.loader())) {
+                scripts.add(provider.get());
+                copies.add(provider::get);
+            }
+        } catch (RuntimeException | ServiceConfigurationError e) {
+            log.warn("SDN: a delivered bundle yielded no usable providers, skipping it: {}", e.getMessage(), e);
+            return Optional.empty();
+        }
+        return scripts.isEmpty() ? Optional.empty() : Optional.of(new SdnDelivery.Jar(jar.position(), scripts, copies));
     }
 
     /**
@@ -188,9 +206,9 @@ public final class SDNScriptLoader {
      * isolation is the reason the delivery is N loaders rather than one merged
      * jar.
      */
-    private static List<BotScript> providersFrom(ClassLoader loader) {
+    private static List<ServiceLoader.Provider<BotScript>> providersFrom(ClassLoader loader) {
         try {
-            return SdnBundleProviders.load(loader, SdnLoader.moduleOf(loader), ModuleLayer.boot(),
+            return SdnBundleProviders.providers(loader, SdnLoader.moduleOf(loader), ModuleLayer.boot(),
                     BotScript.class);
         } catch (Exception | ServiceConfigurationError e) {
             log.warn("SDN: a delivered bundle yielded no usable providers, skipping it: {}",
