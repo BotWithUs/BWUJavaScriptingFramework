@@ -175,23 +175,38 @@ public final class Dialog {
 
     /**
      * Builds an option from a candidate row, or {@code null} when the row carries
-     * no label (an empty/unused slot). The row's {@code TEXT} descendants are the
-     * number cell ("N.") and the label; the number cell sets the index, falling
-     * back to {@code positionalIndex} when absent.
+     * no label (an empty/unused slot). The row's non-blank {@code TEXT} descendants
+     * are read by {@link #cells}.
      */
     private static DialogOption readOption(ComponentNode row, int positionalIndex) {
-        String label = null;
-        int parsedIndex = -1;
+        List<String> texts = new ArrayList<>();
         for (ComponentNode leaf : row.descendants()) {
             if (leaf.type() != ComponentType.TEXT) {
                 continue;
             }
             String t = leaf.text();
-            if (t == null || t.isBlank()) {
-                continue;
+            if (t != null && !t.isBlank()) {
+                texts.add(t);
             }
+        }
+        Cells cells = cells(texts, positionalIndex);
+        return cells == null ? null : new DialogOption(cells.index(), cells.label(), row);
+    }
+
+    /**
+     * A row's index and label from its non-blank texts in tree order, or
+     * {@code null} when no label is left. The first text shaped like a number cell
+     * ("N.") is the index; every later text is the label, the last one winning, so a
+     * label that is itself shaped like a number cell (a quiz answer such as "4.")
+     * is kept rather than taken for a second index cell and dropped. Without a
+     * number cell the index falls back to {@code positionalIndex}.
+     */
+    static Cells cells(List<String> texts, int positionalIndex) {
+        String label = null;
+        int parsedIndex = -1;
+        for (String t : texts) {
             int n = numberCell(t);
-            if (n > 0) {
+            if (n > 0 && parsedIndex < 0) {
                 parsedIndex = n;
             } else {
                 label = t;
@@ -200,7 +215,16 @@ public final class Dialog {
         if (label == null || label.isBlank()) {
             return null;
         }
-        return new DialogOption(parsedIndex > 0 ? parsedIndex : positionalIndex, label, row);
+        return new Cells(parsedIndex > 0 ? parsedIndex : positionalIndex, label);
+    }
+
+    /**
+     * A row's index and label as {@link #cells} reads them.
+     *
+     * @param index the 1-based option index
+     * @param label the option's label text
+     */
+    record Cells(int index, String label) {
     }
 
     /** Parses an "N." number cell to its integer, or -1 when the text isn't one. */

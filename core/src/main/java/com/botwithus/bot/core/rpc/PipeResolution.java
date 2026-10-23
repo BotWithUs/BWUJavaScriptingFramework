@@ -28,9 +28,23 @@ public sealed interface PipeResolution {
     record NotYet(String detail) implements PipeResolution {}
 
     /**
-     * Our pipe is gone for good. Retrying cannot succeed and adopting another
-     * instance's pipe would be worse than failing — see
+     * Our pipe is gone for good, as far as this recovery is concerned. Adopting
+     * another instance's pipe would be worse than failing — see
      * {@link SamePidPipeResolver} for why. Stop and tell the user.
+     *
+     * @param reason whether a later retry could still succeed
      */
-    record Gone(String detail) implements PipeResolution {}
+    record Gone(Reason reason, String detail) implements PipeResolution {
+
+        /** Why the pipe is gone, which decides whether retrying later is worth offering. */
+        public enum Reason {
+            /** The game process exited. Its pipe can never return, so no retry can succeed. */
+            PROCESS_EXITED,
+            /**
+             * The process is still alive but did not re-open its pipe in time. A
+             * retry the user asks for later may still find it.
+             */
+            PIPE_NOT_REOPENED
+        }
+    }
 }

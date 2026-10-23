@@ -3,11 +3,18 @@ package com.botwithus.bot.core.crypto;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
+import java.lang.module.ModuleDescriptor;
+import java.lang.module.ModuleFinder;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Base64;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Fetches an encrypted script bundle from the Agent and hands it to the custom
@@ -23,6 +30,8 @@ import java.util.Map;
  */
 public final class SdnLoader {
 
+    private static final Logger log = LoggerFactory.getLogger(SdnLoader.class);
+
     private static final String SDN_CLASS = "jdk.internal.sdn.SdnClassLoader";
 
     private final RpcClient rpc;
@@ -33,7 +42,12 @@ public final class SdnLoader {
     // See JBotWithUsV2/CLAUDE.md → "Java rules exceptions".
     private static volatile MethodHandle pubkey0Handle;
     private static volatile MethodHandle lockdown0Handle;
+    private static volatile Optional<ModuleHandles> moduleHandles;
     private static Class<?> sdnClass;
+
+    /** The two instance methods a module-aware runtime adds to {@code SdnClassLoader}. */
+    private record ModuleHandles(MethodHandle descriptor, MethodHandle moduleFinder) {
+    }
 
     public SdnLoader(RpcClient rpc) {
         this.rpc = rpc;
@@ -94,6 +108,13 @@ public final class SdnLoader {
             var ctor = clazz.getDeclaredConstructor(byte[].class, byte[].class, ClassLoader.class);
             ctor.setAccessible(true);
             return (ClassLoader) ctor.newInstance(encryptedJar, serverPubKey, parent);
+        } catch (InvocationTargetException e) {
+            // The constructor's own refusal (a bad signature, an unusable key, a
+            // jar that does not unseal) is the only account of why a delivery
+            // loaded nothing, so it is carried into the message rather than
+            // left on a cause that a one-line log never prints.
+            Throwable refusal = e.getCause();
+            throw new RpcException("Failed to construct SdnClassLoader: " + refusal.getMessage(), refusal);
         } catch (ReflectiveOperationException e) {
             throw new RpcException("Failed to construct SdnClassLoader", e);
         }
@@ -121,6 +142,42 @@ public final class SdnLoader {
      */
     public static ClassLoader defineLoader(byte[] encryptedJar, byte[] envelope, ClassLoader parent) {
         return createSdnClassLoader(encryptedJar, envelope, parent);
+    }
+
+    /**
+     * The named module the jar behind {@code loader} declares, or empty when it
+     * should load the legacy way, through {@code META-INF/services} into the
+     * loader's unnamed module.
+     *
+     * <p>Empty in three cases: the jar has no {@code module-info.class}; the
+     * runtime predates module support (it has no {@code descriptor()} /
+     * {@code moduleFinder()}), which is logged once; or {@code loader} is not an
+     * SDN loader at all. A jar whose {@code module-info.class} is malformed or
+     * fails to unseal throws instead, so it is refused rather than quietly
+     * loaded without its module boundary.
+     *
+     * @param loader a loader returned by {@link #defineLoader} or {@link #loadScriptBundle}
+     * @throws RpcException if the runtime could not read the jar's module descriptor
+     */
+    public static Optional<SdnModule> moduleOf(ClassLoader loader) {
+        // rule-exception: §Banned 1 (reflection). Same JVM-injected target as
+        // createSdnClassLoader: it has no build-time symbol, so the type test is
+        // Class.isInstance and Class.cast types the reflective results. See
+        // JBotWithUsV2/CLAUDE.md → "Java rules exceptions".
+        Optional<ModuleHandles> handles = getModuleHandles();
+        if (handles.isEmpty() || !getSdnClass().isInstance(loader)) {
+            return Optional.empty();
+        }
+        try {
+            ModuleDescriptor descriptor = ModuleDescriptor.class.cast(handles.get().descriptor().invoke(loader));
+            if (descriptor == null) {
+                return Optional.empty();
+            }
+            ModuleFinder finder = ModuleFinder.class.cast(handles.get().moduleFinder().invoke(loader));
+            return Optional.of(new SdnModule(descriptor, finder));
+        } catch (Throwable t) {
+            throw new RpcException("SDN: could not read the delivered jar's module descriptor", t);
+        }
     }
 
     /**
@@ -190,6 +247,42 @@ public final class SdnLoader {
             }
         }
         return pubkey0Handle;
+    }
+
+    /**
+     * Resolves {@code descriptor()} and {@code moduleFinder()} once. Empty on a
+     * stock JDK and on an SDN runtime built before they existed; both load every
+     * jar the legacy way.
+     */
+    private static Optional<ModuleHandles> getModuleHandles() {
+        // rule-exception: §Banned 1 (MethodHandles.privateLookupIn). Same reason
+        // as getSdnClass. See JBotWithUsV2/CLAUDE.md → "Java rules exceptions".
+        Optional<ModuleHandles> resolved = moduleHandles;
+        if (resolved != null) {
+            return resolved;
+        }
+        resolved = resolveModuleHandles();
+        moduleHandles = resolved;
+        return resolved;
+    }
+
+    private static Optional<ModuleHandles> resolveModuleHandles() {
+        if (!isAvailable()) {
+            return Optional.empty();
+        }
+        try {
+            Class<?> clazz = getSdnClass();
+            var lookup = MethodHandles.privateLookupIn(clazz, MethodHandles.lookup());
+            MethodHandle descriptor = lookup.findVirtual(clazz, "descriptor",
+                    MethodType.methodType(ModuleDescriptor.class));
+            MethodHandle finder = lookup.findVirtual(clazz, "moduleFinder",
+                    MethodType.methodType(ModuleFinder.class));
+            return Optional.of(new ModuleHandles(descriptor, finder));
+        } catch (ReflectiveOperationException e) {
+            log.info("SDN: this runtime cannot load a delivered jar as a named module ({}); "
+                    + "every SDN script loads into an unnamed module instead", e.getMessage());
+            return Optional.empty();
+        }
     }
 
     private static MethodHandle getLockdown0Handle() {

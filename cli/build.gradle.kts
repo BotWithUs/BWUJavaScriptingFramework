@@ -1,3 +1,8 @@
+import java.security.SecureRandom
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
+
 plugins {
     application
     alias(libs.plugins.beryx.jlink)
@@ -14,7 +19,19 @@ dependencies {
     implementation(project(":api"))
     implementation(project(":core"))
     implementation(libs.gson)
-    implementation(libs.imgui.java.app)
+
+    // imgui-java-app is the "runs anywhere" convenience artifact: its POM pulls
+    // LWJGL's natives for *every* platform, which is how 9 undeclared
+    // natives-linux / natives-macos / natives-macos-arm64 jars were reaching a
+    // Windows-only product's runtime classpath and its shipped runtime image.
+    // We want its classes (imgui.app.Application, which ImGuiApp extends), not
+    // its platform set, so LWJGL is excluded here and declared deliberately
+    // below: the base artifacts for the classes, one classifier for the natives.
+    implementation(libs.imgui.java.app) {
+        exclude(group = "org.lwjgl")
+    }
+    implementation(libs.bundles.lwjgl.base)
+
     runtimeOnly(libs.imgui.java.natives.windows)
     runtimeOnly("${libs.lwjgl.core.get().module}:$lwjglVersion:$lwjglNatives")
     runtimeOnly("${libs.lwjgl.glfw.get().module}:$lwjglVersion:$lwjglNatives")
@@ -75,7 +92,16 @@ tasks.named<JavaExec>("run") {
         // restricted Linker API; J22+ requires explicit native-access opt-in.
         // sqlite-jdbc (org.xerial.sqlitejdbc) System.load()s its native lib when
         // a skilling script opens the Atlas — opt it in too so the read is clean.
-        "--enable-native-access=com.botwithus.bot.core,org.xerial.sqlitejdbc",
+        //
+        // LWJGL and imgui-java load and bind native code too. The linked image
+        // folds them into com.botwithus.merged.module (forceMerge below) and
+        // enables that; `run` keeps them as their own modules, so it names them.
+        "--enable-native-access=com.botwithus.bot.core,org.xerial.sqlitejdbc,"
+                + "org.lwjgl,org.lwjgl.glfw,org.lwjgl.opengl,imgui.binding",
+        // Every module not listed above is refused a restricted call outright,
+        // as in the shipped launcher below, instead of being let through with a
+        // warning. A script module is never on the list.
+        "--illegal-native-access=deny",
     )
     // Optional: point at the NXTCache DLL + cache directory to enable
     // cache-backed config-type lookups (item/npc/loc/quest/etc.). Set these
@@ -121,6 +147,209 @@ tasks.named<JavaExec>("run") {
     project.localProperty("sdn.jdk", "SDN_JDK")?.let {
         val suffix = if (System.getProperty("os.name").startsWith("Windows")) ".exe" else ""
         setExecutable("$it/bin/java$suffix")
+    }
+}
+
+// The host keeps its state under ~/.botwithus (groups, remembered clients, the
+// start-when-back queue, staged script copies, settings), and anything in a test
+// that reaches a default path writes there. Each run gets an empty home of its
+// own instead, so no test can read or overwrite the user's real files, whatever
+// constructor it happened to use.
+tasks.named<Test>("test") {
+    val testHome = layout.buildDirectory.dir("test-home").get().asFile
+    systemProperty("user.home", testHome.absolutePath)
+    doFirst {
+        testHome.deleteRecursively()
+        testHome.mkdirs()
+    }
+    // Needs a running launcher service; it runs only in launcherLiveTest below.
+    filter {
+        excludeTestsMatching(LAUNCHER_LIVE_TEST)
+    }
+}
+
+// ── Launcher service acceptance (launcher ADR 0007, A6) ────────────────────
+// Runs the Java host's launcher acceptance checks against a running Debug
+// bwu_service. The host's stores live in a throwaway user.home, as for `test`.
+// Forwards: botwithus.live.account, botwithus.live.serviceExe, and the dev gate
+// (botwithus.dev.serviceScope) for a sandboxed service. Pick a case with --tests.
+//   ./gradlew :cli:launcherLiveTest -Dbotwithus.live.account=<uuid> --tests "*managerScript*"
+val LAUNCHER_LIVE_TEST = "com.botwithus.bot.cli.LauncherLiveTest"
+tasks.register<Test>("launcherLiveTest") {
+    description = "Launcher service acceptance checks against a running Debug service"
+    group = "verification"
+    useJUnitPlatform()
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    val liveHome = layout.buildDirectory.dir("live-home").get().asFile
+    systemProperty("user.home", liveHome.absolutePath)
+    systemProperty("botwithus.live.launcher", "true")
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    listOf("botwithus.live.account", "botwithus.live.serviceExe", "botwithus.dev.serviceScope").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    project.localProperty("nxtcache.dll", "NXTCACHE_DLL")?.let { systemProperty("nxtcache.dll", it) }
+    doFirst {
+        liveHome.deleteRecursively()
+        liveHome.mkdirs()
+    }
+    outputs.upToDateWhen { false }
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out", "standard_error")
+        showStandardStreams = true
+    }
+    filter {
+        includeTestsMatching(LAUNCHER_LIVE_TEST)
+    }
+}
+
+// ── Dev-only UI preview ──────────────────────────────────────────────────────
+// Renders the UI with fixture data and writes one PNG per scenario to
+// build/preview/: Normal mode (every card and script state, 7 and 13 clients,
+// empty, a client restarting, the picker, the inspector, toasts) and Advanced
+// mode (the sidebar and every page in its states). It is how a UI change is checked without a game client or a person
+// clicking through it.
+//
+// Gated by construction: the code lives in its own `preview` source set, which
+// the `jar` task, the jlink image and the installer never read, so none of it can
+// reach a user. It runs on the classpath (no module-info), which is also why it
+// can reach the handful of package-private seams it needs in gui.usermode and
+// gui.inspector.
+val preview: SourceSet by sourceSets.creating {
+    compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
+    runtimeClasspath += output + compileClasspath + sourceSets.main.get().runtimeClasspath
+}
+
+// The preview is not on any shipping path, so nothing else compiles it; without
+// this it could stop compiling and nobody would notice until the next UI change.
+tasks.named("check") { dependsOn(preview.classesTaskName) }
+
+/** Runs the preview renderer, writing its PNGs to build/[outDirName], followed by [extraArgs]. */
+fun JavaExec.renderPreviewsInto(outDirName: String, vararg extraArgs: String) {
+    group = "verification"
+    dependsOn(extractNatives)
+    classpath = preview.runtimeClasspath
+    mainClass = "com.botwithus.bot.cli.gui.preview.ShellPreview"
+    args(layout.buildDirectory.dir(outDirName).get().asFile.absolutePath, *extraArgs)
+    jvmArgs("-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}")
+    outputs.upToDateWhen { false }
+}
+
+val renderPreviews by tasks.registering(JavaExec::class) {
+    description = "Dev only: renders both modes from fixtures and writes one PNG per scenario to build/preview"
+    renderPreviewsInto("preview")
+}
+
+// The same render as a check: fails if a scenario throws, if a frame shows no
+// page, or if the window closes before the last scenario. It opens a window and
+// needs a desktop session with OpenGL (GLFW has no headless mode), which is why it
+// is not part of `check` and CI does not run it. Run it after a UI change.
+tasks.register<JavaExec>("previewSmokeTest") {
+    description = "Dev only: renders every preview scenario and fails on an exception or an empty frame"
+    renderPreviewsInto("preview-smoke", "--check")
+}
+
+// The task's name before it drew Advanced mode too; kept so existing habits still work.
+tasks.register("renderNormalModePreviews") {
+    description = "Dev only: alias of renderPreviews"
+    group = "verification"
+    dependsOn(renderPreviews)
+}
+
+// ── SDN install screens, live (sdnLiveCheck) ─────────────────────────────────
+// Installs SDN scripts through the Store page's and the picker's own models,
+// against an injected game client, with a test courier standing in for the
+// launcher's. Fails unless both screens agree each script installed and the
+// paired script started. Gated by construction like the preview: the code lives
+// in the sdnLive source set, which the jar, the jlink image and the installer
+// never read. Needs, as -P properties, local.properties keys or env vars:
+//   sdn.jdk       a DEBUG SDN runtime; only a debug one honours the run's signing key
+//   sdnbundle.exe the private SDN tooling's courier stand-in
+//   sdnlive.pid   the game client (or -Dbotwithus.harness.pid, as the harness passes it)
+//
+// It runs on the MODULE path, patched into this module, unlike the preview. A
+// delivered named module resolves against the boot layer, and on a classpath the
+// API is unnamed there, so the fixtures would not resolve and the check would
+// prove nothing about module loading. The check's first precondition fails the
+// run if this ever stops holding.
+val sdnLive: SourceSet by sourceSets.creating {
+    compileClasspath += sourceSets.main.get().output + sourceSets.main.get().compileClasspath
+}
+tasks.named("check") { dependsOn(sdnLive.classesTaskName) }
+
+val sdnLiveFixture by configurations.creating {
+    isCanBeConsumed = false
+    isCanBeResolved = true
+}
+dependencies {
+    sdnLiveFixture(project(path = ":sdn-live-fixture", configuration = "sdnLiveFixtures"))
+}
+
+val sdnLiveSeedBytes = 32
+
+/** A throwaway signing seed as hex, made per run and never written down. */
+fun randomSeedHex(): String =
+    ByteArray(sdnLiveSeedBytes).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it) }
+
+/** The public half of [seed], as the courier computes it, for the runtime's override. */
+fun sdnPublicKey(courier: String, seed: String): String {
+    val process = ProcessBuilder(courier, "pubkey", seed).redirectErrorStream(true).start()
+    val out = process.inputStream.bufferedReader().readText().trim()
+    if (process.waitFor() != 0) {
+        throw GradleException("sdnLiveCheck: '$courier pubkey' failed: $out")
+    }
+    return out
+}
+
+tasks.register<JavaExec>("sdnLiveCheck") {
+    description = "Live: installs SDN scripts from the Store page and the picker on an injected client"
+    group = "verification"
+    dependsOn(sdnLive.classesTaskName)
+    inputs.files(sdnLiveFixture)
+    mainModule = "com.botwithus.bot.cli"
+    mainClass = "com.botwithus.bot.cli.sdnlive.SdnLiveCheck"
+    classpath = sourceSets.main.get().runtimeClasspath
+    val runDir = layout.buildDirectory.dir("sdn-live").get().asFile
+    workingDir = runDir
+    val courier = project.localProperty("sdnbundle.exe", "SDNBUNDLE_EXE")
+    val pid = project.localProperty("sdnlive.pid", "SDNLIVE_PID") ?: System.getProperty("botwithus.harness.pid")
+    val sdnJdk = project.localProperty("sdn.jdk", "SDN_JDK")
+    sdnJdk?.let {
+        val suffix = if (System.getProperty("os.name").startsWith("Windows")) ".exe" else ""
+        setExecutable("$it/bin/java$suffix")
+    }
+    val hostLog = File(runDir, "host.log")
+    jvmArgs(
+        "--patch-module", "com.botwithus.bot.cli=${sdnLive.output.asPath}",
+        "--enable-native-access=com.botwithus.bot.core,org.xerial.sqlitejdbc",
+        "--illegal-native-access=deny",
+        "-Dlogback.configurationFile=${file("src/sdnLive/resources/logback-sdnlive.xml").absolutePath}",
+        "-Duser.home=${File(runDir, "home").absolutePath}",
+        "-Dbotwithus.sdn.dir=${File(runDir, "sdn").absolutePath}",
+        "-Dbotwithus.sdn.disk=true",
+        "-Dbotwithus.sdnlive.workDir=${runDir.absolutePath}",
+        "-Dbotwithus.sdnlive.hostLog=${hostLog.absolutePath}",
+    )
+    project.localProperty("nxtcache.dll", "NXTCACHE_DLL")?.let { jvmArgs("-Dnxtcache.dll=$it") }
+    project.localProperty("nxtcache.path", "NXTCACHE_PATH")?.let { jvmArgs("-Dnxtcache.path=$it") }
+    // The verdict depends on a live game, not on inputs Gradle can see.
+    outputs.upToDateWhen { false }
+    doFirst {
+        if (sdnJdk == null || courier == null || pid == null) {
+            throw GradleException("sdnLiveCheck needs sdn.jdk, sdnbundle.exe and sdnlive.pid; " +
+                    "have sdn.jdk=$sdnJdk sdnbundle.exe=$courier sdnlive.pid=$pid")
+        }
+        runDir.deleteRecursively()
+        runDir.mkdirs()
+        val seed = randomSeedHex()
+        environment("BWU_SDN_SERVER_PUBKEY", sdnPublicKey(courier, seed))
+        jvmArgs(
+            "-Dbotwithus.sdnlive.courier=$courier",
+            "-Dbotwithus.sdnlive.pid=$pid",
+            "-Dbotwithus.sdnlive.seed=$seed",
+            "-Dbotwithus.sdnlive.wrongSeed=${randomSeedHex()}",
+            "-Dbotwithus.sdnlive.fixtures=${sdnLiveFixture.asPath}",
+        )
     }
 }
 
@@ -183,6 +412,10 @@ jlink {
             // has one).
             "--enable-native-access=com.botwithus.bot.core,com.botwithus.merged.module,"
                     + "org.xerial.sqlitejdbc",
+            // Any other module, a script module included, is refused a
+            // restricted call (IllegalCallerException) rather than allowed one
+            // with a warning, which is the JDK default until it changes.
+            "--illegal-native-access=deny",
             // SdnDiskBundleSource.isEnabled() reads this and skips the whole
             // disk-delivery path when it is absent — silently, so an unset flag
             // presents as "the launcher's courier isn't running" (a 30s timeout)
@@ -374,8 +607,25 @@ val verifySdnRuntime by tasks.registering {
     }
 }
 
+// The bundled fonts' licences (Inter, JetBrains Mono, Font Awesome Free). They
+// ship inside the jar beside the fonts, but a copy in the image's lib/modules
+// cannot be read without tools, and the SIL OFL wants each copy of a font to carry
+// its licence where a user can see it. So the image also carries them as plain
+// files, under legal/fonts/ next to the JDK's own notices; the jpackage app image
+// and the MSI take the runtime from here, so they carry them too.
+val fontNotices by tasks.registering(Copy::class) {
+    description = "Copies the bundled fonts' licences into the runtime image's legal/fonts folder"
+    dependsOn(tasks.named("jlink"))
+    from(layout.projectDirectory.dir("src/main/resources/fonts")) {
+        include("*.txt")
+    }
+    into(layout.buildDirectory.dir("image/legal/fonts"))
+}
+tasks.named("jlink") { finalizedBy(fontNotices) }
+tasks.named("jpackageImage") { dependsOn(fontNotices) }
+
 val packageJre by tasks.registering(Zip::class) {
-    dependsOn(tasks.named("jlink"), verifySdnRuntime)
+    dependsOn(tasks.named("jlink"), verifySdnRuntime, fontNotices)
     archiveFileName.set("jre.zip")
     destinationDirectory.set(layout.buildDirectory.dir("distributions"))
     from(layout.buildDirectory.dir("image"))
@@ -438,3 +688,90 @@ val renameMsi by tasks.registering {
 }
 
 tasks.named("jpackage").configure { finalizedBy(renameMsi) }
+
+// The imgui native ships for all three platforms inside a single artifact
+// (imgui-java-app's `io/imgui/java/native-bin/`), so unlike LWJGL's per-platform
+// classifier jars it cannot be reached by a dependency exclusion — dropping the
+// dependency would drop imgui.app.Application, which ImGuiApp extends. It is
+// stripped out of the merged module instead.
+//
+// The hook is `prepareModulesDir`, and getting that wrong is the whole story of
+// this block. `createMergedModule` does not read the jars staged in
+// `jlinkbase/nonmodjars`; it unpacks the runtime classpath itself and packs
+// `jlinkbase/tmpmerged` during its own action. So neither stripping the staged
+// jars nor deleting unpacked files in a `doLast` changes the linked image — both
+// run, both report bytes dropped, and both leave the natives in `lib/modules`.
+// Only `prepareModulesDir`'s output in `jlinkbase/jlinkjars` is late enough to
+// matter and early enough for jlink to read. The check at the end of this block
+// exists because that failure is silent: two earlier versions "worked" and
+// shipped an unchanged image, and only `jimage list` on the built artifact
+// caught it.
+//
+// Within the merged module the filter is by extension rather than by path, so a
+// future dependency bump cannot quietly reintroduce a foreign binary — this is a
+// Windows-only product, so a Linux or macOS library in its runtime image is dead
+// weight whoever adds it. It is scoped to the merged module, which holds only the
+// non-modular GUI dependencies, so it cannot reach sqlite-jdbc's own bundled
+// natives (that module links as itself, and trimming it is a separate question).
+val foreignNativeExtensions = setOf("so", "dylib")
+val mergedModuleMarker = ".merged.module"
+val imguiWindowsNative = "io/imgui/java/native-bin/imgui-java64.dll"
+
+/** Rewrites [jar] without its non-Windows native entries; returns the bytes dropped. */
+fun stripForeignNatives(jar: File): Long {
+    val rewritten = File(jar.parentFile, "${jar.name}.stripped")
+    var dropped = 0L
+    ZipFile(jar).use { source ->
+        ZipOutputStream(rewritten.outputStream().buffered()).use { out ->
+            for (entry in source.entries()) {
+                if (entry.name.substringAfterLast('.', "") in foreignNativeExtensions) {
+                    dropped += entry.size
+                    logger.info("merged module: dropping non-Windows native {}", entry.name)
+                    continue
+                }
+                out.putNextEntry(ZipEntry(entry.name))
+                source.getInputStream(entry).use { it.copyTo(out) }
+                out.closeEntry()
+            }
+        }
+    }
+    if (dropped == 0L) {
+        rewritten.delete()
+    } else {
+        check(jar.delete()) { "cannot replace $jar while stripping non-Windows natives" }
+        check(rewritten.renameTo(jar)) { "cannot rename $rewritten to $jar" }
+    }
+    return dropped
+}
+
+/** Fails the build unless [jar] lost every foreign native and kept the Windows one. */
+fun verifyWindowsOnlyNatives(jar: File) {
+    ZipFile(jar).use { merged ->
+        val names = merged.entries().toList().map { it.name }
+        val foreign = names.filter { it.substringAfterLast('.', "") in foreignNativeExtensions }
+        check(foreign.isEmpty()) {
+            "$jar still carries non-Windows natives after stripping: $foreign"
+        }
+        check(names.contains(imguiWindowsNative)) {
+            "$jar lost $imguiWindowsNative — the GUI cannot start without it"
+        }
+    }
+}
+
+tasks.named("prepareModulesDir") {
+    doLast {
+        val linkedJars = layout.buildDirectory.dir("jlinkbase/jlinkjars").get().asFile
+        val mergedModules = (linkedJars.listFiles { file: File -> file.extension == "jar" }
+            ?: emptyArray()).filter { it.name.contains(mergedModuleMarker) }
+        check(mergedModules.isNotEmpty()) {
+            "no merged module jar in $linkedJars — the jlink plugin's layout changed, " +
+                    "and the non-Windows natives this strips would otherwise ship unnoticed"
+        }
+        mergedModules.forEach { merged ->
+            val dropped = stripForeignNatives(merged)
+            verifyWindowsOnlyNatives(merged)
+            logger.lifecycle("merged module: dropped {} bytes of non-Windows natives from {}",
+                dropped, merged.name)
+        }
+    }
+}

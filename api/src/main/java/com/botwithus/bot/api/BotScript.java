@@ -67,8 +67,9 @@ public interface BotScript {
      * Override this to provide interactive widgets, status displays, or controls
      * beyond what {@link #getConfigFields()} offers.
      *
-     * <p>The returned {@link ScriptUI} is called every frame on the UI thread.
-     * Return {@code null} (the default) if this script has no custom UI.</p>
+     * <p>The returned {@link ScriptUI} is called every frame while its panel is
+     * showing; see {@link ScriptUI#render()} for where and how. Return
+     * {@code null} (the default) if this script has no custom UI.</p>
      *
      * @return a ScriptUI implementation, or null
      */

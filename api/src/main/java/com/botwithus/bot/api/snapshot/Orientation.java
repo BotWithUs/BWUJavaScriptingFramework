@@ -1,0 +1,142 @@
+package com.botwithus.bot.api.snapshot;
+
+import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.function.IntConsumer;
+
+/**
+ * Which way an entity is facing, as the client stores it (wire v21).
+ *
+ * <p>{@link #raw()} is the client's own angle, {@code 0..16383} per full turn. It is the
+ * entity's <em>rendered</em> facing, which the client interpolates while the entity turns,
+ * so for a few ticks after a turn starts it reads an in-between angle rather than the
+ * direction being turned towards. It is {@link #UNKNOWN_RAW} when the producer could not
+ * read one.</p>
+ *
+ * <p>For anything but an exact comparison, use {@link #degrees()} (a compass bearing,
+ * clockwise from north) or {@link #compass()} (the nearest of eight points). Both are empty
+ * when the facing is unknown. They never quietly answer "north" or "0 degrees" for a value
+ * that was not read.</p>
+ *
+ * <p><b>Compare facings with {@link #isSameFacingAs}, not {@code equals}.</b> The client's
+ * conversion truncates, so a facing the server set to angle {@code j} can read back as
+ * {@code j - 1}. Record {@code equals} is exact value identity and will call those two
+ * different; {@link #isSameFacingAs} allows the {@link #READBACK_TOLERANCE} of one unit.
+ * {@link #compass()} is unaffected, because one unit is far inside a 45-degree sector.</p>
+ *
+ * @param raw the client angle {@code 0..16383}, or {@link #UNKNOWN_RAW}
+ */
+public record Orientation(int raw) {
+
+    /** Client angle units in one full turn. */
+    public static final int FULL_TURN = 16384;
+
+    /**
+     * The raw angle that faces north (+tileY). The raw angle grows clockwise seen from
+     * above: {@code 0} south, {@code 4096} west, {@code 8192} north, {@code 12288} east.
+     *
+     * <p>This zero offset is inferred statically and not yet confirmed against a live
+     * client. If that check disagrees, this constant is the one line to change, and
+     * {@code OrientationTest}'s cardinal pins say what the answers must become.</p>
+     */
+    public static final int NORTH_RAW = 8192;
+
+    /** {@link #raw()} when the facing is not known. */
+    public static final int UNKNOWN_RAW = -1;
+
+    /** What the producer publishes on the wire for "not known": an all-ones {@code u16}. */
+    public static final int WIRE_UNKNOWN = 0xFFFF;
+
+    /**
+     * How far, in raw units, a facing read back from the client may sit from the angle that
+     * set it: the client's conversion truncates, so angle {@code j} can read back as
+     * {@code j - 1}.
+     */
+    public static final int READBACK_TOLERANCE = 1;
+
+    private static final double DEGREES_PER_TURN = 360.0;
+    private static final Orientation UNKNOWN = new Orientation(UNKNOWN_RAW);
+
+    public Orientation {
+        if (raw != UNKNOWN_RAW && !isAngle(raw)) {
+            throw new IllegalArgumentException(
+                    "orientation must be 0.." + (FULL_TURN - 1) + " or " + UNKNOWN_RAW + ": " + raw);
+        }
+    }
+
+    /**
+     * Decodes the producer's zero-extended {@code u16}, degrading rather than throwing.
+     *
+     * <p>{@link #WIRE_UNKNOWN} is an unknown orientation and {@code 0..16383} is the angle
+     * itself. Anything else ({@code 16384..65534}) breaks the producer's contract; it is also
+     * decoded as unknown, never wrapped into a plausible wrong angle, and reported to
+     * {@code outOfContract}. This method never throws: it runs inside a snapshot decode, and
+     * one bad row must not take down every running script. Constructing an
+     * {@code Orientation} directly with an out-of-range value still throws, because that is
+     * a caller's mistake rather than the wire's.</p>
+     *
+     * @param wireValue     the zero-extended {@code u16} read from shared memory
+     * @param outOfContract told the offending value when it is neither an angle nor the
+     *                      sentinel; the decode layer rate-limits what it logs
+     */
+    public static Orientation fromWire(int wireValue, IntConsumer outOfContract) {
+        if (wireValue == WIRE_UNKNOWN) {
+            return UNKNOWN;
+        }
+        if (!isAngle(wireValue)) {
+            outOfContract.accept(wireValue);
+            return UNKNOWN;
+        }
+        return new Orientation(wireValue);
+    }
+
+    /** An orientation that was not read. */
+    public static Orientation unknown() {
+        return UNKNOWN;
+    }
+
+    public boolean isKnown() {
+        return raw != UNKNOWN_RAW;
+    }
+
+    /**
+     * True when both facings are known and lie within {@link #READBACK_TOLERANCE} of each other
+     * around the circle, so {@code 0} and {@code 16383} count as one unit apart. Use this rather
+     * than {@code equals}, which is exact and so fooled by the client's truncation. An unknown
+     * facing matches nothing, including another unknown one.
+     */
+    public boolean isSameFacingAs(Orientation other) {
+        if (!isKnown() || !other.isKnown()) {
+            return false;
+        }
+        int apart = Math.floorMod(raw - other.raw, FULL_TURN);
+        return Math.min(apart, FULL_TURN - apart) <= READBACK_TOLERANCE;
+    }
+
+    /** Compass bearing in {@code [0, 360)}, clockwise from north; empty when unknown. */
+    public OptionalDouble degrees() {
+        if (!isKnown()) {
+            return OptionalDouble.empty();
+        }
+        int fromNorth = Math.floorMod(raw - NORTH_RAW, FULL_TURN);
+        return OptionalDouble.of(fromNorth * DEGREES_PER_TURN / FULL_TURN);
+    }
+
+    /**
+     * The nearest of the eight compass points; empty when unknown. A bearing exactly on a
+     * sector boundary (22.5, 67.5, ...) rounds clockwise.
+     */
+    public Optional<Direction> compass() {
+        OptionalDouble bearing = degrees();
+        if (bearing.isEmpty()) {
+            return Optional.empty();
+        }
+        Direction[] points = Direction.values();
+        int sector = (int) Math.round(bearing.getAsDouble() / Direction.SECTOR_DEGREES);
+        return Optional.of(points[sector % points.length]);
+    }
+
+    private static boolean isAngle(int value) {
+        return value >= 0 && value < FULL_TURN;
+    }
+}

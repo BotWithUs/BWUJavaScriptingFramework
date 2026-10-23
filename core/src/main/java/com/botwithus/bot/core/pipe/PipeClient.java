@@ -39,7 +39,7 @@ public class PipeClient implements AutoCloseable {
      * thread. Keep the two sides equal: raising this alone does nothing, and
      * lowering it below the producer's cap would drop legitimate frames.</p>
      */
-    private static final int MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
+    public static final int DEFAULT_MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
     static final String PIPE_PREFIX = "\\\\.\\pipe\\";
 
     /**
@@ -50,6 +50,7 @@ public class PipeClient implements AutoCloseable {
      */
     public static final String NAME_PREFIX = "BotWithUs_";
 
+    private final int maxMessageBytes;
     private volatile String pipePath;
     private volatile Transport transport;
     private volatile boolean open = true;
@@ -67,8 +68,28 @@ public class PipeClient implements AutoCloseable {
     }
 
     public PipeClient(String pipeName) {
+        this(pipeName, DEFAULT_MAX_MESSAGE_BYTES);
+    }
+
+    /**
+     * Connects to {@code pipeName} with a cap on the size of a message read
+     * from it. The agent pipe uses {@link #DEFAULT_MAX_MESSAGE_BYTES}; the
+     * launcher service's pipes cap a frame body at 1 MiB, and a longer length
+     * prefix from them is framing corruption.
+     *
+     * @param pipeName        the pipe's name, without the pipe namespace prefix
+     * @param maxMessageBytes the largest message {@link #readMessage()} accepts
+     * @throws PipeException if the pipe cannot be opened
+     */
+    public PipeClient(String pipeName, int maxMessageBytes) {
+        if (maxMessageBytes <= 0) {
+            throw new IllegalArgumentException("maxMessageBytes must be positive, was " + maxMessageBytes);
+        }
+        this.maxMessageBytes = maxMessageBytes;
         this.pipePath = PIPE_PREFIX + pipeName;
         this.transport = openTransport(pipePath);
+        // Read by the launcher live test to show no two clients hold one agent's pipe at once.
+        log.debug("Pipe client opened: {}", pipePath);
     }
 
     /**
@@ -184,7 +205,7 @@ public class PipeClient implements AutoCloseable {
                     | ((header[1] & 0xFF) << 8)
                     | ((header[2] & 0xFF) << 16)
                     | ((header[3] & 0xFF) << 24);
-            if (length <= 0 || length > MAX_MESSAGE_BYTES) {
+            if (length <= 0 || length > maxMessageBytes) {
                 throw new PipeException("Invalid message length: " + length);
             }
             byte[] payload = new byte[length];
@@ -267,6 +288,7 @@ public class PipeClient implements AutoCloseable {
         }
         open = false;
         closeTransport(transport);
+        log.debug("Pipe client closed: {}", pipePath);
     }
 
     /**

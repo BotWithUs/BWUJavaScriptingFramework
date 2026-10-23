@@ -5,6 +5,7 @@ import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
+import java.util.Optional;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_INT;
@@ -22,6 +23,9 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * header.</p>
  */
 final class WorldWalkerNative {
+
+    private static final String QUERY_MOVES = "ww_query_moves";
+    private static final String EXECUTOR_RUN_EX = "ww_executor_run_ex";
 
     // ── Error + memory ─────────────────────────────────────────────────────
 
@@ -44,10 +48,16 @@ final class WorldWalkerNative {
     final MethodHandle wwQuery;              // (ptr, ptr, WwTile, WwGoal, ptr, ptr) -> int
     final MethodHandle wwQueryEx;            // (ptr, ptr, WwTile, WwGoal, ptr, ptr, ptr) -> int
     final MethodHandle wwPathFree;           // (ptr) -> void
+    /** {@code ww_query_moves}; absent from a library that predates it. */
+    final Optional<MethodHandle> wwQueryMoves; // (ptr, ptr, WwTile, WwGoal, ptr, ptr, ptr, u32) -> int
+    final MovesEntry queryEntry;
 
     // ── Executor ───────────────────────────────────────────────────────────
 
     final MethodHandle wwExecutorRun;        // (ptr, ptr, WwGoal, ptr) -> int
+    /** {@code ww_executor_run_ex}; absent from a library that predates it. */
+    final Optional<MethodHandle> wwExecutorRunEx; // (ptr, ptr, WwGoal, ptr, u32) -> int
+    final MovesEntry executorEntry;
 
     // ── Upcall descriptors (used by UpcallStubs.install) ───────────────────
 
@@ -158,6 +168,18 @@ final class WorldWalkerNative {
                         ADDRESS));                              // WwPath* (out)
         wwPathFree = downcall(linker, lookup, "ww_path_free",
                 FunctionDescriptor.ofVoid(ADDRESS));
+        // ww_query_ex plus a trailing uint32_t disabledMoves.
+        wwQueryMoves = optionalDowncall(linker, lookup, QUERY_MOVES,
+                FunctionDescriptor.of(JAVA_INT,
+                        ADDRESS,                                // ww_artifact*
+                        ADDRESS,                                // ww_context_pool*
+                        WorldWalkerLayouts.WW_TILE,             // WwTile (by value)
+                        WorldWalkerLayouts.WW_GOAL,             // WwGoal (by value)
+                        ADDRESS,                                // const WwCapabilitySnapshot*
+                        ADDRESS,                                // const WwInstanceChunks*
+                        ADDRESS,                                // WwPath* (out)
+                        JAVA_INT));                             // uint32_t disabledMoves
+        queryEntry = new MovesEntry(QUERY_MOVES, wwQueryMoves.isPresent());
 
         wwExecutorRun = downcall(linker, lookup, "ww_executor_run",
                 FunctionDescriptor.of(JAVA_INT,
@@ -165,6 +187,24 @@ final class WorldWalkerNative {
                         ADDRESS,                                // ww_context_pool*
                         WorldWalkerLayouts.WW_GOAL,             // WwGoal (by value)
                         ADDRESS));                              // const WwCallbacks*
+        // ww_executor_run plus a trailing uint32_t disabledMoves.
+        wwExecutorRunEx = optionalDowncall(linker, lookup, EXECUTOR_RUN_EX,
+                FunctionDescriptor.of(JAVA_INT,
+                        ADDRESS,                                // ww_artifact*
+                        ADDRESS,                                // ww_context_pool*
+                        WorldWalkerLayouts.WW_GOAL,             // WwGoal (by value)
+                        ADDRESS,                                // const WwCallbacks*
+                        JAVA_INT));                             // uint32_t disabledMoves
+        executorEntry = new MovesEntry(EXECUTOR_RUN_EX, wwExecutorRunEx.isPresent());
+    }
+
+    /**
+     * A symbol a supported older library may lack: bound when present, empty
+     * otherwise, so that library still loads.
+     */
+    private static Optional<MethodHandle> optionalDowncall(Linker linker, SymbolLookup lookup,
+                                                           String name, FunctionDescriptor fd) {
+        return lookup.find(name).map(symbol -> linker.downcallHandle(symbol, fd));
     }
 
     private static MethodHandle downcall(Linker linker, SymbolLookup lookup,

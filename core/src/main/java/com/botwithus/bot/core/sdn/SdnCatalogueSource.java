@@ -10,12 +10,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 
 /**
  * Asks the launcher for the signed-in account's script catalogue.
@@ -31,10 +34,13 @@ public final class SdnCatalogueSource {
 
     private static final Logger log = LoggerFactory.getLogger(SdnCatalogueSource.class);
 
-    private static final String REQUEST_SUFFIX = ".catreq";
+    /** Package-private so {@code SdnCatalogueSourceTest} can name the exchange's lock. */
+    static final String REQUEST_SUFFIX = ".catreq";
     private static final String REPLY_SUFFIX = ".cat";
     private static final String CACHED_REPLY = "catalogue.json";
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(10);
+    /** A build number as the launcher writes it: a bare, whole, non-negative JSON number. */
+    private static final Pattern WHOLE_NUMBER = Pattern.compile("\\d+");
 
     private final Path directory;
 
@@ -50,8 +56,25 @@ public final class SdnCatalogueSource {
         return fetch(DEFAULT_TIMEOUT);
     }
 
-    /** Asks the launcher and waits up to {@code timeout} for its answer. */
+    /**
+     * Asks the launcher and waits up to {@code timeout} for its answer.
+     *
+     * <p>One fetch at a time per process, for the same reason installs are serialised
+     * (see {@link SdnInstaller}). The host's one {@link SdnCatalogueRefresher} already
+     * never overlaps its own fetches; the lock makes that hold for any second caller
+     * too. {@code timeout} starts once this call holds the lock.
+     */
     public SdnCatalogueResult fetch(Duration timeout) {
+        ReentrantLock exchange = SdnRendezvous.exchangeLock(directory, REQUEST_SUFFIX);
+        exchange.lock();
+        try {
+            return exchange(timeout);
+        } finally {
+            exchange.unlock();
+        }
+    }
+
+    private SdnCatalogueResult exchange(Duration timeout) {
         long pid = SdnRendezvous.currentPid();
         Path request = directory.resolve(pid + REQUEST_SUFFIX);
         Path reply = directory.resolve(pid + REPLY_SUFFIX);
@@ -152,7 +175,12 @@ public final class SdnCatalogueSource {
                 stringOf(o, "description"),
                 stringOf(o, "scriptClass"),
                 boolOf(o, "agentv1Support"),
-                boolOf(o, "agentv2Support"));
+                boolOf(o, "agentv2Support"),
+                optionalBoolOf(o, "subscribed"),
+                optionalBoolOf(o, "isFree"),
+                optionalStringOf(o, "category"),
+                optionalPriceOf(o, "price"),
+                optionalWholeNumberOf(o, "currentBuild"));
     }
 
     private static String stringOf(JsonObject o, String key) {
@@ -167,5 +195,85 @@ public final class SdnCatalogueSource {
         JsonElement e = o.get(key);
         return e != null && e.isJsonPrimitive() && e.getAsJsonPrimitive().isBoolean()
                 && e.getAsBoolean();
+    }
+
+    /**
+     * A JSON boolean as {@code TRUE} / {@code FALSE}, and {@code null} for anything
+     * else: absent, JSON null, or not a boolean. Unlike {@link #boolOf} this never
+     * turns silence into {@code false}, so a launcher that predates the key stays
+     * tellable from one that answered no.
+     */
+    private static Boolean optionalBoolOf(JsonObject o, String key) {
+        JsonElement e = o.get(key);
+        if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isBoolean()) {
+            return null;
+        }
+        return e.getAsBoolean();
+    }
+
+    /**
+     * A non-blank JSON string, and {@code null} for anything else, including a blank
+     * one: a field the Store shows is better missing than empty.
+     */
+    private static String optionalStringOf(JsonObject o, String key) {
+        JsonElement e = o.get(key);
+        if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isString()) {
+            return null;
+        }
+        String value = e.getAsString();
+        return value.isBlank() ? null : value;
+    }
+
+    /**
+     * An object holding a string {@code amount} that reads as a non-negative decimal
+     * and a non-blank string {@code duration}, and {@code null} for anything less.
+     * Half a price is no price: there is nothing honest to display from it.
+     */
+    private static SdnPrice optionalPriceOf(JsonObject o, String key) {
+        JsonElement e = o.get(key);
+        if (e == null || !e.isJsonObject()) {
+            return null;
+        }
+        JsonObject price = e.getAsJsonObject();
+        BigDecimal amount = decimalOf(optionalStringOf(price, "amount"));
+        String duration = optionalStringOf(price, "duration");
+        if (amount == null || duration == null) {
+            return null;
+        }
+        return new SdnPrice(amount, duration);
+    }
+
+    private static BigDecimal decimalOf(String text) {
+        if (text == null) {
+            return null;
+        }
+        try {
+            BigDecimal value = new BigDecimal(text.strip());
+            return value.signum() < 0 ? null : value;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
+     * A JSON number written as a whole, non-negative integer that fits an
+     * {@code int}, and {@code null} for anything else. A quoted {@code "7"}, a
+     * {@code 7.5} and a {@code 7.0} are all refused rather than rounded or
+     * truncated, so a malformed build never reads as a real one.
+     */
+    private static Integer optionalWholeNumberOf(JsonObject o, String key) {
+        JsonElement e = o.get(key);
+        if (e == null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) {
+            return null;
+        }
+        String token = e.getAsString();
+        if (!WHOLE_NUMBER.matcher(token).matches()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(token);
+        } catch (NumberFormatException tooLarge) {
+            return null;
+        }
     }
 }

@@ -1,22 +1,36 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.model.VarKind;
+import com.botwithus.bot.api.model.VarpState;
+import com.botwithus.bot.api.model.VarpRead;
+import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.ComponentNode;
 import com.botwithus.bot.api.component.ComponentQuery;
+import com.botwithus.bot.api.component.ComponentType;
 import com.botwithus.bot.api.component.Components;
+import com.botwithus.bot.api.dialog.Dialog;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
+import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.ItemType;
+import com.botwithus.bot.api.model.LocationType;
+import com.botwithus.bot.api.model.ScriptResult;
+import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
+import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
+import com.botwithus.bot.core.worldwalker.DialogueAnswerText;
 import com.botwithus.bot.core.worldwalker.WwEvent;
 import com.botwithus.bot.core.worldwalker.WwEventKind;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
@@ -25,11 +39,19 @@ import com.botwithus.bot.core.worldwalker.WwTile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.random.RandomGenerator;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -45,9 +67,61 @@ class WorldWalkerCallbackBridgeTest {
     // Magic's StatType.id, the skill the test players carry.
     private static final int MAGIC_SKILL_TYPE = 6;
 
+    // Sabbot's cave entrance, a 4x4 loc whose dataset row sits off its anchor.
+    private static final int SABBOT_CAVE = 34395;
+
+    // The Moonrise bank's doors: every one is this closed id, swapped for the
+    // open id when opened.
+    private static final int DOOR_CLOSED = 137297;
+    private static final int DOOR_OPEN = 137298;
+
+    // RT4 placement shapes: a straight wall (doors) and a centrepiece.
+    private static final int WALL_SHAPE = 0;
+    private static final int CENTREPIECE_SHAPE = 10;
+
+    // RandomGenerator.nextDouble() is built from nextLong(): 0 maps to 0.0 (every
+    // chance roll passes), all bits set to just under 1.0 (every roll fails).
+    private static final RandomGenerator ALWAYS_FIRE = () -> 0L;
+    private static final RandomGenerator NEVER_FIRE  = () -> -1L;
+    // nextDouble() near 0.0 (fires) with nextInt() == 1, which picks the
+    // 2-tick post-ability pause.
+    private static final RandomGenerator TWO_TICK_PAUSE = () -> 1L << Integer.SIZE;
+
+    private static final long ONE_TICK_MS = 600L;
+    private static final int  SOME_ANIMATION = 8939;
+
+    // Handle the fake producer hands out for the target-mode cancel script,
+    // the producer's "not acquired" handle, and the script's idle answer.
+    private static final long CANCEL_HANDLE = 4242L;
+    private static final long NO_SCRIPT_HANDLE = 0L;
+    private static final int  TARGETMODE_WAS_IDLE = 0;
+
+    // Test clock start; any positive epoch-ms value works.
+    private static final long START_MS = 1_000_000L;
+    private static final long RESCAN_MS = 60_000L;
+
+    // Bar icon sprites the cache structs name (param 2802).
+    private static final int SURGE_SPRITE       = 14233;
+    private static final int DIVE_SPRITE        = 23714;
+    private static final int BLADED_DIVE_SPRITE = 30331;
+
+    // Worn items for the Bladed Dive loadout gate. The staff and the boots are
+    // real ids (Camel staff, laceration boots); the melee pieces are stand-ins.
+    private static final int CAMEL_STAFF      = 36021;
+    private static final int MELEE_MAIN_HAND  = 900_001;
+    private static final int MELEE_OFF_HAND   = 900_002;
+    private static final int LACERATION_BOOTS = 48081;
+    private static final int PARAM_SET        = 1;
+    private static final int EQUIPMENT_SLOTS  = 19;
+
     private GameAPI api;
+    private AtomicLong clock;
+    private List<Long> sleeps;
+    private Components componentsFacade;
+    private Map<Integer, ComponentQuery> barQueries;
     private GameSnapshot snapshot;
     private GameSnapshot.Locations locationsTable;
+    private GameSnapshot.Npcs npcsTable;
     private AtomicBoolean cancel;
     private List<WwEvent> events;
     private WorldWalkerCallbackBridge bridge;
@@ -59,9 +133,25 @@ class WorldWalkerCallbackBridgeTest {
         locationsTable = mock(GameSnapshot.Locations.class);
         when(snapshot.locations()).thenReturn(locationsTable);
         when(locationsTable.stream()).thenReturn(Stream.empty());
+        npcsTable = mock(GameSnapshot.Npcs.class);
+        when(snapshot.npcs()).thenReturn(npcsTable);
+        when(npcsTable.stream()).thenReturn(Stream.empty());
         cancel = new AtomicBoolean(false);
         events = new ArrayList<>();
-        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL);
+        clock = new AtomicLong(START_MS);
+        sleeps = new ArrayList<>();
+        barQueries = new HashMap<>();
+        bridge = bridgeWithRng(ALWAYS_FIRE);
+    }
+
+    private WorldWalkerCallbackBridge bridgeWithRng(RandomGenerator rng) {
+        return new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(rng));
+    }
+
+    // Fake time and sleep: sleeps are recorded, not taken.
+    private WorldWalkerCallbackBridge.Pacing pacing(RandomGenerator rng) {
+        return new WorldWalkerCallbackBridge.Pacing(rng, clock::get, sleeps::add);
     }
 
     private LocalPlayer player(int x, int y, int plane) {
@@ -200,6 +290,108 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(70, caps.skills().get(MAGIC_SKILL_TYPE));
     }
 
+    private static VarpRead setVarp(int id, int value) {
+        return new VarpRead(id, VarpState.SET, value, value, VarKind.INT, true);
+    }
+
+    private static List<VarpRead> setVarps(List<Integer> ids, List<Integer> values) {
+        List<VarpRead> reads = new ArrayList<>();
+        for (int i = 0; i < ids.size(); i++) {
+            reads.add(setVarp(ids.get(i), values.get(i)));
+        }
+        return reads;
+    }
+
+    // The key-ring varp with bit 0 (the Brass key) and bit 31 both set. The top
+    // bit makes the int negative, so a bridge that narrowed, masked or dropped a
+    // negative value would fail the map equality below.
+    private static final int KEY_RING_BRASS_AND_TOP_BIT = Integer.MIN_VALUE | 1;
+
+    // Every varp the shipped WorldWalker dataset gates on, with the value its
+    // gate needs: the spirit trees (2661), The Grand Tree (2740), the Mos
+    // Le'Harmless (2326) and Port Tyras (2102) charters, the Feldip Hills
+    // glider (2671, One Small Favour), the Champions' Guild door (1297, quest
+    // points), the Heroes' Guild doors (2618, Heroes' Quest) and the key ring's
+    // stored keys (2673, bit-tested). A gate on a varp missing here is denied.
+    private static final Map<Integer, Integer> DATASET_VARP_GATES = Map.of(
+            2661, 9, 2740, 160, 2326, 140, 2102, 15, 2671, 200,
+            1297, 33, 2618, 15, 2673, KEY_RING_BRASS_AND_TOP_BIT);
+
+    // The executor learns varps only from this snapshot, so a varp_at_least gate
+    // (Tree Gnome Village's spirit trees) is denied unless the host puts it here.
+    @Test
+    void readCapabilityCarriesRequirementVarpsInOneBatchedRead() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(anyList())).thenAnswer(invocation -> {
+            List<Integer> ids = invocation.getArgument(0);
+            return setVarps(ids, ids.stream().map(id -> DATASET_VARP_GATES.getOrDefault(id, 0))
+                    .toList());
+        });
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(DATASET_VARP_GATES, caps.varps());
+        verify(api, times(1)).readVarps(anyList());
+        verify(api, never()).readVarp(anyInt());
+        verify(api, never()).getVarp(anyInt());
+    }
+
+    @Test
+    void readCapabilityReadsTheVarpsItIsGiven() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                List.of(7, 8));
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(List.of(7, 8))).thenReturn(setVarps(List.of(7, 8), List.of(1, 2)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(Map.of(7, 1, 8, 2), caps.varps());
+    }
+
+    // The walker's ABI reads 0 as "not present"; a varp with no value is left out
+    // rather than handed over as the host's -1 sentinel. A varp at its default
+    // has a value, and is carried.
+    @Test
+    void readCapabilityLeavesOutVarpsWithNoValue() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                List.of(7, 8, 9));
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(List.of(7, 8, 9))).thenReturn(List.of(
+                new VarpRead(7, VarpState.UNAVAILABLE, VarpRead.NO_VALUE, VarpRead.NO_VALUE,
+                        VarKind.UNKNOWN, true),
+                new VarpRead(8, VarpState.DEFAULT_NOT_SET_CLIENTSIDE, 0, 0, VarKind.UNKNOWN, true),
+                new VarpRead(9, VarpState.NO_SUCH_VARP, VarpRead.NO_VALUE, VarpRead.NO_VALUE,
+                        VarKind.UNKNOWN, true)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertEquals(Map.of(8, 0), caps.varps());
+    }
+
+    // A mis-sized reply cannot be paired with its ids, so it adds no varp at
+    // all: every varp gate stays denied rather than admitting on another's value.
+    @Test
+    void readCapabilityAddsNoVarpsWhenBatchIsMisSized() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(anyList())).thenReturn(List.of(setVarp(2661, 9)));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertTrue(caps.varps().isEmpty());
+        assertEquals(73, caps.skills().get(MAGIC_SKILL_TYPE));
+    }
+
+    @Test
+    void readCapabilityKeepsSkillsWhenVarpReadFails() {
+        when(snapshot.self()).thenReturn(playerWithSkill(MAGIC_SKILL_TYPE, 73, 73));
+        when(api.readVarps(anyList())).thenThrow(new RuntimeException("rpc down"));
+
+        CapabilitySnapshot caps = bridge.readCapability();
+
+        assertTrue(caps.varps().isEmpty());
+        assertEquals(73, caps.skills().get(MAGIC_SKILL_TYPE));
+    }
+
     private LocalPlayer playerWithSkill(int typeId, int actualLevel, int boostedLevel) {
         Skill skill = new Skill(typeId, 0, actualLevel, boostedLevel);
         return new LocalPlayer(0, 0, 3000, 3000, 0, 0, -1, -1, 0, -1, 0, false, -1,
@@ -208,13 +400,21 @@ class WorldWalkerCallbackBridgeTest {
 
     @Test
     void readVarbitDelegatesToApi() {
-        when(api.getVarbit(42)).thenReturn(7);
+        when(api.readVarbit(42)).thenReturn(new VarbitRead(42, VarpState.SET, 7, true));
         assertEquals(7, bridge.readVarbit(42));
+    }
+
+    /** The walker's ABI reads 0 as "not present"; the host's -1 must never reach it. */
+    @Test
+    void readVarbitWithNoValueReadsZeroForTheWalker() {
+        when(api.readVarbit(43)).thenReturn(
+                new VarbitRead(43, VarpState.UNAVAILABLE, VarpRead.NO_VALUE, true));
+        assertEquals(0, bridge.readVarbit(43));
     }
 
     @Test
     void readVarbitReturnsZeroOnApiException() {
-        when(api.getVarbit(99)).thenThrow(new RuntimeException("rpc down"));
+        when(api.readVarbit(99)).thenThrow(new RuntimeException("rpc down"));
         assertEquals(0, bridge.readVarbit(99));
     }
 
@@ -260,23 +460,83 @@ class WorldWalkerCallbackBridgeTest {
 
     // ============================== Surge ==============================
 
-    /** Wire up the components fluent API to return one mock node when scanning
-     *  the given iface for the surge sprite. Other ifaces resolve to an empty
-     *  query that returns null. */
+    /** Surge's struct names its icon, and that icon sits on {@code iface} at {@code spriteComp}. */
     private void stubSurgeOnIface(int iface, int spriteComp) {
-        Components componentsFacade = mock(Components.class);
-        ComponentQuery hit  = mock(ComponentQuery.class);
-        ComponentQuery miss = mock(ComponentQuery.class);
-        ComponentNode  node = mock(ComponentNode.class);
-        when(api.components()).thenReturn(componentsFacade);
-        when(componentsFacade.in(anyInt())).thenReturn(miss);
-        when(componentsFacade.in(iface)).thenReturn(hit);
-        when(hit.withSpriteId(anyInt())).thenReturn(hit);
-        when(miss.withSpriteId(anyInt())).thenReturn(miss);
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_SURGE, SURGE_SPRITE);
+        stubSpriteOnBar(iface, SURGE_SPRITE, spriteComp);
+    }
+
+    private void stubStructSprite(int structId, int spriteId) {
+        when(api.getStructType(structId)).thenReturn(new StructType(structId,
+                Map.of(WorldWalkerCallbackBridge.STRUCT_PARAM_ICON_SPRITE, spriteId)));
+    }
+
+    /** Bladed Dive bound on bar 1673, component 3. */
+    private void stubBladedDiveOnBar() {
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_BLADED_DIVE, BLADED_DIVE_SPRITE);
+        stubSpriteOnBar(1673, BLADED_DIVE_SPRITE, 3);
+    }
+
+    /**
+     * Publishes the equipment inventory holding exactly {@code worn}, and gives the stand-in
+     * melee items and the boots their cache params.
+     */
+    private void wear(Map<Equipment.Slot, Integer> worn) {
+        GameSnapshot.Inventories invs = mock(GameSnapshot.Inventories.class);
+        when(snapshot.inventories()).thenReturn(invs);
+        List<InventoryItem> items = new ArrayList<>();
+        worn.forEach((slot, itemId) -> items.add(new InventoryItem(slot.index, itemId, 1)));
+        when(invs.byInvId(Equipment.INVENTORY_ID))
+                .thenReturn(Optional.of(new Inventory(Equipment.INVENTORY_ID, EQUIPMENT_SLOTS, items)));
+        stubItemParams(MELEE_MAIN_HAND, Map.of(WorldWalkerCallbackBridge.ITEM_PARAM_MELEE_WEAPON, PARAM_SET));
+        stubItemParams(MELEE_OFF_HAND, Map.of(WorldWalkerCallbackBridge.ITEM_PARAM_MELEE_WEAPON, PARAM_SET));
+        stubItemParams(LACERATION_BOOTS, Map.of(WorldWalkerCallbackBridge.ITEM_PARAM_SPECIAL_EFFECT,
+                WorldWalkerCallbackBridge.SPECIAL_EFFECT_BLADED_DIVE_BOOTS));
+    }
+
+    private void stubItemParams(int itemId, Map<String, Object> params) {
+        when(api.getItemType(itemId)).thenReturn(new ItemType(itemId, "item " + itemId, false, false,
+                0, 0, 0, -1, -1, false, List.of(), List.of(), params));
+    }
+
+    /** The components facade, created on first use; every bar starts out empty. */
+    private Components components() {
+        if (componentsFacade == null) {
+            componentsFacade = mock(Components.class);
+            ComponentQuery empty = emptyQuery();
+            when(api.components()).thenReturn(componentsFacade);
+            when(componentsFacade.in(anyInt())).thenReturn(empty);
+        }
+        return componentsFacade;
+    }
+
+    private static ComponentQuery emptyQuery() {
+        ComponentQuery empty = mock(ComponentQuery.class);
+        when(empty.withSpriteId(anyInt())).thenReturn(empty);
+        when(empty.first()).thenReturn(null);
+        return empty;
+    }
+
+    /** Scanning {@code iface} for {@code spriteId} finds one node at {@code spriteComp}. */
+    private void stubSpriteOnBar(int iface, int spriteId, int spriteComp) {
+        Components facade = components();
+        ComponentQuery bar = barQueries.computeIfAbsent(iface, id -> {
+            ComponentQuery q = emptyQuery();
+            when(facade.in(id)).thenReturn(q);
+            return q;
+        });
+        ComponentQuery hit = mock(ComponentQuery.class);
+        ComponentNode node = mock(ComponentNode.class);
+        when(bar.withSpriteId(spriteId)).thenReturn(hit);
         when(hit.first()).thenReturn(node);
-        when(miss.first()).thenReturn(null);
         when(node.componentId()).thenReturn(spriteComp);
         when(node.interfaceId()).thenReturn(iface);
+    }
+
+    private List<GameAction> queuedActions(int expected) {
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api, times(expected)).queueAction(captor.capture());
+        return captor.getAllValues();
     }
 
     private LocalPlayer playerWithMagic(int x, int y, int plane, int magicLevel) {
@@ -285,19 +545,23 @@ class WorldWalkerCallbackBridgeTest {
                 LocalPlayer.HEALTH_UNKNOWN, LocalPlayer.HEALTH_UNKNOWN, List.of(magic));
     }
 
+    private LocalPlayer animatingPlayerWithMagic(int x, int y, int plane, int magicLevel) {
+        Skill magic = new Skill(6, 0, magicLevel, magicLevel);
+        return new LocalPlayer(0, 0, x, y, plane, 0, -1, SOME_ANIMATION, 0, -1, 0, false, -1,
+                LocalPlayer.HEALTH_UNKNOWN, LocalPlayer.HEALTH_UNKNOWN, List.of(magic));
+    }
+
     @Test
     void walkToFiresSurgeOnLongStraightChunkWhenMagicLevelIsHigh() {
-        // Magic 99, player at (3000,3000), target 10 tiles due east, no goal
-        // guard active (NO_GOAL). Surge slot is on iface 1670, sprite at comp 165
-        // → click target at 166.
+        // Magic 99, player at (3000,3000), target 12 tiles due east (past
+        // Dive's reach), no goal guard active (NO_GOAL). Surge's icon is on
+        // iface 1670 at comp 165, and that icon component is what's clicked.
         when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
         stubSurgeOnIface(1670, 165);
 
-        bridge.walkTo(new WwTile(3010, 3000, 0));
+        bridge.walkTo(new WwTile(3012, 3000, 0));
 
-        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
-        verify(api, times(2)).queueAction(captor.capture());
-        List<GameAction> actions = captor.getAllValues();
+        List<GameAction> actions = queuedActions(3);
         // Walk goes first so the engine orients the avatar before surge drains
         // off the queue.
         assertEquals(ActionTypes.WALK, actions.get(0).actionId());
@@ -305,7 +569,7 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(ActionTypes.COMPONENT, surge.actionId());
         assertEquals(1, surge.param1(), "option index");
         assertEquals(-1, surge.param2(), "no sub-slot");
-        assertEquals((1670 << 16) | 166, surge.param3(), "(iface<<16)|click_comp");
+        assertEquals((1670 << 16) | 165, surge.param3(), "(iface<<16)|icon_comp");
     }
 
     @Test
@@ -322,8 +586,9 @@ class WorldWalkerCallbackBridgeTest {
 
     @Test
     void walkToSkipsSurgeOnBentPath() {
-        // L-shaped offset (dx=10, dy=4) — not cardinal, not pure-diagonal, so
-        // surge would waste the cooldown moving off the path.
+        // L-shaped offset (dx=10, dy=4): 4 tiles off the cardinal and 6 off the
+        // diagonal, both past the 1/5 tolerance, so surge would waste the
+        // cooldown moving off the path.
         when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
         stubSurgeOnIface(1670, 165);
 
@@ -346,7 +611,7 @@ class WorldWalkerCallbackBridgeTest {
     @Test
     void walkToSkipsSurgeWhenNearGoal() {
         // Goal-aware overshoot guard: with the goal 8 tiles east of the player
-        // (< SURGE_GOAL_GUARD = 12), surge would land us past the goal even
+        // (< ABILITY_GOAL_GUARD = 12), surge would land us past the goal even
         // though the walk chunk itself is a 10-tile straight run.
         WwGoal nearGoal = new WwGoal(3008, 3000, 0, 1);
         bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, nearGoal);
@@ -367,8 +632,550 @@ class WorldWalkerCallbackBridgeTest {
         bridge.walkTo(new WwTile(3010, 3010, 0));
 
         ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
-        verify(api, times(2)).queueAction(captor.capture());
+        verify(api, times(3)).queueAction(captor.capture());
         assertEquals(ActionTypes.COMPONENT, captor.getAllValues().get(1).actionId());
+    }
+
+    @Test
+    void walkToSurgesOnLongNearCardinalHop() {
+        // A randomized long click (dx=30, dy=5) is not exactly 8-way but is
+        // within 1/5 of due east, so surge still fires.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3030, 3005, 0));
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api, times(3)).queueAction(captor.capture());
+        assertEquals(ActionTypes.COMPONENT, captor.getAllValues().get(1).actionId());
+    }
+
+    @Test
+    void isNearStraightAcceptsExactCardinals() {
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(10, 0));
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(-10, 0));
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(0, 32));
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(0, -8));
+    }
+
+    @Test
+    void isNearStraightAcceptsExactDiagonals() {
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(10, 10));
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(-20, 20));
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(32, -32));
+    }
+
+    @Test
+    void isNearStraightAcceptsNearCardinalWithinTolerance() {
+        // Minor axis at exactly major / 5 is the inclusive boundary.
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(10, 2));
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(-5, 30));
+        assertFalse(WorldWalkerCallbackBridge.isNearStraight(10, 3));
+    }
+
+    @Test
+    void isNearStraightAcceptsNearDiagonalWithinTolerance() {
+        // Axes differing by exactly major / 5 is the inclusive boundary.
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(30, 24));
+        assertTrue(WorldWalkerCallbackBridge.isNearStraight(-26, -30));
+        assertFalse(WorldWalkerCallbackBridge.isNearStraight(30, 23));
+    }
+
+    @Test
+    void isNearStraightRejectsOffAxis() {
+        // dx=10, dy=5 sits between east and north-east, past tolerance of both.
+        assertFalse(WorldWalkerCallbackBridge.isNearStraight(10, 5));
+        assertFalse(WorldWalkerCallbackBridge.isNearStraight(-10, 5));
+        assertFalse(WorldWalkerCallbackBridge.isNearStraight(30, 15));
+    }
+
+    @Test
+    void surgeScanLooksForTheSpriteItsStructNames() {
+        // The icon comes from the cache struct, not a hard-coded id: the bar
+        // is queried for exactly the struct's param-2802 sprite.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1430, 40);
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        verify(api).getStructType(WorldWalkerCallbackBridge.STRUCT_SURGE);
+        verify(barQueries.get(1430)).withSpriteId(SURGE_SPRITE);
+        assertEquals((1430 << 16) | 40, queuedActions(3).get(1).param3());
+    }
+
+    @Test
+    void surgeDoesNotFireWhenTheStructHasNoIcon() {
+        // No cache (getStructType -> null): no sprite, so no bar is scanned.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+        verify(api, never()).components();
+    }
+
+    @Test
+    void surgeScanFindsTheIconOnAnyActionBar() {
+        // Only bar 1671 carries Surge; the scan walks every bar to find it.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1671, 7);
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        assertEquals((1671 << 16) | 7, queuedActions(3).get(1).param3());
+    }
+
+    @Test
+    void surgeMissIsRescannedAfterBackoffNotLatched() {
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_SURGE, SURGE_SPRITE);
+        components();
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+        // Within the backoff: no second scan, even though the bar now has it.
+        stubSpriteOnBar(1672, SURGE_SPRITE, 9);
+        clock.addAndGet(RESCAN_MS - 1);
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+        verify(componentsFacade, times(1)).in(1672);
+        // Past it: re-scanned, found, fired.
+        clock.addAndGet(1);
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        verify(componentsFacade, times(2)).in(1672);
+        List<GameAction> actions = queuedActions(5);
+        assertEquals((1672 << 16) | 9, actions.get(3).param3());
+    }
+
+    @Test
+    void surgeWaitsForItsCooldownVarc() {
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+        when(snapshot.gameCycle()).thenReturn(1_000);
+        when(api.getVarcInt(WorldWalkerCallbackBridge.VARC_SURGE_COOLDOWN_END)).thenReturn(1_500);
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+        verify(api, times(1)).queueAction(any(GameAction.class));
+
+        when(snapshot.gameCycle()).thenReturn(1_500);
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+        queuedActions(4);
+    }
+
+    @Test
+    void surgeHonoursTheWallClockFloorEvenWhenTheVarcSaysReady() {
+        // The varc always reads "ready" (0 <= cycle 0); only the floor stops a
+        // second click a moment after the first.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+        clock.addAndGet(1_000);
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        List<GameAction> actions = queuedActions(4);
+        assertEquals(ActionTypes.WALK, actions.get(3).actionId());
+    }
+
+    @Test
+    void surgeCountsAFailedVarcReadAsOnCooldown() {
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+        when(api.getVarcInt(anyInt())).thenThrow(new IllegalStateException("pipe down"));
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void failedChanceRollFiresNothing() {
+        bridge = bridgeWithRng(NEVER_FIRE);
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void diveSelectsTheBarSlotThenUsesItOnTheWalkTargetATickLater() {
+        // Option 1 on a Dive slot is answered with Bladed Dive's melee-weapon
+        // refusal; Dive is cast by selecting the slot and using it on a tile.
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        List<GameAction> actions = queuedActions(4);
+        assertEquals(ActionTypes.WALK, actions.get(0).actionId());
+        GameAction select = actions.get(1);
+        assertEquals(ActionTypes.SELECT_COMPONENT, select.actionId());
+        assertEquals(0, select.param1());
+        assertEquals(-1, select.param2());
+        assertEquals((1430 << 16) | 12, select.param3());
+        GameAction pick = actions.get(2);
+        assertEquals(ActionTypes.SELECT_TILE, pick.actionId());
+        assertEquals(0, pick.param1());
+        assertEquals(3007, pick.param2());
+        assertEquals(3003, pick.param3());
+        assertEquals(ONE_TICK_MS, sleeps.get(0));
+        assertTrue(actions.stream().noneMatch(a -> a.actionId() == ActionTypes.COMPONENT));
+    }
+
+    @Test
+    void diveUsesNoTileWhenTheRunIsCancelledWhileTheSelectSettles() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS,
+                new WorldWalkerCallbackBridge.Pacing(ALWAYS_FIRE, clock::get,
+                        ms -> cancel.set(true)));
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        List<GameAction> actions = queuedActions(2);
+        assertEquals(ActionTypes.SELECT_COMPONENT, actions.get(1).actionId());
+    }
+
+    @Test
+    void diveCancelsATargetModeItsTileUseLeftActive() {
+        AtomicBoolean targetMode = fakeTargetMode(false);
+        stubDiveFromIdle();
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        assertFalse(targetMode.get(), "the leftover targeting cursor is cancelled");
+        List<GameAction> actions = queuedActions(4);
+        assertEquals(ActionTypes.SELECT_TILE, actions.get(2).actionId());
+        assertEquals(ActionTypes.WALK, actions.get(3).actionId());
+        InOrder order = inOrder(api);
+        order.verify(api).queueAction(argThat(a -> a.actionId() == ActionTypes.SELECT_TILE));
+        order.verify(api).executeScript(eq(CANCEL_HANDLE), isNull(), isNull(), any());
+        order.verify(api).queueAction(argThat(a -> a.actionId() == ActionTypes.WALK));
+        verify(api).destroyScriptHandle(CANCEL_HANDLE);
+    }
+
+    @Test
+    void diveSendsNothingMoreWhenItsTileUseConsumedTargetMode() {
+        AtomicBoolean targetMode = fakeTargetMode(true);
+        stubDiveFromIdle();
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        assertFalse(targetMode.get());
+        // Walk, select, tile use, re-queued walk: no extra action. The
+        // guard script ran once and found nothing to cancel.
+        queuedActions(4);
+        verify(api, times(1)).executeScript(eq(CANCEL_HANDLE), isNull(), isNull(), any());
+        verify(api).destroyScriptHandle(CANCEL_HANDLE);
+    }
+
+    @Test
+    void diveCancelledBetweenSelectAndTileUseStillClearsTargetMode() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS,
+                new WorldWalkerCallbackBridge.Pacing(ALWAYS_FIRE, clock::get,
+                        ms -> cancel.set(true)));
+        AtomicBoolean targetMode = fakeTargetMode(true);
+        stubDiveFromIdle();
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        assertFalse(targetMode.get(), "the select's cursor is cancelled even on a cancelled run");
+        queuedActions(2);
+    }
+
+    @Test
+    void surgeNeverRunsTheTargetModeCancel() {
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3012, 3000, 0));
+
+        verify(api, never()).getScriptHandle(anyInt());
+    }
+
+    @Test
+    void diveCarriesOnWhenTheCancelScriptCannotBeAcquired() {
+        stubDiveFromIdle();
+        when(api.getScriptHandle(WorldWalkerCallbackBridge.SCRIPT_TARGETMODE_CANCEL))
+                .thenReturn(NO_SCRIPT_HANDLE);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        queuedActions(4);
+        verify(api, never()).executeScript(anyLong(), any(), any(), any());
+        verify(api, never()).destroyScriptHandle(anyLong());
+    }
+
+    private void stubDiveFromIdle() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+    }
+
+    // A client-side target mode: the slot select opens it, the tile use closes
+    // it only when isConsumedByTileUse, and the guard script 9666 cancels it,
+    // answering 1 when it was active and 0 when it was not.
+    private AtomicBoolean fakeTargetMode(boolean isConsumedByTileUse) {
+        AtomicBoolean active = new AtomicBoolean(false);
+        doAnswer(inv -> {
+            GameAction action = inv.getArgument(0);
+            if (action.actionId() == ActionTypes.SELECT_COMPONENT) {
+                active.set(true);
+            } else if (action.actionId() == ActionTypes.SELECT_TILE && isConsumedByTileUse) {
+                active.set(false);
+            }
+            return null;
+        }).when(api).queueAction(any(GameAction.class));
+        when(api.getScriptHandle(WorldWalkerCallbackBridge.SCRIPT_TARGETMODE_CANCEL))
+                .thenReturn(CANCEL_HANDLE);
+        when(api.executeScript(eq(CANCEL_HANDLE), isNull(), isNull(), any()))
+                .thenAnswer(inv -> new ScriptResult(List.of(
+                        active.getAndSet(false) ? WorldWalkerCallbackBridge.TARGETMODE_WAS_ACTIVE
+                                                : TARGETMODE_WAS_IDLE)));
+        return active;
+    }
+
+    @Test
+    void diveIsPreferredOverBladedDiveWhenBothAreBound() {
+        // Even with a loadout that could cast Bladed Dive, Dive wins: it needs
+        // no weapon, so it can never be refused.
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+        wear(Map.of(Equipment.Slot.WEAPON, MELEE_MAIN_HAND, Equipment.Slot.SHIELD, MELEE_OFF_HAND));
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        assertEquals((1430 << 16) | 12, queuedActions(4).get(1).param3());
+    }
+
+    @Test
+    void bladedDiveNeverFiresWithAMagicWeapon() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, CAMEL_STAFF));
+        stubItemParams(CAMEL_STAFF, Map.of());
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void bladedDiveNeverFiresWhenEquipmentIsUnpublished() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        GameSnapshot.Inventories invs = mock(GameSnapshot.Inventories.class);
+        when(snapshot.inventories()).thenReturn(invs);
+        when(invs.byInvId(Equipment.INVENTORY_ID)).thenReturn(Optional.empty());
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void bladedDiveFiresWithAMeleeItemInEachHand() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, MELEE_MAIN_HAND, Equipment.Slot.SHIELD, MELEE_OFF_HAND));
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        assertEquals((1673 << 16) | 3, queuedActions(4).get(1).param3());
+    }
+
+    @Test
+    void bladedDiveFiresWithLacerationBootsAndAMeleeMainHand() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, MELEE_MAIN_HAND, Equipment.Slot.FEET, LACERATION_BOOTS));
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        assertEquals((1673 << 16) | 3, queuedActions(4).get(1).param3());
+    }
+
+    @Test
+    void bladedDiveNeedsTheMeleeItemInTheMainHand() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, CAMEL_STAFF, Equipment.Slot.SHIELD, MELEE_OFF_HAND,
+                Equipment.Slot.FEET, LACERATION_BOOTS));
+        stubItemParams(CAMEL_STAFF, Map.of());
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void aWeaponSwapDisarmsAnAlreadyBoundBladedDive() {
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubBladedDiveOnBar();
+        wear(Map.of(Equipment.Slot.WEAPON, MELEE_MAIN_HAND, Equipment.Slot.SHIELD, MELEE_OFF_HAND));
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+        verify(api, times(4)).queueAction(any(GameAction.class));
+
+        // Past the cooldown floor but inside the rescan window: the slot is
+        // still bound, and the staff now in hand must keep it from firing.
+        clock.addAndGet(RESCAN_MS / 2);
+        when(snapshot.self()).thenReturn(player(3008, 3000, 0));
+        wear(Map.of(Equipment.Slot.WEAPON, CAMEL_STAFF));
+        stubItemParams(CAMEL_STAFF, Map.of());
+        bridge.walkTo(new WwTile(3016, 3000, 0));
+
+        verify(api, times(5)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void diveOnlyFiresWithinItsRange() {
+        assertFalse(WorldWalkerCallbackBridge.isDiveHop(5, 0));
+        assertTrue(WorldWalkerCallbackBridge.isDiveHop(6, 0));
+        assertTrue(WorldWalkerCallbackBridge.isDiveHop(-10, 7));
+        assertFalse(WorldWalkerCallbackBridge.isDiveHop(11, 0));
+
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+        bridge.walkTo(new WwTile(3005, 3000, 0));
+        bridge.walkTo(new WwTile(3011, 3000, 0));
+
+        verify(api, times(2)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void diveIsPreferredOverSurgeOnAShortHop() {
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3010, 3000, 0));
+
+        List<GameAction> actions = queuedActions(4);
+        assertEquals((1430 << 16) | 12, actions.get(1).param3());
+        assertEquals(ActionTypes.SELECT_TILE, actions.get(2).actionId());
+    }
+
+    @Test
+    void surgeTakesAShortHopWhenDiveIsNotBound() {
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3010, 3000, 0));
+
+        assertEquals((1670 << 16) | 165, queuedActions(3).get(1).param3());
+    }
+
+    @Test
+    void surgeReQueuesTheWalkAfterAOneTickPause() {
+        // Surge cancels the walk in progress, so the same walk goes out again.
+        // ALWAYS_FIRE's nextInt() is 0, which picks the 1-tick pause.
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3020, 3004, 0));
+
+        List<GameAction> actions = queuedActions(3);
+        assertEquals(ActionTypes.COMPONENT, actions.get(1).actionId());
+        GameAction rewalk = actions.get(2);
+        assertEquals(ActionTypes.WALK, rewalk.actionId());
+        assertEquals(3020, rewalk.param2());
+        assertEquals(3004, rewalk.param3());
+        assertEquals(List.of(ONE_TICK_MS), sleeps);
+    }
+
+    @Test
+    void diveReQueuesTheWalkAfterATwoTickPause() {
+        bridge = bridgeWithRng(TWO_TICK_PAUSE);
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        List<GameAction> actions = queuedActions(4);
+        assertEquals(ActionTypes.SELECT_TILE, actions.get(2).actionId());
+        GameAction rewalk = actions.get(3);
+        assertEquals(ActionTypes.WALK, rewalk.actionId());
+        assertEquals(3007, rewalk.param2());
+        assertEquals(3003, rewalk.param3());
+        // One tick for the select to settle, then the re-walk pause.
+        assertEquals(List.of(ONE_TICK_MS, 2 * ONE_TICK_MS), sleeps);
+    }
+
+    @Test
+    void noReWalkWhenTheRunIsCancelledDuringThePause() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS,
+                new WorldWalkerCallbackBridge.Pacing(ALWAYS_FIRE, clock::get,
+                        ms -> cancel.set(true)));
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        List<GameAction> actions = queuedActions(2);
+        assertEquals(ActionTypes.COMPONENT, actions.get(1).actionId());
+    }
+
+    @Test
+    void noAbilityFiresWhileThePlayerIsAnimating() {
+        // Mid-animation (e.g. a lodestone arrival) the click would not cast.
+        when(snapshot.self()).thenReturn(animatingPlayerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(2)).queueAction(any(GameAction.class));
+        verify(api, never()).components();
+        assertTrue(sleeps.isEmpty());
+    }
+
+    @Test
+    void diveRespectsTheGoalGuard() {
+        WwGoal nearGoal = new WwGoal(3008, 3000, 0, 1);
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, nearGoal,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(ALWAYS_FIRE));
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void diveNeedsTenTilesLeftToTheGoal() {
+        assertFalse(WorldWalkerCallbackBridge.isDiveDistanceToGoal(9));
+        assertTrue(WorldWalkerCallbackBridge.isDiveDistanceToGoal(10));
+    }
+
+    @Test
+    void diveIsSuppressedNearAGoalOnAnotherPlane() {
+        // The same-plane goal guard does not see a goal upstairs; Dive's own
+        // distance floor still does.
+        WwGoal upstairs = new WwGoal(3008, 3000, 1, 1);
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, upstairs,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(ALWAYS_FIRE));
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3008, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
     }
 
     @Test
@@ -478,15 +1285,164 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
-    void interactSkipsWhenLocBeyondRadius() {
-        // Two tiles away (Chebyshev 2) is beyond the radius-1 door approach
-        // tolerance, so it must not resolve.
-        Location other = new Location(1234, 99, -1, 3223, 3219, 0, 10, 0, 0);
+    void interactSkipsWhenLocBeyondFallbackReach() {
+        // Five tiles from a 1x1 footprint is past the fallback reach of four, so
+        // the loc is treated as absent and nothing is queued.
+        Location other = new Location(1234, 99, -1, 3226, 3219, 0, 10, 0, 0);
         when(locationsTable.stream()).thenReturn(Stream.of(other));
 
-        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
 
-        verifyNoInteractions(api);
+        assertEquals(0, issued);
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void interactAcceptsLocWithinFallbackReach() {
+        // A 1x1 loc three tiles off its row tile: outside the footprint reach of
+        // one, inside the fallback reach of four, so it still resolves.
+        Location near = new Location(1234, 99, -1, 3224, 3219, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(near));
+
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(1234, 3224, 3219);
+    }
+
+    @Test
+    void interactResolvesMultiTileLocAnchoredAwayFromRowTile() {
+        // Sabbot's cave entrance: a 4x4 loc anchored at (2857,3578) while the
+        // dataset row names (2858,3576), two tiles south of the footprint.
+        when(api.getLocationType(SABBOT_CAVE)).thenReturn(locType(SABBOT_CAVE, 4, 4));
+        Location cave = new Location(SABBOT_CAVE, -1, -1, 2857, 3578, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(cave));
+
+        int issued = bridge.interact(SABBOT_CAVE, new WwTile(2858, 3576, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(SABBOT_CAVE, 2857, 3578);
+    }
+
+    @Test
+    void interactPrefersNearestFootprintOverNearestAnchor() {
+        // A 1x3 loc turned a quarter (rotation 1) spans x 100..102 on y 200, so
+        // row tile (103,200) touches it; an unturned twin at (105,200) spans
+        // y 200..202 and sits two tiles off. The turned loc's anchor is further
+        // (3 vs 2), so only a rotation-aware footprint picks it.
+        when(api.getLocationType(1234)).thenReturn(locType(1234, 1, 3));
+        Location turned = new Location(1234, -1, -1, 100, 200, 0, 10, 1, 0);
+        Location upright = new Location(1234, -1, -1, 105, 200, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(upright, turned));
+
+        bridge.interact(1234, new WwTile(103, 200, 0), 0);
+
+        assertQueuedAt(1234, 100, 200);
+    }
+
+    @Test
+    void interactNeverMatchesAcrossPlanes() {
+        Location upstairs = new Location(1234, 99, -1, 3221, 3219, 1, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(upstairs));
+
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertEquals(0, issued);
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void interactAssumesSingleTileWhenCacheCannotAnswer() {
+        when(api.getLocationType(1234)).thenThrow(new IllegalStateException("no cache"));
+        Location exact = new Location(1234, 99, -1, 3221, 3219, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(exact));
+
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(1234, 3221, 3219);
+    }
+
+    @Test
+    void interactClicksAClosedDoorOnTheRowTile() {
+        stubMoonriseDoorTypes();
+        Location closed = new Location(DOOR_CLOSED, -1, -1, 3727, 1576, 0, WALL_SHAPE, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(closed));
+
+        int issued = bridge.interact(DOOR_CLOSED, new WwTile(3727, 1576, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(DOOR_CLOSED, 3727, 1576);
+    }
+
+    @Test
+    void interactSkipsAnOpenedDoorRatherThanClickingTheNextRoomsDoor() {
+        // Two rooms share one closed-door id. The row's door has been opened (its
+        // open state now sits on the row tile); the other room's door, still
+        // closed, is four tiles off and inside the old fallback reach.
+        stubMoonriseDoorTypes();
+        Location opened = new Location(DOOR_OPEN, -1, -1, 3727, 1576, 0, WALL_SHAPE, 1, 0);
+        Location nextRoom = new Location(DOOR_CLOSED, -1, -1, 3728, 1580, 0, WALL_SHAPE, 0, 0);
+        when(locationsTable.stream()).thenAnswer(inv -> Stream.of(nextRoom, opened));
+
+        int issued = bridge.interact(DOOR_CLOSED, new WwTile(3727, 1576, 0), 0);
+
+        assertEquals(0, issued, "an already-open door is done, not re-clicked elsewhere");
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void interactHoldsAWallShapedLocToDoorReachWithoutTheCache() {
+        // No cache to name the open state: the wall shape alone keeps a same-id
+        // door two tiles away from being taken for the row's door.
+        Location nextRoom = new Location(DOOR_CLOSED, -1, -1, 3727, 1578, 0, WALL_SHAPE, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(nextRoom));
+
+        int issued = bridge.interact(DOOR_CLOSED, new WwTile(3727, 1576, 0), 0);
+
+        assertEquals(0, issued);
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void interactStillResolvesAnOffsetNonDoorLocWithinFallbackReach() {
+        // A centrepiece the dataset row names from three tiles off: not a door,
+        // so the fallback reach of four still applies with the cache attached.
+        when(api.getLocationType(1234)).thenReturn(
+                locType(1234, "Cave entrance", List.of("Enter")));
+        Location cave = new Location(1234, -1, -1, 3224, 3219, 0, CENTREPIECE_SHAPE, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(cave));
+
+        int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertEquals(1, issued);
+        assertQueuedAt(1234, 3224, 3219);
+    }
+
+    private void stubMoonriseDoorTypes() {
+        when(api.getLocationType(DOOR_CLOSED)).thenReturn(
+                locType(DOOR_CLOSED, "Door", List.of("Open")));
+        when(api.getLocationType(DOOR_OPEN)).thenReturn(
+                locType(DOOR_OPEN, "Door", List.of("Close")));
+    }
+
+    private static LocationType locType(int id, String name, List<String> options) {
+        return new LocationType(id, name, 1, 1, 0, 0, false, options, -1, -1,
+                List.of(), 0, Map.of());
+    }
+
+    private void assertQueuedAt(int objectId, int x, int y) {
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(objectId, action.param1());
+        assertEquals(x, action.param2());
+        assertEquals(y, action.param3());
+    }
+
+    private static LocationType locType(int id, int sizeX, int sizeY) {
+        return new LocationType(id, "", sizeX, sizeY, 0, 0, false, List.of(), -1, -1,
+                List.of(), 0, Map.of());
     }
 
     @Test
@@ -596,8 +1552,201 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals((720 << 16) | 20, action.param3(), "option component 20 for index 1");
     }
 
+    // ---- CLICK_NPC: the origin of a transition with no loc ----
+
+    // Charter-ship crewmembers: Trader Crewmember type ids 4650..4656.
+    private static final int CREW_FIRST_ID = 4650;
+    private static final int CREW_LAST_ID  = 4656;
+    private static final int CREW_RADIUS   = 8;
+
+    private static Npc npc(int serverIndex, int typeId, int x, int y, int plane) {
+        return new Npc(serverIndex, typeId, x, y, plane, 0, -1, -1, -1, 0, 0, -1);
+    }
+
+    private void runClickNpc(int option, int x, int y, int plane) {
+        bridge.runChainStep(ChainStepKind.CLICK_NPC.wire(),
+                option, x, y, plane, CREW_RADIUS, CREW_FIRST_ID, CREW_LAST_ID, 0, 0);
+    }
+
+    @Test
+    void runChainStepClickNpcQueuesNpcOptionOnServerIndex() {
+        when(npcsTable.stream()).thenReturn(Stream.of(npc(321, 4652, 2800, 3414, 0)));
+
+        runClickNpc(0, 2801, 3414, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.NPC1, action.actionId(), "0-based option 0 is NPC_OPTIONS[1]");
+        assertEquals(321, action.param1(), "server index in param1");
+        assertEquals(0, action.param2());
+        assertEquals(0, action.param3());
+    }
+
+    @Test
+    void runChainStepClickNpcOptionIndexIsZeroBased() {
+        when(npcsTable.stream()).thenReturn(Stream.of(npc(5, CREW_FIRST_ID, 100, 200, 0)));
+
+        runClickNpc(2, 100, 200, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(ActionTypes.NPC3, captor.getValue().actionId());
+    }
+
+    @Test
+    void runChainStepClickNpcPicksNearestInRange() {
+        when(npcsTable.stream()).thenReturn(Stream.of(
+                npc(1, CREW_LAST_ID, 106, 200, 0),
+                npc(2, CREW_FIRST_ID, 102, 201, 0)));
+
+        runClickNpc(0, 100, 200, 0);
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals(2, captor.getValue().param1());
+    }
+
+    @Test
+    void runChainStepClickNpcIgnoresWrongTypePlaneAndDistance() {
+        when(npcsTable.stream()).thenReturn(Stream.of(
+                npc(1, CREW_FIRST_ID - 1, 100, 200, 0),               // type below range
+                npc(2, CREW_LAST_ID + 1, 100, 200, 0),                // type above range
+                npc(3, CREW_FIRST_ID, 100, 200, 1),                   // other plane
+                npc(4, CREW_FIRST_ID, 100 + CREW_RADIUS + 1, 200, 0))); // beyond radius
+
+        runClickNpc(0, 100, 200, 0);
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepClickNpcDoesNothingWhenNoNpc() {
+        runClickNpc(0, 100, 200, 0);
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepClickNpcDoesNothingForOutOfRangeOption() {
+        when(npcsTable.stream()).thenReturn(Stream.of(npc(5, CREW_FIRST_ID, 100, 200, 0)));
+
+        runClickNpc(ActionTypes.NPC_OPTIONS.length - 1, 100, 200, 0);
+
+        verify(api, never()).queueAction(any());
+    }
+
+    // ---- DIALOGUE_ANSWER: pick an open option by text ----
+
+    // The option list's options container and two option rows (with the label
+    // leaf and "N." number cell hanging under each), as get_interface_tree
+    // answers for interface 1188.
+    private static final int OPTIONS_CONTAINER = 0;
+    private static final int FIRST_ROW = 8;
+    private static final int SECOND_ROW = 13;
+    private static final int NO_PARENT = -1;
+    private static final int CONTAINER_INDEX = 0;
+    private static final int FIRST_ROW_INDEX = 1;
+    private static final int SECOND_ROW_INDEX = 4;
+
+    private void openOptionList(String first, String second) {
+        int iface = Dialog.MULTI_CHOICE_INTERFACE;
+        when(api.components()).thenReturn(new Components(api));
+        when(api.getInterfaceTree(iface, OPTIONS_CONTAINER)).thenReturn(List.of(
+                treeNode(iface, OPTIONS_CONTAINER, ComponentType.LAYER, null, NO_PARENT),
+                treeNode(iface, FIRST_ROW, ComponentType.LAYER, null, CONTAINER_INDEX),
+                treeNode(iface, FIRST_ROW + 1, ComponentType.TEXT, "1.", FIRST_ROW_INDEX),
+                treeNode(iface, FIRST_ROW + 2, ComponentType.TEXT, first, FIRST_ROW_INDEX),
+                treeNode(iface, SECOND_ROW, ComponentType.LAYER, null, CONTAINER_INDEX),
+                treeNode(iface, SECOND_ROW + 1, ComponentType.TEXT, "2.", SECOND_ROW_INDEX),
+                treeNode(iface, SECOND_ROW + 2, ComponentType.TEXT, second, SECOND_ROW_INDEX)));
+    }
+
+    private static ComponentTreeNode treeNode(int iface, int comp, ComponentType type,
+                                              String text, int parentIndex) {
+        return new ComponentTreeNode(new Component(
+                iface, comp, -1, 0, type.code(),
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                text, 0, -1, -1, -1, List.of()), parentIndex);
+    }
+
+    /** The answer packed as the executor sends it: UTF-8, little-endian slots, zero-padded. */
+    private static int[] packAnswer(String text) {
+        ByteBuffer buffer = ByteBuffer.allocate(DialogueAnswerText.MAX_BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN);
+        buffer.put(text.getBytes(StandardCharsets.UTF_8));
+        buffer.rewind();
+        int[] slots = new int[DialogueAnswerText.SLOT_COUNT];
+        for (int i = 0; i < slots.length; i++) {
+            slots[i] = buffer.getInt();
+        }
+        return slots;
+    }
+
+    private void runAnswer(String text) {
+        int[] s = packAnswer(text);
+        bridge.runChainStep(ChainStepKind.DIALOGUE_ANSWER.wire(),
+                s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]);
+    }
+
+    @Test
+    void runChainStepDialogueAnswerSelectsOptionContainingAnswer() {
+        openOptionList("No thanks.", "<col=ffffff>YES, take me there.</col>");
+
+        runAnswer("yes, take me");
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        GameAction action = captor.getValue();
+        assertEquals(ActionTypes.DIALOGUE, action.actionId());
+        assertEquals((Dialog.MULTI_CHOICE_INTERFACE << 16) | SECOND_ROW, action.param3(),
+                "the matching option's row is selected, not its label leaf");
+    }
+
+    @Test
+    void runChainStepDialogueAnswerPicksFirstOfSeveralMatches() {
+        openOptionList("Yes.", "Yes please.");
+
+        runAnswer("Yes");
+
+        ArgumentCaptor<GameAction> captor = ArgumentCaptor.forClass(GameAction.class);
+        verify(api).queueAction(captor.capture());
+        assertEquals((Dialog.MULTI_CHOICE_INTERFACE << 16) | FIRST_ROW, captor.getValue().param3());
+    }
+
+    @Test
+    void runChainStepDialogueAnswerDoesNothingWhenNoOptionMatches() {
+        openOptionList("No thanks.", "Maybe later.");
+
+        runAnswer("Yes.");
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepDialogueAnswerDoesNothingWhenNoListIsOpen() {
+        when(api.components()).thenReturn(new Components(api));
+        when(api.getInterfaceTree(Dialog.MULTI_CHOICE_INTERFACE, OPTIONS_CONTAINER))
+                .thenReturn(List.of());
+
+        runAnswer("Yes.");
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepDialogueAnswerIgnoresEmptyAnswer() {
+        openOptionList("No thanks.", "Yes.");
+
+        runAnswer("");
+
+        verify(api, never()).queueAction(any());
+    }
+
     @Test
     void sleepTicksSleepsApproxSixHundredMsPerTick() throws Exception {
+        // The default constructor sleeps for real (Pacing.system()).
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL);
         long start = System.nanoTime();
         bridge.sleepTicks(2);
         long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
@@ -606,11 +1755,17 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
+    void sleepTicksSleepsThroughTheInjectedSleeper() {
+        bridge.sleepTicks(2);
+
+        assertEquals(List.of(2 * ONE_TICK_MS), sleeps);
+    }
+
+    @Test
     void sleepTicksZeroReturnsImmediately() {
-        long start = System.nanoTime();
         bridge.sleepTicks(0);
-        long elapsedMs = (System.nanoTime() - start) / 1_000_000L;
-        assertTrue(elapsedMs < 50, "expected immediate return, got " + elapsedMs + "ms");
+
+        assertTrue(sleeps.isEmpty());
     }
 
     // ============================== Control + progress ==============================
@@ -628,5 +1783,41 @@ class WorldWalkerCallbackBridgeTest {
         bridge.onEvent(event);
         assertEquals(1, events.size());
         assertSame(event, events.get(0));
+    }
+    // ============================== Click sink ==============================
+
+    @Test
+    void walkToAndInteract_reportTheTileTheyClickToTheClickSink() {
+        List<WwTile> clicks = new ArrayList<>();
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(NEVER_FIRE), clicks::add);
+        Location adjacent = new Location(1234, 0xBEEF, -1, 3222, 3219, 0, 0, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(adjacent));
+
+        bridge.walkTo(new WwTile(3221, 3219, 0));
+        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        // The interact reports the loc's own tile, the one the action targets.
+        assertEquals(List.of(new WwTile(3221, 3219, 0), new WwTile(3222, 3219, 0)), clicks);
+    }
+
+    @Test
+    void anInteractThatClicksNothing_reportsNothingToTheClickSink() {
+        List<WwTile> clicks = new ArrayList<>();
+        bridge = new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(NEVER_FIRE), clicks::add);
+        when(locationsTable.stream()).thenReturn(Stream.empty());
+
+        bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
+
+        assertTrue(clicks.isEmpty());
+    }
+
+    @Test
+    void theOlderConstructors_keepANoOpClickSink_soWalkingIsUnchanged() {
+        bridge = new WorldWalkerCallbackBridge(api, () -> null, cancel, events::add, NO_GOAL);
+
+        assertDoesNotThrow(() -> bridge.walkTo(new WwTile(3221, 3219, 0)));
+        verify(api).queueAction(any(GameAction.class));
     }
 }

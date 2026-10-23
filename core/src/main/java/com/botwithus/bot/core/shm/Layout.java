@@ -23,6 +23,28 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v23 added {@code openIfaceFlags[OPEN_IFACE_CAP]} ({@link #SNAP_OPENIFACEFLAGS_OFFSET}), one
+     *  u8 per {@code openIfaces[]} entry at the same index: the sub-interface's open type in bits
+     *  0-2 and whether a client script rather than the server opened it in bit 3 (bit layout on
+     *  api's {@code OpenInterface}). It sits between the id array
+     *  and the existing pad; 256 bytes keeps the block's mod-8 alignment, so every field from the
+     *  pad on moved by exactly 256 and {@link #SNAPSHOT_SIZE} went from 411576 to 411832.
+     *  v22 raised {@link #OPEN_IFACE_CAP} from 64 to 256 and added {@code openIfaceTotal}
+     *  ({@link #SNAP_OPENIFACETOTAL_OFFSET}) beside {@code openIfaceCount}. A default HUD already
+     *  holds about 56 open sub-interfaces, so 64 overflowed in ordinary play, and the producer
+     *  walks the client's table in an order that put the bank (517) among the first ids cut: the
+     *  bank was visibly open while the snapshot said it was not. {@code openIfaceTotal} is the
+     *  client table's own element count ({@code 0} when the table could not be read), so a
+     *  consumer can see truncation instead of mistaking it for absence. An explicit u32 pad after
+     *  the array keeps the block ending at 4 mod 8, so every field from {@code groundItemCount}
+     *  on moved by exactly 776 bytes and {@link #SNAPSHOT_SIZE} went from 410800 to 411576.
+     *  v21 added entity facing: a {@code u16 orientation} on NpcEntry
+     *  ({@link #NPC_ORIENTATION_OFFSET}), PlayerEntry ({@link #PLAYER_ORIENTATION_OFFSET}) and
+     *  LocalPlayer ({@link #LP_ORIENTATION_OFFSET}). NpcEntry grew 36 to 40 and PlayerEntry 28 to
+     *  32; LocalPlayer reused its existing pad and stayed 552. The two row growths shifted every
+     *  offset past {@code npcs[]} by 12288 (hard version bump), taking {@link #SNAPSHOT_SIZE} from
+     *  398512 to 410800. The value is decoded by
+     *  {@link com.botwithus.bot.core.shm.OrientationWireDecoder}.
      *  v20 widened {@code LocationEntry} from 20 to 24 bytes with a trailing
      *  {@link #LOC_RESOLVEDID_OFFSET resolvedId} — the loc id after the producer applies the
      *  morphvarp ("multiloc") transform. A scene loc whose look and menu are chosen by a var is
@@ -73,7 +95,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 20;
+    public static final int PROTOCOL_VERSION = 23;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -88,9 +110,9 @@ public final class Layout {
     public static final int SKILL_CAP          = 32;
     public static final int INVENTORY_CAP      = 32;
     public static final int INVENTORY_ITEM_CAP = 2048;
-    /** Mirrors {@code kOpenIfaceCap} in SharedLayout.h. Snapshot of the
-     *  open-sub-interfaces hashmap; live counts are typically <20. */
-    public static final int OPEN_IFACE_CAP     = 64;
+    /** Mirrors {@code kOpenIfaceCap} in SharedLayout.h (256 since v22; was 64). Snapshot of
+     *  the open-sub-interfaces hashmap; a default HUD alone holds about 56 entries. */
+    public static final int OPEN_IFACE_CAP     = 256;
     /** Mirrors {@code kGroundItemCap} in SharedLayout.h. Cap on the per-tick
      *  ground-item array; matches {@link #NPC_CAP} for symmetry, costs 16 KB
      *  per buffer at {@link #GROUND_ITEM_ENTRY_SIZE} per row. */
@@ -142,10 +164,10 @@ public final class Layout {
     public static final int HEADER_TARGETPID_OFFSET    = 40;   // u64
 
     // ------------------------------------------------------------------
-    // NpcEntry  (36 bytes)
+    // NpcEntry  (40 bytes)
     // ------------------------------------------------------------------
 
-    public static final int NPC_ENTRY_SIZE = 36;
+    public static final int NPC_ENTRY_SIZE = 40;
 
     public static final int NPC_SERVERINDEX_OFFSET    = 0;    // i32
     public static final int NPC_TYPEID_OFFSET         = 4;    // i32
@@ -159,6 +181,8 @@ public final class Layout {
     public static final int NPC_HP_OFFSET             = 24;   // i32
     public static final int NPC_MAXHP_OFFSET          = 28;   // i32
     public static final int NPC_SPOTANIMID_OFFSET     = 32;   // i32  first active spot anim id; -1 if none
+    public static final int NPC_ORIENTATION_OFFSET    = 36;   // u16  v21 facing; 0xFFFF unknown
+    // bytes 38..39 are _pad0; not accessed
 
     // ------------------------------------------------------------------
     // LocationEntry (24 bytes) — mirrors ipc::LocationEntry in SharedLayout.h.
@@ -234,10 +258,10 @@ public final class Layout {
     // bytes 29..31 are trailing pad; not accessed
 
     // ------------------------------------------------------------------
-    // PlayerEntry (28 bytes)
+    // PlayerEntry (32 bytes)
     // ------------------------------------------------------------------
 
-    public static final int PLAYER_ENTRY_SIZE = 28;
+    public static final int PLAYER_ENTRY_SIZE = 32;
 
     public static final int PLAYER_SERVERINDEX_OFFSET    = 0;    // i32
     public static final int PLAYER_TILEX_OFFSET          = 4;    // i16
@@ -249,6 +273,8 @@ public final class Layout {
     public static final int PLAYER_STANCEID_OFFSET       = 16;   // i32
     public static final int PLAYER_COMBATLEVEL_OFFSET    = 20;   // i32
     public static final int PLAYER_SPOTANIMID_OFFSET     = 24;   // i32  first active spot anim id; -1 if none
+    public static final int PLAYER_ORIENTATION_OFFSET    = 28;   // u16  v21 facing; 0xFFFF unknown
+    // bytes 30..31 are _pad0; not accessed
 
     // ------------------------------------------------------------------
     // SkillEntry (16 bytes)
@@ -280,9 +306,11 @@ public final class Layout {
     public static final int LP_TARGETTYPE_OFFSET      = 26;
     public static final int LP_ISMEMBER_OFFSET        = 27;
     public static final int LP_SPOTANIMID_OFFSET      = 28;   // i32  first active spot anim id; -1 if none
-    // Slot at +32 is _pad0 (u32) — keeps sizeof(LocalPlayer) a multiple of 8 so
-    // the producer block downstream stays 8-aligned. Not accessed; see
-    // SharedLayout.h LocalPlayer::_pad0 for rationale.
+    // v21: +32 is orientation (u16, 0xFFFF unknown, and 0xFFFF out of world even though the
+    // rest of the block is zero-filled); +34 is _orientationPad, not accessed. Together they
+    // are the 4 bytes that were one u32 pad through v20 and keep sizeof(LocalPlayer) a
+    // multiple of 8 so the producer block downstream stays 8-aligned.
+    public static final int LP_ORIENTATION_OFFSET     = 32;   // u16
     public static final int LP_SKILLCOUNT_OFFSET      = 36;
     public static final int LP_SKILLS_OFFSET          = 40;
 
@@ -366,12 +394,30 @@ public final class Layout {
     // Per-tick snapshot of jag::InterfaceManager's open-subs hashmap. The
     // count fits in a u32; entries [0, count) carry the interface ids the
     // producer found this tick. {@link #isInterfaceOpen} on SnapshotView
-    // does a linear scan — the keyset is small (~20 ids) and locality wins
+    // does a linear scan — the keyset is a few dozen ids and locality wins
     // over any data structure with constant overhead.
+    //
+    // openIfaceTotal (v22+) is the client table's own element count, read in
+    // the same pass as the array, or 0 when the table was unreadable. A count
+    // below the total means the list is incomplete, and an id missing from it
+    // is then not proof that the interface is closed. The u32 pad after the
+    // array keeps the block ending at 4 mod 8, as it did through v21.
+    //
+    // openIfaceFlags (v23+) is index-parallel to openIfaces: flags[i]
+    // describes ids[i], and only [0, openIfaceCount) is meaningful, the same
+    // contract as the ids. The BIT layout of a flags byte is NOT here — it
+    // lives on api's OpenInterface (TYPE_MASK, FLAG_CLIENT_OPENED), because
+    // scripts decode it and api cannot depend on core. One home, as with
+    // DynamicRegion's descriptor bits.
     // ------------------------------------------------------------------
 
     public static final int SNAP_OPENIFACECOUNT_OFFSET = SNAP_PRODUCER_OFFSET + PRODUCER_SIZE;
-    public static final int SNAP_OPENIFACES_OFFSET     = SNAP_OPENIFACECOUNT_OFFSET + 4;
+    public static final int SNAP_OPENIFACETOTAL_OFFSET = SNAP_OPENIFACECOUNT_OFFSET + 4;
+    public static final int SNAP_OPENIFACES_OFFSET     = SNAP_OPENIFACETOTAL_OFFSET + 4;
+    /** {@code openIfaceFlags[OPEN_IFACE_CAP]}, one u8 per id (v23+). */
+    public static final int SNAP_OPENIFACEFLAGS_OFFSET = SNAP_OPENIFACES_OFFSET + OPEN_IFACE_CAP * 4;
+    /** {@code _padAfterOpenIfaces}; reserved, never read. */
+    public static final int SNAP_OPENIFACEPAD_OFFSET   = SNAP_OPENIFACEFLAGS_OFFSET + OPEN_IFACE_CAP;
 
     // ------------------------------------------------------------------
     // Ground items tail (v15+)
@@ -383,8 +429,7 @@ public final class Layout {
     // per-tick RPC round-trip. Replaces the retired query_ground_items.
     // ------------------------------------------------------------------
 
-    public static final int SNAP_GROUNDITEMCOUNT_OFFSET = SNAP_OPENIFACES_OFFSET
-                                                        + OPEN_IFACE_CAP * 4;
+    public static final int SNAP_GROUNDITEMCOUNT_OFFSET = SNAP_OPENIFACEPAD_OFFSET + 4;
     public static final int SNAP_GROUNDITEMS_OFFSET     = SNAP_GROUNDITEMCOUNT_OFFSET + 4;
 
     // ------------------------------------------------------------------

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,6 +30,18 @@ class MockScriptContextTest {
     private static final int SAMPLE_PARAM2 = 2;
     private static final int SAMPLE_PARAM3 = 3;
     private static final long SAMPLE_EVENT_TIMESTAMP = 999L;
+
+    @Test
+    void getDisplayName_byDefault_isEmpty_andReportsTheConfiguredName() {
+        assertEquals(Optional.empty(), MockScriptContext.builder().build().getDisplayName());
+        assertEquals(Optional.of("Zezima"),
+                MockScriptContext.builder().withDisplayName("Zezima").build().getDisplayName());
+    }
+
+    @Test
+    void withDisplayName_blank_isRejected() {
+        assertThrows(IllegalArgumentException.class, () -> MockScriptContext.builder().withDisplayName(" "));
+    }
 
     @Test
     void defaults_emptyContext_returnsEmptySnapshotAndLiveEventBus() {

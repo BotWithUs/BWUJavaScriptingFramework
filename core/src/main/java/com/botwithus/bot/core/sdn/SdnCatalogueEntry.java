@@ -1,5 +1,7 @@
 package com.botwithus.bot.core.sdn;
 
+import com.botwithus.bot.api.ScriptCategory;
+
 import java.util.Objects;
 
 /**
@@ -15,7 +17,33 @@ import java.util.Objects;
  *   <li>{@code subscriber} echoes the account that asked for the catalogue. It
  *       says nothing about this particular script — to tell an owned script from
  *       a subscribed one, compare {@link #author()} with the signed-in account.
+ *       Whether the account holds a subscription is {@link #subscribed()}, never
+ *       an inference from these two.
  * </ul>
+ *
+ * <p>{@code subscribed}, {@code isFree} and the three Store fields are nullable on
+ * purpose. {@code null} means the launcher, or the site behind it, predates the
+ * field or had nothing to say, which is not the same answer as {@code false} or
+ * zero. Read them as "unknown".
+ *
+ * @param scriptClass  the class the catalogue names, which may be blank. For a script
+ *                     both agents run it is the <em>agent-v1</em> class, so it does
+ *                     not identify the build this host is delivered; see
+ *                     {@link StoreCopies} for how a Store copy is recognised.
+ * @param subscribed   {@code TRUE} iff the signed-in account holds an active
+ *                     subscription to this script; {@code null} when not reported
+ * @param isFree       {@code TRUE} iff the site offers this script for free;
+ *                     {@code null} when not reported. This, not {@link #price()},
+ *                     decides whether a script is free: see {@link #pricing()}.
+ * @param category     the site's category slug, such as {@code "money_making"};
+ *                     {@code null} when not reported. {@link #scriptCategory()}
+ *                     maps it onto the host's own categories.
+ * @param price        the tier the Store headlines; {@code null} when that tier is
+ *                     free, when there is none, or when not reported
+ * @param currentBuild the site's number for the build a download would deliver to
+ *                     this host; {@code null} when not reported. Each upload gets a
+ *                     higher number, so unlike {@code version} it can be compared,
+ *                     but the site can make an older build current again.
  */
 public record SdnCatalogueEntry(String id,
                                 String name,
@@ -27,7 +55,22 @@ public record SdnCatalogueEntry(String id,
                                 String description,
                                 String scriptClass,
                                 boolean agentv1Support,
-                                boolean agentv2Support) {
+                                boolean agentv2Support,
+                                Boolean subscribed,
+                                Boolean isFree,
+                                String category,
+                                SdnPrice price,
+                                Integer currentBuild) {
+
+    /** Whether a script costs money, as far as the catalogue can tell. */
+    public enum Pricing {
+        /** The site offers the script for free, whether or not it also sells a paid tier. */
+        FREE,
+        /** The site offers no free tier. */
+        PAID,
+        /** The launcher or site did not say. Matches neither a Free nor a Paid filter. */
+        UNKNOWN
+    }
 
     public SdnCatalogueEntry {
         Objects.requireNonNull(id, "id");
@@ -51,6 +94,26 @@ public record SdnCatalogueEntry(String id,
      */
     public boolean isOwned() {
         return !author.isBlank() && author.equalsIgnoreCase(subscriber);
+    }
+
+    /**
+     * Whether this script is free, decided by {@link #isFree()} alone.
+     *
+     * <p>A missing {@link #price()} does not make a script free: an older site or
+     * launcher omits the price for every script, and the current site omits it for
+     * a paid script with no active tier. And a present price does not make it
+     * paid: a script can headline a paid tier while also offering a free one.
+     */
+    public Pricing pricing() {
+        if (isFree == null) {
+            return Pricing.UNKNOWN;
+        }
+        return isFree ? Pricing.FREE : Pricing.PAID;
+    }
+
+    /** The host category for {@link #category()}; {@link ScriptCategory#UNCATEGORIZED} when unknown. */
+    public ScriptCategory scriptCategory() {
+        return CategorySlugs.toCategory(category);
     }
 
     /** Display label: the tagline when there is one, else the first line of the description. */

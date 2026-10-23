@@ -3,6 +3,7 @@ package com.botwithus.bot.core.impl;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.VarbitType;
 import com.botwithus.bot.api.model.VarbitValue;
+import com.botwithus.bot.api.model.VarpRead;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -18,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -49,6 +51,8 @@ class LiveVariableApiSmokeTest {
     private static final Logger log = LoggerFactory.getLogger(LiveVariableApiSmokeTest.class);
 
     private static final int LOBBY = 20;
+    /** What the raw varp/varc accessors report for a variable the client has not set. */
+    private static final int UNSET_VARP = -1;
     private static final int VARP_SCAN = 4000;
     private static final int VARC_SCAN = 4000;
     private static final int VARBIT_SCAN = 6000;
@@ -99,22 +103,17 @@ class LiveVariableApiSmokeTest {
         }
     }
 
+    /**
+     * Counts varps the client actually holds. A value test ({@code != -1}) would count every
+     * unset varp too, since an unset varp now reads its type default.
+     */
     @Test
     void varpReadsSurfaceLiveData() {
-        int populated = 0;
-        int lastId = -1;
-        int lastVal = 0;
-        for (int id = 0; id < VARP_SCAN; id++) {
-            int v = api.getVarp(id);
-            if (v != -1) {
-                populated++;
-                lastId = id;
-                lastVal = v;
-            }
-        }
-        assertTrue(populated > 0,
-                "expected some non-(-1) varps in 0.." + VARP_SCAN + " — is the client in lobby/in-game?");
-        log.info("varp scan: {} populated; e.g. varp {} = {}", populated, lastId, lastVal);
+        List<Integer> ids = IntStream.range(0, VARP_SCAN).boxed().toList();
+        List<VarpRead> set = api.readVarps(ids).stream().filter(VarpRead::isSet).toList();
+        assertTrue(!set.isEmpty(),
+                "expected some set varps in 0.." + VARP_SCAN + " — is the client in game?");
+        log.info("varp scan: {} set; e.g. {}", set.size(), set.getLast());
     }
 
     @Test
@@ -143,6 +142,11 @@ class LiveVariableApiSmokeTest {
             int actual = api.getVarbit(vb);
             int base2 = api.getVarp(def.varId());
             if (base1 != base2) {
+                continue;
+            }
+            // Only a base the client holds is cross-checked here; an unset base decodes
+            // its cache default, which VarpReaderTest and LiveVarpStateTest cover.
+            if (!api.readVarp(def.varId()).isSet()) {
                 continue;
             }
             int mask = width == 32 ? -1 : (1 << width) - 1;
@@ -185,7 +189,7 @@ class LiveVariableApiSmokeTest {
         int lastVal = 0;
         for (int id = 0; id < VARC_SCAN; id++) {
             int v = api.getVarcInt(id);
-            if (v != -1) {
+            if (v != UNSET_VARP) {
                 populated++;
                 lastId = id;
                 lastVal = v;

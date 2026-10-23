@@ -40,7 +40,7 @@ class SdnBundleFrameTest {
         return envelope;
     }
 
-    /** Writes the agreed framing: u32 count, envelope[168], N x (u32 len, jar). */
+    /** Writes {@code jars} in the courier's framing, as the launcher would. */
     private static byte[] frame(byte[] envelope, byte[]... jars) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.writeBytes(ByteBuffer.allocate(Integer.BYTES).order(ByteOrder.BIG_ENDIAN)
@@ -55,7 +55,7 @@ class SdnBundleFrameTest {
     }
 
     @Test
-    void parseFrame_threeJars_returnsAllInOrderWithOneSharedEnvelope() {
+    void parseFrame_threeJars_returnsAllInOrderWithTheirKeyMaterial() {
         byte[] envelope = envelope(0x5A);
         byte[] first = {1, 2, 3};
         byte[] second = {4, 5};
@@ -70,7 +70,6 @@ class SdnBundleFrameTest {
         assertArrayEquals(first, jars.get(0));
         assertArrayEquals(second, jars.get(1));
         assertArrayEquals(third, jars.get(2));
-        // One envelope covers every jar: the content key is per-session.
         assertArrayEquals(envelope, parsed.get().envelope());
     }
 
@@ -98,7 +97,7 @@ class SdnBundleFrameTest {
     }
 
     @Test
-    void parseFrame_shorterThanCountPlusEnvelope_isRejected() {
+    void parseFrame_shorterThanAnyValidPayload_isRejected() {
         assertTrue(SdnDiskBundleSource.parseFrame(new byte[0]).isEmpty());
         assertTrue(SdnDiskBundleSource.parseFrame(new byte[Integer.BYTES]).isEmpty());
         assertTrue(SdnDiskBundleSource.parseFrame(

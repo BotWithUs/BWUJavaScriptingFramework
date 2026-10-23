@@ -17,7 +17,7 @@ import java.util.Optional;
 /**
  * Disk-based SDN bundle source — the file-courier half of the production
  * delivery path. The launcher (which holds the credential and the heartbeat
- * session) fetches the encrypted jar + the per-session key envelope and drops
+ * session) fetches the sealed jars and the key material for them and drops
  * them in a shared directory; this class publishes the JVM's ephemeral public
  * key, waits for the courier to deliver the bundle, and constructs the
  * {@code SdnClassLoader} from it. The host itself never touches the network.
@@ -66,15 +66,16 @@ public final class SdnDiskBundleSource {
 
     /**
      * Publishes this JVM's public key into the default directory, waits for the
-     * courier-delivered bundle, and returns one class loader per jar it carried.
-     * Empty if disabled, not delivered within the timeout, or on any error
-     * (callers fall back to local scripts).
+     * courier-delivered bundle, and returns one class loader per jar it carried,
+     * with the jar's place in the delivery. {@link DefinedBundle#none()} if not
+     * delivered within the timeout or on any error (callers fall back to local
+     * scripts).
      */
-    public static List<ClassLoader> awaitBundle(ClassLoader parent) {
+    public static DefinedBundle awaitBundle(ClassLoader parent) {
         return awaitBundle(directory(), DEFAULT_TIMEOUT, parent);
     }
 
-    public static List<ClassLoader> awaitBundle(Path dir, Duration timeout, ClassLoader parent) {
+    public static DefinedBundle awaitBundle(Path dir, Duration timeout, ClassLoader parent) {
         long pid = SdnRendezvous.currentPid();
         Path pubFile = dir.resolve(pid + ".pub");
         Path bundleFile = dir.resolve(pid + ".sdn");
@@ -94,12 +95,12 @@ public final class SdnDiskBundleSource {
                 // "the courier is not running" and sends you to the wrong process.
                 log.info("SDN: no bundle delivered within {} in {} — is the courier "
                         + "running, and is it writing to the same directory?", timeout, dir);
-                return List.of();
+                return DefinedBundle.none();
             }
-            return defineAll(bundle, parent);
+            return defineBundle(bundle, parent);
         } catch (Exception e) {
             log.error("SDN disk bundle load failed: {}", e.getMessage());
-            return List.of();
+            return DefinedBundle.none();
         } finally {
             SdnRendezvous.deleteQuietly(pubFile);
             SdnRendezvous.deleteQuietly(bundleFile);
@@ -107,19 +108,12 @@ public final class SdnDiskBundleSource {
     }
 
     /**
-     * Parses the courier payload and defines one loader per jar.
+     * Parses the courier payload and defines one loader per jar, in delivery
+     * order. The payload's layout is agreed with the launcher courier and is not
+     * restated here; {@link #parseFrame} is its only reader on this side.
      *
-     * <p>Wire format, big-endian, agreed with the launcher courier:
-     * <pre>
-     *   u32  count
-     *   byte envelope[168]
-     *   repeat count times:
-     *       u32  jarLen
-     *       byte jar[jarLen]
-     * </pre>
-     *
-     * <p>One envelope for all jars, because the content key is per-SESSION: the
-     * site seals every jar in a delivery under the same key.
+     * <p>Public because the launcher's pipe delivers the same bytes a file
+     * delivery holds: whichever way a bundle arrived, it is defined here.
      *
      * <p>One loader per jar rather than one loader over a merged jar. That is
      * forced, not chosen — {@code SdnClassLoader}'s constructor takes a single
@@ -128,32 +122,35 @@ public final class SdnDiskBundleSource {
      * resolving class-name collisions between independently-authored scripts.
      *
      * <p>A jar that fails to define is skipped, not fatal: one bad script must
-     * not cost the user every other script in the same delivery.
+     * not cost the user every other script in the same delivery. Each loader
+     * keeps its jar's position, because that is what pairs it with the script
+     * it was requested as.
      */
-    private static List<ClassLoader> defineAll(byte[] bundle, ClassLoader parent) {
+    public static DefinedBundle defineBundle(byte[] bundle, ClassLoader parent) {
         Optional<BundleFrame> parsed = parseFrame(bundle);
         if (parsed.isEmpty()) {
-            return List.of();
+            return DefinedBundle.none();
         }
         BundleFrame frame = parsed.get();
         List<byte[]> jars = frame.jars();
 
-        List<ClassLoader> loaders = new ArrayList<>(jars.size());
+        List<DefinedBundle.Jar> defined = new ArrayList<>(jars.size());
         for (int i = 0; i < jars.size(); i++) {
+            int position = i;
             defineOne(jars.get(i), frame.envelope(), parent, i + 1, jars.size())
-                    .ifPresent(loaders::add);
+                    .ifPresent(loader -> defined.add(new DefinedBundle.Jar(position, loader)));
         }
-        log.info("SDN: bundle delivered, {} of {} jar(s) defined", loaders.size(), jars.size());
-        return loaders;
+        log.info("SDN: bundle delivered, {} of {} jar(s) defined", defined.size(), jars.size());
+        return new DefinedBundle(jars.size(), defined);
     }
 
     /**
-     * One delivery: the shared key envelope and the jars it covers.
+     * One delivery: the key material the runtime needs and the jars it covers.
      *
      * <p>Package-private so the framing can be tested without the patched JVM.
      * Everything past this point needs {@code SdnLoader.defineLoader}, which
      * only exists on the custom JDK, so a test that went through
-     * {@link #defineAll} could not run on a stock toolchain — and the framing
+     * {@link #defineBundle} could not run on a stock toolchain — and the framing
      * is exactly the part where a disagreement with the launcher's writer would
      * be silent.
      */
@@ -210,8 +207,9 @@ public final class SdnDiskBundleSource {
         try {
             return Optional.of(SdnLoader.defineLoader(jar, envelope, parent));
         } catch (Exception e) {
-            // Isolated on purpose. The envelope is shared, so a failure here is
-            // the jar's own: a wrong content key would fail every jar, not one.
+            // Isolated on purpose. The key material is common to the whole
+            // delivery, so a failure here is the jar's own: a key problem would
+            // fail every jar, not one.
             log.warn("SDN: jar {} of {} ({} bytes) failed to define, skipping: {}",
                     index, count, jar.length, e.getMessage());
             return Optional.empty();

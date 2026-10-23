@@ -1,7 +1,12 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.api.snapshot.OpenInterface;
+import com.botwithus.bot.api.snapshot.Orientation;
+
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Typed accessor over a single snapshot buffer in the shared region.
@@ -24,6 +29,7 @@ import java.lang.foreign.ValueLayout;
 public final class SnapshotView {
 
     private final MemorySegment seg;
+    private final OrientationWireDecoder orientations;
 
     /*
      * Element counts are read once, here, and every bounds check below tests
@@ -40,8 +46,13 @@ public final class SnapshotView {
      * This cannot make the row data coherent — that is inherent to the
      * lock-free double buffer, and a view is valid for one tick regardless —
      * but it does keep indices in range for the view's lifetime. Views are
-     * constructed per {@code region.snapshot()} call, so the cache is nine int
+     * constructed per {@code region.snapshot()} call, so the cache is ten int
      * loads with no staleness window of its own.
+     *
+     * openIfaceTotal is not an array bound, but it is cached beside
+     * openIfaceCount for the same reason: the completeness check compares the
+     * two, and reading them at different moments could pair a count from one
+     * publish with a total from the next.
      */
     private final int npcCount;
     private final int playerCount;
@@ -49,21 +60,39 @@ public final class SnapshotView {
     private final int inventoryCount;
     private final int invItemCount;
     private final int openIfaceCount;
+    private final int openIfaceTotal;
     private final int groundItemCount;
     private final int projectileCount;
     private final int dynChunkCount;
 
+    /** A view with its own orientation decoder; for tests and one-off reads. */
     public SnapshotView(MemorySegment seg) {
+        this(seg, new OrientationWireDecoder());
+    }
+
+    /**
+     * A view that decodes facing through {@code orientations}, which the owning
+     * {@link SharedRegion} keeps for the whole session so a broken producer invariant is
+     * logged once per session rather than once per snapshot.
+     */
+    public SnapshotView(MemorySegment seg, OrientationWireDecoder orientations) {
         this.seg             = seg;
+        this.orientations    = orientations;
         this.npcCount        = readCount(seg, Layout.SNAP_NPCCOUNT_OFFSET,        Layout.NPC_CAP);
         this.playerCount     = readCount(seg, Layout.SNAP_PLAYERCOUNT_OFFSET,     Layout.PLAYER_CAP);
         this.locationCount   = readCount(seg, Layout.SNAP_LOCATIONCOUNT_OFFSET,   Layout.LOCATION_CAP);
         this.inventoryCount  = readCount(seg, Layout.SNAP_INVENTORYCOUNT_OFFSET,  Layout.INVENTORY_CAP);
         this.invItemCount    = readCount(seg, Layout.SNAP_INVITEMCOUNT_OFFSET,    Layout.INVENTORY_ITEM_CAP);
         this.openIfaceCount  = readCount(seg, Layout.SNAP_OPENIFACECOUNT_OFFSET,  Layout.OPEN_IFACE_CAP);
+        this.openIfaceTotal  = readCount(seg, Layout.SNAP_OPENIFACETOTAL_OFFSET,  Integer.MAX_VALUE);
         this.groundItemCount = readCount(seg, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, Layout.GROUND_ITEM_CAP);
         this.projectileCount = readCount(seg, Layout.SNAP_PROJECTILECOUNT_OFFSET, Layout.PROJECTILE_CAP);
         this.dynChunkCount   = readCount(seg, Layout.SNAP_DYNCHUNKCOUNT_OFFSET,   Layout.DYN_CHUNK_CAP);
+    }
+
+    /** Decodes the {@code u16} facing field at {@code offset}; never throws. */
+    private Orientation orientationAt(long offset) {
+        return orientations.decode(Short.toUnsignedInt(seg.get(ValueLayout.JAVA_SHORT, offset)));
     }
 
     /** Reads a published element count, clamping a negative or oversized
@@ -81,7 +110,8 @@ public final class SnapshotView {
     public int  rootIfaceId() { return seg.get(ValueLayout.JAVA_INT,  Layout.SNAP_ROOTIFACEID_OFFSET); }
 
     public LocalPlayerView self() {
-        return new LocalPlayerView(seg.asSlice(Layout.SNAP_SELF_OFFSET, Layout.LOCAL_PLAYER_SIZE));
+        return new LocalPlayerView(
+                seg.asSlice(Layout.SNAP_SELF_OFFSET, Layout.LOCAL_PLAYER_SIZE), orientations);
     }
 
     // ------------------------------------------------------------------
@@ -109,7 +139,8 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_STANCEID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_HP_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_MAXHP_OFFSET),
-                seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_SPOTANIMID_OFFSET));
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_SPOTANIMID_OFFSET),
+                orientationAt(base + Layout.NPC_ORIENTATION_OFFSET));
     }
 
     // ------------------------------------------------------------------
@@ -135,7 +166,8 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_ANIMATIONID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_STANCEID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_COMBATLEVEL_OFFSET),
-                seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_SPOTANIMID_OFFSET));
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_SPOTANIMID_OFFSET),
+                orientationAt(base + Layout.PLAYER_ORIENTATION_OFFSET));
     }
 
     // ------------------------------------------------------------------
@@ -232,6 +264,19 @@ public final class SnapshotView {
         return openIfaceCount;
     }
 
+    /** The client table's own element count this tick (v22+), or {@code 0} when the
+     *  producer could not read the table. Not bounded by {@link Layout#OPEN_IFACE_CAP}. */
+    public int openIfaceTotal() {
+        return openIfaceTotal;
+    }
+
+    /** True when the published list holds every open sub-interface: the table was
+     *  readable and nothing was truncated. When false, an id missing from the list is
+     *  not proof that the interface is closed. */
+    public boolean isOpenIfaceListComplete() {
+        return openIfaceTotal > 0 && openIfaceCount == openIfaceTotal;
+    }
+
     /** Returns the interface id at index {@code i} (0..openIfaceCount-1). */
     public int openIfaceAt(int i) {
         if (i < 0 || i >= openIfaceCount()) {
@@ -241,9 +286,30 @@ public final class SnapshotView {
                        Layout.SNAP_OPENIFACES_OFFSET + (long) i * 4);
     }
 
+    /** Returns the unsigned flags byte at index {@code i} (0..openIfaceCount-1), which
+     *  describes {@link #openIfaceAt(int)} at the same index (v23+). */
+    public int openIfaceFlagsAt(int i) {
+        if (i < 0 || i >= openIfaceCount()) {
+            throw new IndexOutOfBoundsException(i);
+        }
+        return Byte.toUnsignedInt(seg.get(ValueLayout.JAVA_BYTE,
+                                          Layout.SNAP_OPENIFACEFLAGS_OFFSET + (long) i));
+    }
+
+    /** Copies this tick's open sub-interfaces, ids paired with their flags by index. */
+    public List<OpenInterface> openInterfaces() {
+        int count = openIfaceCount();
+        List<OpenInterface> out = new ArrayList<>(count);
+        for (int i = 0; i < count; i++) {
+            out.add(OpenInterface.fromWire(openIfaceAt(i), openIfaceFlagsAt(i)));
+        }
+        return List.copyOf(out);
+    }
+
     /** True iff {@code ifaceId} appears in this tick's open-subs snapshot.
-     *  Linear scan; the keyset is small (~20 ids) so this is faster than
-     *  any data structure with constant overhead. */
+     *  Linear scan; the keyset is a few dozen ids so this is faster than
+     *  any data structure with constant overhead. A {@code false} is only
+     *  conclusive when {@link #isOpenIfaceListComplete()} holds. */
     public boolean isInterfaceOpen(int ifaceId) {
         int count = openIfaceCount();
         for (int i = 0; i < count; i++) {

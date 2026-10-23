@@ -339,17 +339,13 @@ public class ConnectCommand implements Command {
         conn.getRuntime().setOnStateChange(() -> asm.saveState(conn));
 
         try {
-            Map<String, Object> info = conn.getRpc().callSync("get_account_info", Map.of());
-            String displayName = getString(info, "display_name");
-            if (displayName == null || displayName.isEmpty()) {
-                displayName = getString(info, "jx_display_name");
-            }
-            if (displayName != null && !displayName.isEmpty()) {
+            // Stores the reply whether or not it names the account yet, so the
+            // UUID is kept for a client still at the login screen.
+            ctx.getStatusTracker().refresh(conn).characterName().ifPresent(displayName -> {
                 conn.setAccountName(displayName);
-                conn.setAccountInfo(info);
                 ctx.out().println("Account: " + displayName);
                 asm.onConnectionEstablished(conn, displayName);
-            }
+            });
         } catch (Exception e) {
             log.error("probeAndAutoStart failed for {}", connName, e);
         }

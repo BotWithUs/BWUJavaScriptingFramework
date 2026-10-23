@@ -27,6 +27,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static java.lang.foreign.ValueLayout.ADDRESS;
 import static java.lang.foreign.ValueLayout.JAVA_BYTE;
@@ -55,9 +57,11 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
  * {@link IllegalCallerException}.
  *
  * <h2>Threading</h2>
- * A single instance is <b>not</b> safe for concurrent use — the
- * underlying handle wraps a sqlite connection. Serialize calls
- * externally or open one handle per worker thread.
+ * The native handle is <b>not</b> safe for concurrent use (it wraps a sqlite
+ * connection and decoder state), but this class is: one instance is shared by
+ * every connection and script thread, so every call on the handle runs under
+ * one lock per instance ({@link HandleGuard}), and {@link #close()} takes the
+ * same lock. Callers need no external synchronisation.
  */
 public final class NXTCache implements AutoCloseable {
 
@@ -144,11 +148,33 @@ public final class NXTCache implements AutoCloseable {
     private static final MethodHandle MH_WORLDMAP = dl("nxt_get_worldmap_json", jsonFd());
     private static final MethodHandle MH_DBROW    = dl("nxt_get_dbrow_json",    jsonFd());
 
-    private final MemorySegment handle;
-    private volatile boolean closed;
+    /**
+     * {@code nxt_get_varp_info}, bound optionally: a build of NXTCache.dll that predates it
+     * must still load, with varp defaults simply unverified. A hard lookup here would fail
+     * this class's initialisation and take every cache feature down with it.
+     */
+    private static final Optional<MethodHandle> MH_VARP_INFO = LIB.find("nxt_get_varp_info")
+            .map(sym -> LINKER.downcallHandle(sym,
+                    FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS)));
 
-    private NXTCache(MemorySegment handle) {
+    /**
+     * The varp the warm-up asks about. Any id works: the point is to make the library load
+     * the varp config group once, off every script's path.
+     */
+    private static final int WARMUP_VARP_ID = 0;
+
+    private static final VarpCacheInfo VARP_INFO_UNKNOWN = new VarpCacheInfo.Unknown();
+
+    private final MemorySegment handle;
+    private final HandleGuard guard;
+    /** Definitive varp answers (found, or not found) for this cache's lifetime. */
+    private final Map<Integer, VarpCacheInfo> varpInfoMemo = new ConcurrentHashMap<>();
+    /** Set once the background warm-up call has returned; until then no read asks. */
+    private volatile boolean isVarpInfoWarm;
+
+    private NXTCache(MemorySegment handle, HandleGuard guard) {
         this.handle = handle;
+        this.guard = guard;
     }
 
     // ---------------------------------------------------------- Lifecycle
@@ -163,27 +189,134 @@ public final class NXTCache implements AutoCloseable {
      * </ul>
      * Returns {@code null} when neither is set, so callers can degrade
      * gracefully. Throws on actual open failure.
+     *
+     * <p>This is the properties-only half, and stays that way. Host wiring
+     * wants {@link #openForHost()}, which uses this for the override leg and
+     * then discovers or falls back instead of returning {@code null}.</p>
      */
     public static NXTCache tryOpenFromSystemProperty() throws IOException {
-        String path = System.getProperty("nxtcache.path");
+        String path = System.getProperty(CacheSourceResolver.PATH_PROPERTY);
         if (path != null && !path.isBlank()) {
-            NXTCache c = openLocal(Path.of(path));
-            try {
-                c.enableLiveFallback();
-            } catch (IOException e) {
-                // Fallback is best-effort — the local cache is still usable
-                // for entries it has. Swallow but leave a trail.
-            }
-            return c;
+            return openLocalWithFallback(Path.of(path));
         }
-        if (Boolean.getBoolean("nxtcache.live")) {
+        if (Boolean.getBoolean(CacheSourceResolver.LIVE_PROPERTY)) {
             return openLive();
         }
         return null;
     }
 
+    /**
+     * Opens the cache a host process should run against, without requiring
+     * anyone to pass a {@code -D} flag. Never returns {@code null}: an
+     * explicit override wins, else a discovered NXT client cache directory,
+     * else the live JS5 service. See {@link CacheSourceResolver} for the
+     * precedence and for why a discovered directory has to hold index files
+     * rather than merely exist.
+     *
+     * <p>This is the entry point host wiring should call.
+     * {@link #tryOpenFromSystemProperty()} remains what its name says — the
+     * properties-only half — and is what this delegates to for the override
+     * leg. Widening that method in place would have made a {@code null} return
+     * mean "no override" to one caller and "no cache anywhere" to another,
+     * which is the kind of ambiguity a return type cannot carry.</p>
+     *
+     * <p>The live fallback is deliberately silent to the script: a network
+     * dependency and slower lookups beat every config-type lookup throwing.
+     * It is logged at {@code info} so the mode is legible in a log we are
+     * sent, and never at {@code error} — it is a working state.</p>
+     *
+     * @throws IOException if the resolved source cannot be opened. An explicit
+     *         override that names a bad directory fails here rather than
+     *         degrading, so the operator sees their own typo.
+     */
+    public static NXTCache openForHost() throws IOException {
+        NXTCache cache = open(new CacheSourceResolver().resolve());
+        cache.startVarpInfoWarmup();
+        return cache;
+    }
+
+    /**
+     * Opens the cache for a host process that knows which client it is serving.
+     * Same precedence as {@link #openForHost()} with one tier inserted: after
+     * the {@code -D} overrides and before the known install locations, the
+     * client running as {@code clientPid} is asked where its own cache is. That
+     * is the only answer that stays correct for a user who relocated their
+     * cache, since {@code cache_folder} is a preference nothing recomputes once
+     * moved.
+     *
+     * <p>An overload rather than a widened signature, and rather than a resolver
+     * that finds the pid itself. Both host call sites already hold the pid as a
+     * local — they parsed it out of the agent's pipe name to open the shared
+     * memory — so passing it costs nothing, whereas self-discovery would have to
+     * re-enumerate pipes and could answer with a <em>different</em> client than
+     * the one being connected. A silently wrong cache is worse than no pid.</p>
+     *
+     * @param clientPid the game client's process id, as carried by the agent's
+     *                  pipe and shared-memory names
+     * @throws IOException if the resolved source cannot be opened
+     */
+    public static NXTCache openForHost(long clientPid) throws IOException {
+        NXTCache cache = open(new CacheSourceResolver(clientPid).resolve());
+        cache.startVarpInfoWarmup();
+        return cache;
+    }
+
+    /** Opens an already-decided {@link CacheSource}, logging which mode was taken. */
+    public static NXTCache open(CacheSource source) throws IOException {
+        Objects.requireNonNull(source, "source");
+        return switch (source) {
+            case CacheSource.LocalDirectory local -> openLocalReporting(local);
+            case CacheSource.Live live -> openLiveReporting(live);
+        };
+    }
+
+    private static NXTCache openLocalReporting(CacheSource.LocalDirectory local) throws IOException {
+        NXTCache cache = openLocalWithFallback(local.directory());
+        if (local.isExplicit()) {
+            log.info("NXTCache: local cache {} named by -D{}",
+                    local.directory(), CacheSourceResolver.PATH_PROPERTY);
+        } else {
+            log.info("NXTCache: discovered the client's local cache at {}", local.directory());
+        }
+        return cache;
+    }
+
+    private static NXTCache openLiveReporting(CacheSource.Live live) throws IOException {
+        if (live.isExplicit()) {
+            log.info("NXTCache: live JS5 only, named by -D{}", CacheSourceResolver.LIVE_PROPERTY);
+        } else {
+            log.info("NXTCache: no local NXT cache found; using live JS5 instead. Config-type "
+                            + "lookups work, but each archive is fetched over the network. Pass "
+                            + "-D{}=<cache dir> to read a local cache instead.",
+                    CacheSourceResolver.PATH_PROPERTY);
+        }
+        return openLive();
+    }
+
+    /**
+     * Opens a local cache and turns on live-JS5 fallback for archives it does
+     * not hold. The fallback is best-effort: a local cache that answers most
+     * lookups is worth keeping even when the network leg is unavailable, so a
+     * failure there is reported and swallowed rather than failing the open.
+     */
+    private static NXTCache openLocalWithFallback(Path directory) throws IOException {
+        NXTCache cache = openLocal(directory);
+        try {
+            cache.enableLiveFallback();
+        } catch (IOException e) {
+            log.info("NXTCache: live-JS5 fallback unavailable for {} ({}); lookups are limited "
+                    + "to archives already cached locally", directory, e.getMessage());
+        }
+        return cache;
+    }
+
     /** Opens a sqlite-backed cache from the given directory. */
     public static NXTCache openLocal(Path cachePath) throws IOException {
+        return openLocal(cachePath, new HandleGuard());
+    }
+
+    /** As {@link #openLocal(Path)}, with the guard supplied; the test seam for serialisation. */
+    static NXTCache openLocal(Path cachePath, HandleGuard guard) throws IOException {
         Objects.requireNonNull(cachePath);
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment cstr = tmp.allocateFrom(cachePath.toString());
@@ -196,7 +329,7 @@ public final class NXTCache implements AutoCloseable {
             if (ptr.address() == 0) {
                 throw new IOException("nxt_cache_open_local failed: " + lastError());
             }
-            return new NXTCache(ptr);
+            return new NXTCache(ptr, guard);
         }
     }
 
@@ -211,31 +344,37 @@ public final class NXTCache implements AutoCloseable {
         if (ptr.address() == 0) {
             throw new IOException("nxt_cache_open_live failed: " + lastError());
         }
-        return new NXTCache(ptr);
+        return new NXTCache(ptr, new HandleGuard());
     }
 
     /** Enables transparent live-JS5 fallback for misses on a local cache. */
     public void enableLiveFallback() throws IOException {
-        ensureOpen();
-        int rc;
+        String failure;
         try {
-            rc = (int) MH_ENABLE_FALLBACK.invokeExact(handle);
+            failure = guard.call(() -> {
+                int rc = (int) MH_ENABLE_FALLBACK.invokeExact(handle);
+                return rc == NXT_OK ? null : "enable_live_fallback rc=" + rc + ": " + lastError();
+            });
         } catch (Throwable t) {
             throw rethrow(t);
         }
-        if (rc != NXT_OK) {
-            throw new IOException("enable_live_fallback rc=" + rc + ": " + lastError());
+        if (failure != null) {
+            throw new IOException(failure);
         }
     }
 
+    /**
+     * Frees the handle once. Safe to race with any other call: one in flight finishes
+     * first, and any later call throws {@link IllegalStateException} rather than reaching
+     * a freed handle.
+     */
     @Override
     public void close() {
-        if (closed) {
-            return;
-        }
-        closed = true;
         try {
-            MH_CLOSE.invokeExact(handle);
+            guard.close(() -> {
+                MH_CLOSE.invokeExact(handle);
+                return null;
+            });
         } catch (Throwable t) {
             // best-effort; close must not throw
             log.debug("nxt_cache_close threw", t);
@@ -308,7 +447,14 @@ public final class NXTCache implements AutoCloseable {
 
     /** Generic by-name dispatch — useful for wiring up new types without recompiling. */
     public String getJson(String typeName, int id) {
-        ensureOpen();
+        try {
+            return guard.call(() -> getJsonLocked(typeName, id));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    private String getJsonLocked(String typeName, int id) throws Throwable {
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment type = tmp.allocateFrom(typeName);
             MemorySegment outPtr = tmp.allocate(ADDRESS);
@@ -321,14 +467,19 @@ public final class NXTCache implements AutoCloseable {
                 throw new NXTCacheException("get_json(" + typeName + ", " + id + ") rc=" + rc + ": " + lastError());
             }
             return readAndFree(outPtr, outLen);
-        } catch (Throwable t) {
-            throw rethrow(t);
         }
     }
 
     /** Bulk dump as a JSON array. {@code limit < 0} means unbounded. */
     public String dumpAllJson(String typeName, int limit) {
-        ensureOpen();
+        try {
+            return guard.call(() -> dumpAllJsonLocked(typeName, limit));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    private String dumpAllJsonLocked(String typeName, int limit) throws Throwable {
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment type = tmp.allocateFrom(typeName);
             MemorySegment outPtr = tmp.allocate(ADDRESS);
@@ -338,14 +489,19 @@ public final class NXTCache implements AutoCloseable {
                 throw new NXTCacheException("dump_all_json(" + typeName + ") rc=" + rc + ": " + lastError());
             }
             return readAndFree(outPtr, outLen);
-        } catch (Throwable t) {
-            throw rethrow(t);
         }
     }
 
     /** Read raw bytes for a single (idx, archive, file) triple. */
     public byte[] readFileRaw(int indexId, int archiveId, int fileId) {
-        ensureOpen();
+        try {
+            return guard.call(() -> readFileRawLocked(indexId, archiveId, fileId));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    private byte[] readFileRawLocked(int indexId, int archiveId, int fileId) throws Throwable {
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment outPtr = tmp.allocate(ADDRESS);
             MemorySegment outLen = tmp.allocate(JAVA_LONG);
@@ -374,15 +530,86 @@ public final class NXTCache implements AutoCloseable {
             } finally {
                 MH_FREE.invokeExact(buf);
             }
+        }
+    }
+
+    // ----------------------------------------------------------- Varp info
+
+    /**
+     * What the cache knows about varp {@code id}: exists with a known default, exists with an
+     * unknown default, no such varp, or unknown. Never throws and never blocks a caller on the
+     * cache's first load: until {@link #startVarpInfoWarmup()} has finished, the answer is
+     * {@link VarpCacheInfo.Unknown}. Definitive answers are memoised; failures are retried.
+     */
+    public VarpCacheInfo varpInfo(int id) {
+        if (MH_VARP_INFO.isEmpty() || !isVarpInfoWarm) {
+            return VARP_INFO_UNKNOWN;
+        }
+        VarpCacheInfo known = varpInfoMemo.get(id);
+        return known != null ? known : queryVarpInfo(id);
+    }
+
+    /** True when this NXTCache.dll build can report varp definitions at all. */
+    public static boolean supportsVarpInfo() {
+        return MH_VARP_INFO.isPresent();
+    }
+
+    /** True once the warm-up has finished and {@link #varpInfo(int)} consults the cache. */
+    public boolean isVarpInfoWarm() {
+        return isVarpInfoWarm;
+    }
+
+    /**
+     * Loads the varp config group once, on a background thread, so the first varp read on a
+     * script's thread does not pay for it. Idempotent in effect; host factories call it.
+     */
+    public void startVarpInfoWarmup() {
+        if (MH_VARP_INFO.isEmpty()) {
+            log.info("NXTCache: this NXTCache.dll has no nxt_get_varp_info; varp defaults "
+                    + "are reported unverified");
+            return;
+        }
+        Thread.ofVirtual().name("nxtcache-varp-warmup").start(() -> {
+            queryVarpInfo(WARMUP_VARP_ID);
+            isVarpInfoWarm = true;
+        });
+    }
+
+    private VarpCacheInfo queryVarpInfo(int id) {
+        try {
+            return guard.call(() -> queryVarpInfoLocked(id));
         } catch (Throwable t) {
-            throw rethrow(t);
+            log.debug("NXTCache: varp info for {} unavailable", id, t);
+            return VARP_INFO_UNKNOWN;
+        }
+    }
+
+    private VarpCacheInfo queryVarpInfoLocked(int id) throws Throwable {
+        try (Arena tmp = Arena.ofConfined()) {
+            MemorySegment info = tmp.allocate(VarpInfoAbi.LAYOUT);
+            VarpInfoAbi.prepare(info);
+            int rc = (int) MH_VARP_INFO.orElseThrow().invokeExact(handle, id, info);
+            VarpCacheInfo result = VarpInfoAbi.classify(rc, info);
+            if (VarpInfoAbi.isMemoisable(rc, result)) {
+                varpInfoMemo.put(id, result);
+            } else if (rc != NXT_OK) {
+                log.debug("NXTCache: nxt_get_varp_info({}) rc={}: {}", id, rc, lastError());
+            }
+            return result;
         }
     }
 
     // -------------------------------------------------------- Internals
 
     private String jsonOrNull(MethodHandle mh, int id) {
-        ensureOpen();
+        try {
+            return guard.call(() -> jsonOrNullLocked(mh, id));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    private String jsonOrNullLocked(MethodHandle mh, int id) throws Throwable {
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment outPtr = tmp.allocate(ADDRESS);
             MemorySegment outLen = tmp.allocate(JAVA_LONG);
@@ -394,8 +621,6 @@ public final class NXTCache implements AutoCloseable {
                 throw new NXTCacheException("nxt_get_*_json rc=" + rc + ": " + lastError());
             }
             return readAndFree(outPtr, outLen);
-        } catch (Throwable t) {
-            throw rethrow(t);
         }
     }
 
@@ -413,12 +638,6 @@ public final class NXTCache implements AutoCloseable {
             return new String(bytes, StandardCharsets.UTF_8);
         } finally {
             MH_FREE.invokeExact(buf);
-        }
-    }
-
-    private void ensureOpen() {
-        if (closed) {
-            throw new IllegalStateException("NXTCache handle is closed");
         }
     }
 

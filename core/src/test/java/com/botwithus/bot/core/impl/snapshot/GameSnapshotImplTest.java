@@ -41,6 +41,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class GameSnapshotImplTest {
 
+    /** The bank: the id the v21 cap of 64 dropped first. */
+    private static final int BANK_IFACE = 517;
+    /** Any id that is not written into the synthetic list. */
+    private static final int ABSENT_IFACE = 1477;
+
     // ------------------------------------------------------------------
     // Metadata
     // ------------------------------------------------------------------
@@ -648,6 +653,85 @@ class GameSnapshotImplTest {
 
             assertEquals(Layout.PROJECTILE_CAP, build(seg).projectiles().count());
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Open sub-interfaces (v14+, total since v22)
+    // ------------------------------------------------------------------
+
+    /**
+     * The regression this protocol bump exists for: an id in the last slot of a
+     * full 256-entry list must be found. Under the v21 cap of 64 the view never
+     * read past index 63.
+     */
+    @Test
+    void openInterfaceInLastSlotOfFullListIsFound() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            writeOpenInterfaces(seg, Layout.OPEN_IFACE_CAP, Layout.OPEN_IFACE_CAP);
+            writeOpenInterfaceAt(seg, Layout.OPEN_IFACE_CAP - 1, BANK_IFACE);
+
+            GameSnapshot snap = build(seg);
+
+            assertEquals(Layout.OPEN_IFACE_CAP, snap.openInterfaceCount());
+            assertEquals(Layout.OPEN_IFACE_CAP, snap.openInterfaceTotal());
+            assertTrue(snap.isOpenInterfaceListComplete());
+            assertTrue(snap.isInterfaceOpen(BANK_IFACE));
+            assertFalse(snap.isInterfaceOpen(ABSENT_IFACE));
+        }
+    }
+
+    @Test
+    void openInterfaceTotalAboveCountMeansIncomplete() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            int total = Layout.OPEN_IFACE_CAP + 40;
+            writeOpenInterfaces(seg, Layout.OPEN_IFACE_CAP, total);
+
+            GameSnapshot snap = build(seg);
+
+            assertEquals(total, snap.openInterfaceTotal());
+            assertFalse(snap.isOpenInterfaceListComplete());
+        }
+    }
+
+    @Test
+    void unreadableOpenInterfaceTableIsNeverComplete() {
+        try (Arena arena = Arena.ofConfined()) {
+            GameSnapshot snap = build(allocSnapshot(arena));
+
+            assertEquals(0, snap.openInterfaceCount());
+            assertEquals(0, snap.openInterfaceTotal());
+            assertFalse(snap.isOpenInterfaceListComplete());
+        }
+    }
+
+    @Test
+    void openInterfaceCountClampedToCap() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment seg = allocSnapshot(arena);
+            writeOpenInterfaces(seg, Layout.OPEN_IFACE_CAP + 1, Layout.OPEN_IFACE_CAP + 1);
+
+            assertEquals(Layout.OPEN_IFACE_CAP, build(seg).openInterfaceCount());
+        }
+    }
+
+    /**
+     * Writes the count and total, and fills every published slot with an id that
+     * matches neither {@link #BANK_IFACE} nor {@link #ABSENT_IFACE}.
+     */
+    private static void writeOpenInterfaces(MemorySegment seg, int count, int total) {
+        seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OPENIFACECOUNT_OFFSET, count);
+        seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OPENIFACETOTAL_OFFSET, total);
+        int filler = ABSENT_IFACE + 1;
+        for (int i = 0; i < Math.min(count, Layout.OPEN_IFACE_CAP); i++) {
+            writeOpenInterfaceAt(seg, i, filler + i);
+        }
+    }
+
+    private static void writeOpenInterfaceAt(MemorySegment seg, int index, int ifaceId) {
+        seg.set(ValueLayout.JAVA_INT,
+                Layout.SNAP_OPENIFACES_OFFSET + (long) index * Integer.BYTES, ifaceId);
     }
 
     // ------------------------------------------------------------------

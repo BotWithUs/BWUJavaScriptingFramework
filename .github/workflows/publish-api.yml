@@ -126,7 +126,19 @@ jobs:
 
           [API documentation](https://botwithus.github.io/BWUJavaScriptingFramework/)
           NOTES
+          # --repo is load-bearing, not tidiness. `Check out the source` uses
+          # `path: source`, so the workspace ROOT has no .git and `gh` cannot
+          # infer the repository -- this step died with "fatal: not a git
+          # repository" on the very first release, AFTER the artifact had
+          # already been published and pushed. That is the worst place for it
+          # to fail: v1.0.0 reached the Maven repo with no GitHub release
+          # beside it, and the release had to be created by hand.
+          #
+          # Naming the repo fixes it without moving the step. Running from
+          # `source/` instead would break the asset path below, which is
+          # relative to the workspace root where `maven/` was checked out.
           gh release create "v$version" \
+            --repo "${{ github.repository }}" \
             --title "bot-api $version" \
             --notes-file notes.md \
             --generate-notes \
