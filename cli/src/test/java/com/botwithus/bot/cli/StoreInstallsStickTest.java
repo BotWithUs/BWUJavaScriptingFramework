@@ -38,6 +38,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -81,6 +82,8 @@ class StoreInstallsStickTest {
     private final List<HostSettings> settings = new ArrayList<>();
     private final ByteArrayOutputStream output = new ByteArrayOutputStream();
     private int hosts;
+    /** The restorers' clock; a test moves it to let a wait pass. */
+    private final AtomicReference<Instant> now = new AtomicReference<>(NOW);
 
     /** The delivered script. Counts its own starts, which is its per-run state. */
     @ScriptManifest(name = SCRIPT_NAME)
@@ -153,7 +156,7 @@ class StoreInstallsStickTest {
         Executor restores = defersRestores ? queued::add : Runnable::run;
         StoreRestorer restorer = new StoreRestorer(new StoreRestorer.Deps(ledger, installer.shelf(),
                 catalogue::shown, installer::isDeliveryEnabled, installer::install,
-                ctx::registerStoreScriptsOnLiveClients, restores, InstantSource.fixed(NOW)));
+                ctx::registerStoreScriptsOnLiveClients, restores, now::get));
         ctx.setStoreRestorer(restorer);
         return new Host(ctx, installer, restorer, queued);
     }
@@ -324,6 +327,7 @@ class StoreInstallsStickTest {
         restarted.restorer().request();
         restarted.runQueuedRestores();
         assertTrue(restarted.restorer().lastFailure().isPresent(), "the first restore failed");
+        now.set(NOW.plus(StoreRestorer.RETRY_AFTER));
 
         Connection conn = client(restarted, "BotWithUs_1");
         autoStart.onConnectionEstablished(conn, DISPLAY_NAME);

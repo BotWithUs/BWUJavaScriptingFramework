@@ -37,7 +37,9 @@ import java.util.stream.Collectors;
  *
  * <p>{@link #request} is the timer's trigger and is enough on its own. {@link #nudge}
  * is a client connecting: after a failure that a missing game client explains, it
- * may start one restore before the wait is over, once per such failure. At most one
+ * may start one restore before the wait is over, once per such failure and never
+ * within {@link #RETRY_AFTER} of the last attempt, so it shortens the longer waits
+ * of repeated failures without letting connects pace the restore. At most one
  * restore is in flight however many callers ask, and after a failure the next waits
  * {@link #RETRY_AFTER}, doubling to {@link #MAX_RETRY_AFTER}.
  *
@@ -113,6 +115,8 @@ public final class StoreRestorer {
     private String lastFailure;
     private boolean isLinkFailure;
     private boolean isNudgeSpent;
+    /** When the last restore started; a nudge never starts one sooner than {@link #RETRY_AFTER} after it. */
+    private Instant lastAttemptAt;
     /** Whether any restore this run brought a script back, which shows the launcher can deliver. */
     private boolean hasRestoredAny;
 
@@ -227,13 +231,14 @@ public final class StoreRestorer {
                 return false;
             }
             if (isWaitingAfterFailure()) {
-                if (!isNudge || !isLinkFailure || isNudgeSpent) {
+                if (!isNudge || !isLinkFailure || isNudgeSpent || isWithinNudgeFloor()) {
                     return false;
                 }
                 isNudgeSpent = true;
                 log.info("SDN: a client connected; retrying the Store restore before the wait is over");
             }
             isRunning = true;
+            lastAttemptAt = deps.clock().instant();
             return true;
         }
     }
@@ -416,6 +421,16 @@ public final class StoreRestorer {
     /** Called with {@link #lock} held; {@link #pending} takes it again, which is re-entrant. */
     private boolean isAwaitedLocked() {
         return isRunning || (!hasAttempted && !pending().isEmpty());
+    }
+
+    /**
+     * Whether a nudge would start a restore less than {@link #RETRY_AFTER} after the
+     * last one started. This floor is what keeps a client that reconnects in a loop
+     * from driving a restore per connect: a failed nudged restore earns a new nudge,
+     * but not before the floor has passed.
+     */
+    private boolean isWithinNudgeFloor() {
+        return lastAttemptAt != null && deps.clock().instant().isBefore(lastAttemptAt.plus(RETRY_AFTER));
     }
 
     private boolean isWaitingAfterFailure() {

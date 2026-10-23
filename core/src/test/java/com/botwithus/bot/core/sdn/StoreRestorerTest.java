@@ -242,24 +242,49 @@ class StoreRestorerTest {
         return entries -> entries.getFirst().id().equals(refusedId) ? refuse(entries) : deliverEach(entries);
     }
 
-    /**
-     * S1: after a failure a missing game client explains, a client connecting retries
-     * before the wait is over, once per failure. Fails if the nudge is just a request.
-     */
-    @Test
-    void aNudge_afterALinkFailure_retriesOnceBeforeTheWaitIsOver() throws IOException {
+    /** Fails twice, so the wait ({@link StoreRestorer#RETRY_AFTER} doubled) outlasts the nudge floor. */
+    private StoreRestorer failedTwice() throws IOException {
         StoreRestorer restorer = restorer(ledgerWith(ID), List.of(entry(ID)), this::refuse);
         restorer.request();
         runQueued();
+        now.set(now.get().plus(StoreRestorer.RETRY_AFTER));
+        restorer.request();
+        runQueued();
+        return restorer;
+    }
+
+    /**
+     * S1: after a failure a missing game client explains, a client connecting retries
+     * before the wait is over, once per failure, but never within the floor of the
+     * last attempt. Fails if the nudge is just a request.
+     */
+    @Test
+    void aNudge_afterALinkFailure_retriesOnceBeforeTheWaitIsOver() throws IOException {
+        StoreRestorer restorer = failedTwice();
+        now.set(now.get().plus(StoreRestorer.RETRY_AFTER));
 
         restorer.request();
-        assertTrue(queued.isEmpty(), "the timer still waits");
+        assertTrue(queued.isEmpty(), "the timer still waits: the second failure doubled the wait");
         restorer.nudge();
         restorer.nudge();
         assertEquals(1, queued.size(), "one nudge retries; the second finds it running");
-        runQueued();
-        restorer.nudge();
-        assertEquals(1, queued.size(), "a new failure earns one more early retry");
+    }
+
+    /**
+     * B3: a client reconnecting in a loop cannot drive more than one restore per
+     * {@link StoreRestorer#RETRY_AFTER}, however many times it connects.
+     */
+    @Test
+    void aReconnectLoop_drivesAtMostOneRestorePerFloor() throws IOException {
+        StoreRestorer restorer = failedTwice();
+        int attempts = 0;
+        for (int second = 0; second < 2 * StoreRestorer.RETRY_AFTER.toSeconds(); second++) {
+            restorer.nudge();
+            attempts += queued.size();
+            runQueued();
+            now.set(now.get().plusSeconds(1));
+        }
+        assertEquals(1, attempts, "one attempt in the first floor after the failure, then the floor holds again");
     }
 
     /** A failure no client explains, such as a script that threw, is not retried early. */
@@ -364,7 +389,8 @@ class StoreRestorerTest {
         restorer.request();
         runQueued();
         assertFalse(restoredCalled.get(), "a failed restore does not call it");
-        restorer.nudge();
+        now.set(now.get().plus(StoreRestorer.RETRY_AFTER));
+        restorer.request();
         runQueued();
 
         assertTrue(restoredCalled.get());
