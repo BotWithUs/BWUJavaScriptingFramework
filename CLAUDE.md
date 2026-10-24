@@ -273,9 +273,35 @@ Three things to keep straight when extending it:
   tables. Absent file → `GamevalIndex.empty()`, every lookup empty,
   `isAvailable()` false. Lookups are lazy and memoised (hits *and* misses);
   eagerly loading the whole table would retain ~200 MB. One process-wide index
-  is opened at the composition root (`CliContext.getOrInitGamevals()`,
-  `JBotApplication.openGamevalIndex()`) and shared by every connection — the
-  same treatment `NXTCache` gets.
+  is opened at the composition root (`CliContext.getOrInitGamevals(pid)`,
+  `JBotApplication.main`) through `HostGamevals.openForHost(pid)` and shared by
+  every connection — the same treatment `NXTCache` gets.
+- **The host keeps the index current from the player's own cache**
+  (`core.gameval.HostGamevals`). The shipped file goes stale with every game
+  update; since 951-1 the live cache carries index 67 itself. At startup the host
+  probes `nxt_gameval_index_version` on a *private* `NXTCache.openLocal` handle
+  (no live fallback, so the names match the client the player runs) and reads, in
+  order: the `-Dbotwithus.gameval` override untouched (nothing probed or built);
+  `~/.botwithus/native/gameval-local/gameval-<index_version>.sqlite` if any host
+  already built it; the shipped DB if its `meta.index_version` already matches;
+  otherwise the shipped DB *now* while a background build runs, then a swap
+  (`SwappableGamevalIndex`). NOT_FOUND, an `NXTCache.dll` without the builder,
+  or no local cache all read the shipped DB with one log line.
+  - **The shipped `gameval.sqlite` is never written.** It is a launcher data.zip
+    payload with a `.sha256` sidecar, and the next data.zip apply would undo a
+    host write anyway.
+  - **Local builds are immutable and version-named** (`LocalGamevalStore`): built
+    to `<pid>-<n>.build`, then renamed to a name that does not exist yet. Windows
+    refuses to rename *over* a file sqlite holds open; renaming to a new name has
+    no such problem, so any number of hosts can read the same file. A lock file
+    taken without waiting stops two hosts building the same version; the loser
+    polls for the winner's file in the background. Startup never waits on it.
+  - **A swap does not re-resolve ids already resolved.** A query built in
+    `onStart` against the shipped DB keeps its ids until rebuilt. A build takes
+    ~2–6 s on a real cache, which is why it runs in the background at all.
+  - `LocalGamevalBuildLiveTest` (`:core:gamevalLocalBuildLiveTest
+    -Dnxtcache.dll=<a DLL with nxt_build_gameval_db>`) drives the real builder
+    against the real local cache, read-only, into a temp dir.
 
 `meta.schema_version` gates the file: the reader refuses anything but `1`, so a
 format change fails loud rather than misreading rows. `GamevalTypeTest` pins the
