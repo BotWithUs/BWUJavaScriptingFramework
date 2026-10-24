@@ -26,9 +26,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * {@link GamevalIndex} over the baked {@code gameval.sqlite} — the name index
- * the launcher drops in {@code ~/.botwithus/native/}, produced offline by
- * {@code build_gameval_db.py} from the game's own index-67 tables.
+ * {@link GamevalIndex} over a baked {@code gameval.sqlite} — the name index the
+ * launcher drops in {@code ~/.botwithus/native/}, or one the host built from the
+ * player's own cache (see {@link HostGamevals}). Both come from the game's own
+ * index-67 tables.
  *
  * <p>One process-wide instance is shared by every connected client; construct it
  * at the composition root and pass it to each {@code GameAPIImpl}. Lookups are
@@ -212,6 +213,11 @@ public final class SqliteGamevalIndex implements GamevalIndex {
             return OptionalInt.empty();
         }
         OptionalInt resolved = queryId(key);
+        if (closed) {
+            // Closed mid-lookup: the empty answer means "gone", not "no such name",
+            // so neither warn about the name nor memoise the miss.
+            return resolved;
+        }
         if (resolved.isEmpty()) {
             // Once per distinct unknown name, not once per call: the memo below
             // makes this the only time a given name reaches the database, so a
@@ -236,6 +242,13 @@ public final class SqliteGamevalIndex implements GamevalIndex {
 
     private OptionalInt queryId(NameKey key) {
         lock.lock();
+        if (closed) {
+            // Re-checked under the lock: close() may have run between the caller's
+            // unlocked check and here, and the connection is gone. A swap of the
+            // host's index makes that race routine rather than shutdown-only.
+            lock.unlock();
+            return OptionalInt.empty();
+        }
         try (PreparedStatement ps = con.prepareStatement(SQL_ID)) {
             ps.setString(1, key.type().wire());
             ps.setString(2, key.gameval());
@@ -261,6 +274,9 @@ public final class SqliteGamevalIndex implements GamevalIndex {
             return Optional.empty();
         }
         Optional<String> resolved = queryName(key);
+        if (closed) {
+            return resolved;
+        }
         evictIfSaturated();
         nameMemo.put(key, resolved);
         return resolved;
@@ -268,6 +284,10 @@ public final class SqliteGamevalIndex implements GamevalIndex {
 
     private Optional<String> queryName(IdKey key) {
         lock.lock();
+        if (closed) {
+            lock.unlock();
+            return Optional.empty();
+        }
         try (PreparedStatement ps = con.prepareStatement(SQL_NAME)) {
             ps.setString(1, key.type().wire());
             ps.setInt(2, key.id());
@@ -310,6 +330,10 @@ public final class SqliteGamevalIndex implements GamevalIndex {
     /** Runs the bounded prefix range, or the whole type when {@code needle} is null. */
     private List<GamevalEntry> queryPrefix(GamevalType type, String needle, String bound, int limit) {
         lock.lock();
+        if (closed) {
+            lock.unlock();
+            return List.of();
+        }
         try (PreparedStatement ps = con.prepareStatement(needle == null ? SQL_TYPE_ALL : SQL_PREFIX)) {
             ps.setString(1, type.wire());
             if (needle == null) {
