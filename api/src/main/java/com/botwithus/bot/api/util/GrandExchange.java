@@ -8,6 +8,7 @@ import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 
 import java.util.List;
+import java.util.stream.IntStream;
 
 /**
  * Convenience wrapper around the Grand Exchange interface ({@code STOCKMARKET},
@@ -33,22 +34,33 @@ public final class GrandExchange {
 
     private static final GamevalRef GE_INTERFACE =
             new GamevalRef(GamevalType.INTERFACE, "STOCKMARKET", INTERFACE_ID);
-    private static final GamevalRef COLLECT_TO_INVENTORY = new GamevalRef(GamevalType.COMPONENT,
-            "STOCKMARKET_COLLECTALL__SEND_TO_INV_ACTIVE_LAYER",
-            Interfaces.componentHash(COLLECT_INTERFACE_ID, 6));
-    private static final GamevalRef COLLECT_TO_BANK = new GamevalRef(GamevalType.COMPONENT,
-            "STOCKMARKET_COLLECTALL__SEND_TO_BANK_ACTIVE_LAYER",
-            Interfaces.componentHash(COLLECT_INTERFACE_ID, 14));
+    /** {@code STOCKMARKET_COLLECTALL__SEND_TO_INV}: the "To Backpack" button. */
+    private static final int SEND_TO_INV_COMPONENT = 0;
+    /** {@code STOCKMARKET_COLLECTALL__SEND_TO_BANK}: the "To Bank" button. */
+    private static final int SEND_TO_BANK_COMPONENT = 1;
+    /** {@code STOCKMARKET__ABORT0}: offer slot 0's abort button. */
+    private static final int FIRST_ABORT_COMPONENT = 25;
+    /** Components per offer-slot summary; slot n's abort button is {@code FIRST_ABORT_COMPONENT + n * this}. */
+    private static final int OFFER_SLOT_STRIDE = 14;
+
+    /*
+     * The fallback ids are the live layout, the one the names resolve to in an
+     * index built from the live cache. Jagex rebuilt both interfaces over the
+     * summer: 651 went from 22 components to 6, so the old *_ACTIVE_LAYER
+     * buttons (651:6 and 651:14) no longer exist, and 105's abort buttons moved
+     * from 27, 48, 69, ... to 25 + 14 per slot. Package-private so the test can
+     * pin them without a whole GameAPI fake.
+     */
+    static final GamevalRef COLLECT_TO_INVENTORY = new GamevalRef(GamevalType.COMPONENT,
+            "STOCKMARKET_COLLECTALL__SEND_TO_INV",
+            Interfaces.componentHash(COLLECT_INTERFACE_ID, SEND_TO_INV_COMPONENT));
+    static final GamevalRef COLLECT_TO_BANK = new GamevalRef(GamevalType.COMPONENT,
+            "STOCKMARKET_COLLECTALL__SEND_TO_BANK",
+            Interfaces.componentHash(COLLECT_INTERFACE_ID, SEND_TO_BANK_COMPONENT));
     /** Per-slot abort buttons on the offer summary, indexed by 0-based slot. */
-    private static final List<GamevalRef> ABORT_BUTTONS = List.of(
-            abortButton(0, 27),
-            abortButton(1, 48),
-            abortButton(2, 69),
-            abortButton(3, 93),
-            abortButton(4, 117),
-            abortButton(5, 141),
-            abortButton(6, 165),
-            abortButton(7, 189));
+    static final List<GamevalRef> ABORT_BUTTONS = IntStream.range(0, SLOT_COUNT)
+            .mapToObj(GrandExchange::abortButton)
+            .toList();
 
     /** Left-click op on a plain button. */
     private static final int OP_CLICK = 1;
@@ -84,6 +96,10 @@ public final class GrandExchange {
     /**
      * Click the abort button of offer {@code slot} (0-based) on the offer
      * summary. No-op when the GE isn't open or {@code slot} is out of range.
+     *
+     * <p>The button is "Abort Offer" only while the offer runs. Once the offer
+     * has finished, the game relabels the same button "Collect and repeat", and
+     * this click then does that instead. Check the slot first if it matters.</p>
      */
     public boolean abortOffer(int slot) {
         if (slot < 0 || slot >= SLOT_COUNT) {
@@ -108,10 +124,10 @@ public final class GrandExchange {
 
     // ---------------------------------------------------------------- Helpers
 
-    /** The {@code STOCKMARKET__ABORT<slot>} button, falling back to {@code componentId}. */
-    private static GamevalRef abortButton(int slot, int componentId) {
+    /** The {@code STOCKMARKET__ABORT<slot>} button, falling back to its live id. */
+    private static GamevalRef abortButton(int slot) {
         return new GamevalRef(GamevalType.COMPONENT, "STOCKMARKET__ABORT" + slot,
-                Interfaces.componentHash(INTERFACE_ID, componentId));
+                Interfaces.componentHash(INTERFACE_ID, FIRST_ABORT_COMPONENT + slot * OFFER_SLOT_STRIDE));
     }
 
     /**
