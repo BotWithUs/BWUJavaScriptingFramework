@@ -5,7 +5,7 @@ logback = "1.5.16"
 
 # Serialization / IPC
 gson = "2.11.0"
-msgpack = "0.9.8"
+msgpack = "0.1.0"
 
 # Data layer (Atlas — baked resolved.sqlite read by skilling-core)
 sqlite-jdbc = "3.47.1.0"
@@ -29,7 +29,8 @@ logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "lo
 
 # Serialization / IPC
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
-msgpack-core = { module = "org.msgpack:msgpack-core", version.ref = "msgpack" }
+msgpack = { module = "com.botwithus:msgpack", version.ref = "msgpack" }
+msgpack-core = { module = "org.msgpack:msgpack-core", version = "0.9.8" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 
 # UI / GUI

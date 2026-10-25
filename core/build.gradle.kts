@@ -15,6 +15,7 @@ dependencies {
     // Pulls skilling-core (+ its sqlite-jdbc/gson) onto the runtime module path
     // so it joins the boot ModuleLayer — see the matching requires in module-info.
     implementation(project(":skilling-core"))
+    implementation(libs.msgpack)
     implementation(libs.msgpack.core)
     implementation(libs.gson)
     implementation(libs.logback.classic)

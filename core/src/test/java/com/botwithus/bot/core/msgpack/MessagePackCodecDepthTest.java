@@ -1,11 +1,9 @@
 package com.botwithus.bot.core.msgpack;
 
+import com.botwithus.msgpack.MsgPacker;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.msgpack.core.MessageBufferPacker;
-import org.msgpack.core.MessagePack;
 
-import java.io.IOException;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,27 +17,26 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class MessagePackCodecDepthTest {
 
     /** {@code {"a": {"a": ... nil}}} nested {@code depth} levels deep. */
-    private static byte[] nestedMaps(int depth) throws IOException {
-        try (MessageBufferPacker packer = MessagePack.newDefaultBufferPacker()) {
-            for (int i = 0; i < depth; i++) {
-                packer.packMapHeader(1);
-                packer.packString("a");
-            }
-            packer.packNil();
-            return packer.toByteArray();
+    private static byte[] nestedMaps(int depth) {
+        MsgPacker packer = new MsgPacker();
+        for (int i = 0; i < depth; i++) {
+            packer.packMapHeader(1);
+            packer.packString("a");
         }
+        packer.packNil();
+        return packer.toByteArray();
     }
 
     @Test
     @DisplayName("a shallow map still decodes normally")
-    void decodesShallowInput() throws IOException {
+    void decodesShallowInput() {
         Map<String, Object> decoded = MessagePackCodec.decode(nestedMaps(3));
         assertInstanceOf(Map.class, decoded.get("a"), "nesting within the bound survives");
     }
 
     @Test
     @DisplayName("nesting past the depth bound is rejected as a codec error")
-    void rejectsInputPastDepthBound() throws IOException {
+    void rejectsInputPastDepthBound() {
         byte[] deep = nestedMaps(200);
         MessagePackException e = assertThrows(MessagePackException.class,
                 () -> MessagePackCodec.decode(deep));
@@ -48,12 +45,12 @@ class MessagePackCodecDepthTest {
     }
 
     @Test
-    @DisplayName("nesting deep enough to overflow the stack surfaces as MessagePackException")
-    void deeplyNestedInputDoesNotEscapeAsError() throws IOException {
-        // msgpack-core builds the Value tree recursively inside unpackValue(),
-        // before our own depth-bounded walk runs — so this overflows there, not
-        // in valueToMap. StackOverflowError is an Error and would escape a
-        // catch(Exception) and kill the reader thread; assert it is converted.
+    @DisplayName("nesting deep enough to overflow a naive recursive decode surfaces as MessagePackException")
+    void deeplyNestedInputDoesNotEscapeAsError() {
+        // The decode streams and checks the bound before each descent, so this
+        // never recurses past the limit. A StackOverflowError would be an Error,
+        // escape every catch and kill the reader thread; assert it never gets
+        // that far.
         byte[] veryDeep = nestedMaps(200_000);
         assertThrows(MessagePackException.class, () -> MessagePackCodec.decode(veryDeep));
     }

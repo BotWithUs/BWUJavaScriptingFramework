@@ -27,6 +27,9 @@ subprojects {
 
     repositories {
         mavenCentral()
+        // com.botwithus:msgpack is published to the project's own static Maven
+        // repository (GitHub Pages), not to Maven Central.
+        maven { url = uri("https://botwithus.github.io/maven") }
     }
 
     // Type-safe `libs.*` accessors are not generated inside the root

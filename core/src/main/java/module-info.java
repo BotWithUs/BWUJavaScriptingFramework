@@ -17,6 +17,7 @@ module com.botwithus.bot.core {
     // LocalScriptLoader to resolve those child layers. Non-transitive: core's
     // own exported API never references skilling types.
     requires com.botwithus.bot.skilling;
+    requires com.botwithus.msgpack;
     requires msgpack.core;
     requires com.google.gson;
     // Reader for the baked gameval name index (core.gameval.SqliteGamevalIndex).
