@@ -1,10 +1,8 @@
 package com.botwithus.bot.core.launcher;
 
 import com.botwithus.bot.core.launcher.FrameChannel.ChannelClosedException;
-import org.msgpack.value.MapValue;
-import org.msgpack.value.ValueFactory.MapBuilder;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgValue;
 
 import java.time.Duration;
 import java.util.List;
@@ -27,15 +25,15 @@ final class FakeLauncherService {
 
     /** What a handler answers: a body, an error, or nothing at all. */
     sealed interface Reply {
-        record Ok(Value body) implements Reply { }
-        record Error(String code, String message, boolean isRetryable, Value detail) implements Reply { }
+        record Ok(MsgValue body) implements Reply { }
+        record Error(String code, String message, boolean isRetryable, MsgValue detail) implements Reply { }
         record Silence() implements Reply { }
     }
 
     /** One request the fake received. */
-    record Received(int connection, String method, Value body) { }
+    record Received(int connection, String method, MsgValue body) { }
 
-    private final Map<String, Function<Value, Reply>> handlers = new ConcurrentHashMap<>();
+    private final Map<String, Function<MsgValue, Reply>> handlers = new ConcurrentHashMap<>();
     private final List<Received> received = new CopyOnWriteArrayList<>();
     private final AtomicInteger opens = new AtomicInteger();
     private volatile boolean isUp = true;
@@ -46,11 +44,11 @@ final class FakeLauncherService {
     FakeLauncherService() {
         handle(LauncherProtocol.METHOD_HELLO, body -> ok(body().put("protocolVersion", 1)
                 .put("serviceVersion", "fake").put("surface", "automation")
-                .put("methods", ValueFactory.newArray()).put("events", ValueFactory.newArray())
+                .put("methods", MsgValue.of(List.of())).put("events", MsgValue.of(List.of()))
                 .put("connectionId", opens.get()).build()));
         handle(LauncherProtocol.METHOD_EVENTS_SUBSCRIBE,
-                body -> ok(body().put("snapshot", ValueFactory.emptyMap()).build()));
-        handle(LauncherProtocol.METHOD_SERVICE_STATUS, body -> ok(ValueFactory.emptyMap()));
+                body -> ok(body().put("snapshot", MsgMap.empty()).build()));
+        handle(LauncherProtocol.METHOD_SERVICE_STATUS, body -> ok(MsgMap.empty()));
     }
 
     FrameChannel.Opener opener() {
@@ -64,7 +62,7 @@ final class FakeLauncherService {
         };
     }
 
-    void handle(String method, Function<Value, Reply> handler) {
+    void handle(String method, Function<MsgValue, Reply> handler) {
         handlers.put(method, handler);
     }
 
@@ -100,12 +98,12 @@ final class FakeLauncherService {
         isFrozen = false;
     }
 
-    void pushEvent(String method, Value body) {
+    void pushEvent(String method, MsgValue body) {
         Connection c = current;
         c.push(method, body, c.seq.incrementAndGet());
     }
 
-    void pushEventWithSeq(String method, Value body, long seq) {
+    void pushEventWithSeq(String method, MsgValue body, long seq) {
         Connection c = current;
         c.seq.set(seq);
         c.push(method, body, seq);
@@ -123,12 +121,12 @@ final class FakeLauncherService {
         return received.stream().filter(r -> r.method().equals(method)).toList();
     }
 
-    static Reply ok(Value body) {
+    static Reply ok(MsgValue body) {
         return new Reply.Ok(body);
     }
 
     static Reply error(String code) {
-        return new Reply.Error(code, code + " from the fake", false, ValueFactory.emptyMap());
+        return new Reply.Error(code, code + " from the fake", false, MsgMap.empty());
     }
 
     /** @return a new map builder; keys keep the order they are put in */
@@ -139,26 +137,26 @@ final class FakeLauncherService {
     /** A typed, ordered msgpack map builder for test bodies. */
     static final class Body {
 
-        private final MapBuilder builder = ValueFactory.newMapBuilder();
+        private final MsgMap.Builder builder = MsgMap.builder();
 
         Body put(String key, String value) {
-            return put(key, ValueFactory.newString(value));
+            return put(key, MsgValue.of(value));
         }
 
         Body put(String key, long value) {
-            return put(key, ValueFactory.newInteger(value));
+            return put(key, MsgValue.of(value));
         }
 
         Body put(String key, boolean value) {
-            return put(key, ValueFactory.newBoolean(value));
+            return put(key, MsgValue.of(value));
         }
 
-        Body put(String key, Value value) {
-            builder.put(ValueFactory.newString(key), value);
+        Body put(String key, MsgValue value) {
+            builder.put(MsgValue.of(key), value);
             return this;
         }
 
-        MapValue build() {
+        MsgMap build() {
             return builder.build();
         }
     }
@@ -213,7 +211,7 @@ final class FakeLauncherService {
                     .put("method", request.method());
             switch (reply) {
                 case Reply.Ok ok -> envelope.put("ok", true).put("body", ok.body());
-                case Reply.Error e -> envelope.put("ok", false).put("body", ValueFactory.emptyMap())
+                case Reply.Error e -> envelope.put("ok", false).put("body", MsgMap.empty())
                         .put("error", body().put("code", e.code()).put("message", e.message())
                                 .put("retryable", e.isRetryable()).put("detail", e.detail()).build());
                 case Reply.Silence s -> {
@@ -223,7 +221,7 @@ final class FakeLauncherService {
             inbound.add(LauncherRequests.pack(envelope.build()));
         }
 
-        void push(String method, Value body, long sequence) {
+        void push(String method, MsgValue body, long sequence) {
             inbound.add(LauncherRequests.pack(body().put("v", 1).put("id", 0).put("kind", "event")
                     .put("method", method).put("body", body).put("seq", sequence).build()));
         }

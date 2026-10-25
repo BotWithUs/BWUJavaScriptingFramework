@@ -1,13 +1,10 @@
 package com.botwithus.bot.core.launcher;
 
 import com.botwithus.bot.api.script.StopMode;
-import org.msgpack.core.MessageBufferPacker;
-import org.msgpack.core.MessagePack;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgPack;
+import com.botwithus.msgpack.MsgValue;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.util.List;
 
 /**
@@ -22,76 +19,71 @@ final class LauncherRequests {
     }
 
     /** @return one frame body: the envelope of a request carrying {@code body} */
-    static byte[] encode(long id, String method, Value body) {
-        Value envelope = ValueFactory.newMapBuilder()
-                .put(key("v"), ValueFactory.newInteger(LauncherProtocol.ENVELOPE_VERSION))
-                .put(key("id"), ValueFactory.newInteger(id))
-                .put(key("kind"), ValueFactory.newString("req"))
-                .put(key("method"), ValueFactory.newString(method))
+    static byte[] encode(long id, String method, MsgValue body) {
+        MsgValue envelope = MsgMap.builder()
+                .put(key("v"), MsgValue.of(LauncherProtocol.ENVELOPE_VERSION))
+                .put(key("id"), MsgValue.of(id))
+                .put(key("kind"), MsgValue.of("req"))
+                .put(key("method"), MsgValue.of(method))
                 .put(key("body"), body)
                 .build();
         return pack(envelope);
     }
 
-    /** @return {@code value} packed as msgpack-core packs it */
-    static byte[] pack(Value value) {
-        try (MessageBufferPacker packer = MessagePack.newDefaultBufferPacker()) {
-            packer.packValue(value);
-            return packer.toByteArray();
-        } catch (IOException e) {
-            throw new UncheckedIOException("packing to memory failed", e);
-        }
+    /** @return {@code value} packed with the smallest encoding of each part */
+    static byte[] pack(MsgValue value) {
+        return MsgPack.encode(value);
     }
 
     /** @return {@code hello}'s body for this host (ADR 2.7, amendment A5) */
-    static Value hello(HelloParams params) {
-        var builder = ValueFactory.newMapBuilder()
-                .put(key("protocolMin"), ValueFactory.newInteger(LauncherProtocol.PROTOCOL_VERSION))
-                .put(key("protocolMax"), ValueFactory.newInteger(LauncherProtocol.PROTOCOL_VERSION))
-                .put(key("clientKind"), ValueFactory.newString(LauncherProtocol.CLIENT_KIND_HOST))
-                .put(key("clientVersion"), ValueFactory.newString(params.clientVersion()))
-                .put(key("hostKind"), ValueFactory.newString(LauncherProtocol.HOST_KIND_JAVA))
-                .put(key("hostPid"), ValueFactory.newInteger(params.hostPid()));
-        params.label().ifPresent(label -> builder.put(key("hostLabel"), ValueFactory.newString(label)));
+    static MsgValue hello(HelloParams params) {
+        var builder = MsgMap.builder()
+                .put(key("protocolMin"), MsgValue.of(LauncherProtocol.PROTOCOL_VERSION))
+                .put(key("protocolMax"), MsgValue.of(LauncherProtocol.PROTOCOL_VERSION))
+                .put(key("clientKind"), MsgValue.of(LauncherProtocol.CLIENT_KIND_HOST))
+                .put(key("clientVersion"), MsgValue.of(params.clientVersion()))
+                .put(key("hostKind"), MsgValue.of(LauncherProtocol.HOST_KIND_JAVA))
+                .put(key("hostPid"), MsgValue.of(params.hostPid()));
+        params.label().ifPresent(label -> builder.put(key("hostLabel"), MsgValue.of(label)));
         return builder.build();
     }
 
     /** @return {@code client.launch}'s body */
-    static Value clientLaunch(String accountId, int characterIndex) {
-        return ValueFactory.newMapBuilder()
-                .put(key("accountId"), ValueFactory.newString(accountId))
-                .put(key("characterIndex"), ValueFactory.newInteger(characterIndex))
+    static MsgValue clientLaunch(String accountId, int characterIndex) {
+        return MsgMap.builder()
+                .put(key("accountId"), MsgValue.of(accountId))
+                .put(key("characterIndex"), MsgValue.of(characterIndex))
                 .build();
     }
 
     /** @return {@code client.stop}'s body */
-    static Value clientStop(String clientId, StopMode mode) {
-        return ValueFactory.newMapBuilder()
-                .put(key("clientId"), ValueFactory.newString(clientId))
-                .put(key("mode"), ValueFactory.newString(stopModeWire(mode)))
+    static MsgValue clientStop(String clientId, StopMode mode) {
+        return MsgMap.builder()
+                .put(key("clientId"), MsgValue.of(clientId))
+                .put(key("mode"), MsgValue.of(stopModeWire(mode)))
                 .build();
     }
 
     /** @return {@code client.status}'s body */
-    static Value clientStatus(String clientId) {
-        return ValueFactory.newMapBuilder()
-                .put(key("clientId"), ValueFactory.newString(clientId))
+    static MsgValue clientStatus(String clientId) {
+        return MsgMap.builder()
+                .put(key("clientId"), MsgValue.of(clientId))
                 .build();
     }
 
     /** @return {@code events.subscribe}'s body */
-    static Value subscribe(List<String> topics) {
-        List<Value> names = topics.stream().<Value>map(ValueFactory::newString).toList();
-        return ValueFactory.newMapBuilder()
-                .put(key("topics"), ValueFactory.newArray(names))
+    static MsgValue subscribe(List<String> topics) {
+        List<MsgValue> names = topics.stream().map(MsgValue::of).toList();
+        return MsgMap.builder()
+                .put(key("topics"), MsgValue.of(names))
                 .build();
     }
 
     /** @return {@code host.ack_close}'s body */
-    static Value ackClose(long requestId, CloseDecision decision) {
-        return ValueFactory.newMapBuilder()
-                .put(key("requestId"), ValueFactory.newInteger(requestId))
-                .put(key("decision"), ValueFactory.newString(decision.wire()))
+    static MsgValue ackClose(long requestId, CloseDecision decision) {
+        return MsgMap.builder()
+                .put(key("requestId"), MsgValue.of(requestId))
+                .put(key("decision"), MsgValue.of(decision.wire()))
                 .build();
     }
 
@@ -100,20 +92,20 @@ final class LauncherRequests {
      *         and a request for a partial delivery, so one script that fails does not
      *         cost the rest; a launcher that predates it ignores the flag
      */
-    static Value sdnBundle(byte[] publicKey, List<String> scriptIds) {
-        List<Value> ids = scriptIds.stream().<Value>map(ValueFactory::newString).toList();
-        return ValueFactory.newMapBuilder()
-                .put(key("publicKey"), ValueFactory.newBinary(publicKey.clone()))
-                .put(key("scriptIds"), ValueFactory.newArray(ids))
-                .put(key(SdnWire.ALLOW_PARTIAL), ValueFactory.newBoolean(true))
+    static MsgValue sdnBundle(byte[] publicKey, List<String> scriptIds) {
+        List<MsgValue> ids = scriptIds.stream().map(MsgValue::of).toList();
+        return MsgMap.builder()
+                .put(key("publicKey"), MsgValue.of(publicKey))
+                .put(key("scriptIds"), MsgValue.of(ids))
+                .put(key(SdnWire.ALLOW_PARTIAL), MsgValue.of(true))
                 .build();
     }
 
     /** @return {@code sdn.bundle_chunk}'s body */
-    static Value sdnBundleChunk(long deliveryId, long index) {
-        return ValueFactory.newMapBuilder()
-                .put(key("deliveryId"), ValueFactory.newInteger(deliveryId))
-                .put(key("index"), ValueFactory.newInteger(index))
+    static MsgValue sdnBundleChunk(long deliveryId, long index) {
+        return MsgMap.builder()
+                .put(key("deliveryId"), MsgValue.of(deliveryId))
+                .put(key("index"), MsgValue.of(index))
                 .build();
     }
 
@@ -125,7 +117,7 @@ final class LauncherRequests {
         };
     }
 
-    private static Value key(String name) {
-        return ValueFactory.newString(name);
+    private static MsgValue key(String name) {
+        return MsgValue.of(name);
     }
 }

@@ -1,12 +1,11 @@
 package com.botwithus.bot.core.launcher;
 
-import org.msgpack.core.MessagePack;
-import org.msgpack.core.MessagePackException;
-import org.msgpack.core.MessageUnpacker;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
+import com.botwithus.msgpack.MsgDecodeRules;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgPack;
+import com.botwithus.msgpack.MsgPackException;
+import com.botwithus.msgpack.MsgValue;
 
-import java.io.IOException;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -24,7 +23,7 @@ import java.util.Optional;
  * @param error  a failed response's error
  * @param seq    an event's sequence number; 0 otherwise
  */
-record Envelope(Kind kind, long id, String method, boolean isOk, Value body, Optional<WireError> error,
+record Envelope(Kind kind, long id, String method, boolean isOk, MsgValue body, Optional<WireError> error,
                 long seq) {
 
     /** The envelope's {@code kind}. */
@@ -44,30 +43,34 @@ record Envelope(Kind kind, long id, String method, boolean isOk, Value body, Opt
      *                                 {@code v = 1}, or does not decode
      */
     static Envelope decode(byte[] frame) {
-        Value root = decodeSingleValue(frame);
-        if (!root.isMapValue()) {
+        MsgValue root = decodeSingleValue(frame);
+        if (!WireValues.isMap(root)) {
             throw new MalformedFrameException("the frame body is not a map");
         }
         long version = WireValues.integer(root, "v", -1L);
         if (version != LauncherProtocol.ENVELOPE_VERSION) {
             throw new MalformedFrameException("unsupported envelope version " + version);
         }
-        Kind kind = kindOf(WireValues.string(root, "kind", ""));
-        Optional<WireError> error = WireValues.field(root, "error").filter(Value::isMapValue).map(WireError::decode);
-        return new Envelope(kind, WireValues.integer(root, "id", 0L), WireValues.string(root, "method", ""),
-                WireValues.bool(root, "ok", false), WireValues.map(root, "body"), error,
-                WireValues.integer(root, "seq", 0L));
+        try {
+            Kind kind = kindOf(WireValues.string(root, "kind", ""));
+            Optional<WireError> error = WireValues.field(root, "error").filter(WireValues::isMap)
+                    .map(WireError::decode);
+            return new Envelope(kind, WireValues.integer(root, "id", 0L), WireValues.string(root, "method", ""),
+                    WireValues.bool(root, "ok", false), WireValues.map(root, "body"), error,
+                    WireValues.integer(root, "seq", 0L));
+        } catch (MsgPackException e) {
+            // An envelope string that is not valid UTF-8. Reported as a bad frame,
+            // which closes the session, rather than escaping the reader thread.
+            throw new MalformedFrameException("an envelope field does not decode", e);
+        }
     }
 
     /** @return the single msgpack value {@code frame} holds, with nothing after it */
-    static Value decodeSingleValue(byte[] frame) {
-        try (MessageUnpacker unpacker = MessagePack.newDefaultUnpacker(frame)) {
-            Value value = unpacker.unpackValue();
-            if (unpacker.hasNext()) {
-                throw new MalformedFrameException("trailing bytes after the frame body");
-            }
-            return value;
-        } catch (IOException | MessagePackException e) {
+    static MsgValue decodeSingleValue(byte[] frame) {
+        try {
+            // strict(): trailing bytes are an error, and nesting is bounded.
+            return MsgPack.decode(frame, MsgDecodeRules.strict());
+        } catch (MsgPackException e) {
             throw new MalformedFrameException("the frame body does not decode", e);
         }
     }
@@ -82,7 +85,7 @@ record Envelope(Kind kind, long id, String method, boolean isOk, Value body, Opt
     }
 
     /** @return an empty map, the body of a request with no parameters */
-    static Value emptyBody() {
-        return ValueFactory.emptyMap();
+    static MsgValue emptyBody() {
+        return MsgMap.empty();
     }
 }

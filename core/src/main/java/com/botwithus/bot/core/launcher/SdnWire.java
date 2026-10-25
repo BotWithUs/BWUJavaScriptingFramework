@@ -1,6 +1,6 @@
 package com.botwithus.bot.core.launcher;
 
-import org.msgpack.value.Value;
+import com.botwithus.msgpack.MsgValue;
 
 import java.util.HashSet;
 import java.util.List;
@@ -29,7 +29,7 @@ final class SdnWire {
     }
 
     /** @return the refusal an {@code sdn_not_delivered} error's {@code detail} map describes */
-    static SdnRefusal refusal(Value detail) {
+    static SdnRefusal refusal(MsgValue detail) {
         return new SdnRefusal(WireValues.string(detail, REASON), WireValues.string(detail, SCRIPT_ID),
                 WireValues.integer(detail, HTTP_STATUS), WireValues.string(detail, CF_RAY), failed(detail));
     }
@@ -38,16 +38,16 @@ final class SdnWire {
      * @return the offer's {@code delivered} ids, in jar order; empty when the
      *         launcher did not send the field, which an older one never does
      */
-    static Optional<List<String>> delivered(Value offer) {
-        return WireValues.field(offer, DELIVERED).filter(Value::isArrayValue)
-                .map(v -> v.asArrayValue().list().stream()
-                        .map(id -> id.isStringValue() ? id.asStringValue().asString() : "")
+    static Optional<List<String>> delivered(MsgValue offer) {
+        return WireValues.field(offer, DELIVERED).flatMap(MsgValue::arrayValue)
+                .map(ids -> ids.values().stream()
+                        .map(id -> id.stringValue().orElse(""))
                         .toList());
     }
 
     /** @return the {@code failed} list in {@code map}, an offer or an error's detail; empty when absent */
-    static List<SdnScriptFailure> failed(Value map) {
-        return WireValues.array(map, FAILED).stream().filter(Value::isMapValue)
+    static List<SdnScriptFailure> failed(MsgValue map) {
+        return WireValues.array(map, FAILED).stream().filter(WireValues::isMap)
                 .map(f -> new SdnScriptFailure(WireValues.string(f, SCRIPT_ID, ""), WireValues.string(f, REASON, ""),
                         WireValues.integer(f, HTTP_STATUS), WireValues.string(f, CF_RAY)))
                 .toList();
