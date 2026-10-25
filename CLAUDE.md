@@ -99,7 +99,7 @@ Three things that will bite if changed carelessly:
 
 ### CI and branch protection
 
-`develop` is the integration branch: pull requests target it and branches start from `origin/develop`. `master` trails `develop`. Promoting `develop` to `master` is a decision the user makes at release time; host builds for a release are currently cut from `develop`. GitHub's default branch is still `master`, so `gh pr create` and the web UI propose `master` as the base. Pass `--base develop`.
+`develop` is the integration branch: pull requests target it and branches start from `origin/develop`. `master` trails `develop`. Promoting `develop` to `master` is a decision the user makes at release time; host builds for a release are currently cut from `develop`. `develop` is also GitHub's default branch, so `gh pr create` and the web UI propose it as the base.
 
 Three rulesets apply, all with an empty bypass list, so they bind org admins too:
 
