@@ -45,7 +45,7 @@ public final class BoundedConstruction {
          */
         record TimedOut<T>(Duration budget, List<StackTraceElement> stack) implements Outcome<T> {
 
-            private static final String FRAME_PREFIX = System.lineSeparator() + "	at ";
+            private static final String FRAME_PREFIX = System.lineSeparator() + "\tat ";
 
             public TimedOut {
                 stack = List.copyOf(stack);
@@ -57,7 +57,7 @@ public final class BoundedConstruction {
              */
             public String stackDump() {
                 if (stack.isEmpty()) {
-                    return System.lineSeparator() + "	(no frames: it finished just after the budget ran out)";
+                    return System.lineSeparator() + "\t(no frames: it finished just after the budget ran out)";
                 }
                 StringBuilder dump = new StringBuilder();
                 stack.forEach(frame -> dump.append(FRAME_PREFIX).append(frame));

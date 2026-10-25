@@ -90,7 +90,7 @@ class BoundedConstructionTest {
                             .anyMatch(f -> f.getClassName().equals(CountDownLatch.class.getName())
                                     && f.getMethodName().equals("await")), "and what it blocks on"),
                     () -> assertTrue(timedOut.stackDump().lines()
-                            .anyMatch(line -> line.startsWith("	at ") && line.contains(".awaitQuietly(")),
+                            .anyMatch(line -> line.startsWith("\tat ") && line.contains(".awaitQuietly(")),
                             "the dump prints one frame per line: " + timedOut.stackDump()));
         } finally {
             release.countDown();
