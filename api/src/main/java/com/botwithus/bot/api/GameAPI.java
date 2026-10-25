@@ -22,6 +22,7 @@ import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.PlayerAppearance;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
@@ -465,6 +466,21 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      */
     InputDialog inputDialog();
 
+    // ---------------------------------------------------------------- Player appearance
+
+    /**
+     * Reads one loaded player's applied appearance (one pipe round-trip, answered on the game
+     * thread). Never {@code null}: when the agent cannot read it, the result carries the reason in
+     * {@link PlayerAppearance#status()} and no data. Check {@link PlayerAppearance#isAvailable()}.
+     *
+     * <p><b>Slots are in the client's order, not wearpos</b>; match worn items by item id
+     * ({@link PlayerAppearance#isWearing(int)}). {@link PlayerAppearance#gender()} is inferred.</p>
+     *
+     * @param serverIndex the player's server index, as on {@code Player.serverIndex()}
+     * @throws IllegalArgumentException when the agent rejects the argument itself
+     */
+    PlayerAppearance getPlayerAppearance(int serverIndex);
+
     // ---------------------------------------------------------------- Interface components
 
     /**
@@ -554,9 +570,14 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      *
      * <p>The producer walks every open sub-interface on the game thread and
      * picks the component with the greatest tree depth whose post-layout AABB
-     * contains the point — ties broken by the smaller AABB. Hidden components
-     * are excluded. Useful for debugger "pick on screen" tools and for
-     * scripters who know a feature's location but not its component id.</p>
+     * contains the point — ties broken by the smaller AABB. Only components
+     * that are on screen are candidates: a node whose
+     * {@link Component#isVisibleGlobal()} is false is skipped, and with it every
+     * node under it, so the text inside a collapsed panel cannot be picked
+     * through the panel. (On a client channel that cannot read visibility,
+     * every node reports on screen and the whole tree stays pickable.) Useful
+     * for debugger "pick on screen" tools and for scripters who know a
+     * feature's location but not its component id.</p>
      */
     Component findComponentAt(int screenX, int screenY);
 

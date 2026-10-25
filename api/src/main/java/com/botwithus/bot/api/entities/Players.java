@@ -12,10 +12,18 @@ import java.util.stream.Stream;
  *
  * <p>Players don't carry a per-id type definition (no {@code PlayerType}
  * cache like {@code NpcType}), so this facade is mostly a query entry point.
- * Display names ride along on the snapshot in future slices once the
- * producer surfaces them; for now {@link EntityQuery#named(String)} on
- * players returns nothing — use index/position filters or the predicate
- * form for arbitrary checks.</p>
+ * Display names ride on the snapshot (wire v24), so {@link EntityQuery#named(String)},
+ * {@link EntityQuery#namedExact(String)} and {@link EntityQuery#nameMatching(String)}
+ * work on players. Two things to know:</p>
+ * <ul>
+ *   <li>A player whose name is not known yet ({@link Player#name()} is empty) matches
+ *       <em>no</em> name filter, not even {@code named("")}. Players who have only just come
+ *       into view, and some players in the world, read empty.</li>
+ *   <li>Names are compared with U+00A0 (no-break space) folded to a plain space on both sides.
+ *       The client turns the space in some account names into U+00A0, so
+ *       {@code namedExact("Sir Test")} finds a player the client calls
+ *       {@code "Sir\u00A0Test"}. {@link Player#name()} itself returns the raw string.</li>
+ * </ul>
  */
 public final class Players {
 
@@ -39,6 +47,9 @@ public final class Players {
     }
 
     public static final class Query extends EntityQuery<Player, Query> {
+        /** U+00A0, which the client writes for the space in some names (cp1252 0xA0). */
+        private static final char NO_BREAK_SPACE = '\u00A0';
+
         Query(GameAPI api) {
             super(api);
         }
@@ -61,9 +72,14 @@ public final class Players {
 
         @Override
         protected String nameOf(Player t) {
-            // Display names aren't on the wire yet; named()/nameMatching() will
-            // never match. Returning null is checked by EntityQuery's filters.
-            return null;
+            // An unknown name is null, never "": EntityQuery's filters skip null, and an empty
+            // string would make named("") match every player whose name is not known yet.
+            return t.hasName() ? t.name() : null;
+        }
+
+        @Override
+        protected String normaliseName(String name) {
+            return name.replace(NO_BREAK_SPACE, ' ');
         }
     }
 }

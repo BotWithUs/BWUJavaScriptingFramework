@@ -83,8 +83,10 @@ public final class Components {
      * (the value of Win32 {@code GetCursorPos}); the producer converts to
      * client-window space internally.
      *
-     * <p>Returns the deepest visible component whose AABB contains the point,
-     * across every open interface. The node is detached — {@code parent()} is
+     * <p>Returns the deepest on-screen component (see
+     * {@link ComponentNode#isVisibleGlobal()}) whose AABB contains the point,
+     * across every open interface; anything under a hidden parent is never
+     * picked. The node is detached — {@code parent()} is
      * {@code null} and {@code children()} fetches the subtree on demand.</p>
      */
     public ComponentNode pickAt(int screenX, int screenY) {

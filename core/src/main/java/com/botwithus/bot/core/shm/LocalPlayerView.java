@@ -41,6 +41,11 @@ public final class LocalPlayerView {
 
     public boolean isMoving()    { return (flags() & Layout.FLAG_MOVING) != 0; }
 
+    /** Raw wire run energy (v24): 0..100, -1 unreadable in-world, 0 out of world. */
+    public int  runEnergy()      { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_RUNENERGY_OFFSET); }
+    /** Raw wire run weight in kg (v24), same sentinels as {@link #runEnergy()}. Not independently verified. */
+    public int  runWeight()      { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_RUNWEIGHT_OFFSET); }
+
     /**
      * Decoded facing (v21). Authoritative for the local player; the {@code players[]} row for
      * {@code ownIndex} is a byte copy. The producer writes the unknown sentinel here even out of

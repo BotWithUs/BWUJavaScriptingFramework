@@ -6,6 +6,7 @@ import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.snapshot.Orientation;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcException;
@@ -392,7 +393,133 @@ class GameAPIImplEntitiesTest {
         assertEquals(2, nearest.serverIndex());
     }
 
+    // ---------------------------------------------------------------- v24 morph (Xenia)
+
+    /**
+     * The phase-1 bug: Xenia's base type 9633 is nameless and option-less, and the client shows
+     * her as 11476. Before v24 the host resolved name and options from the base, so
+     * {@code name()} was null and {@code interact("Talk-to")} found nothing.
+     */
+    @Test
+    void morphedNpc_resolvesNameOptionsAndCombatFromTheActiveType() {
+        build();
+        snap.npcs = List.of(makeMorphedNpc(42, XENIA_BASE, XENIA_ACTIVE, XENIA_WIRE_COMBAT));
+        npcTypes.put(XENIA_BASE, new NpcType(XENIA_BASE, null, 0, false, false, List.of(),
+                -1, -1, List.of(XENIA_ACTIVE), Map.of()));
+        npcTypes.put(XENIA_ACTIVE, makeType(XENIA_ACTIVE, "Xenia", "Talk-to", "Examine"));
+
+        Npc xenia = api.npcs().query().first();
+
+        assertEquals(XENIA_BASE, xenia.typeId(), "typeId stays the base id");
+        assertEquals(XENIA_ACTIVE, xenia.activeTypeId());
+        assertTrue(xenia.isMorphed());
+        assertEquals("Xenia", xenia.name());
+        assertEquals(List.of("Talk-to", "Examine"), xenia.getOptions());
+        assertEquals(XENIA_WIRE_COMBAT, xenia.combatLevel(), "the per-instance wire value wins");
+        assertFalse(xenia.isHidden());
+        assertNull(xenia.getType().name(), "getType() is still the base definition");
+        assertTrue(xenia.interact("Talk-to"));
+    }
+
+    @Test
+    void morphedNpc_isFoundByEitherIdAndByItsShownName() {
+        build();
+        snap.npcs = List.of(makeMorphedNpc(42, XENIA_BASE, XENIA_ACTIVE, XENIA_WIRE_COMBAT));
+        npcTypes.put(XENIA_ACTIVE, makeType(XENIA_ACTIVE, "Xenia", "Talk-to"));
+
+        assertTrue(api.npcs().query().withId(XENIA_BASE).exists());
+        assertTrue(api.npcs().query().withId(XENIA_ACTIVE).exists());
+        assertTrue(api.npcs().query().named("xenia").exists());
+    }
+
+    @Test
+    void npcWhoseMorphResolvesToNothing_isHiddenAndFallsBackToTheBaseType() {
+        build();
+        snap.npcs = List.of(makeMorphedNpc(42, XENIA_BASE, -1, 0));
+        npcTypes.put(XENIA_BASE, makeType(XENIA_BASE, "Base", "Attack"));
+
+        Npc npc = api.npcs().query().first();
+
+        assertTrue(npc.isHidden());
+        assertFalse(npc.isMorphed());
+        assertEquals("Base", npc.name());
+        assertEquals(0, npc.combatLevel(), "a wire 0 is a real level, not a fallback trigger");
+    }
+
+    @Test
+    void npcWithNeitherTypeResolved_isUnresolvedNotHidden() {
+        build();
+        snap.npcs = List.of(makeMorphedNpc(42, -1, -1, 0));
+        assertFalse(api.npcs().query().first().isHidden());
+    }
+
+    @Test
+    void npcBuiltWithThePreV24Constructor_takesCombatFromTheDefinition() {
+        build();
+        snap.npcs = List.of(makeNpc(7, 50, 0, 0));
+        npcTypes.put(50, new NpcType(50, "Goblin", 5, true, true, List.of(), -1, -1, List.of(), Map.of()));
+        Npc goblin = api.npcs().query().first();
+        assertEquals(50, goblin.activeTypeId(), "no morph: active defaults to the base id");
+        assertEquals(5, goblin.combatLevel());
+    }
+
+    // ---------------------------------------------------------------- v24 player names
+
+    @Test
+    void playerQuery_matchesByName_andNeverMatchesAnUnknownName() {
+        build();
+        snap.players = List.of(makeNamedPlayer(1, "Zezima", 0), makeNamedPlayer(2, "", 0));
+
+        assertEquals(1, api.players().query().named("zez").first().serverIndex());
+        assertEquals(1, api.players().query().namedExact("ZEZIMA").count());
+        assertEquals(1, api.players().query().nameMatching("Z.*a").count());
+        assertEquals(1, api.players().query().named("").count(),
+                "the player whose name is not known yet must not match even an empty needle");
+        assertFalse(api.players().byServerIndex(2).hasName());
+    }
+
+    /** The client writes U+00A0 for the space in some names; filters fold it on both sides. */
+    @Test
+    void playerQuery_foldsNoBreakSpaceToASpaceOnBothSides() {
+        build();
+        String clientName = "Sir" + NBSP + "Test";
+        snap.players = List.of(makeNamedPlayer(1, clientName, 0));
+
+        assertEquals(1, api.players().query().namedExact("Sir Test").count());
+        assertEquals(1, api.players().query().namedExact(clientName).count());
+        assertEquals(1, api.players().query().named("r t").count());
+        assertEquals(1, api.players().query().nameMatching("Sir Test").count());
+        assertEquals(clientName, api.players().query().first().name(), "name() stays raw");
+    }
+
+    @Test
+    void truncatedPlayerName_isFlaggedAndDoesNotMatchTheFullNameExactly() {
+        build();
+        snap.players = List.of(makeNamedPlayer(1, "ABCDEFGHIJKLMNO", TRUNCATED_FLAG));
+        Player p = api.players().query().first();
+        assertTrue(p.isNameTruncated());
+        assertEquals(0, api.players().query().namedExact("ABCDEFGHIJKLMNOP").count());
+        assertEquals(1, api.players().query().named("ABCDEFGHIJKLMNO").count());
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    private static final int XENIA_BASE = 9633;
+    private static final int XENIA_ACTIVE = 11476;
+    private static final int XENIA_WIRE_COMBAT = 3;
+    private static final int TRUNCATED_FLAG = 1 << 1;
+    private static final char NBSP = '\u00A0';
+
+    private static com.botwithus.bot.api.snapshot.Npc makeMorphedNpc(int idx, int baseId, int activeId,
+                                                                    int combatLevel) {
+        return new com.botwithus.bot.api.snapshot.Npc(idx, baseId, 0, 0, 0, 0, -1, -1, 0, 100, 100, -1,
+                Orientation.unknown(), activeId, combatLevel);
+    }
+
+    private static com.botwithus.bot.api.snapshot.Player makeNamedPlayer(int idx, String name, int flags) {
+        return new com.botwithus.bot.api.snapshot.Player(idx, 0, 0, 0, flags, -1, -1, 0, 138, -1,
+                Orientation.unknown(), name);
+    }
 
     /** Canned reply for the batched current/max life-point read, both varps present. */
     private void stubHealthVarps(int current, int max) {

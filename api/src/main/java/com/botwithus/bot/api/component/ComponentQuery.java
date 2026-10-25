@@ -169,14 +169,26 @@ public final class ComponentQuery {
         return filter(node -> node.itemId() == itemId);
     }
 
-    /** Keep only visible components (treats unsupported-hidden as visible). */
+    /**
+     * Keep only components that are on screen: {@link ComponentNode#isVisibleGlobal()}, which is
+     * visible by their own flag <em>and</em> under every parent up to a root. A child whose own
+     * flag says visible under a hidden layer is not kept. To filter on the own flag alone, use
+     * {@code filter(ComponentNode::isVisible)}.
+     *
+     * <p>Changed in wire v24. It used to keep everything not {@code hidden == 1}, and
+     * {@code hidden} read {@code -1} (so passed) on layers, sprites, models and boxes whatever
+     * the client showed.</p>
+     */
     public ComponentQuery visible() {
-        return filter(node -> !node.isHidden());
+        return filter(ComponentNode::isVisibleGlobal);
     }
 
-    /** Keep only components the producer reported hidden. */
+    /**
+     * Keep only components that are not on screen: the exact complement of {@link #visible()},
+     * so the two partition a tree. Includes a component hidden only because a parent is.
+     */
     public ComponentQuery hidden() {
-        return filter(ComponentNode::isHidden);
+        return filter(node -> !node.isVisibleGlobal());
     }
 
     /** Cap the number of results. */
