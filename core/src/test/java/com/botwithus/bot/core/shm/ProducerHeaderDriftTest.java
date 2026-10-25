@@ -42,8 +42,11 @@ class ProducerHeaderDriftTest {
     static final String REPO_PROPERTY = "botwithus.producer.repo";
     /** Which producer revision to read; defaults to {@link #BOUND_PRODUCER_SHA}. */
     static final String REV_PROPERTY = "botwithus.producer.rev";
-    /** The producer revision this host's {@link Layout} is bound to (NXTLibrary PR #41 head; c1231ca..3c9ba5a changed no wire file). */
-    static final String BOUND_PRODUCER_SHA = "3c9ba5af93c3eb54684c79da6b17a1c85bfffd3a";
+    /**
+     * The producer revision this host's {@link Layout} is bound to: the NXTLibrary PR #41 head.
+     * SharedLayout.h is the same blob (833da0e) at c1231ca, 3c9ba5a and 84a1376.
+     */
+    static final String BOUND_PRODUCER_SHA = "84a137604ac330aa37a565a83e10a4fbe3e5ba05";
     private static final String HEADER_PATH = "src/ipc/SharedLayout.h";
 
     // The literal must END the comparison (followed by ',', ')' or '&&'). Many asserts compare

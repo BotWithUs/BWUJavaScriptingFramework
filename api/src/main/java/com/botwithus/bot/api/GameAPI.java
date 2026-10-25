@@ -570,9 +570,14 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      *
      * <p>The producer walks every open sub-interface on the game thread and
      * picks the component with the greatest tree depth whose post-layout AABB
-     * contains the point — ties broken by the smaller AABB. Hidden components
-     * are excluded. Useful for debugger "pick on screen" tools and for
-     * scripters who know a feature's location but not its component id.</p>
+     * contains the point — ties broken by the smaller AABB. Only components
+     * that are on screen are candidates: a node whose
+     * {@link Component#isVisibleGlobal()} is false is skipped, and with it every
+     * node under it, so the text inside a collapsed panel cannot be picked
+     * through the panel. (On a client channel that cannot read visibility,
+     * every node reports on screen and the whole tree stays pickable.) Useful
+     * for debugger "pick on screen" tools and for scripters who know a
+     * feature's location but not its component id.</p>
      */
     Component findComponentAt(int screenX, int screenY);
 

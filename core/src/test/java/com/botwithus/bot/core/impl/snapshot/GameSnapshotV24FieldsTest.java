@@ -22,8 +22,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The v24 snapshot fields, decoded end to end through {@link GameSnapshotImpl}: player names and
  * the truncation flag, NPC active type and combat level, and the local player's run state.
  *
- * <p>Bytes are written at <b>literal</b> offsets from NXTLibrary's SharedLayout.h at c1231ca (and
- * checked there by compiling the header and printing {@code offsetof}), not through
+ * <p>Bytes are written at <b>literal</b> offsets from NXTLibrary's SharedLayout.h at c1231ca
+ * (the same blob, 833da0e, as the bound head 84a1376), checked there by compiling the header
+ * and printing {@code offsetof}. They are not written through
  * {@link Layout}: a fixture written through the reader's own constants would round-trip whatever
  * they said. Row 1 is written as well as row 0 so each stride is pinned with its field.</p>
  */
