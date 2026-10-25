@@ -3,8 +3,8 @@ package com.botwithus.bot.core.launcher;
 import com.botwithus.bot.api.script.LauncherEvent;
 import com.botwithus.bot.api.script.LauncherException;
 import com.botwithus.bot.core.launcher.FrameChannel.ChannelClosedException;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -123,7 +123,7 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
      * @throws LauncherException the service's error, or {@code service_unavailable} /
      *                           {@code service_stopped} when no service answered
      */
-    Value call(String method, Value body) {
+    MsgValue call(String method, MsgValue body) {
         ServiceSession current = session;
         if (current == null) {
             throw notConnected(null);
@@ -176,7 +176,7 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
      * a refusal keeps the reason the service gave, and no answer says whether the
      * service was gone or only slow.
      */
-    private <T> SdnCall<T> sdnCall(String method, Value body, Function<Value, T> decode) {
+    private <T> SdnCall<T> sdnCall(String method, MsgValue body, Function<MsgValue, T> decode) {
         ServiceSession current = session;
         if (current == null) {
             return new SdnCall.Unavailable<>(false);
@@ -202,7 +202,7 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
     private static WireError errorOf(Envelope response) {
         return response.error().orElseGet(() -> new WireError(WireError.UNKNOWN_CODE,
                 "a failed response with no error", false, OptionalLong.empty(), Optional.empty(),
-                ValueFactory.emptyMap()));
+                MsgMap.empty()));
     }
 
     /**

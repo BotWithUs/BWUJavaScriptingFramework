@@ -36,7 +36,7 @@ class MessagePackCodecTest {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("i", 42);
         var decoded = MessagePackCodec.decode(MessagePackCodec.encode(map));
-        // Small ints may decode as Integer or Long depending on msgpack internal representation
+        // Every integer decodes as a Long; MessagePackCodecContractTest pins that
         assertEquals(42, assertInstanceOf(Number.class, decoded.get("i")).intValue());
     }
 
@@ -93,8 +93,8 @@ class MessagePackCodecTest {
     @Test
     void decodeCorruptDataThrows() {
         byte[] corrupt = {0x00, 0x01, 0x02, 0x03};
-        // Corrupt data may throw MessagePackException or msgpack's MessageTypeCastException
-        assertThrows(RuntimeException.class, () -> MessagePackCodec.decode(corrupt));
+        // A non-map root is refused
+        assertThrows(MessagePackException.class, () -> MessagePackCodec.decode(corrupt));
     }
 
     @Test

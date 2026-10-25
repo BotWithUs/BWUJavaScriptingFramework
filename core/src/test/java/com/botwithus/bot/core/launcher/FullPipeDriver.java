@@ -1,8 +1,8 @@
 package com.botwithus.bot.core.launcher;
 
 import com.botwithus.bot.api.script.StopMode;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgValue;
 
 import java.time.Duration;
 import java.util.List;
@@ -27,14 +27,14 @@ final class FullPipeDriver {
     private static final Duration READ_POLL = Duration.ofMillis(5);
 
     /** The only calls this tool makes. */
-    private static final Map<String, Function<List<String>, Value>> COMMANDS = Map.of(
-            "login-dev", args -> body("mode", ValueFactory.newString("dev_bypass")),
+    private static final Map<String, Function<List<String>, MsgValue>> COMMANDS = Map.of(
+            "login-dev", args -> body("mode", MsgValue.of("dev_bypass")),
             "status", args -> Envelope.emptyBody(),
             "accounts", args -> Envelope.emptyBody(),
             "clients", args -> Envelope.emptyBody(),
             "hosts", args -> Envelope.emptyBody(),
             "request-close", args -> args.isEmpty() ? Envelope.emptyBody()
-                    : body("pid", ValueFactory.newInteger(Long.parseLong(args.getFirst()))),
+                    : body("pid", MsgValue.of(Long.parseLong(args.getFirst()))),
             "stop", args -> LauncherRequests.clientStop(args.getFirst(),
                     args.size() > 1 && args.get(1).equals("kill")
                             ? StopMode.KILL
@@ -65,22 +65,22 @@ final class FullPipeDriver {
         }
     }
 
-    private static Value cliHello() {
-        return ValueFactory.newMapBuilder()
-                .put(ValueFactory.newString("protocolMin"), ValueFactory.newInteger(LauncherProtocol.PROTOCOL_VERSION))
-                .put(ValueFactory.newString("protocolMax"), ValueFactory.newInteger(LauncherProtocol.PROTOCOL_VERSION))
-                .put(ValueFactory.newString("clientKind"), ValueFactory.newString("cli"))
-                .put(ValueFactory.newString("clientVersion"), ValueFactory.newString("a6-java-test-driver"))
+    private static MsgValue cliHello() {
+        return MsgMap.builder()
+                .put(MsgValue.of("protocolMin"), MsgValue.of(LauncherProtocol.PROTOCOL_VERSION))
+                .put(MsgValue.of("protocolMax"), MsgValue.of(LauncherProtocol.PROTOCOL_VERSION))
+                .put(MsgValue.of("clientKind"), MsgValue.of("cli"))
+                .put(MsgValue.of("clientVersion"), MsgValue.of("a6-java-test-driver"))
                 .build();
     }
 
-    private static Value body(String key, Value value) {
-        return ValueFactory.newMapBuilder().put(ValueFactory.newString(key), value).build();
+    private static MsgValue body(String key, MsgValue value) {
+        return MsgMap.builder().put(MsgValue.of(key), value).build();
     }
 
     private static void print(String what, Envelope reply) {
         Optional<WireError> error = reply.error();
-        System.out.println("{\"call\":\"" + what + "\",\"ok\":" + reply.isOk() + ",\"body\":" + reply.body().toJson()
+        System.out.println("{\"call\":\"" + what + "\",\"ok\":" + reply.isOk() + ",\"body\":" + MsgJson.toJson(reply.body())
                 + error.map(e -> ",\"error\":\"" + e.code() + ": " + e.message().replace("\"", "'") + "\"").orElse("")
                 + "}");
     }

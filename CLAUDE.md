@@ -166,7 +166,7 @@ Runtime, transports, RPC, script discovery, native bridges:
 - **`pipe/PipeClient`** — Windows named-pipe client (`\\.\pipe\BotWithUs_<pid>`), length-prefixed framing. **Single-threaded access** (concurrent reads/writes deadlock the kernel handle).
 - **`shm/`** — Reader for the shared-memory snapshot + event ring published by the DLL (`SharedRegion`, `SnapshotView`, `EventRingReader`, typed entry views).
 - **`rpc/RpcClient`** — Synchronous msgpack JSON-RPC over the pipe. Configurable per-call timeouts, retry/backoff policy, per-method `RpcMetrics`.
-- **`msgpack/MessagePackCodec`** — Serialization via `org.msgpack:msgpack-core:0.9.8`.
+- **`msgpack/MessagePackCodec`** — `Map <-> byte[]` codec over `com.botwithus:msgpack` (module `com.botwithus.msgpack`, Panama-based, no dependencies, no `sun.misc.Unsafe`), published to `https://botwithus.github.io/maven`. Every decoded integer is a `Long`. The launcher client (`launcher/`) uses the same library's `MsgValue` tree.
 - **`impl/`** — Concrete implementations: `GameAPIImpl`, `EventBusImpl`, `ClientImpl`, `ClientProviderImpl`, `ScriptContextImpl`, `ScriptManagerImpl`, `ScriptSchedulerImpl`, `MessageBusImpl`, `SharedStateImpl`, `Walker`, plus `impl/snapshot/` for the snapshot view backed by `SharedRegion`.
 - **`runtime/`** — Script lifecycle: `LocalScriptLoader` (filesystem JAR discovery), `SDNScriptLoader` (signed-network distribution), `ManagementScriptLoader`, `ScriptRunner` (per-script virtual thread; sets MDC `script.name` and `connection.name`), `ScriptRuntime`, `ScriptProfiler`, `ConnectionContext`.
 

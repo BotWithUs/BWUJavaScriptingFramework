@@ -39,10 +39,6 @@ dependencies {
     implementation(libs.logback.classic)
 }
 
-extraJavaModuleInfo {
-    automaticModule("org.msgpack:msgpack-core", "msgpack.core")
-}
-
 application {
     mainClass = "com.botwithus.bot.cli.gui.ImGuiApp"
     mainModule = "com.botwithus.bot.cli"
