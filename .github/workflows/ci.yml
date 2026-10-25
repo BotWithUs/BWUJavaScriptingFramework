@@ -1,6 +1,8 @@
-# Required status check for master. Runs on every PR so a merge cannot land
-# code that fails to compile or test. Pull requests run it whatever branch they
-# target, so a PR stacked on another PR's branch is checked too.
+# Required status check for develop and master: both branch rulesets require
+# this job by its name, `build`, so do not rename it. Runs on every PR so a
+# merge cannot land code that fails to compile or test. Pull requests run it
+# whatever branch they target, so a PR stacked on another PR's branch is
+# checked too.
 #
 # Scope note: this deliberately does NOT run `./gradlew build`.
 # - `example-script` and `sdn-test-script` reference quest constants that
