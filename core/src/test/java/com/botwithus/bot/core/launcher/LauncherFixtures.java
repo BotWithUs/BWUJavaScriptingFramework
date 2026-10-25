@@ -44,7 +44,7 @@ final class LauncherFixtures {
     record Fixture(String name, String file, String direction, List<String> surface, JsonObject value,
                    Set<String> binFields, byte[] bytes) {
 
-        /** @return the manifest value as msgpack-core would build it */
+        /** @return the manifest value as a msgpack value tree */
         MsgValue expectedValue() {
             return toValue(value, "", binFields);
         }

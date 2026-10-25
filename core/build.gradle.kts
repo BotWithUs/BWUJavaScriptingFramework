@@ -16,7 +16,6 @@ dependencies {
     // so it joins the boot ModuleLayer — see the matching requires in module-info.
     implementation(project(":skilling-core"))
     implementation(libs.msgpack)
-    implementation(libs.msgpack.core)
     implementation(libs.gson)
     implementation(libs.logback.classic)
     // Reader for the baked gameval name index (~/.botwithus/native/gameval.sqlite).
@@ -26,7 +25,6 @@ dependencies {
 }
 
 extraJavaModuleInfo {
-    automaticModule("org.msgpack:msgpack-core", "msgpack.core")
     // No entry for sqlite-jdbc: since 3.47 it ships a real module-info
     // (`org.xerial.sqlitejdbc`), so it needs no patching and jlink can link it
     // directly. Adding one fails the transform with "patching of real modules

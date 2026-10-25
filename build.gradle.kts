@@ -61,8 +61,8 @@ subprojects {
         //                        publish `this` for callbacks (ImGui Application
         //                        subclasses, downcall handle binding). Fixing is
         //                        a constructor redesign, not a lint sweep.
-        //   -requires-automatic — module-info entries for msgpack-core and other
-        //                        automatic-module dependencies; addressed by
+        //   -requires-automatic — module-info entries for automatic-module
+        //                        dependencies; addressed by
         //                        extra-java-module-info shims where available.
         options.compilerArgs.addAll(
             listOf(
