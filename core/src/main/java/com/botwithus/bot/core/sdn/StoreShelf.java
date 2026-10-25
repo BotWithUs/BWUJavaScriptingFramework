@@ -153,7 +153,8 @@ public final class StoreShelf {
             }
             case BoundedConstruction.Outcome.TimedOut<BotScript> timedOut -> {
                 log.error("SDN: a new instance of Store script {} did not finish constructing within {} s; "
-                        + "making no more instances of it this run", cls, timedOut.budget().toSeconds());
+                        + "making no more instances of it this run. Where it was stuck:{}",
+                        cls, timedOut.budget().toSeconds(), timedOut.stackDump());
                 synchronized (lock) {
                     stalledCopies.add(cls);
                 }
