@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -65,6 +66,38 @@ class BoundedConstructionTest {
     }
 
     /**
+     * A timeout says where the construction is stuck: the stack carries the frame
+     * that blocks, and the dump prints it one frame per line. Fails for an outcome
+     * that knows only the budget, which left a stall with nothing but a class name
+     * in the log.
+     */
+    @Test
+    @Timeout(TEST_TIMEOUT_SECONDS)
+    void aConstructorThatNeverReturns_timesOutWithTheStackOfWhereItIsStuck() {
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            BoundedConstruction.Outcome<Object> outcome = BoundedConstruction.construct("Blocked", () -> {
+                awaitQuietly(release);
+                return new Object();
+            }, SHORT_BUDGET);
+
+            BoundedConstruction.Outcome.TimedOut<?> timedOut =
+                    assertInstanceOf(BoundedConstruction.Outcome.TimedOut.class, outcome);
+            assertAll(
+                    () -> assertTrue(timedOut.stack().stream().anyMatch(BoundedConstructionTest::isTheBlockingFrame),
+                            "the stack names the frame that blocks: " + timedOut.stack()),
+                    () -> assertTrue(timedOut.stack().stream()
+                            .anyMatch(f -> f.getClassName().equals(CountDownLatch.class.getName())
+                                    && f.getMethodName().equals("await")), "and what it blocks on"),
+                    () -> assertTrue(timedOut.stackDump().lines()
+                            .anyMatch(line -> line.startsWith("	at ") && line.contains(".awaitQuietly(")),
+                            "the dump prints one frame per line: " + timedOut.stackDump()));
+        } finally {
+            release.countDown();
+        }
+    }
+
+    /**
      * The budget is enforced while the construction runs. Fails for an implementation
      * that waits for the constructor and checks the time afterwards: the call would
      * take the whole sleep, not the budget.
@@ -99,6 +132,11 @@ class BoundedConstructionTest {
         } finally {
             release.countDown();
         }
+    }
+
+    private static boolean isTheBlockingFrame(StackTraceElement frame) {
+        return frame.getClassName().equals(BoundedConstructionTest.class.getName())
+                && frame.getMethodName().equals("awaitQuietly");
     }
 
     private static void awaitQuietly(CountDownLatch latch) {

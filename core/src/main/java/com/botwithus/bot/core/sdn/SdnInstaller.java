@@ -380,10 +380,16 @@ public final class SdnInstaller {
         return new SdnInstallResult.Failed(stalledMessage(name));
     }
 
-    /** What the user is told about a script that did not finish loading. */
+    /**
+     * What the user is told about a script that did not finish loading. It does not
+     * promise that a restart fixes it: the usual cause is the script itself, often its
+     * own saved settings, and that stalls again on every start. The host log carries
+     * where it was stuck, and a report from the launcher is how that reaches the author.
+     */
     static String stalledMessage(String name) {
-        return name + " did not finish loading within " + SDNScriptLoader.CONSTRUCT_BUDGET.toSeconds()
-                + " seconds. Restart the host to try again.";
+        return name + " got stuck while starting. This is usually a problem in the script itself. "
+                + "If it happens again after you restart the host, report it from the launcher "
+                + "so the script's author can see where it got stuck.";
     }
 
     /**

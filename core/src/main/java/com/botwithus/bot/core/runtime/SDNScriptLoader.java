@@ -260,7 +260,8 @@ public final class SDNScriptLoader {
             }
             case BoundedConstruction.Outcome.TimedOut<BotScript> timedOut -> {
                 log.error("SDN: {} did not finish constructing within {} s; its thread is left running "
-                        + "and the host must be restarted to load it", cls, timedOut.budget().toSeconds());
+                        + "and it cannot be loaded again this run. Where it was stuck:{}",
+                        cls, timedOut.budget().toSeconds(), timedOut.stackDump());
                 yield Optional.of(new JarOutcome.Stalled(new SdnDelivery.Stall(jar.position(), cls)));
             }
             case BoundedConstruction.Outcome.Interrupted<BotScript> ignored ->
