@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.sdnlive;
 
+import com.botwithus.bot.cli.gui.window.LwjglMemoryBackend;
 import com.botwithus.bot.core.crypto.SdnDiskBundleSource;
 import com.botwithus.bot.core.crypto.SdnLoader;
 import com.botwithus.bot.core.launcher.DevGate;
@@ -64,6 +65,8 @@ public final class SdnPipeLiveCheck {
     }
 
     public static void main(String[] args) {
+        // First, before anything initialises LWJGL's MemoryUtil: see LwjglMemoryBackend.
+        LwjglMemoryBackend.selectFfm();
         // Exits explicitly: a connected host leaves non-daemon threads behind.
         System.exit(runReportingStatus());
     }
