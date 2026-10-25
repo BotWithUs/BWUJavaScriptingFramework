@@ -51,6 +51,7 @@ tasks.named<Test>("test") {
     filter {
         excludeTestsMatching(LAUNCHER_DRIFT_TEST)
         excludeTestsMatching(LAUNCHER_SCOPE_LIVE_TEST)
+        excludeTestsMatching(PRODUCER_HEADER_DRIFT_TEST)
     }
 }
 
@@ -325,6 +326,39 @@ tasks.register<Test>("sdnValidationTest") {
     filter {
         includeTestsMatching("com.botwithus.bot.core.crypto.SdnForgedEnvelopeTest")
     }
+}
+
+// ── Producer wire header ───────────────────────────────────────────────────
+
+val PRODUCER_HEADER_DRIFT_TEST = "com.botwithus.bot.core.shm.ProducerHeaderDriftTest"
+
+// Layout against NXTLibrary's SharedLayout.h at the revision the host is bound
+// to (ProducerHeaderDriftTest.BOUND_PRODUCER_SHA), or at -Pbotwithus.producer.rev.
+// Needs a producer checkout:
+//   ./gradlew :core:producerHeaderDriftTest -Pbotwithus.producer.repo=<path> [-Pbotwithus.producer.rev=<sha>]
+// It defaults to the sibling ../NXTLibrary and reports skipped (not run) when
+// there is none.
+tasks.register<Test>("producerHeaderDriftTest") {
+    description = "Compare Layout with the producer's SharedLayout.h at the bound revision"
+    group = "verification"
+    useJUnitPlatform()
+    val repo = (project.findProperty("botwithus.producer.repo") as String?)
+        ?: rootProject.projectDir.resolve("../NXTLibrary").absolutePath
+    systemProperty("botwithus.producer.repo", repo)
+    (project.findProperty("botwithus.producer.rev") as String?)?.let {
+        systemProperty("botwithus.producer.rev", it)
+    }
+    testLogging {
+        events("passed", "failed", "skipped")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching(PRODUCER_HEADER_DRIFT_TEST)
+    }
+    // The verdict depends on another repository, not on inputs Gradle can see.
+    outputs.upToDateWhen { false }
 }
 
 // ── Launcher protocol (launcher ADR 0007, A6) ──────────────────────────────

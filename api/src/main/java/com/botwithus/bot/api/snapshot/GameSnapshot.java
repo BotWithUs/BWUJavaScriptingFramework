@@ -56,6 +56,9 @@ public interface GameSnapshot {
      */
     int gameState();
 
+    /** {@link #gameState()} while the client is in the world. */
+    int GAME_STATE_IN_GAME = 30;
+
     /** Local player's server index, or negative if not in-game. */
     int ownIndex();
 

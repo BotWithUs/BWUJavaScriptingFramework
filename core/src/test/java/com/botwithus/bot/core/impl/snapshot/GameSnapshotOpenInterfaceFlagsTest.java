@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Decodes a v23 open-interface fixture written the way the producer lays it out.
+ * Decodes a v24 open-interface fixture written the way the producer lays it out.
  *
  * <p>The fixture writes at the producer header's literal offsets rather than at
  * {@link Layout}'s derived ones. A fixture that wrote through {@link Layout} would round-trip
@@ -25,15 +25,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class GameSnapshotOpenInterfaceFlagsTest {
 
-    // offsetof(Snapshot, ...) in the v23 SharedLayout.h.
-    private static final long WIRE_OPEN_IFACE_COUNT = 320376;
-    private static final long WIRE_OPEN_IFACE_TOTAL = 320380;
-    private static final long WIRE_OPEN_IFACES = 320384;
-    private static final long WIRE_OPEN_IFACE_FLAGS = 321408;
-    private static final long WIRE_GROUND_ITEM_COUNT = 321668;
-    private static final long WIRE_GROUND_ITEMS = 321672;
-    private static final long WIRE_GAME_CYCLE = 346252;
-    private static final long WIRE_DYN_REGION = 346256;
+    // offsetof(Snapshot, ...) in the v24 SharedLayout.h (NXTLibrary c1231ca). v23 had each 40968 lower.
+    private static final long WIRE_OPEN_IFACE_COUNT = 361344;
+    private static final long WIRE_OPEN_IFACE_TOTAL = 361348;
+    private static final long WIRE_OPEN_IFACES = 361352;
+    private static final long WIRE_OPEN_IFACE_FLAGS = 362376;
+    private static final long WIRE_GROUND_ITEM_COUNT = 362636;
+    private static final long WIRE_GROUND_ITEMS = 362640;
+    private static final long WIRE_GAME_CYCLE = 387220;
+    private static final long WIRE_DYN_REGION = 387224;
 
     private static final int BANK = 517;
     private static final int HUD = 1465;

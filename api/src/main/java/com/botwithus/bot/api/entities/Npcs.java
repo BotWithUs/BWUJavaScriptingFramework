@@ -149,6 +149,16 @@ public final class Npcs {
         @Override
         protected int rawTypeId(Npc t) { return t.typeId(); }
 
+        /**
+         * A morphing NPC answers to its base id and to the id it is shown as, so
+         * {@code withId}/{@code withGameval} find Xenia by either. Mirrors the loc rule in
+         * {@link SceneObjects}.
+         */
+        @Override
+        protected boolean hasTypeId(Npc t, int typeId) {
+            return t.typeId() == typeId || t.activeTypeId() == typeId;
+        }
+
         @Override
         protected String nameOf(Npc t) { return t.name(); }
     }

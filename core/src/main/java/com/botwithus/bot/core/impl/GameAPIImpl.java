@@ -27,6 +27,9 @@ import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
+import com.botwithus.bot.api.model.AppearanceSlot;
+import com.botwithus.bot.api.model.AppearanceStatus;
+import com.botwithus.bot.api.model.PlayerAppearance;
 import com.botwithus.bot.api.model.ResourceItem;
 import com.botwithus.bot.api.model.ResourceSection;
 import com.botwithus.bot.api.model.SkillRequirement;
@@ -34,6 +37,8 @@ import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldMapPlacement;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.ComponentRef;
+import com.botwithus.bot.api.model.ComponentScroll;
+import com.botwithus.bot.api.model.ComponentVisibility;
 import com.botwithus.bot.api.model.ComponentTrigger;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
@@ -94,6 +99,7 @@ import java.util.function.Supplier;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
 import static com.botwithus.bot.core.impl.MapHelper.getInt;
+import static com.botwithus.bot.core.impl.MapHelper.getIntOr;
 import static com.botwithus.bot.core.impl.MapHelper.getIntList;
 import static com.botwithus.bot.core.impl.MapHelper.getLong;
 import static com.botwithus.bot.core.impl.MapHelper.getMapList;
@@ -697,6 +703,44 @@ public class GameAPIImpl implements GameAPI {
         return out;
     }
 
+    /** Agent error prefix for a {@code get_player_appearance} call whose argument it rejected. */
+    private static final String APPEARANCE_ARGUMENT_ERROR = "get_player_appearance:";
+
+    @Override
+    public PlayerAppearance getPlayerAppearance(int serverIndex) {
+        Map<String, Object> r;
+        try {
+            r = rpc.callSync("get_player_appearance", Map.of("serverIndex", serverIndex));
+        } catch (RpcRemoteException e) {
+            return refusedAppearance(serverIndex, e.producerMessage());
+        }
+        return decodeAppearance(r);
+    }
+
+    /**
+     * A refusal envelope becomes a status, except an argument error, which is a caller bug and
+     * throws. Only {@link RpcRemoteException} reaches here: a transport failure still propagates.
+     */
+    private static PlayerAppearance refusedAppearance(int serverIndex, String code) {
+        if (code != null && code.startsWith(APPEARANCE_ARGUMENT_ERROR)) {
+            throw new IllegalArgumentException(code + " (serverIndex " + serverIndex + ")");
+        }
+        return PlayerAppearance.refused(AppearanceStatus.fromWireCode(code));
+    }
+
+    static PlayerAppearance decodeAppearance(Map<String, Object> r) {
+        List<AppearanceSlot> slots = getMapList(r, "slots").stream()
+                .map(s -> new AppearanceSlot(getIntOr(s, "kit", AppearanceSlot.NONE),
+                        getIntOr(s, "item", AppearanceSlot.NONE)))
+                .toList();
+        return new PlayerAppearance(AppearanceStatus.OK,
+                getIntOr(r, "render_id", PlayerAppearance.UNKNOWN),
+                getIntOr(r, "npc_transform_id", PlayerAppearance.UNKNOWN),
+                getIntOr(r, "gender", PlayerAppearance.UNKNOWN),
+                slots,
+                getIntList(r, "colours"));
+    }
+
     /**
      * Decode one component map — from {@code get_component} or a
      * {@code get_interface_tree} node — into a {@link Component}. Returns
@@ -734,7 +778,33 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "item_amount"),
                 getMapList(r, "triggers").stream()
                         .map(t -> new ComponentTrigger(getInt(t, "type"), getInt(t, "script_id")))
-                        .toList());
+                        .toList(),
+                getIntOr(r, "parent_global", Component.NO_PARENT),
+                decodeVisibility(r),
+                decodeScroll(r));
+    }
+
+    /**
+     * The v24 visibility keys. An absent key is not read as {@code false}: a pipe attached to an
+     * agent that predates them would then report every component off screen, and
+     * {@code components().visible()} would match nothing. Absent keys fall back to the only
+     * signal such an agent sent, {@code hidden}.
+     */
+    private static ComponentVisibility decodeVisibility(Map<String, Object> r) {
+        if (!r.containsKey("visible") || !r.containsKey("visible_global")) {
+            return ComponentVisibility.fromLegacyHidden(getIntOr(r, "hidden", -1));
+        }
+        return new ComponentVisibility(getBool(r, "visible"), getBool(r, "visible_global"),
+                getIntOr(r, "slot_flags", ComponentVisibility.NO_SLOT));
+    }
+
+    /** The v24 scroll keys; zeros and not scrollable on a non-layer or an older agent. */
+    private static ComponentScroll decodeScroll(Map<String, Object> r) {
+        if (!getBool(r, "scrollable")) {
+            return ComponentScroll.NONE;
+        }
+        return new ComponentScroll(true, getInt(r, "scroll_x"), getInt(r, "scroll_y"),
+                getInt(r, "scroll_w"), getInt(r, "scroll_h"));
     }
 
     @Override

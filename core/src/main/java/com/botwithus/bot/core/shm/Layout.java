@@ -23,6 +23,16 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v24 grew all three entity rows. PlayerEntry 32 to 48: a {@code char[16]} UTF-8 display
+     *  name at {@link #PLAYER_NAME_OFFSET} (NUL-terminated, at most 15 bytes, empty until the
+     *  client has decoded the player's appearance) plus {@link #FLAG_NAME_TRUNCATED} in the
+     *  flags byte. NpcEntry 40 to 48: {@link #NPC_ACTIVETYPEID_OFFSET activeTypeId} (the
+     *  morph-resolved type, {@code -1} when the morph resolves to nothing) and a per-instance
+     *  {@link #NPC_COMBATLEVEL_OFFSET combatLevel}; {@code typeId} stays the base id.
+     *  LocalPlayer 552 to 560: {@link #LP_RUNENERGY_OFFSET runEnergy} and
+     *  {@link #LP_RUNWEIGHT_OFFSET runWeight}, appended after the skills. Every field from
+     *  {@code npcCount} on moved: {@code npcs} by 8, {@code players} by 8200, and everything from
+     *  {@code locationCount} on by 40968. {@link #SNAPSHOT_SIZE} went from 411832 to 452800.
      *  v23 added {@code openIfaceFlags[OPEN_IFACE_CAP]} ({@link #SNAP_OPENIFACEFLAGS_OFFSET}), one
      *  u8 per {@code openIfaces[]} entry at the same index: the sub-interface's open type in bits
      *  0-2 and whether a client script rather than the server opened it in bit 3 (bit layout on
@@ -95,7 +105,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 23;
+    public static final int PROTOCOL_VERSION = 24;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -134,6 +144,13 @@ public final class Layout {
     /** Bit flag shared between NpcEntry and PlayerEntry. */
     public static final int FLAG_MOVING = 1;
 
+    /** PlayerEntry only (v24): {@code name} is a prefix of a longer name. Mirrors
+     *  {@code kFlagNameTruncated}. */
+    public static final int FLAG_NAME_TRUNCATED = 1 << 1;
+
+    /** Capacity of {@code PlayerEntry::name} including the NUL. Mirrors {@code kPlayerNameCap}. */
+    public static final int PLAYER_NAME_CAP = 16;
+
     // ------------------------------------------------------------------
     // LocationEntry flag bits (mirrors kLocFlag* in SharedLayout.h)
     // ------------------------------------------------------------------
@@ -164,10 +181,10 @@ public final class Layout {
     public static final int HEADER_TARGETPID_OFFSET    = 40;   // u64
 
     // ------------------------------------------------------------------
-    // NpcEntry  (40 bytes)
+    // NpcEntry  (48 bytes)
     // ------------------------------------------------------------------
 
-    public static final int NPC_ENTRY_SIZE = 40;
+    public static final int NPC_ENTRY_SIZE = 48;
 
     public static final int NPC_SERVERINDEX_OFFSET    = 0;    // i32
     public static final int NPC_TYPEID_OFFSET         = 4;    // i32
@@ -183,6 +200,8 @@ public final class Layout {
     public static final int NPC_SPOTANIMID_OFFSET     = 32;   // i32  first active spot anim id; -1 if none
     public static final int NPC_ORIENTATION_OFFSET    = 36;   // u16  v21 facing; 0xFFFF unknown
     // bytes 38..39 are _pad0; not accessed
+    public static final int NPC_ACTIVETYPEID_OFFSET   = 40;   // i32  v24 morph-resolved type; -1 hidden
+    public static final int NPC_COMBATLEVEL_OFFSET    = 44;   // i32  v24 per-instance combat level
 
     // ------------------------------------------------------------------
     // LocationEntry (24 bytes) — mirrors ipc::LocationEntry in SharedLayout.h.
@@ -258,10 +277,10 @@ public final class Layout {
     // bytes 29..31 are trailing pad; not accessed
 
     // ------------------------------------------------------------------
-    // PlayerEntry (32 bytes)
+    // PlayerEntry (48 bytes)
     // ------------------------------------------------------------------
 
-    public static final int PLAYER_ENTRY_SIZE = 32;
+    public static final int PLAYER_ENTRY_SIZE = 48;
 
     public static final int PLAYER_SERVERINDEX_OFFSET    = 0;    // i32
     public static final int PLAYER_TILEX_OFFSET          = 4;    // i16
@@ -275,6 +294,7 @@ public final class Layout {
     public static final int PLAYER_SPOTANIMID_OFFSET     = 24;   // i32  first active spot anim id; -1 if none
     public static final int PLAYER_ORIENTATION_OFFSET    = 28;   // u16  v21 facing; 0xFFFF unknown
     // bytes 30..31 are _pad0; not accessed
+    public static final int PLAYER_NAME_OFFSET           = 32;   // char[16] v24 UTF-8, NUL-terminated
 
     // ------------------------------------------------------------------
     // SkillEntry (16 bytes)
@@ -288,10 +308,10 @@ public final class Layout {
     public static final int SKILL_BOOSTEDLEVEL_OFFSET = 12;
 
     // ------------------------------------------------------------------
-    // LocalPlayer (40 + 32*16 = 552 bytes)
+    // LocalPlayer (40 + 32*16 + 8 = 560 bytes)
     // ------------------------------------------------------------------
 
-    public static final int LOCAL_PLAYER_SIZE = 552;
+    public static final int LOCAL_PLAYER_SIZE = 560;
 
     public static final int LP_SERVERINDEX_OFFSET     = 0;
     public static final int LP_COMBATLEVEL_OFFSET     = 4;
@@ -313,6 +333,10 @@ public final class Layout {
     public static final int LP_ORIENTATION_OFFSET     = 32;   // u16
     public static final int LP_SKILLCOUNT_OFFSET      = 36;
     public static final int LP_SKILLS_OFFSET          = 40;
+    // v24, appended after skills[SKILL_CAP] so every older offset is unmoved. -1 = unreadable
+    // in-world; 0 out of world (the host reports -1 there instead, see LocalPlayer).
+    public static final int LP_RUNENERGY_OFFSET       = LP_SKILLS_OFFSET + SKILL_CAP * SKILL_ENTRY_SIZE;
+    public static final int LP_RUNWEIGHT_OFFSET       = LP_RUNENERGY_OFFSET + 4;
 
     // ------------------------------------------------------------------
     // InventoryItem (8) and InventoryHeader (8)

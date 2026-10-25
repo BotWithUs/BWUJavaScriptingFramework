@@ -30,6 +30,12 @@ import java.util.List;
  * @param maxHealth      maximum life points, or {@link #HEALTH_UNKNOWN} when unfilled
  * @param skills         live skills array; defensive copy taken on construction
  * @param orientation    rendered facing (wire v21); {@link Orientation#unknown()} when not read
+ * @param runEnergy      run energy {@code 0..100} as the run orb shows it (wire v24), or
+ *                       {@link #RUN_UNKNOWN}; see {@link #hasRunEnergy()}
+ * @param runWeight      carried weight in kg as the client holds it (wire v24), or
+ *                       {@link #RUN_UNKNOWN}. <b>Not independently verified:</b> the one live
+ *                       check could not tell a right offset from a wrong one, so treat the value
+ *                       as provisional until it is confirmed against the in-game weight display
  */
 public record LocalPlayer(
         int serverIndex,
@@ -48,7 +54,9 @@ public record LocalPlayer(
         int currentHealth,
         int maxHealth,
         List<Skill> skills,
-        Orientation orientation
+        Orientation orientation,
+        int runEnergy,
+        int runWeight
 ) {
 
     private static final int FLAG_MOVING = 1;
@@ -60,8 +68,27 @@ public record LocalPlayer(
      */
     public static final int HEALTH_UNKNOWN = -1;
 
+    /**
+     * Value {@link #runEnergy()} and {@link #runWeight()} carry when there is no reading: the
+     * producer could not read it in-world, the client is not in the world (the wire holds
+     * {@code 0} there, which this host reports as unknown so that {@code 0} always means an
+     * empty run bar), or the record was built with a pre-v24 constructor.
+     */
+    public static final int RUN_UNKNOWN = -1;
+
     public LocalPlayer {
         skills = List.copyOf(skills);
+    }
+
+    /** Builds a record with unknown run state; kept so pre-v24 callers compile unchanged. */
+    public LocalPlayer(int serverIndex, int combatLevel, int tileX, int tileY, int plane,
+                       int flags, int followingIndex, int animationId, int stanceId,
+                       int targetIndex, int targetType, boolean isMember, int spotAnimId,
+                       int currentHealth, int maxHealth, List<Skill> skills,
+                       Orientation orientation) {
+        this(serverIndex, combatLevel, tileX, tileY, plane, flags, followingIndex, animationId,
+                stanceId, targetIndex, targetType, isMember, spotAnimId, currentHealth,
+                maxHealth, skills, orientation, RUN_UNKNOWN, RUN_UNKNOWN);
     }
 
     /** Builds a record with an unknown facing; kept so pre-v21 callers compile unchanged. */
@@ -84,6 +111,11 @@ public record LocalPlayer(
      */
     public boolean hasHealth() {
         return currentHealth != HEALTH_UNKNOWN && maxHealth != HEALTH_UNKNOWN;
+    }
+
+    /** True when {@link #runEnergy()} is a real reading rather than {@link #RUN_UNKNOWN}. */
+    public boolean hasRunEnergy() {
+        return runEnergy != RUN_UNKNOWN;
     }
 
     /**
@@ -109,6 +141,8 @@ public record LocalPlayer(
                 currentHealth,
                 maxHealth,
                 skills,
-                orientation);
+                orientation,
+                runEnergy,
+                runWeight);
     }
 }
