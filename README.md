@@ -513,12 +513,16 @@ overwrite one, so a bad release is corrected by cutting the next version.
 
 ### Contributing
 
-Pull requests target `master`, the integration branch. `master` is protected: changes
-land only through a pull request with a green CI build, and the branch cannot be
-force-pushed or deleted. No approving review is required; the maintainer reviews and
-merges each PR. CI builds and tests `api`, `core`, `test-support`,
-`quest-core` and `skilling-core` — the modules that compile from a bare clone;
-`cli` and the script modules need machine-specific paths in `local.properties`.
+Pull requests target `develop`, the integration branch, and branches start from
+`develop`. GitHub's default branch is still `master`, so choose `develop` as the base
+when you open a pull request. `develop` is promoted to `master` at release time.
+
+`develop` and `master` are protected alike: changes land only through a pull request
+with a green CI build, and neither branch can be force-pushed or deleted. No approving
+review is required; the maintainer reviews and merges each PR. CI builds and tests
+`api`, `core`, `test-support`, `quest-core` and `skilling-core` — the modules that
+compile from a bare clone; `cli` and the script modules need machine-specific paths in
+`local.properties`.
 
 Release tags cannot be moved or deleted once pushed, so a published version is
 never silently replaced.

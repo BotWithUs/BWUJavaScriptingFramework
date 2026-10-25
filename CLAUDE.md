@@ -99,18 +99,20 @@ Three things that will bite if changed carelessly:
 
 ### CI and branch protection
 
-`master` is the integration branch: pull requests target it and branches start from it. (`develop` still exists on the remote, but it is far behind `master` and holds a few commits that were never merged. Do not branch from it or target it.) Two rulesets apply, both with an empty bypass list, so they bind org admins too:
+`develop` is the integration branch: pull requests target it and branches start from `origin/develop`. `master` trails `develop`. Promoting `develop` to `master` is a decision the user makes at release time; host builds for a release are currently cut from `develop`. GitHub's default branch is still `master`, so `gh pr create` and the web UI propose `master` as the base. Pass `--base develop`.
 
-- **`master protection`** (branch `master`):
+Three rulesets apply, all with an empty bypass list, so they bind org admins too:
+
+- **`develop protection`** (branch `develop`) and **`master protection`** (branch `master`) carry the same rules:
   - changes land only through a pull request;
-  - the `build` check must be green (not strict, so the branch does not have to be up to date with `master` first);
+  - the `build` check must be green (not strict, so a branch does not have to be up to date with its base first);
   - no force-push and no deletion;
   - stale reviews are dismissed on push.
 
-  It requires **zero** approving reviews, and that is deliberate. The user reviews and merges PRs personally. GitHub forbids approving your own PR, so a required approval would need a second person that the project does not have. Agents open PRs and leave the merge to the user.
+  Both require **zero** approving reviews, and that is deliberate. The user reviews and merges PRs personally. GitHub forbids approving your own PR, so a required approval would need a second person that the project does not have. Agents open PRs and leave the merge to the user.
 - **`release tags are immutable`** (tags `v*`) — a release tag cannot be deleted, moved, or force-updated. That is what makes "a published version is never replaced" true at the git level and not just by workflow convention.
 
-`ci.yml` provides the required `build` check. **Its job must stay named `build`** — the required-check context is matched by job name, so renaming the job blocks every merge to `master` until the ruleset is updated to match.
+`ci.yml` provides the required `build` check. **Its job must stay named `build`** — the required-check context is matched by job name, so renaming the job blocks every merge to `develop` and to `master` until both rulesets are updated to match.
 
 **CI does not run `./gradlew build`.** It builds `:api :core :test-support :quest-core :skilling-core` and runs `:cli:check` (the `cli` tests, plus compiling the `preview` source set). `cli` needs nothing from `local.properties` to configure or test — every key it reads is optional and used only by `run` and the jlink/jpackage tasks — so keep it that way: a key that becomes required at configuration time breaks CI. The preview renders (`:cli:renderPreviews`, `:cli:previewSmokeTest`) need a desktop with OpenGL and are not run in CI. `example-script` and `sdn-test-script` stay out: they reference quest constants that `quest-core` only generates when `quest.research.dir` points at the research data, and emits as a stub otherwise. Pull requests run CI whatever branch they target, so stacked PRs are checked too.
 
