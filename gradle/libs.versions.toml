@@ -12,7 +12,9 @@ sqlite-jdbc = "3.47.1.0"
 
 # UI / GUI
 imgui = "1.90.0"
-lwjgl = "3.3.6"
+# 3.4.x carries the FFM memory backend the GUI selects (cli LwjglMemoryBackend);
+# from 3.4.2 the JDK 25 default is Unsafe-based again, so the bump alone is not enough.
+lwjgl = "3.4.3"
 
 # Testing
 junit = "5.12.1"
