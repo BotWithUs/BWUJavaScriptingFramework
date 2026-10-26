@@ -316,7 +316,7 @@ class WorldWalkerCallbackBridgeTest {
     // Priest in Peril). A gate on a varp missing here is denied.
     private static final Map<Integer, Integer> DATASET_VARP_GATES = Map.of(
             2661, 9, 2740, 160, 2326, 140, 2102, 15, 2671, 200,
-            1297, 33, 2618, 15, 2673, KEY_RING_BRASS_AND_TOP_BIT, 2171, 60);
+            1297, 33, 2618, 15, 2673, KEY_RING_BRASS_AND_TOP_BIT, 2171, 60, 2696, 105);
 
     // The executor learns varps only from this snapshot, so a varp_at_least gate
     // (Tree Gnome Village's spirit trees) is denied unless the host puts it here.
