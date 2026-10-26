@@ -312,11 +312,15 @@ class WorldWalkerCallbackBridgeTest {
     // Le'Harmless (2326) and Port Tyras (2102) charters, the Feldip Hills
     // glider (2671, One Small Favour), the Champions' Guild door (1297, quest
     // points), the Heroes' Guild doors (2618, Heroes' Quest), the key ring's
-    // stored keys (2673, bit-tested) and the passage under Paterdomus (2171,
-    // Priest in Peril). A gate on a varp missing here is denied.
-    private static final Map<Integer, Integer> DATASET_VARP_GATES = Map.of(
-            2661, 9, 2740, 160, 2326, 140, 2102, 15, 2671, 200,
-            1297, 33, 2618, 15, 2673, KEY_RING_BRASS_AND_TOP_BIT, 2171, 60, 2696, 105);
+    // stored keys (2673, bit-tested), the passage under Paterdomus (2171,
+    // Priest in Peril), the Canifis trapdoor (2696, In Search of the Myreque)
+    // and the Shilo Village gates and cart (2793). A gate on a varp missing
+    // here is denied.
+    private static final Map<Integer, Integer> DATASET_VARP_GATES = Map.ofEntries(
+            Map.entry(2661, 9), Map.entry(2740, 160), Map.entry(2326, 140), Map.entry(2102, 15),
+            Map.entry(2671, 200), Map.entry(1297, 33), Map.entry(2618, 15),
+            Map.entry(2673, KEY_RING_BRASS_AND_TOP_BIT), Map.entry(2171, 60), Map.entry(2696, 105),
+            Map.entry(2793, 15));
 
     // The executor learns varps only from this snapshot, so a varp_at_least gate
     // (Tree Gnome Village's spirit trees) is denied unless the host puts it here.
