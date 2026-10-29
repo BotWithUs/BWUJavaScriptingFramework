@@ -64,21 +64,30 @@ final class ConfigInspector {
     private static final String POP_OUT = "Pop out";
     private static final String POPPED_OUT_NOTE = "Open in its own window";
     private static final String BRING_BACK = "Bring back here";
-    private static final String PIN = "Pin as overlay";
+    private static final String PIN_TO_GAME = "Pin to game";
+    private static final String PIN_ABOVE_ALL = "Pin above all windows";
     private static final String UNPIN = "Unpin overlay";
+    private static final String INTERACT_KEYS_NOTE = "Hold to click the overlay: ";
+    private static final String RECORD_KEYS = "Change keys";
+    private static final String RECORDING_NOTE = "Press the keys, then let go. Esc cancels: ";
+    private static final String CANCEL_RECORDING = "Cancel";
 
     private final Controls ui;
     private final InspectorState state;
     private final ScriptUiRenderer scriptUis;
+    /** The keys held over a pinned overlay to click it, and the recorder that changes them. */
+    private final InteractKeysStore interactKeys;
+    private final InteractKeysRecorder recorder = new InteractKeysRecorder();
     /** The picker's selection, reset from the target every frame. */
     private final ImInt pickerChoice = new ImInt();
     private ConfigEdits edits;
     private InspectorSubject editsFor;
 
-    ConfigInspector(Controls ui, InspectorState state, ScriptUiRenderer scriptUis) {
+    ConfigInspector(Controls ui, InspectorState state, ScriptUiRenderer scriptUis, InteractKeysStore interactKeys) {
         this.ui = ui;
         this.state = state;
         this.scriptUis = scriptUis;
+        this.interactKeys = interactKeys;
     }
 
     /** The open form, or {@code null} before its first frame. The dev preview's seam. */
@@ -515,11 +524,75 @@ final class ConfigInspector {
         if (ui.button("##script-ui-bring-back", Icons.COMPRESS, BRING_BACK, Tone.GHOST, true)) {
             state.bringBack(subject);
         }
-        ImGui.sameLine();
-        boolean isPinned = state.isPinned(subject);
-        if (ui.button("##script-ui-pin", Icons.THUMBTACK, isPinned ? UNPIN : PIN, Tone.GHOST, true)) {
-            state.setPinned(subject, !isPinned);
+        renderPinChoice(subject);
+        renderInteractKeys();
+    }
+
+    /**
+     * Unpin, or the two ways to pin: to the game the script runs on, the
+     * default, or above every window. A management script has no game, so it
+     * only pins above every window.
+     */
+    private void renderPinChoice(InspectorSubject subject) {
+        if (state.isPinned(subject)) {
+            if (ui.button("##script-ui-unpin", Icons.THUMBTACK, UNPIN, Tone.GHOST, true)) {
+                state.setPinned(subject, false);
+            }
+            return;
         }
+        boolean hasGame = switch (subject) {
+            case ClientScript ignored -> true;
+            case ManagementScript ignored -> false;
+        };
+        if (hasGame) {
+            if (ui.button("##script-ui-pin-game", Icons.GAMEPAD, PIN_TO_GAME, Tone.GHOST, true)) {
+                state.pin(subject, PinMode.GAME);
+            }
+            ImGui.sameLine();
+        }
+        if (ui.button("##script-ui-pin-above", Icons.THUMBTACK, PIN_ABOVE_ALL, Tone.GHOST, true)) {
+            state.pin(subject, PinMode.ABOVE_ALL);
+        }
+    }
+
+    /**
+     * The keys held over a pinned overlay to click it, and a button that records
+     * new ones from the next keys the user presses. Saved with the host's settings.
+     */
+    private void renderInteractKeys() {
+        if (recorder.isRecording()) {
+            long window = ImGui.getMainViewport().getPlatformHandle();
+            if (DesktopKeys.isDown(InteractKeys.VK_ESCAPE, window)) {
+                recorder.cancel();
+            } else {
+                recorder.poll(key -> DesktopKeys.isDown(key, window)).ifPresent(interactKeys::set);
+            }
+        }
+        boolean isRecording = recorder.isRecording();
+        String shown = isRecording ? RECORDING_NOTE + recorder.heldSoFar().orElse("")
+                : INTERACT_KEYS_NOTE + interactKeys.get().label();
+        note(Icons.KEYBOARD, shown);
+        if (isRecording) {
+            if (ui.button("##script-ui-keys-cancel", Icons.XMARK, CANCEL_RECORDING, Tone.GHOST, true)) {
+                recorder.cancel();
+            }
+        } else if (ui.button("##script-ui-keys-record", Icons.KEYBOARD, RECORD_KEYS, Tone.GHOST, true)) {
+            recorder.start();
+        }
+    }
+
+    /** One dim line of small text with an icon, taking its own row. */
+    private void note(String icon, String text) {
+        ImGuiTheme.Metrics m = ui.m();
+        ImDrawList draw = ImGui.getWindowDrawList();
+        ImFont font = ui.fonts().small();
+        float x = ImGui.getCursorScreenPosX();
+        float y = ImGui.getCursorScreenPosY() + m.u(1.5f);
+        float lineH = font.getFontSize() * LINE;
+        float textX = x + ui.width(font, icon) + m.u(1.5f);
+        ui.textCentredY(draw, font, x, y, lineH, ImGuiTheme.COL_FG2, icon);
+        ui.textCentredY(draw, font, textX, y, lineH, ImGuiTheme.COL_FG2, text);
+        ImGui.dummy(textX - x + ui.width(font, text), lineH + m.u(1.5f));
     }
 
     /**
@@ -529,7 +602,7 @@ final class ConfigInspector {
     private ScriptUiSlot dockedSlot(InspectorTarget target) {
         InspectorSubject subject = target.subject();
         return target.scriptUiSlot(new ScriptUiHandle(() -> { }, false,
-                pinned -> state.setPinned(subject, pinned), false, false));
+                pinned -> state.setPinned(subject, pinned), false, false, interactKeys.get().label()));
     }
 
     private void dashedFrame(ImDrawList draw, float x, float y, float w, float h) {

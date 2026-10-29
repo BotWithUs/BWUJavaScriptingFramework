@@ -42,4 +42,14 @@ public interface ScriptUiHost {
     default boolean overlayInteractive() {
         return false;
     }
+
+    /**
+     * The keys the user holds to make a pinned UI interactive, as the host's
+     * settings name them for a hint, such as {@code "Ctrl"} or
+     * {@code "Ctrl+Shift"}. Wherever the docs above say Ctrl, these keys are
+     * meant. {@code "Ctrl"} on a host whose keys cannot be changed.
+     */
+    default String overlayInteractKeys() {
+        return "Ctrl";
+    }
 }

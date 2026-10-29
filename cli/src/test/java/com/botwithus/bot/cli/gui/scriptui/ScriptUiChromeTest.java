@@ -247,11 +247,12 @@ class ScriptUiChromeTest {
             }
         };
 
-        draw(slot(ui, new ScriptUiHandle(() -> { }, true, pinned::set, true, true)));
+        draw(slot(ui, new ScriptUiHandle(() -> { }, true, pinned::set, true, true, "Alt+Q")));
 
         assertAll(
                 () -> assertEquals(Boolean.FALSE, pinned.get()),
-                () -> assertTrue(attached.get().overlayInteractive()));
+                () -> assertTrue(attached.get().overlayInteractive()),
+                () -> assertEquals("Alt+Q", attached.get().overlayInteractKeys()));
     }
 
     @Test

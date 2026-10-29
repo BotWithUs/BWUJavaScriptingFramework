@@ -171,6 +171,21 @@ class ScriptUiPopoutsTest {
     }
 
     @Test
+    void aWindowIsPinnedToItsGame_unlessTheUserChoseAboveAll_whichTheNextPinRemembers() {
+        PinMode first = popouts.pinMode(ON_OAKHEART);
+
+        popouts.pin(ON_OAKHEART, PinMode.ABOVE_ALL);
+        popouts.setPinned(ON_OAKHEART, false);
+        popouts.setPinned(ON_OAKHEART, true);
+
+        assertAll(
+                () -> assertEquals(PinMode.GAME, first),
+                () -> assertTrue(popouts.isPinned(ON_OAKHEART)),
+                () -> assertEquals(PinMode.ABOVE_ALL, popouts.pinMode(ON_OAKHEART)),
+                () -> assertEquals(PinMode.GAME, popouts.pinMode(ON_FERNMOSS)));
+    }
+
+    @Test
     void aManagementScriptIsPinnedOnce_whicheverTargetItsFormIsOn() {
         popouts.setPinned(FLEET.withSettingsFor(Optional.of(HOST)), true);
 

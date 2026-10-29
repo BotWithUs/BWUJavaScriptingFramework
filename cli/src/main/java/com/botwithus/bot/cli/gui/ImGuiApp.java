@@ -453,7 +453,7 @@ public class ImGuiApp extends Application {
         // why the opener only requests and the shell opens it on the next frame.
         Clock clock = Clock.systemDefaultZone();
         InspectorState inspectorState = new InspectorState(clock);
-        inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx), scriptUis);
+        inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx), scriptUis, ctx.getSettings());
         ctx.setConfigPanelOpener(inspectorState.clientScriptOpener());
         // Dev only (DevGate): a live check of script UIs opens one without anybody clicking.
         // The request waits for the script to load; the drawer resolves it each frame.
