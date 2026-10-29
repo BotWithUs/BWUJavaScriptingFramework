@@ -24,6 +24,10 @@ import java.util.Set;
  * the window with its X counts as bringing it back. The memory lives as long as
  * the host process; nothing is written to disk.</p>
  *
+ * <p>A popped-out window can also be pinned as an overlay, which the session
+ * remembers the same way: a pinned window that closes because its runner went
+ * away comes back pinned. Bringing the UI back unpins it.</p>
+ *
  * <p>Render thread only.</p>
  */
 final class ScriptUiPopouts {
@@ -32,6 +36,7 @@ final class ScriptUiPopouts {
 
     private final Set<InspectorSubject> open = new LinkedHashSet<>();
     private final Set<InspectorSubject> remembered = new HashSet<>();
+    private final Set<InspectorSubject> pinned = new HashSet<>();
 
     /**
      * The window a subject's UI pops out into. A management script has one
@@ -68,6 +73,25 @@ final class ScriptUiPopouts {
         InspectorSubject window = windowOf(subject);
         open.remove(window);
         remembered.remove(window);
+        pinned.remove(window);
+    }
+
+    /**
+     * Pins the subject's window as an overlay, popping it out first if it is
+     * docked, or unpins it. An unpinned window stays popped out.
+     */
+    void setPinned(InspectorSubject subject, boolean isPinned) {
+        InspectorSubject window = windowOf(subject);
+        if (isPinned) {
+            popOut(window);
+            pinned.add(window);
+        } else {
+            pinned.remove(window);
+        }
+    }
+
+    boolean isPinned(InspectorSubject subject) {
+        return pinned.contains(windowOf(subject));
     }
 
     boolean isPoppedOut(InspectorSubject subject) {

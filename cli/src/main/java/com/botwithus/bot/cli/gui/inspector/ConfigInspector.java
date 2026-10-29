@@ -15,7 +15,9 @@ import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ClientScript;
 import com.botwithus.bot.cli.gui.inspector.InspectorSubject.ManagementScript;
 import com.botwithus.bot.cli.gui.inspector.SettingsFor.InheritedValue;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiHandle;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
+import com.botwithus.bot.cli.gui.scriptui.ScriptUiSlot;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -62,6 +64,8 @@ final class ConfigInspector {
     private static final String POP_OUT = "Pop out";
     private static final String POPPED_OUT_NOTE = "Open in its own window";
     private static final String BRING_BACK = "Bring back here";
+    private static final String PIN = "Pin as overlay";
+    private static final String UNPIN = "Unpin overlay";
 
     private final Controls ui;
     private final InspectorState state;
@@ -425,7 +429,7 @@ final class ConfigInspector {
         state.reopenIfRemembered(target.subject());
         if (state.isPoppedOut(target.subject())) {
             renderPoppedOut(target.subject());
-        } else if (scriptUis.drawsOwnChrome(target.scriptUiSlot())) {
+        } else if (scriptUis.drawsOwnChrome(dockedSlot(target))) {
             renderOwnChromeScriptUi(target);
         } else {
             renderDockedScriptUi(target);
@@ -447,7 +451,7 @@ final class ConfigInspector {
         float top = rowH + m.u(1.5f);
         ImGui.setCursorScreenPos(x, y + top);
         ImGui.beginChild("##script-ui", w, Math.max(0f, h - top), false);
-        scriptUis.draw(target.scriptUiSlot());
+        scriptUis.draw(dockedSlot(target));
         ImGui.endChild();
     }
 
@@ -464,7 +468,7 @@ final class ConfigInspector {
         ImGui.setCursorScreenPos(x + inset, y + top);
         ImGui.pushStyleVar(ImGuiStyleVar.ItemSpacing, ImGui.getStyle().getItemSpacingX(), m.u(1.5f));
         ImGui.beginChild("##script-ui", w - inset * 2f, Math.max(0f, h - top - inset), false);
-        scriptUis.draw(target.scriptUiSlot());
+        scriptUis.draw(dockedSlot(target));
         ImGui.endChild();
         ImGui.popStyleVar();
     }
@@ -511,6 +515,21 @@ final class ConfigInspector {
         if (ui.button("##script-ui-bring-back", Icons.COMPRESS, BRING_BACK, Tone.GHOST, true)) {
             state.bringBack(subject);
         }
+        ImGui.sameLine();
+        boolean isPinned = state.isPinned(subject);
+        if (ui.button("##script-ui-pin", Icons.THUMBTACK, isPinned ? UNPIN : PIN, Tone.GHOST, true)) {
+            state.setPinned(subject, !isPinned);
+        }
+    }
+
+    /**
+     * The script's UI as the drawer draws it: it has no window of its own to
+     * close, but the script's pin button pops it out and pins it.
+     */
+    private ScriptUiSlot dockedSlot(InspectorTarget target) {
+        InspectorSubject subject = target.subject();
+        return target.scriptUiSlot(new ScriptUiHandle(() -> { }, false,
+                pinned -> state.setPinned(subject, pinned), false, false));
     }
 
     private void dashedFrame(ImDrawList draw, float x, float y, float w, float h) {

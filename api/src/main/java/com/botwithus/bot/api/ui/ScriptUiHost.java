@@ -15,4 +15,31 @@ public interface ScriptUiHost {
 
     /** True when the UI is in its own pop-out window, false when docked in the host. */
     boolean poppedOut();
+
+    /**
+     * Pins the UI as an overlay, or unpins it. A pinned UI is popped out if it
+     * was not, and its window stays on top of other windows, lets the mouse
+     * through to whatever is under it, and is see-through. Holding Ctrl with
+     * the cursor over it makes it interactive and opaque for as long as Ctrl
+     * is held; see {@link #overlayInteractive()}. Unpinning leaves the window
+     * popped out, as an ordinary one. Takes effect from the next frame. A host
+     * that cannot pin does nothing.
+     */
+    default void setPinnedOverlay(boolean pinned) {
+    }
+
+    /** True when the UI is pinned as an overlay; always false on a host that cannot pin. */
+    default boolean pinnedOverlay() {
+        return false;
+    }
+
+    /**
+     * True while a pinned UI takes the mouse because the user holds Ctrl over
+     * it; false when it lets the mouse through, and when it is not pinned. The
+     * host reads Ctrl from the whole desktop, so this holds while the game has
+     * the keyboard focus, when the UI's own key state would not.
+     */
+    default boolean overlayInteractive() {
+        return false;
+    }
 }

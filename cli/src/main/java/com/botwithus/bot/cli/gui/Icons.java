@@ -41,6 +41,7 @@ public final class Icons {
     public static final String XMARK       = "\uF00D";  // fa-xmark
     public static final String CHECK       = "\uF00C";  // fa-check
     public static final String REDO        = "\uF01E";  // fa-arrow-rotate-right
+    public static final String THUMBTACK   = "\uF08D";  // fa-thumbtack
 
     // Status
     public static final String CIRCLE      = "\uF111";  // fa-circle (solid)

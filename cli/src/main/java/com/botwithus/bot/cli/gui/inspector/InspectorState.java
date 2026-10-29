@@ -181,6 +181,15 @@ public final class InspectorState {
         return popouts.isPoppedOut(subject);
     }
 
+    /** Pins {@code subject}'s window as an overlay, or unpins it: see {@link ScriptUiPopouts#setPinned}. */
+    void setPinned(InspectorSubject subject, boolean isPinned) {
+        popouts.setPinned(subject, isPinned);
+    }
+
+    boolean isPinned(InspectorSubject subject) {
+        return popouts.isPinned(subject);
+    }
+
     /** The drawer is showing {@code subject}'s Script UI tab: see {@link ScriptUiPopouts#reopenIfRemembered}. */
     void reopenIfRemembered(InspectorSubject subject) {
         popouts.reopenIfRemembered(subject);
