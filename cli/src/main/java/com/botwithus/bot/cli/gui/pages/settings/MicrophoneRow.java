@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.gui.SafeText;
+
 import java.util.Locale;
 import java.util.Objects;
 
@@ -12,9 +14,17 @@ import java.util.Objects;
  */
 public record MicrophoneRow(String key, String name, boolean isAllowed) {
 
+    /** The longest key shown; cut from the front, so the class at its end stays visible. */
+    static final int MAX_KEY_CHARS = 160;
+
     public MicrophoneRow {
         Objects.requireNonNull(key, "key");
         Objects.requireNonNull(name, "name");
+    }
+
+    /** The key as the table shows it: one clean line, its end kept. */
+    public String shownKey() {
+        return SafeText.lineKeepingTail(key, MAX_KEY_CHARS);
     }
 
     /** The decision as the table shows it. */

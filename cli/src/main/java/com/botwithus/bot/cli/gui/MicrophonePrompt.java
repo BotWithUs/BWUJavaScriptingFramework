@@ -50,6 +50,12 @@ final class MicrophonePrompt {
 
     /** Phrases shown by name; the rest are counted. Keeps the prompt on screen for a long list. */
     static final int MAX_SHOWN_PHRASES = 8;
+    /** The longest script name shown; the script chose it, so it is capped. */
+    static final int MAX_NAME_CHARS = 48;
+    /** The longest phrase shown. */
+    static final int MAX_PHRASE_CHARS = 80;
+    /** The longest key shown; cut from the front, so its distinguishing end stays. */
+    static final int MAX_KEY_CHARS = 160;
     /** How long a question is on screen before its buttons take a press. */
     static final float ARM_SECONDS = 0.4f;
 
@@ -115,11 +121,12 @@ final class MicrophonePrompt {
     static Text text(ConsentRequest request) {
         List<String> phrases = request.phrases();
         int shown = Math.min(phrases.size(), MAX_SHOWN_PHRASES);
-        List<String> quoted = phrases.subList(0, shown).stream().map(p -> "“" + p + "”").toList();
-        String body = request.scriptName() + " wants to use your microphone to listen for spoken phrases. "
+        List<String> quoted = phrases.subList(0, shown).stream()
+                .map(p -> "“" + SafeText.line(p, MAX_PHRASE_CHARS) + "”").toList();
+        String body = SafeText.line(request.scriptName(), MAX_NAME_CHARS) + " wants to use your microphone to listen for spoken phrases. "
                 + "Speech is recognised on this PC, and no audio leaves it.";
         String label = phrases.size() == 1 ? "It listens for this phrase:"
                 : "It listens for these " + phrases.size() + " phrases:";
-        return new Text(TITLE, body, request.scriptKey(), label, quoted, phrases.size() - shown, FOOTNOTE);
+        return new Text(TITLE, body, SafeText.lineKeepingTail(request.scriptKey(), MAX_KEY_CHARS), label, quoted, phrases.size() - shown, FOOTNOTE);
     }
 }

@@ -381,6 +381,82 @@ class ScopedVoiceInputTest {
         }
     }
 
+    @Nested
+    @DisplayName("after the script stopped")
+    class Stopped {
+
+        @Test
+        void listenAfterCloseAll_isDead_andRaisesNoQuestion() {
+            consent.attachPrompt();
+            ScriptVoice gate = gate(WOODCUTTER);
+            gate.closeAll();
+
+            gate.listen(List.of("chop"), h -> { });
+
+            assertTrue(consent.current().isEmpty(), "a stopped script must not raise a question");
+            assertEquals(List.of(), mic.listens);
+        }
+
+        @Test
+        void listenAfterCloseAll_staysDead_evenWithARememberedAllow() {
+            store.save(new StoredConsent(WOODCUTTER.key(), "Woodcutter", MicrophoneDecision.ALLOWED));
+            ScriptVoice gate = gate(WOODCUTTER);
+            gate.closeAll();
+
+            gate.listen(List.of("chop"), h -> { });
+
+            assertEquals(List.of(), mic.listens);
+        }
+
+        @Test
+        void anAllowForTheSameScriptOnAnotherClient_doesNotReachAStoppedRun() {
+            consent.attachPrompt();
+            ScriptVoice stopped = gate(WOODCUTTER);
+            ScriptVoice running = gate(WOODCUTTER);
+            stopped.listen(List.of("chop"), h -> { });
+            running.listen(List.of("chop"), h -> { });
+            stopped.closeAll();
+            stopped.listen(List.of("chop"), h -> { });
+
+            consent.answer(showing(), ConsentAnswer.ALLOW);
+
+            assertEquals(List.of(List.of("chop")), mic.listens, "only the running client starts");
+        }
+    }
+
+    @Nested
+    @DisplayName("an Allow that lands on a session closed in the meantime")
+    class ClosedMeanwhile {
+
+        @Test
+        void closedWhileItWasBeingAdmitted_neverReachesTheMic() {
+            HookedStore hooked = new HookedStore();
+            VoiceConsent consentWithHook = new VoiceConsent(hooked);
+            hooked.inner.save(new StoredConsent(WOODCUTTER.key(), "Woodcutter", MicrophoneDecision.ALLOWED));
+            ScriptVoice gate = consentWithHook.forScript(mic, WOODCUTTER);
+            // The script's stop lands between "this script is allowed" and opening the mic.
+            hooked.onFind = gate::closeAll;
+
+            gate.listen(List.of("chop"), h -> { });
+
+            assertEquals(List.of(), mic.listens);
+        }
+
+        @Test
+        void resetWhileItWasBeingAdmitted_neverReachesTheMic() {
+            HookedStore hooked = new HookedStore();
+            VoiceConsent consentWithHook = new VoiceConsent(hooked);
+            hooked.inner.save(new StoredConsent(WOODCUTTER.key(), "Woodcutter", MicrophoneDecision.ALLOWED));
+            ScriptVoice gate = consentWithHook.forScript(mic, WOODCUTTER);
+            // The user's Reset lands between "this script is allowed" and opening the mic.
+            hooked.onFind = () -> consentWithHook.reset(WOODCUTTER.key());
+
+            gate.listen(List.of("chop"), h -> { });
+
+            assertEquals(List.of(), mic.listens);
+        }
+    }
+
     @Test
     void refusingAll_neverReachesTheMic_evenWithAPrompt() {
         VoiceConsent none = VoiceConsent.refusingAll();
@@ -407,6 +483,40 @@ class ScopedVoiceInputTest {
         assertFalse(VoiceInput.UNAVAILABLE.available());
         VoiceInput.UNAVAILABLE.listen(List.of("x"), h -> { }).close();
         assertThrows(NullPointerException.class, () -> VoiceInput.UNAVAILABLE.listen(List.of("x"), null));
+    }
+
+    /**
+     * A store that runs {@link #onFind} once, inside the first lookup that finds a decision:
+     * the moment the gate has decided the script is allowed but has not yet opened the mic.
+     */
+    private static final class HookedStore implements VoiceConsentStore {
+
+        final VoiceConsentStore inner = VoiceConsentStore.inMemory();
+        volatile Runnable onFind = () -> { };
+
+        @Override
+        public Optional<StoredConsent> find(String key) {
+            Optional<StoredConsent> found = inner.find(key);
+            Runnable hook = onFind;
+            onFind = () -> { };
+            found.ifPresent(f -> hook.run());
+            return found;
+        }
+
+        @Override
+        public List<StoredConsent> all() {
+            return inner.all();
+        }
+
+        @Override
+        public void save(StoredConsent consent) {
+            inner.save(consent);
+        }
+
+        @Override
+        public void forget(String key) {
+            inner.forget(key);
+        }
     }
 
     /** The host's voice input as far as the gate can tell: records every call that would open the mic. */

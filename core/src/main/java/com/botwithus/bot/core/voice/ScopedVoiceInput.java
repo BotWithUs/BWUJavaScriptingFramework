@@ -39,7 +39,7 @@ public final class ScopedVoiceInput implements ScriptVoice {
     private static final Logger log = LoggerFactory.getLogger(ScopedVoiceInput.class);
 
     /** What a {@code listen} may do, decided under {@link #lock}. */
-    private enum Admission { OPEN, ASKING, DENIED_STORED, REFUSED_THIS_RUN, NO_PROMPT }
+    private enum Admission { OPEN, ASKING, DENIED_STORED, REFUSED_THIS_RUN, NO_PROMPT, CLOSED }
 
     private final VoiceInput delegate;
     private final ScriptIdentity script;
@@ -54,6 +54,11 @@ public final class ScopedVoiceInput implements ScriptVoice {
     private boolean isAllowedThisRun;
     /** Guarded by {@link #lock}: refused in this run by a Deny, a dismissal, or no way to ask. */
     private boolean isRefusedThisRun;
+    /**
+     * Guarded by {@link #lock}: {@link #closeAll} ran, so the script has stopped. A thread of
+     * it that ignored the stop gets dead sessions from here on and raises no question.
+     */
+    private boolean isClosed;
 
     ScopedVoiceInput(VoiceInput delegate, ScriptIdentity script, VoiceConsent consent) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
@@ -73,6 +78,10 @@ public final class ScopedVoiceInput implements ScriptVoice {
         VoiceGrammar.of(phrases);
         Objects.requireNonNull(onHeard, "onHeard");
         Tracked session = new Tracked(List.copyOf(phrases), onHeard);
+        if (isClosed()) {
+            session.close();
+            return session;
+        }
         Tracked previous = latest.getAndSet(session);
         if (previous != null) {
             previous.close();
@@ -81,7 +90,6 @@ public final class ScopedVoiceInput implements ScriptVoice {
             // Nothing could ever be heard, so there is nothing to ask the user about.
             return session;
         }
-        consent.track(this);
         admit(session);
         return session;
     }
@@ -92,14 +100,15 @@ public final class ScopedVoiceInput implements ScriptVoice {
      */
     @Override
     public void closeAll() {
+        ConsentRequest pending;
+        synchronized (lock) {
+            isClosed = true;
+            pending = asking;
+            asking = null;
+        }
         Tracked open = latest.getAndSet(null);
         if (open != null) {
             open.close();
-        }
-        ConsentRequest pending;
-        synchronized (lock) {
-            pending = asking;
-            asking = null;
         }
         if (pending != null) {
             consent.withdraw(pending, waiter);
@@ -124,13 +133,25 @@ public final class ScopedVoiceInput implements ScriptVoice {
         }
     }
 
+    private boolean isClosed() {
+        synchronized (lock) {
+            return isClosed;
+        }
+    }
+
     private void admit(Tracked session) {
         Admission admission;
         synchronized (lock) {
-            admission = admission(session.phrases);
+            if (isClosed) {
+                admission = Admission.CLOSED;
+            } else {
+                consent.track(this);
+                admission = admission(session.phrases);
+            }
         }
         switch (admission) {
             case OPEN -> session.start(delegate);
+            case CLOSED -> session.close();
             case ASKING, REFUSED_THIS_RUN -> { }
             case DENIED_STORED -> logRefusal("the user denied it. Reset it in Settings > Scripts to be asked again");
             case NO_PROMPT -> logRefusal("this host has no prompt to ask the user with. "
@@ -175,7 +196,7 @@ public final class ScopedVoiceInput implements ScriptVoice {
         switch (answer) {
             case ALLOW -> {
                 Tracked open = latest.get();
-                if (open != null) {
+                if (open != null && !isClosed()) {
                     open.start(delegate);
                 }
             }

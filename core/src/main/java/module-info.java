@@ -53,9 +53,9 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.sdn;
     exports com.botwithus.bot.core.secrets;
     exports com.botwithus.bot.core.shm;
-    // Qualified: a script could otherwise `requires` core and drive VoiceInputService
-    // directly, past the per-script consent in ScopedVoiceInput. Only the host front-end
-    // builds the service and shows the consent prompt.
+    // Qualified: the voice service and the consent store are host plumbing. Scripts are
+    // handed voice input only through ScriptContext.getVoiceInput(); only the host
+    // front-end builds the service and shows the consent prompt.
     exports com.botwithus.bot.core.voice to com.botwithus.bot.cli;
     exports com.botwithus.bot.core.window;
     exports com.botwithus.bot.core.worldwalker;

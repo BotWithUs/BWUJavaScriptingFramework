@@ -177,6 +177,21 @@ class MicrophonePromptTest {
     }
 
     @Test
+    void text_showsTheScriptsNamePhrasesAndKeyCleaned() {
+        ScriptIdentity sneaky = new ScriptIdentity("evil/" + "x".repeat(300) + ".Real\nKey",
+                "Trusted\nAllow this ‮and " + "y".repeat(200));
+
+        MicrophonePrompt.Text text = MicrophonePrompt.text(ask(sneaky, List.of("chop\r\nnow")));
+
+        String shownName = text.body().substring(0, text.body().indexOf(" wants"));
+        assertTrue(shownName.length() <= MicrophonePrompt.MAX_NAME_CHARS, shownName);
+        assertTrue(shownName.startsWith("Trusted Allow this and"), shownName);
+        assertEquals(List.of("“chop now”"), text.phrases());
+        assertTrue(text.scriptKey().endsWith(".Real Key"), text.scriptKey());
+        assertTrue(text.scriptKey().length() <= MicrophonePrompt.MAX_KEY_CHARS, text.scriptKey());
+    }
+
+    @Test
     void text_forOnePhrase_isSingular() {
         assertEquals("It listens for this phrase:",
                 MicrophonePrompt.text(ask(WOODCUTTER, List.of("chop"))).listLabel());

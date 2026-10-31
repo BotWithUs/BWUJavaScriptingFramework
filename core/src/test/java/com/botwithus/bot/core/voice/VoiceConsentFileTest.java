@@ -8,9 +8,12 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -22,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class VoiceConsentFileTest {
 
     private static final String KEY = "wc/com.example.Woodcutter";
+    private static final String OTHER = "fish/com.example.Fisher";
 
     @TempDir
     Path dir;
@@ -128,5 +132,101 @@ class VoiceConsentFileTest {
 
         assertEquals(Optional.of(MicrophoneDecision.DENIED), store.find(KEY).map(StoredConsent::decision));
         assertTrue(Files.isDirectory(file()));
+    }
+
+    // ── Several hosts on one file ─────────────────────────────────────────
+
+    @Test
+    void twoHosts_aResetInOne_isNotUndoneByTheOthersNextSave() {
+        new VoiceConsentFile(file()).save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.ALLOWED));
+        VoiceConsentFile hostA = new VoiceConsentFile(file());
+        VoiceConsentFile hostB = new VoiceConsentFile(file());
+        assertEquals(Optional.of(MicrophoneDecision.ALLOWED), hostA.find(KEY).map(StoredConsent::decision));
+
+        hostB.forget(KEY);
+        assertEquals(Optional.empty(), hostA.find(KEY), "host A sees the reset at its next question");
+        hostA.save(new StoredConsent(OTHER, "Fisher", MicrophoneDecision.DENIED));
+
+        assertEquals(Optional.empty(), new VoiceConsentFile(file()).find(KEY), "the reset must survive A's save");
+        assertEquals(Optional.empty(), hostA.find(KEY));
+        assertEquals(Optional.of(MicrophoneDecision.DENIED),
+                new VoiceConsentFile(file()).find(OTHER).map(StoredConsent::decision));
+    }
+
+    @Test
+    void twoHosts_aDenyInOne_isNotTurnedBackIntoAllowByTheOthersSave() {
+        new VoiceConsentFile(file()).save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.ALLOWED));
+        VoiceConsentFile hostA = new VoiceConsentFile(file());
+        VoiceConsentFile hostB = new VoiceConsentFile(file());
+        hostA.find(KEY);
+        hostA.all();
+
+        hostB.forget(KEY);
+        hostB.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.DENIED));
+        hostA.save(new StoredConsent(OTHER, "Fisher", MicrophoneDecision.DENIED));
+
+        assertEquals(Optional.of(MicrophoneDecision.DENIED),
+                new VoiceConsentFile(file()).find(KEY).map(StoredConsent::decision));
+        assertEquals(Optional.of(MicrophoneDecision.DENIED), hostA.find(KEY).map(StoredConsent::decision));
+    }
+
+    @Test
+    void all_followsAnotherHostsChanges() {
+        VoiceConsentFile hostA = new VoiceConsentFile(file());
+        VoiceConsentFile hostB = new VoiceConsentFile(file());
+        assertEquals(List.of(), hostA.all());
+
+        hostB.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.ALLOWED));
+
+        assertEquals(List.of(KEY), hostA.all().stream().map(StoredConsent::key).toList());
+    }
+
+    @Test
+    void anUntrustedFile_isNeverRewritten_andTheChangeHoldsInMemory() throws IOException {
+        String untrusted = "format=2\ndecision." + OTHER + "=deny\n";
+        writeFile(untrusted);
+        VoiceConsentFile store = new VoiceConsentFile(file());
+
+        store.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.DENIED));
+        store.forget("never/Seen");
+
+        assertEquals(untrusted, Files.readString(file(), StandardCharsets.UTF_8),
+                "a damaged read must not wipe the file");
+        assertEquals(Optional.of(MicrophoneDecision.DENIED), store.find(KEY).map(StoredConsent::decision));
+        assertEquals(List.of(KEY), store.all().stream().map(StoredConsent::key).toList());
+    }
+
+    @Test
+    void aLockHeldElsewhere_keepsTheChangeInMemory_andLeavesTheFileAlone() throws IOException {
+        new VoiceConsentFile(file()).save(new StoredConsent(OTHER, "Fisher", MicrophoneDecision.ALLOWED));
+        String before = Files.readString(file(), StandardCharsets.UTF_8);
+        VoiceConsentFile store = new VoiceConsentFile(file());
+        Path lock = file().resolveSibling(VoiceConsentFile.FILE_NAME + ".lock");
+
+        try (FileChannel channel = FileChannel.open(lock, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             FileLock held = channel.lock()) {
+            store.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.DENIED));
+            assertTrue(held.isValid());
+        }
+
+        assertEquals(before, Files.readString(file(), StandardCharsets.UTF_8));
+        assertEquals(Optional.of(MicrophoneDecision.DENIED), store.find(KEY).map(StoredConsent::decision));
+    }
+
+    @Test
+    void awkwardKeysAndNames_roundTrip() {
+        String[] keys = {"m/a=b:c d", "mod.ü/pkg.Ün$Inner", "m/#x!y\\z", "m/‮evil",
+            "m/name.decision.q", "decision.m/X"};
+        VoiceConsentFile writer = new VoiceConsentFile(file());
+        for (String key : keys) {
+            writer.save(new StoredConsent(key, "n=" + key, MicrophoneDecision.ALLOWED));
+        }
+
+        VoiceConsentFile reader = new VoiceConsentFile(file());
+        for (String key : keys) {
+            assertEquals(Optional.of(new StoredConsent(key, "n=" + key, MicrophoneDecision.ALLOWED)),
+                    reader.find(key), key);
+        }
+        assertEquals(keys.length, reader.all().size());
     }
 }

@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
+import com.botwithus.bot.cli.gui.SafeText;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -179,7 +180,7 @@ final class SettingsTables {
         float nameW = cols[1] - cols[0] - m.u(3);
         ui.text(draw, name, cols[0], textTop, ImGuiTheme.COL_FG, ui.ellipsize(name, row.name(), nameW));
         ui.text(draw, key, cols[0], textTop + name.getFontSize() + m.u(1), ImGuiTheme.COL_FG2,
-                ui.ellipsize(key, row.key(), nameW));
+                SafeText.keepTail(row.shownKey(), nameW, k -> ui.width(key, k)));
         int fg = row.isAllowed() ? ImGuiTheme.COL_INFO : ImGuiTheme.COL_FG2;
         int bg = row.isAllowed() ? ImGuiTheme.COL_INFO_SOFT : ImGuiTheme.COL_SURFACE;
         ui.chip(draw, cols[1], y + (h - m.chipHeight()) * 0.5f, row.decisionLabel(), fg, bg, 1f);

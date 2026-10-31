@@ -392,10 +392,10 @@ public class CliContext {
     /**
      * Which scripts may use the microphone; the GUI attaches its prompt and lists decisions here.
      *
-     * <p>"exports": core exports {@code core.voice} to this module alone, so that a script cannot
-     * reach the voice service past the consent gate. javac warns that a client of this
+     * <p>"exports": core exports {@code core.voice} to this module alone, because the voice
+     * service and the consent store are host plumbing. javac warns that a client of this
      * package might not see the type, but no module requires {@code com.botwithus.bot.cli}:
-     * it is the application. Widening the export to quiet the lint would reopen the bypass.</p>
+     * it is the application. Do not widen the export to quiet the lint.</p>
      */
     @SuppressWarnings("exports")
     public VoiceConsent getVoiceConsent() {

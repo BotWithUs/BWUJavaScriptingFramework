@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.gui.SafeText;
 import com.botwithus.bot.core.voice.MicrophoneDecision;
 import com.botwithus.bot.core.voice.VoiceConsent;
 
@@ -7,6 +8,9 @@ import java.util.List;
 
 /** The remembered microphone decisions, as the Settings page lists and resets them. */
 public interface MicrophoneDecisions {
+
+    /** The longest script name listed; names come from scripts, and the file can be edited. */
+    int MAX_NAME_CHARS = 48;
 
     /** Every script with a remembered decision, in name order. Cheap enough to call every frame. */
     List<MicrophoneRow> rows();
@@ -34,7 +38,7 @@ public interface MicrophoneDecisions {
             @Override
             public List<MicrophoneRow> rows() {
                 return consent.decisions().stream()
-                        .map(d -> new MicrophoneRow(d.key(), d.displayName(),
+                        .map(d -> new MicrophoneRow(d.key(), SafeText.line(d.displayName(), MAX_NAME_CHARS),
                                 d.decision() == MicrophoneDecision.ALLOWED))
                         .toList();
             }
