@@ -158,6 +158,18 @@ public final class NXTCache implements AutoCloseable {
                     FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS)));
 
     /**
+     * {@code nxt_gameval_index_version} and {@code nxt_build_gameval_db}, bound optionally for
+     * the same reason as {@link #MH_VARP_INFO}: the NXTCache.dll in a data.zip that predates
+     * them must still load, with local gameval builds simply unavailable.
+     */
+    private static final Optional<MethodHandle> MH_GAMEVAL_INDEX_VERSION =
+            LIB.find("nxt_gameval_index_version").map(sym -> LINKER.downcallHandle(sym,
+                    FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS)));
+    private static final Optional<MethodHandle> MH_BUILD_GAMEVAL_DB =
+            LIB.find("nxt_build_gameval_db").map(sym -> LINKER.downcallHandle(sym,
+                    FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS)));
+
+    /**
      * The varp the warm-up asks about. Any id works: the point is to make the library load
      * the varp config group once, off every script's path.
      */
@@ -596,6 +608,78 @@ public final class NXTCache implements AutoCloseable {
                 log.debug("NXTCache: nxt_get_varp_info({}) rc={}: {}", id, rc, lastError());
             }
             return result;
+        }
+    }
+
+    // ------------------------------------------------------- Gameval build
+
+    /**
+     * True when this NXTCache.dll build can probe and bake {@code gameval.sqlite}. A build
+     * before {@code nxt_build_gameval_db} existed answers false and still loads.
+     */
+    public static boolean supportsGamevalBuild() {
+        return MH_GAMEVAL_INDEX_VERSION.isPresent() && MH_BUILD_GAMEVAL_DB.isPresent();
+    }
+
+    /**
+     * Index 67's reference-table version, the value a build from this cache writes as
+     * {@code meta.index_version}. Cheap: decodes nothing. Enable the live fallback, if
+     * wanted, before the first call — the table is not re-read afterwards.
+     *
+     * @throws UnsupportedOperationException when {@link #supportsGamevalBuild()} is false
+     */
+    public GamevalIndexVersion gamevalIndexVersion() {
+        MethodHandle probe = MH_GAMEVAL_INDEX_VERSION.orElseThrow(
+                () -> new UnsupportedOperationException("NXTCache.dll has no nxt_gameval_index_version"));
+        try {
+            return guard.call(() -> gamevalIndexVersionLocked(probe));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    private GamevalIndexVersion gamevalIndexVersionLocked(MethodHandle probe) throws Throwable {
+        try (Arena tmp = Arena.ofConfined()) {
+            MemorySegment out = tmp.allocate(JAVA_INT);
+            int rc = (int) probe.invokeExact(handle, out);
+            return switch (rc) {
+                case NXT_OK -> new GamevalIndexVersion.Present(out.get(JAVA_INT, 0));
+                case NXT_ERR_NOT_FOUND -> new GamevalIndexVersion.Absent();
+                default -> new GamevalIndexVersion.Failed(rc, lastError());
+            };
+        }
+    }
+
+    /**
+     * Bakes this cache's gameval index into {@code out}, which the library writes as
+     * {@code <out>.partial} and renames over {@code out} once complete. Takes seconds.
+     * On Windows the rename fails while anything holds {@code out} open, so callers should
+     * build to a path nobody reads.
+     *
+     * @throws NXTCacheException naming the library's result code and reason on any failure;
+     *                           a failed build leaves {@code out} as it was
+     * @throws UnsupportedOperationException when {@link #supportsGamevalBuild()} is false
+     */
+    public void buildGamevalDb(Path out) {
+        Objects.requireNonNull(out, "out");
+        MethodHandle build = MH_BUILD_GAMEVAL_DB.orElseThrow(
+                () -> new UnsupportedOperationException("NXTCache.dll has no nxt_build_gameval_db"));
+        String failure;
+        try {
+            failure = guard.call(() -> buildGamevalDbLocked(build, out));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+        if (failure != null) {
+            throw new NXTCacheException(failure);
+        }
+    }
+
+    private String buildGamevalDbLocked(MethodHandle build, Path out) throws Throwable {
+        try (Arena tmp = Arena.ofConfined()) {
+            MemorySegment path = tmp.allocateFrom(out.toString());
+            int rc = (int) build.invokeExact(handle, path, MemorySegment.NULL);
+            return rc == NXT_OK ? null : "nxt_build_gameval_db rc=" + rc + ": " + lastError();
         }
     }
 

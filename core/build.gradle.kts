@@ -50,8 +50,34 @@ tasks.named<Test>("test") {
     filter {
         excludeTestsMatching(LAUNCHER_DRIFT_TEST)
         excludeTestsMatching(LAUNCHER_SCOPE_LIVE_TEST)
+        excludeTestsMatching(GAMEVAL_LOCAL_BUILD_LIVE_TEST)
         excludeTestsMatching(PRODUCER_HEADER_DRIFT_TEST)
     }
+}
+
+// A real NXTCache.dll against the player's real game cache (read-only), building
+// into a temp directory. Needs a DLL with nxt_build_gameval_db:
+//   ./gradlew :core:gamevalLocalBuildLiveTest -Dnxtcache.dll=<path> [-Dbotwithus.gameval.cache=<dir>]
+val GAMEVAL_LOCAL_BUILD_LIVE_TEST = "com.botwithus.bot.core.gameval.LocalGamevalBuildLiveTest"
+tasks.register<Test>("gamevalLocalBuildLiveTest") {
+    description = "Build gameval.sqlite from the local game cache with a real NXTCache.dll"
+    group = "verification"
+    useJUnitPlatform()
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    systemProperty("botwithus.gameval.build.live", "true")
+    listOf("nxtcache.dll", "botwithus.gameval.cache").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out")
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching(GAMEVAL_LOCAL_BUILD_LIVE_TEST)
+    }
+    // The verdict depends on the game cache on disk, which Gradle cannot see.
+    outputs.upToDateWhen { false }
 }
 
 tasks.register<JavaExec>("benchmark") {

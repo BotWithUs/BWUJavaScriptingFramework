@@ -103,7 +103,7 @@ import com.botwithus.bot.api.script.ManagementContext;
 import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.api.gameval.GamevalIndex;
-import com.botwithus.bot.core.gameval.SqliteGamevalIndex;
+import com.botwithus.bot.core.gameval.HostGamevals;
 
 import java.awt.image.BufferedImage;
 import java.io.PrintStream;
@@ -316,10 +316,14 @@ public class CliContext {
      * (or it fails to open) this is {@link GamevalIndex#empty()}, whose lookups
      * all come back empty, so scripts degrade instead of crashing. No separate
      * "attempted" flag is needed — the empty index is itself a valid result.
+     *
+     * <p>The first connection's pid picks the game cache the index is checked
+     * against ({@link HostGamevals}): a stale index is rebuilt from that cache in
+     * the background and swapped in, with the shipped one served meanwhile.</p>
      */
-    private synchronized GamevalIndex getOrInitGamevals() {
+    private synchronized GamevalIndex getOrInitGamevals(long clientPid) {
         if (gamevals == null) {
-            gamevals = SqliteGamevalIndex.openDefaultOrEmpty();
+            gamevals = HostGamevals.openForHost(clientPid);
         }
         return gamevals;
     }
@@ -818,7 +822,7 @@ public class CliContext {
                 () -> new GameSnapshotImpl(pump.region().snapshot()),
                 new StubGuard(),
                 eventBus::publish,
-                getOrInitGamevals());
+                getOrInitGamevals(pid));
         CharacterNameSource characterName =
                 new CharacterNameSource(statusTracker::requestRefresh, clock::instant);
         ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, new MessageBusImpl())
