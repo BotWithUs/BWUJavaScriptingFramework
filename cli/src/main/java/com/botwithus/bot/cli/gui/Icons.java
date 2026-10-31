@@ -41,6 +41,7 @@ public final class Icons {
     public static final String XMARK       = "\uF00D";  // fa-xmark
     public static final String CHECK       = "\uF00C";  // fa-check
     public static final String REDO        = "\uF01E";  // fa-arrow-rotate-right
+    public static final String THUMBTACK   = "\uF08D";  // fa-thumbtack
 
     // Status
     public static final String CIRCLE      = "\uF111";  // fa-circle (solid)
@@ -138,6 +139,7 @@ public final class Icons {
     public static final String PAW         = "\uF1B0";  // fa-paw
     public static final String DUNGEON     = "\uF6D9";  // fa-dungeon
     public static final String GAMEPAD     = "\uF11B";  // fa-gamepad
+    public static final String KEYBOARD    = "\uF11C";  // fa-keyboard
     public static final String TH_LARGE   = "\uF009";  // fa-table-cells-large (grid)
     public static final String COINS       = "\uF51E";  // fa-coins
     public static final String MAP         = "\uF279";  // fa-map

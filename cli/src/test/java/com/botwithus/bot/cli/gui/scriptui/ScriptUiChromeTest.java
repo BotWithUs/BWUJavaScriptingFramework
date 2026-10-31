@@ -231,6 +231,41 @@ class ScriptUiChromeTest {
                 () -> assertSame(ScriptUiHandle.DOCKED, new ScriptUiSlot(OWNER, "s", () -> { }, RUN).host()));
     }
 
+    @Test
+    void pinningFromRender_runsTheHandlesPinCallback() {
+        AtomicReference<Boolean> pinned = new AtomicReference<>();
+        AtomicReference<ScriptUiHost> attached = new AtomicReference<>();
+        ScriptUI ui = new ScriptUI() {
+            @Override
+            public void render() {
+                attached.get().setPinnedOverlay(!attached.get().pinnedOverlay());
+            }
+
+            @Override
+            public void attach(ScriptUiHost handle) {
+                attached.set(handle);
+            }
+        };
+
+        draw(slot(ui, new ScriptUiHandle(() -> { }, true, pinned::set, true, true, "Alt+Q")));
+
+        assertAll(
+                () -> assertEquals(Boolean.FALSE, pinned.get()),
+                () -> assertTrue(attached.get().overlayInteractive()),
+                () -> assertEquals("Alt+Q", attached.get().overlayInteractKeys()));
+    }
+
+    @Test
+    void aHandleThatCannotPin_neverReadsAsPinned_andPinningItDoesNothing() {
+        ScriptUiHost handle = new ScriptUiHandle(() -> { }, true);
+
+        assertDoesNotThrow(() -> handle.setPinnedOverlay(true));
+        assertAll(
+                () -> assertFalse(handle.pinnedOverlay()),
+                () -> assertFalse(handle.overlayInteractive()),
+                () -> assertFalse(ScriptUiHandle.DOCKED.pinnedOverlay()));
+    }
+
     private boolean askChrome(String owner, ScriptUI ui) {
         boolean[] answer = new boolean[1];
         host.frame(() -> answer[0] = scriptUis.drawsOwnChrome(new ScriptUiSlot(owner, "script", ui, RUN)));

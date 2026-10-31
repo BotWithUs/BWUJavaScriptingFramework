@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.nav.PageId;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
+import com.botwithus.bot.cli.settings.HostSettings;
 
 import imgui.ImDrawList;
 import imgui.ImGui;
@@ -48,12 +49,27 @@ public final class InspectorDock {
      *                  each in a sandbox a broken UI cannot take the host down from
      */
     public InspectorDock(Controls ui, InspectorState state, InspectorSource source, ScriptUiRenderer scriptUis) {
+        this(ui, state, source, scriptUis, new InteractKeysStore.Session());
+    }
+
+    /**
+     * @param scriptUis draws the scripts' own UIs, in the drawer and popped out,
+     *                  each in a sandbox a broken UI cannot take the host down from
+     * @param settings  keeps the keys held to use a pinned overlay across restarts
+     */
+    public InspectorDock(Controls ui, InspectorState state, InspectorSource source, ScriptUiRenderer scriptUis,
+                         HostSettings settings) {
+        this(ui, state, source, scriptUis, new InteractKeysStore.Saved(settings));
+    }
+
+    private InspectorDock(Controls ui, InspectorState state, InspectorSource source, ScriptUiRenderer scriptUis,
+                          InteractKeysStore interactKeys) {
         this.ui = ui;
         this.state = state;
         this.source = source;
         this.scriptUis = scriptUis;
-        this.inspector = new ConfigInspector(ui, state, scriptUis);
-        this.windows = new ScriptUiWindows(ui, state, source, scriptUis);
+        this.inspector = new ConfigInspector(ui, state, scriptUis, interactKeys);
+        this.windows = new ScriptUiWindows(ui, state, source, scriptUis, interactKeys);
     }
 
     public InspectorState state() {

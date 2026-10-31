@@ -9,6 +9,7 @@ import com.botwithus.bot.cli.gui.scriptui.BorderResize;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiHandle;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiSlot;
+import com.botwithus.bot.core.shm.SharedRegion;
 
 import imgui.ImGui;
 import imgui.ImGuiViewport;
@@ -20,6 +21,8 @@ import imgui.flag.ImGuiWindowFlags;
 import imgui.type.ImBoolean;
 
 import org.lwjgl.glfw.GLFW;
+
+import java.util.OptionalLong;
 
 /**
  * The scripts' own UIs that are popped out of the drawer, each in an OS window
@@ -40,6 +43,10 @@ import org.lwjgl.glfw.GLFW;
  * like the frameless main window's.
  * A UI that is stopped, or threw last frame, gets the framed window back, so
  * it can still be closed.</p>
+ *
+ * <p>A script can pin its pop-out as an overlay through its {@code ScriptUiHost}:
+ * {@link PinnedOverlays} then keeps it on top, see-through and letting the mouse
+ * through, until its interact keys are held over it.</p>
  */
 final class ScriptUiWindows {
 
@@ -52,6 +59,8 @@ final class ScriptUiWindows {
     private static final float HEIGHT_EM = 40.6f;
     /** Pivot for centring the first-use window on the host window. */
     private static final float CENTRE = 0.5f;
+    /** How far in from the game's top and right edges a window pinned to it first sits, in body-font ems. */
+    private static final float GAME_MARGIN_EM = 0.75f;
     /**
      * The smallest a frameless window can be resized to, in body-font ems:
      * enough to keep a script's own title bar and close button in reach.
@@ -72,6 +81,8 @@ final class ScriptUiWindows {
     private final InspectorState state;
     private final InspectorSource source;
     private final ScriptUiRenderer scriptUis;
+    /** The keys held over a pinned pop-out to make it take the mouse. */
+    private final InteractKeysStore interactKeys;
     /** The X button's flag, reset before each window; ImGui clears it when the X is clicked. */
     private final ImBoolean isOpen = new ImBoolean();
     /**
@@ -87,6 +98,8 @@ final class ScriptUiWindows {
     private final BackgroundDrag drag = new BackgroundDrag();
     /** Resizes a frameless pop-out from its edges. */
     private final BorderResize resize = new BorderResize();
+    /** Keeps pinned pop-outs on top, see-through and out of the mouse's way. */
+    private final PinnedOverlays overlays = new PinnedOverlays();
     /** Set this frame when a frameless pop-out's OS window is still to be created. */
     private boolean isTransparentWindowDue;
     /**
@@ -96,20 +109,24 @@ final class ScriptUiWindows {
      */
     private boolean isTransparentRequested;
 
-    ScriptUiWindows(Controls ui, InspectorState state, InspectorSource source, ScriptUiRenderer scriptUis) {
+    ScriptUiWindows(Controls ui, InspectorState state, InspectorSource source, ScriptUiRenderer scriptUis,
+                    InteractKeysStore interactKeys) {
         this.ui = ui;
         this.state = state;
         this.source = source;
         this.scriptUis = scriptUis;
+        this.interactKeys = interactKeys;
         ownViewport.setViewportFlagsOverrideSet(ImGuiViewportFlags.NoAutoMerge);
     }
 
     /** Draws every popped-out script UI in its own window, in the order they were popped out. */
     void render() {
         isTransparentWindowDue = false;
+        overlays.beginFrame();
         for (InspectorTarget target : state.poppedOut(source)) {
             renderWindow(target);
         }
+        overlays.endFrame();
         if (isTransparentWindowDue != isTransparentRequested) {
             requestTransparentWindows(isTransparentWindowDue);
             isTransparentRequested = isTransparentWindowDue;
@@ -118,30 +135,86 @@ final class ScriptUiWindows {
 
     /** One pop-out: its own OS window, which brings the UI back into the drawer when it is closed. */
     private void renderWindow(InspectorTarget target) {
-        ScriptUiSlot slot = target.scriptUiSlot(new ScriptUiHandle(() -> state.bringBack(target.subject()), true));
+        InspectorSubject subject = target.subject();
+        String title = titleOf(target);
+        boolean isPinned = state.isPinned(subject);
+        if (isPinned && !isShown(subject, title)) {
+            return;
+        }
+        InteractKeys keys = interactKeys.get();
+        Pin pin = new Pin(isPinned, isPinned && overlays.isInteractive(title, keys));
+        ScriptUiSlot slot = target.scriptUiSlot(new ScriptUiHandle(() -> state.bringBack(subject), true,
+                pinned -> state.setPinned(subject, pinned), pin.isPinned(), pin.isInteractive(), keys.label()));
         boolean isFrameless = scriptUis.drawsOwnChrome(slot);
         float fontSize = ui.m().fontSize();
         ImGuiViewport host = ImGui.getMainViewport();
         ImGui.setNextWindowPos(host.getPosX() + host.getSizeX() * CENTRE, host.getPosY() + host.getSizeY() * CENTRE,
                 ImGuiCond.FirstUseEver, CENTRE, CENTRE);
         ImGui.setNextWindowSize(fontSize * WIDTH_EM, fontSize * HEIGHT_EM, ImGuiCond.FirstUseEver);
-        ImGui.setNextWindowClass(ownViewport);
+        if (pin.isPinned()) {
+            overlays.place(title, pin.isInteractive(), fontSize * WIDTH_EM, fontSize * HEIGHT_EM,
+                    fontSize * GAME_MARGIN_EM);
+        }
+        ImGui.setNextWindowClass(pin.isPinned() ? overlays.windowClass(title, pin.isInteractive()) : ownViewport);
         if (isFrameless) {
-            renderFrameless(target, slot);
+            renderFrameless(title, slot, pin);
         } else {
-            renderFramed(target, slot);
+            renderFramed(title, subject, slot, pin);
+        }
+    }
+
+    /**
+     * Whether a pinned pop-out is drawn this frame: not while the game it is
+     * pinned to is minimised. One whose game has exited is unpinned
+     * instead, and drawn as an ordinary pop-out from the next frame.
+     */
+    private boolean isShown(InspectorSubject subject, String title) {
+        OptionalLong game = state.pinMode(subject) == PinMode.GAME ? gameProcessOf(subject) : OptionalLong.empty();
+        return switch (overlays.visibility(title, game)) {
+            case SHOWN -> true;
+            case HIDDEN -> false;
+            case GAME_GONE -> {
+                state.setPinned(subject, false);
+                yield false;
+            }
+        };
+    }
+
+    /**
+     * The process id of the game client a script runs on: its connection is
+     * named after the agent's pipe, {@code BotWithUs_<pid>}. Empty for a
+     * management script, which has no game of its own.
+     */
+    private static OptionalLong gameProcessOf(InspectorSubject subject) {
+        return switch (subject) {
+            case ClientScript script -> SharedRegion.parsePid(script.clientId());
+            case ManagementScript ignored -> OptionalLong.empty();
+        };
+    }
+
+    /**
+     * Whether a pop-out is pinned as an overlay this frame, and whether its
+     * interact keys are held over it, which makes a pinned one take the mouse.
+     */
+    private record Pin(boolean isPinned, boolean isInteractive) {
+
+        /** A pinned window letting the mouse through takes none of it in Dear ImGui either. */
+        int windowFlags() {
+            return isPinned && !isInteractive ? ImGuiWindowFlags.NoInputs : ImGuiWindowFlags.None;
         }
     }
 
     /** The host's window around the UI: title bar, X, padding and background. */
-    private void renderFramed(InspectorTarget target, ScriptUiSlot slot) {
+    private void renderFramed(String title, InspectorSubject subject, ScriptUiSlot slot, Pin pin) {
         isOpen.set(true);
-        if (ImGui.begin(titleOf(target), isOpen, ImGuiWindowFlags.NoCollapse)) {
+        boolean isVisible = ImGui.begin(title, isOpen, ImGuiWindowFlags.NoCollapse | pin.windowFlags());
+        overlays.afterBegin(title, pin.isPinned(), pin.isInteractive());
+        if (isVisible) {
             scriptUis.draw(slot);
         }
         ImGui.end();
         if (!isOpen.get()) {
-            state.bringBack(target.subject());
+            state.bringBack(subject);
         }
     }
 
@@ -150,17 +223,17 @@ final class ScriptUiWindows {
      * {@code begin}, so the popups and child windows the script opens keep the
      * host's look.
      */
-    private void renderFrameless(InspectorTarget target, ScriptUiSlot slot) {
-        String title = titleOf(target);
+    private void renderFrameless(String title, ScriptUiSlot slot, Pin pin) {
         float fontSize = ui.m().fontSize();
         drag.beforeBegin(title);
         resize.beforeBegin(title, Math.round(fontSize * MIN_WIDTH_EM), Math.round(fontSize * MIN_HEIGHT_EM));
         pushFramelessStyle();
-        boolean isVisible = ImGui.begin(title, FRAMELESS_FLAGS);
+        boolean isVisible = ImGui.begin(title, FRAMELESS_FLAGS | pin.windowFlags());
         ImGui.popStyleVar(FRAMELESS_VARS);
         if (!ImGui.getWindowViewport().getPlatformWindowCreated()) {
             isTransparentWindowDue = true;
         }
+        overlays.afterBegin(title, pin.isPinned(), pin.isInteractive());
         if (isVisible) {
             boolean isPointerTaken = resize.takesPointer(title, FramelessChrome.resizeBorder(ui.m()));
             drag.afterDraw(title, scriptUis.draw(slot, isPointerTaken));

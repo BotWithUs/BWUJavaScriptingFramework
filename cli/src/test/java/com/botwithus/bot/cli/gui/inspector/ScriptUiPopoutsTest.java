@@ -124,4 +124,71 @@ class ScriptUiPopoutsTest {
 
         assertFalse(popouts.isPoppedOut(ON_OAKHEART));
     }
+
+    @Test
+    void pinningADockedUi_popsItOut() {
+        popouts.setPinned(ON_OAKHEART, true);
+
+        assertAll(
+                () -> assertTrue(popouts.isPoppedOut(ON_OAKHEART)),
+                () -> assertTrue(popouts.isPinned(ON_OAKHEART)),
+                () -> assertFalse(popouts.isPinned(ON_FERNMOSS)));
+    }
+
+    @Test
+    void unpinning_leavesTheWindowPoppedOut() {
+        popouts.setPinned(ON_OAKHEART, true);
+
+        popouts.setPinned(ON_OAKHEART, false);
+
+        assertAll(
+                () -> assertTrue(popouts.isPoppedOut(ON_OAKHEART)),
+                () -> assertFalse(popouts.isPinned(ON_OAKHEART)));
+    }
+
+    @Test
+    void bringingBack_unpins() {
+        popouts.setPinned(ON_OAKHEART, true);
+
+        popouts.bringBack(ON_OAKHEART);
+        popouts.popOut(ON_OAKHEART);
+
+        assertFalse(popouts.isPinned(ON_OAKHEART));
+    }
+
+    @Test
+    void aPinnedWindowWhoseRunnerIsGone_reopensPinned() {
+        popouts.setPinned(ON_OAKHEART, true);
+        isGone.set(true);
+        popouts.resolve(this::withUi);
+
+        isGone.set(false);
+        popouts.reopenIfRemembered(ON_OAKHEART);
+
+        assertAll(
+                () -> assertEquals(1, popouts.resolve(this::withUi).size()),
+                () -> assertTrue(popouts.isPinned(ON_OAKHEART)));
+    }
+
+    @Test
+    void aWindowIsPinnedToItsGame_unlessTheUserChoseAboveAll_whichTheNextPinRemembers() {
+        PinMode first = popouts.pinMode(ON_OAKHEART);
+
+        popouts.pin(ON_OAKHEART, PinMode.ABOVE_ALL);
+        popouts.setPinned(ON_OAKHEART, false);
+        popouts.setPinned(ON_OAKHEART, true);
+
+        assertAll(
+                () -> assertEquals(PinMode.GAME, first),
+                () -> assertTrue(popouts.isPinned(ON_OAKHEART)),
+                () -> assertEquals(PinMode.ABOVE_ALL, popouts.pinMode(ON_OAKHEART)),
+                () -> assertEquals(PinMode.GAME, popouts.pinMode(ON_FERNMOSS)));
+    }
+
+    @Test
+    void aManagementScriptIsPinnedOnce_whicheverTargetItsFormIsOn() {
+        popouts.setPinned(FLEET.withSettingsFor(Optional.of(HOST)), true);
+
+        assertTrue(popouts.isPinned(FLEET));
+    }
 }
