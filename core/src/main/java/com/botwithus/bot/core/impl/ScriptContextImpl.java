@@ -7,6 +7,7 @@ import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
+import com.botwithus.bot.api.voice.VoiceInput;
 
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
@@ -39,12 +40,14 @@ public class ScriptContextImpl implements ScriptContext {
     private final Runnable stopCallback;
     /** Backs {@link #getDisplayName()}; empty until the host binds it. Never blocks on the pipe. */
     private final Supplier<Optional<String>> displayName;
+    /** Backs {@link #getVoiceInput()}; {@link VoiceInput#UNAVAILABLE} until the host binds it. */
+    private final VoiceInput voiceInput;
 
     public ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, MessageBus messageBus,
                              SharedState sharedState, ScriptContextPublisher scriptContext) {
         this(gameAPI, eventBus, eventBus, messageBus, sharedState,
                 new Walker(gameAPI, eventBus), scriptContext, () -> false, NO_STOP_CALLBACK,
-                NO_DISPLAY_NAME);
+                NO_DISPLAY_NAME, VoiceInput.UNAVAILABLE);
     }
 
     public ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, MessageBus messageBus, SharedState sharedState) {
@@ -58,7 +61,8 @@ public class ScriptContextImpl implements ScriptContext {
     private ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, EventBus scriptEventBus,
                               MessageBus messageBus, SharedState sharedState, Navigation navigation,
                               ScriptContextPublisher scriptContext, BooleanSupplier stopRequested,
-                              Runnable stopCallback, Supplier<Optional<String>> displayName) {
+                              Runnable stopCallback, Supplier<Optional<String>> displayName,
+                              VoiceInput voiceInput) {
         this.gameAPI = gameAPI;
         this.eventBus = eventBus;
         this.scriptEventBus = scriptEventBus;
@@ -69,6 +73,7 @@ public class ScriptContextImpl implements ScriptContext {
         this.stopRequested = stopRequested != null ? stopRequested : () -> false;
         this.stopCallback = stopCallback != null ? stopCallback : NO_STOP_CALLBACK;
         this.displayName = displayName != null ? displayName : NO_DISPLAY_NAME;
+        this.voiceInput = voiceInput != null ? voiceInput : VoiceInput.UNAVAILABLE;
     }
 
     /**
@@ -80,7 +85,7 @@ public class ScriptContextImpl implements ScriptContext {
     public ScriptContextImpl withScriptContext(ScriptContextPublisher publisher) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
                 navigation, publisher != null ? publisher : ScriptContextPublisher.NOOP,
-                stopRequested, stopCallback, displayName);
+                stopRequested, stopCallback, displayName, voiceInput);
     }
 
     /**
@@ -91,7 +96,7 @@ public class ScriptContextImpl implements ScriptContext {
      */
     public ScriptContextImpl withEventBus(EventBus bus) {
         return new ScriptContextImpl(gameAPI, eventBus, bus != null ? bus : eventBus, messageBus,
-                sharedState, navigation, scriptContext, stopRequested, stopCallback, displayName);
+                sharedState, navigation, scriptContext, stopRequested, stopCallback, displayName, voiceInput);
     }
 
     /**
@@ -114,7 +119,7 @@ public class ScriptContextImpl implements ScriptContext {
                 ? bus
                 : new IdentifiedMessageBus(bus, name);
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, identified, sharedState,
-                navigation, scriptContext, stopRequested, stopCallback, displayName);
+                navigation, scriptContext, stopRequested, stopCallback, displayName, voiceInput);
     }
 
     /**
@@ -125,7 +130,7 @@ public class ScriptContextImpl implements ScriptContext {
     public ScriptContextImpl withStopSignal(BooleanSupplier signal) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
                 navigation, scriptContext, signal != null ? signal : () -> false, stopCallback,
-                displayName);
+                displayName, voiceInput);
     }
 
     /**
@@ -137,7 +142,7 @@ public class ScriptContextImpl implements ScriptContext {
     public ScriptContextImpl withStopCallback(Runnable callback) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
                 navigation, scriptContext, stopRequested,
-                callback != null ? callback : NO_STOP_CALLBACK, displayName);
+                callback != null ? callback : NO_STOP_CALLBACK, displayName, voiceInput);
     }
 
     /**
@@ -150,7 +155,18 @@ public class ScriptContextImpl implements ScriptContext {
     public ScriptContextImpl withDisplayName(Supplier<Optional<String>> source) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
                 navigation, scriptContext, stopRequested, stopCallback,
-                source != null ? source : NO_DISPLAY_NAME);
+                source != null ? source : NO_DISPLAY_NAME, voiceInput);
+    }
+
+    /**
+     * Returns a copy of this context whose {@link #getVoiceInput()} is {@code voice}. Bound by
+     * the host to its one shared voice input, and by the runtime to a per-script
+     * {@code ScopedVoiceInput} over it, so a script's sessions are closed when it stops. A
+     * {@code null} one reports no voice input.
+     */
+    public ScriptContextImpl withVoiceInput(VoiceInput voice) {
+        return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
+                navigation, scriptContext, stopRequested, stopCallback, displayName, voice);
     }
 
     @Override
@@ -179,4 +195,7 @@ public class ScriptContextImpl implements ScriptContext {
 
     @Override
     public Optional<String> getDisplayName() { return displayName.get(); }
+
+    @Override
+    public VoiceInput getVoiceInput() { return voiceInput; }
 }

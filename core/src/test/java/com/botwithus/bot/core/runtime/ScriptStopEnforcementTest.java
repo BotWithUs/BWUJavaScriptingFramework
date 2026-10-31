@@ -6,6 +6,9 @@ import com.botwithus.bot.api.Navigation;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.runtime.Liveness;
+import com.botwithus.bot.api.voice.Heard;
+import com.botwithus.bot.api.voice.VoiceInput;
+import com.botwithus.bot.api.voice.VoiceSession;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
@@ -22,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -432,6 +436,41 @@ class ScriptStopEnforcementTest {
         int afterStop = handled.get();
         shared.publish(ISC_CHANNEL, "someone-else", "after-stop");
         assertEquals(afterStop, handled.get(), "a stopped script's handler must not fire");
+    }
+
+    @Test
+    @DisplayName("a stopped script's voice sessions are closed")
+    void stoppedScriptHasItsVoiceSessionsClosed() throws Exception {
+        // The wiring test for the voice scope, as the ISC test above is for the
+        // message bus: ScopedVoiceInputTest drives the class, only this proves the
+        // runtime installs it and the runner releases it on stop.
+        AtomicInteger closed = new AtomicInteger();
+        VoiceInput host = new VoiceInput() {
+            @Override public boolean available() { return true; }
+            @Override public VoiceSession listen(List<String> phrases, Consumer<Heard> onHeard) {
+                return closed::incrementAndGet;
+            }
+        };
+        ScriptRuntime runtime = new ScriptRuntime(new ScriptContextImpl(
+                mock(GameAPI.class), new EventBusImpl(), new MessageBusImpl()).withVoiceInput(host));
+        CountDownLatch listening = new CountDownLatch(1);
+
+        ScriptRunner runner = runtime.registerScript(new BotScript() {
+            @Override public void onStart(ScriptContext context) {
+                context.getVoiceInput().listen(List.of("stop"), heard -> { });
+                listening.countDown();
+            }
+            @Override public int onLoop() { return 10; }
+            @Override public void onStop() {}
+        });
+        runner.start();
+        assertTrue(listening.await(5, TimeUnit.SECONDS), "onStart never ran");
+        assertEquals(0, closed.get(), "a running script's session must stay open");
+
+        runner.stop();
+        assertTrue(runner.awaitStop(5000));
+
+        assertEquals(1, closed.get(), "stopping the script must close the session it left open");
     }
 
     @Test

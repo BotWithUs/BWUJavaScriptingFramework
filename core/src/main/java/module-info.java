@@ -48,6 +48,7 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.sdn;
     exports com.botwithus.bot.core.secrets;
     exports com.botwithus.bot.core.shm;
+    exports com.botwithus.bot.core.voice;
     exports com.botwithus.bot.core.window;
     exports com.botwithus.bot.core.worldwalker;
 }

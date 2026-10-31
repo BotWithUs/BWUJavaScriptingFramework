@@ -104,6 +104,7 @@ import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.core.gameval.HostGamevals;
+import com.botwithus.bot.core.voice.VoiceInputService;
 
 import java.awt.image.BufferedImage;
 import java.io.PrintStream;
@@ -193,6 +194,12 @@ public class CliContext {
     private Alerts alerts;
     /** Host-level events; unlike a connection's bus it exists with no client connected. */
     private final HostEventBus hostEvents = new HostEventBus();
+    /**
+     * The one voice input every script on every connection shares (there is one microphone).
+     * Building it starts nothing; the engine thread and the microphone open on the first
+     * {@code listen}. Closed from the two shutdown paths by {@link #closeVoice()}.
+     */
+    private final VoiceInputService voice = VoiceInputService.windowsDefaultMicrophone();
     private final ConnectionHistory connectionHistory = new ConnectionHistory();
     private final Clock clock = Clock.systemUTC();
     /**
@@ -363,6 +370,14 @@ public class CliContext {
     /** The alert integrations, once {@link #startAlerts()} has run. */
     public synchronized Optional<Integrations> getIntegrations() {
         return Optional.ofNullable(alerts).map(Alerts::integrations);
+    }
+
+    /**
+     * Stops voice recognition and releases the speech engine. Called from the two shutdown
+     * paths, beside {@link #closeGamevals()}.
+     */
+    public void closeVoice() {
+        voice.close();
     }
 
     /** Stops the alerts. Called from the two shutdown paths, beside {@link #closeGamevals()}. */
@@ -826,7 +841,8 @@ public class CliContext {
         CharacterNameSource characterName =
                 new CharacterNameSource(statusTracker::requestRefresh, clock::instant);
         ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, new MessageBusImpl())
-                .withDisplayName(characterName);
+                .withDisplayName(characterName)
+                .withVoiceInput(voice);
 
         rpc.start();
 

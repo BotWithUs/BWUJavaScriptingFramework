@@ -23,4 +23,5 @@ module com.botwithus.bot.api {
     exports com.botwithus.bot.api.ui;
     exports com.botwithus.bot.api.runtime;
     exports com.botwithus.bot.api.debug;
+    exports com.botwithus.bot.api.voice;
 }

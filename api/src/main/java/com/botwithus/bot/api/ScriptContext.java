@@ -4,6 +4,7 @@ import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
+import com.botwithus.bot.api.voice.VoiceInput;
 
 import java.util.Optional;
 
@@ -147,5 +148,22 @@ public interface ScriptContext {
      */
     default Optional<String> getDisplayName() {
         return Optional.empty();
+    }
+
+    /**
+     * Offline speech recognition for voice commands, constrained to phrases the script lists.
+     *
+     * <p>The voice input is shared by the whole host (there is one microphone), so a
+     * {@code listen} from any script replaces the grammar another script had active. Sessions
+     * this script opens are closed for it when it stops. See {@link VoiceInput} for the
+     * callback thread and the matching rules.</p>
+     *
+     * <p>The default returns {@link VoiceInput#UNAVAILABLE}, for contexts the host has not
+     * wired to a recogniser (test mocks).</p>
+     *
+     * @return the voice input; never null
+     */
+    default VoiceInput getVoiceInput() {
+        return VoiceInput.UNAVAILABLE;
     }
 }
