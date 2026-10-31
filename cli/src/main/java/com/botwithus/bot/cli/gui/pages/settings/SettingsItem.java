@@ -56,6 +56,19 @@ public sealed interface SettingsItem {
         }
     }
 
+    /** The scripts with a remembered microphone decision, each with a Reset. */
+    record Microphone(List<MicrophoneRow> rows) implements SettingsItem {
+
+        public Microphone {
+            rows = List.copyOf(rows);
+        }
+
+        @Override
+        public String findText() {
+            return "microphone mic voice speech consent permission allow deny reset";
+        }
+    }
+
     /** A folder or file with an Open button. */
     record PlaceRow(SettingsPlace place, String label, String description, String path) implements SettingsItem {
 

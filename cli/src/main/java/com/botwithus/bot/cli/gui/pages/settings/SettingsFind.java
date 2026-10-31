@@ -55,6 +55,10 @@ public final class SettingsFind {
                 List<AccountRow> rows = accounts.rows().stream().filter(r -> r.findText().contains(q)).toList();
                 yield rows.isEmpty() ? Optional.empty() : Optional.of(new SettingsItem.Accounts(rows));
             }
+            case SettingsItem.Microphone microphone -> {
+                List<MicrophoneRow> rows = microphone.rows().stream().filter(r -> r.findText().contains(q)).toList();
+                yield rows.isEmpty() ? Optional.empty() : Optional.of(new SettingsItem.Microphone(rows));
+            }
             case SettingsItem.RawKeys keys -> {
                 List<RawKeyRow> rows = keys.rows().stream().filter(r -> r.findText().contains(q)).toList();
                 yield rows.isEmpty() ? Optional.empty() : Optional.of(new SettingsItem.RawKeys(rows));

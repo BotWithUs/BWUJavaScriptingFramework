@@ -17,7 +17,8 @@ public record SectionView(SettingsSection section, List<SettingsItem> items) {
                 case SettingsItem.Accounts accounts -> OptionalInt.of(accounts.rows().size());
                 case SettingsItem.KeyRow _, SettingsItem.WaitPreview _, SettingsItem.PlaceRow _,
                      SettingsItem.ActionRow _, SettingsItem.RawKeys _, SettingsItem.ServiceCard _,
-                     SettingsItem.EventGrid _, SettingsItem.QuietHours _, SettingsItem.Notice _ ->
+                     SettingsItem.EventGrid _, SettingsItem.QuietHours _, SettingsItem.Notice _,
+                     SettingsItem.Microphone _ ->
                         OptionalInt.empty();
             };
             if (rows.isPresent()) {

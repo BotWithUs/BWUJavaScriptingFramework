@@ -36,13 +36,22 @@ public final class SettingsSheet {
      * @param windowsPercent the monitor's display scaling, for the text-size choice
      * @param note           what the last button did
      * @param integrations   the alert services, once the alerts have started
+     * @param microphone     the scripts with a remembered microphone decision
      */
     public record Inputs(List<AccountRow> accounts, String dataFolder, String scriptsFolder, String configFile,
-                         int windowsPercent, Optional<ActionNote> note, Optional<Integrations> integrations) {
+                         int windowsPercent, Optional<ActionNote> note, Optional<Integrations> integrations,
+                         List<MicrophoneRow> microphone) {
 
         public Inputs {
             accounts = List.copyOf(accounts);
             Objects.requireNonNull(integrations, "integrations");
+            microphone = List.copyOf(microphone);
+        }
+
+        /** Inputs for a host with no microphone decisions to list. */
+        public Inputs(List<AccountRow> accounts, String dataFolder, String scriptsFolder, String configFile,
+                      int windowsPercent, Optional<ActionNote> note, Optional<Integrations> integrations) {
+            this(accounts, dataFolder, scriptsFolder, configFile, windowsPercent, note, integrations, List.of());
         }
 
         /** Inputs for a host whose alerts have not started. */
@@ -75,8 +84,11 @@ public final class SettingsSheet {
             case RECONNECTING -> items.add(new SettingsItem.WaitPreview(
                     ReconnectPreview.of(ReconnectPolicySettings.read(settings))));
             case ACCOUNTS -> items.add(new SettingsItem.Accounts(in.accounts()));
-            case SCRIPTS -> items.add(new SettingsItem.PlaceRow(SettingsPlace.SCRIPTS_FOLDER, "Scripts folder",
-                    "Where script JARs are loaded from.", in.scriptsFolder()));
+            case SCRIPTS -> {
+                items.add(new SettingsItem.PlaceRow(SettingsPlace.SCRIPTS_FOLDER, "Scripts folder",
+                        "Where script JARs are loaded from.", in.scriptsFolder()));
+                items.add(new SettingsItem.Microphone(in.microphone()));
+            }
             case DIAGNOSTICS -> items.add(new SettingsItem.ActionRow(SettingsAction.RESET_METRICS,
                     "Reset all metrics", "Clears RPC and loop numbers on every client."));
             case ALL_KEYS -> items.add(new SettingsItem.RawKeys(rawKeys(settings)));

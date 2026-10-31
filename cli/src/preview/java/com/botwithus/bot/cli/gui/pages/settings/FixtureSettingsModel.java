@@ -41,6 +41,9 @@ public final class FixtureSettingsModel implements SettingsModel {
             account("81c5e0b2", "Kestrel Moor", true, "Walk to Flag", "Location Probe"),
             account("5c20aa91", "Quillon", false),
             account("2d7b4e91", "Mirelock", false, "Woodcutting")));
+    private final List<MicrophoneRow> microphone = new ArrayList<>(List.of(
+            new MicrophoneRow("com.example.woodcutting/com.example.woodcutting.Woodcutter", "Woodcutting", true),
+            new MicrophoneRow("com.example.probe/com.example.probe.LocationProbe", "Location Probe", false)));
     private SaveStatus status = new SaveStatus.Saved(Instant.now());
     private Optional<ActionNote> note = Optional.empty();
 
@@ -57,7 +60,8 @@ public final class FixtureSettingsModel implements SettingsModel {
     @Override
     public SettingsView view() {
         SettingsSheet.Inputs inputs = new SettingsSheet.Inputs(accounts, "~/.botwithus/", "scripts/",
-                "~/.botwithus/config.properties", WINDOWS_PERCENT, note, Optional.of(integrations.live()));
+                "~/.botwithus/config.properties", WINDOWS_PERCENT, note, Optional.of(integrations.live()),
+                microphone);
         return SettingsSheet.build(settings, status, inputs);
     }
 
@@ -80,6 +84,11 @@ public final class FixtureSettingsModel implements SettingsModel {
     public void setAutoStart(String accountUuid, boolean isOn) {
         accounts.replaceAll(a -> a.uuid().equals(accountUuid) ? new AccountRow(a.uuid(), a.name(), a.scripts(), isOn)
                 : a);
+    }
+
+    @Override
+    public void resetMicrophone(String key) {
+        microphone.removeIf(row -> row.key().equals(key));
     }
 
     @Override

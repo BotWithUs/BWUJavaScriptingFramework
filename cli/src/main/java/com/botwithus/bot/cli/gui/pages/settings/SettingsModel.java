@@ -33,6 +33,12 @@ public interface SettingsModel {
     /** Clears the scripts saved for the account; the account itself stays listed. */
     void forgetScripts(String accountUuid);
 
+    /**
+     * Forgets the remembered microphone decision for the script with {@code key}: the script
+     * stops hearing at once if it was listening, and is asked again the next time it listens.
+     */
+    void resetMicrophone(String key);
+
     /** Opens a folder in Explorer, or the settings file in its editor. */
     void open(SettingsPlace place);
 

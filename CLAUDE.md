@@ -158,7 +158,7 @@ Pure interface module (sole runtime dependency: `slf4j-api`, exposed transitivel
 - **`script/`** — `ManagementScript` SPI (cross-client orchestration), `ScriptManager`, `ScriptScheduler`, `TaskScript`, `ClientOrchestrator`.
 - **`ui/ScriptUI`** — Hook for scripts to render their own ImGui tab.
 - **`config/`** — `ConfigField` + `ScriptConfig` for runtime-editable, persisted script parameters.
-- **`voice/`** — `VoiceInput` (reached through `ScriptContext.getVoiceInput()`): offline speech recognition constrained to a phrase list, for voice-controlled script UIs. One host-wide recogniser; a new `listen` replaces the previous grammar. Parsing phrases into actions is the script's job.
+- **`voice/`** — `VoiceInput` (reached through `ScriptContext.getVoiceInput()`): offline speech recognition constrained to a phrase list, for voice-controlled script UIs. One host-wide recogniser; a new `listen` replaces the previous grammar. Parsing phrases into actions is the script's job. **The user must allow each script first**: the first `listen` from a script with no remembered decision asks the user (a GUI prompt) and returns a session that hears nothing until they allow it. Deny, closing the prompt, or a host with no GUI leaves it silent, so a script must never assume its session is live.
 
 ### core (`com.botwithus.bot.core`)
 
@@ -177,7 +177,7 @@ Runtime, transports, RPC, script discovery, native bridges:
 - **`resolver/`** — Maven-coordinate script installer: discovers versions via `maven-metadata.xml`, fetches JAR + `.sha1`/`.sha256`/`.asc` sidecars, optional PGP verification, writes to `scripts/`, tracks installs in `~/.botwithus/installed-scripts.json`. Repository drivers are plugged in via `RepositoryDriver` ServiceLoader SPI.
 - **`crypto/`** — `SdnLoader` reflects into a JVM-injected `jdk.internal.sdn.SdnClassLoader` for signed scripts (see *Java rules exceptions* below).
 - **`cache/`** — Lazy NXT cache reader for cache-resident asset queries.
-- **`voice/`** — `VoiceInputService`, the host's `VoiceInput` over the speech engine Windows ships (SAPI 5.4, in-process recogniser), bound through FFM COM vtable calls (`Com`, with every slot, GUID and struct layout cited to `sapi.h` in `Sapi`). Off until the first `listen`; the engine and microphone are released when no session is open. `ScopedVoiceInput` closes a script's sessions when it stops. `SapiVoiceLiveTest` (harness) runs the native path against TTS-rendered WAVs; `:core:voiceDemo` listens on the real microphone.
+- **`voice/`** — `VoiceInputService`, the host's `VoiceInput` over the speech engine Windows ships (SAPI 5.4, in-process recogniser), bound through FFM COM vtable calls (`Com`, with every slot, GUID and struct layout cited to `sapi.h` in `Sapi`). Off until the first `listen`; the engine and microphone are released when no session is open. `ScopedVoiceInput` closes a script's sessions when it stops, and is also the consent gate. See *Microphone consent* below. `SapiVoiceLiveTest` (harness) runs the native path against TTS-rendered WAVs; `:core:voiceDemo` listens on the real microphone.
 
 ### cli (`com.botwithus.bot.cli`)
 
@@ -345,6 +345,17 @@ Things to keep straight:
 This is separate from `skilling-core`'s `Atlas` (`resolved.sqlite`), which still
 owns recipes, gather spots and closures and has its own gameval methods against
 that heavier file.
+
+## Microphone consent
+
+No script reaches the microphone until the user has allowed **that script**. This is enforced in core, not in the GUI:
+
+- **The gate is `ScopedVoiceInput`**, built per script run by a `VoiceGate` (`core/runtime`). `ScriptRuntime` defaults to `VoiceConsent.refusingAll()`, so a host that installs no gate (the headless `JBotApplication`, a test) refuses every script. `CliContext` installs its one shared `VoiceConsent` on every connection's runtime.
+- **`listen` never blocks.** With no decision, the script gets a silent session and a question joins `VoiceConsent`'s queue. Questions are shown one at a time, and runs of the same script on several clients share one. Allow starts the latest session the script still holds open; Deny and dismissal leave it silent. A dismissal (Esc), and a host with no prompt attached, refuse **for this run only** and are not remembered. `available()` never asks.
+- **Decisions live in `~/.botwithus/voice-consent.properties`** (`VoiceConsentFile`, written through `AtomicFiles`), keyed by `ScriptIdentity`: `<module>/<class>`. Anything unreadable, a missing or unknown `format`, or a value other than exactly `allow`/`deny` reads as *no decision*, never as consent. Settings, under Scripts, lists them; Reset forgets one and silences a listening run at once. A console-only host has no way to grant one; allow it once from the GUI.
+- **The identity is declared by the script's own JAR**, so a JAR that declares another script's module and class inherits its decision. The gate is consent for well-behaved scripts, not a sandbox. Installing a JAR is the trust boundary, as it is for everything else a script does.
+- **`core.voice` is exported only to `com.botwithus.bot.cli`**, so a script cannot `requires` core and build its own `VoiceInputService`. Hence the `@SuppressWarnings("module")` on core's module declaration and `@SuppressWarnings("exports")` on `CliContext.getVoiceConsent()`; do not widen the export to quiet them. The seam types the runtime exposes (`ScriptIdentity`, `VoiceGate`, `ScriptVoice`) live in `core.runtime` for the same reason.
+- **The prompt** (`cli/gui/MicrophoneConsentModal`, rules in `MicrophonePrompt`) lists the phrases (the first 8, then a count of the rest) and puts Deny first and in keyboard focus. No key presses Allow. Buttons take a press only after the question has been on screen for `ARM_SECONDS`, so a click meant for the previous question cannot answer the next.
 
 ## Key Patterns
 

@@ -49,6 +49,7 @@ public final class Icons {
     public static final String WARNING     = "\uF071";  // fa-triangle-exclamation
     public static final String INFO        = "\uF05A";  // fa-circle-info
     public static final String SHIELD      = "\uF132";  // fa-shield-halved
+    public static final String MICROPHONE  = "\uF130";  // fa-microphone
     public static final String EYE         = "\uF06E";  // fa-eye
     public static final String SIGNAL      = "\uF012";  // fa-signal
     public static final String SPINNER     = "\uF110";  // fa-spinner

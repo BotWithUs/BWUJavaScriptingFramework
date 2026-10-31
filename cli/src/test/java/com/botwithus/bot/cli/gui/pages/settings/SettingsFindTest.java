@@ -52,6 +52,7 @@ class SettingsFindTest {
             case SettingsItem.KeyRow row -> Stream.of(row.name());
             case SettingsItem.RawKeys keys -> keys.rows().stream().map(RawKeyRow::name);
             case SettingsItem.Accounts accounts -> accounts.rows().stream().map(AccountRow::title);
+            case SettingsItem.Microphone microphone -> microphone.rows().stream().map(MicrophoneRow::name);
             case SettingsItem.WaitPreview _ -> Stream.of("preview");
             case SettingsItem.PlaceRow place -> Stream.of(place.label());
             case SettingsItem.ActionRow action -> Stream.of(action.label());

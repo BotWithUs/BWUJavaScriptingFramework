@@ -85,6 +85,7 @@ final class SettingsRows {
             case SettingsItem.KeyRow row -> keyRow(row, x, y, width, model);
             case SettingsItem.WaitPreview preview -> preview(preview.preview(), x, y, width);
             case SettingsItem.Accounts accounts -> tables.accounts(accounts.rows(), x, y, width, model);
+            case SettingsItem.Microphone microphone -> tables.microphone(microphone.rows(), x, y, width, model);
             case SettingsItem.PlaceRow place -> placeRow(place, x, y, width, model);
             case SettingsItem.ActionRow action -> actionRow(action, x, y, width, model);
             case SettingsItem.RawKeys keys -> tables.rawKeys(keys.rows(), x, y, width, model);
