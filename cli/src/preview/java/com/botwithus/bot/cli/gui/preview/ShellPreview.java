@@ -69,6 +69,7 @@ import com.botwithus.bot.cli.gui.preview.FixtureFleet.RestartStep;
 import com.botwithus.bot.cli.gui.usermode.PreviewSeams;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.SubscriptionGroup;
+import com.botwithus.bot.cli.gui.window.LwjglMemoryBackend;
 import com.botwithus.bot.cli.gui.window.WindowRect;
 import com.botwithus.bot.cli.management.Target;
 import com.botwithus.bot.cli.settings.HostSettings;
@@ -237,6 +238,8 @@ public final class ShellPreview extends Application {
     }
 
     public static void main(String[] args) throws IOException {
+        // First, before anything initialises LWJGL's MemoryUtil: see LwjglMemoryBackend.
+        LwjglMemoryBackend.selectFfm();
         Path out = Path.of(args.length > 0 ? args[0] : "build/preview");
         boolean isCheck = List.of(args).contains(CHECK_FLAG);
         Files.createDirectories(out);

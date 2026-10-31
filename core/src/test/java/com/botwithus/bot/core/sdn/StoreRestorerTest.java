@@ -440,7 +440,7 @@ class StoreRestorerTest {
     /** S2: an id whose script stalled is set aside with its own message, and the others are still restored. */
     @Test
     void aStalledId_isSetAsideWithItsReason_andTheOthersAreRestored() throws IOException {
-        String stalled = "Restored " + OTHER_ID + " did not finish loading. Restart the host to try again.";
+        String stalled = SdnInstaller.stalledMessage("Restored " + OTHER_ID);
         StoreRestorer restorer = new StoreRestorer(new StoreRestorer.Deps(ledgerWith(ID, OTHER_ID), shelf,
                 () -> Optional.of(new SdnCatalogueResult.Delivered(List.of(entry(ID), entry(OTHER_ID)), false)),
                 () -> true, this::deliverEach, restored::addAll, queued::add, now::get,

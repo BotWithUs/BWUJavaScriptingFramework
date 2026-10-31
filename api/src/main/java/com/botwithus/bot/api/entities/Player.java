@@ -33,6 +33,17 @@ public final class Player implements EntityContext {
     public com.botwithus.bot.api.snapshot.Player raw() { return raw; }
 
     public int serverIndex()    { return raw.serverIndex(); }
+    /**
+     * Display name (wire v24), exactly as the client holds it, never {@code null}. <b>Empty
+     * means not known yet</b>: the client fills it in when it decodes the player's appearance,
+     * and some players in the world read empty. It can contain U+00A0 where the account name
+     * has a space; the name filters on {@link Players.Query} fold that for you.
+     */
+    public String name()        { return raw.name(); }
+    /** True when {@link #name()} is not empty. */
+    public boolean hasName()    { return raw.hasName(); }
+    /** True when {@link #name()} is a prefix of a name longer than the wire's 15 bytes. */
+    public boolean isNameTruncated() { return raw.isNameTruncated(); }
     public int combatLevel()    { return raw.combatLevel(); }
     public int followingIndex() { return raw.followingIndex(); }
     public int animationId()    { return raw.animationId(); }
@@ -79,7 +90,7 @@ public final class Player implements EntityContext {
 
     @Override
     public String toString() {
-        return "Player{idx=" + serverIndex()
+        return "Player{idx=" + serverIndex() + " name=" + name()
                 + " @" + tileX() + "," + tileY() + "," + plane() + "}";
     }
 }

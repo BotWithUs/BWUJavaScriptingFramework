@@ -17,7 +17,7 @@ module com.botwithus.bot.core {
     // LocalScriptLoader to resolve those child layers. Non-transitive: core's
     // own exported API never references skilling types.
     requires com.botwithus.bot.skilling;
-    requires msgpack.core;
+    requires com.botwithus.msgpack;
     requires com.google.gson;
     // Reader for the baked gameval name index (core.gameval.SqliteGamevalIndex).
     requires java.sql;
@@ -48,5 +48,6 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.sdn;
     exports com.botwithus.bot.core.secrets;
     exports com.botwithus.bot.core.shm;
+    exports com.botwithus.bot.core.window;
     exports com.botwithus.bot.core.worldwalker;
 }

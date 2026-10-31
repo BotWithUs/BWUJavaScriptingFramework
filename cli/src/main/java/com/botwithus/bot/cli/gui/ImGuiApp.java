@@ -64,6 +64,7 @@ import com.botwithus.bot.cli.gui.pages.store.StorePage;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
 import com.botwithus.bot.cli.gui.usermode.board.LiveClientBoard;
+import com.botwithus.bot.cli.gui.window.LwjglMemoryBackend;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
@@ -452,7 +453,7 @@ public class ImGuiApp extends Application {
         // why the opener only requests and the shell opens it on the next frame.
         Clock clock = Clock.systemDefaultZone();
         InspectorState inspectorState = new InspectorState(clock);
-        inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx), scriptUis);
+        inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx), scriptUis, ctx.getSettings());
         ctx.setConfigPanelOpener(inspectorState.clientScriptOpener());
         // Dev only (DevGate): a live check of script UIs opens one without anybody clicking.
         // The request waits for the script to load; the drawer resolves it each frame.
@@ -740,6 +741,8 @@ public class ImGuiApp extends Application {
     }
 
     public static void main(String[] args) {
+        // First, before anything initialises LWJGL's MemoryUtil: see LwjglMemoryBackend.
+        LwjglMemoryBackend.selectFfm();
         launch(new ImGuiApp());
     }
 }

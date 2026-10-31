@@ -27,6 +27,9 @@ import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
+import com.botwithus.bot.api.model.AppearanceSlot;
+import com.botwithus.bot.api.model.AppearanceStatus;
+import com.botwithus.bot.api.model.PlayerAppearance;
 import com.botwithus.bot.api.model.ResourceItem;
 import com.botwithus.bot.api.model.ResourceSection;
 import com.botwithus.bot.api.model.SkillRequirement;
@@ -34,6 +37,8 @@ import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldMapPlacement;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.ComponentRef;
+import com.botwithus.bot.api.model.ComponentScroll;
+import com.botwithus.bot.api.model.ComponentVisibility;
 import com.botwithus.bot.api.model.ComponentTrigger;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EnumType;
@@ -47,6 +52,7 @@ import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
+import com.botwithus.bot.api.model.SpotAnimation;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitType;
 import com.botwithus.bot.api.model.VarbitValue;
@@ -54,6 +60,7 @@ import com.botwithus.bot.api.model.VarpRead;
 import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldPathConfig;
+import com.botwithus.bot.api.model.WorldPathConfig.MovementOptions;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
@@ -94,6 +101,7 @@ import java.util.function.Supplier;
 
 import static com.botwithus.bot.core.impl.MapHelper.getBool;
 import static com.botwithus.bot.core.impl.MapHelper.getInt;
+import static com.botwithus.bot.core.impl.MapHelper.getIntOr;
 import static com.botwithus.bot.core.impl.MapHelper.getIntList;
 import static com.botwithus.bot.core.impl.MapHelper.getLong;
 import static com.botwithus.bot.core.impl.MapHelper.getMapList;
@@ -381,6 +389,18 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public Projectiles projectiles() { return projectilesFacade; }
+
+    @Override
+    public List<SpotAnimation> querySpotAnims() {
+        Map<String, Object> r = rpc.callSync("query_spot_anims", Map.of());
+        return getMapList(r, "spot_anims").stream()
+                .map(m -> new SpotAnimation(
+                        getInt(m, "id"),
+                        getInt(m, "tile_x"),
+                        getInt(m, "tile_y"),
+                        getIntOr(m, "plane", SpotAnimation.UNKNOWN_PLANE)))
+                .toList();
+    }
 
     @Override
     public WorldMapElements mapElements() { return mapElementsFacade; }
@@ -697,6 +717,44 @@ public class GameAPIImpl implements GameAPI {
         return out;
     }
 
+    /** Agent error prefix for a {@code get_player_appearance} call whose argument it rejected. */
+    private static final String APPEARANCE_ARGUMENT_ERROR = "get_player_appearance:";
+
+    @Override
+    public PlayerAppearance getPlayerAppearance(int serverIndex) {
+        Map<String, Object> r;
+        try {
+            r = rpc.callSync("get_player_appearance", Map.of("serverIndex", serverIndex));
+        } catch (RpcRemoteException e) {
+            return refusedAppearance(serverIndex, e.producerMessage());
+        }
+        return decodeAppearance(r);
+    }
+
+    /**
+     * A refusal envelope becomes a status, except an argument error, which is a caller bug and
+     * throws. Only {@link RpcRemoteException} reaches here: a transport failure still propagates.
+     */
+    private static PlayerAppearance refusedAppearance(int serverIndex, String code) {
+        if (code != null && code.startsWith(APPEARANCE_ARGUMENT_ERROR)) {
+            throw new IllegalArgumentException(code + " (serverIndex " + serverIndex + ")");
+        }
+        return PlayerAppearance.refused(AppearanceStatus.fromWireCode(code));
+    }
+
+    static PlayerAppearance decodeAppearance(Map<String, Object> r) {
+        List<AppearanceSlot> slots = getMapList(r, "slots").stream()
+                .map(s -> new AppearanceSlot(getIntOr(s, "kit", AppearanceSlot.NONE),
+                        getIntOr(s, "item", AppearanceSlot.NONE)))
+                .toList();
+        return new PlayerAppearance(AppearanceStatus.OK,
+                getIntOr(r, "render_id", PlayerAppearance.UNKNOWN),
+                getIntOr(r, "npc_transform_id", PlayerAppearance.UNKNOWN),
+                getIntOr(r, "gender", PlayerAppearance.UNKNOWN),
+                slots,
+                getIntList(r, "colours"));
+    }
+
     /**
      * Decode one component map — from {@code get_component} or a
      * {@code get_interface_tree} node — into a {@link Component}. Returns
@@ -734,7 +792,33 @@ public class GameAPIImpl implements GameAPI {
                 getInt(r, "item_amount"),
                 getMapList(r, "triggers").stream()
                         .map(t -> new ComponentTrigger(getInt(t, "type"), getInt(t, "script_id")))
-                        .toList());
+                        .toList(),
+                getIntOr(r, "parent_global", Component.NO_PARENT),
+                decodeVisibility(r),
+                decodeScroll(r));
+    }
+
+    /**
+     * The v24 visibility keys. An absent key is not read as {@code false}: a pipe attached to an
+     * agent that predates them would then report every component off screen, and
+     * {@code components().visible()} would match nothing. Absent keys fall back to the only
+     * signal such an agent sent, {@code hidden}.
+     */
+    private static ComponentVisibility decodeVisibility(Map<String, Object> r) {
+        if (!r.containsKey("visible") || !r.containsKey("visible_global")) {
+            return ComponentVisibility.fromLegacyHidden(getIntOr(r, "hidden", -1));
+        }
+        return new ComponentVisibility(getBool(r, "visible"), getBool(r, "visible_global"),
+                getIntOr(r, "slot_flags", ComponentVisibility.NO_SLOT));
+    }
+
+    /** The v24 scroll keys; zeros and not scrollable on a non-layer or an older agent. */
+    private static ComponentScroll decodeScroll(Map<String, Object> r) {
+        if (!getBool(r, "scrollable")) {
+            return ComponentScroll.NONE;
+        }
+        return new ComponentScroll(true, getInt(r, "scroll_x"), getInt(r, "scroll_y"),
+                getInt(r, "scroll_w"), getInt(r, "scroll_h"));
     }
 
     @Override
@@ -850,9 +934,11 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void walkWorldPathAsync(int x, int y, int plane, boolean exactDestTile, WorldPathConfig config) {
-        if (config != null && config != WorldPathConfig.DEFAULT) {
-            log.debug("walkWorldPathAsync: WorldPathConfig overrides are ignored — artifact is pre-baked");
-        }
+        // The allow* flags reach the run: the route-shaping ones as movement
+        // category bits of the planner mask, allowSurge/allowDive through the
+        // callback bridge. The cost / iteration / heuristic fields are not
+        // applied: the walker routes against a pre-baked graph.
+        WorldPathConfig effective = config == null ? WorldPathConfig.DEFAULT : config;
         // Resolve the owner here, on the caller's own thread. The executor runs
         // on a thread of our making and only inherits a copy of the tag, so
         // asking the gate from inside the worker would answer a question about
@@ -876,10 +962,11 @@ public class GameAPIImpl implements GameAPI {
         Optional<WalkPathOverlay> built = Optional.empty();
         Thread worker;
         try {
-            DisabledMoves moves = walkMoves();
+            DisabledMoves moves = walkMoves(effective);
             WalkPathOverlay overlay = newWalkOverlay(w, goal, moves, snapSrc, lease);
             built = Optional.of(overlay);
-            worker = newWalkWorker(w, goal, moves, snapSrc, lease, overlay, x, y);
+            worker = newWalkWorker(w, goal, new WalkRouting(moves, effective.movement()),
+                    snapSrc, lease, overlay, x, y);
         } catch (RuntimeException e) {
             // Nothing was started: shut the overlay's worker and hand the lease back.
             built.ifPresent(WalkPathOverlay::close);
@@ -895,11 +982,13 @@ public class GameAPIImpl implements GameAPI {
     }
 
     /** The walk's executor thread, built but not started; it closes {@code overlay} on exit. */
-    private Thread newWalkWorker(WorldWalker w, WwGoal goal, DisabledMoves moves,
+    private Thread newWalkWorker(WorldWalker w, WwGoal goal, WalkRouting routing,
                                  Supplier<GameSnapshot> snapSrc, WalkLease lease,
                                  WalkPathOverlay overlay, int x, int y) {
         Consumer<? super GameEvent> publisher = eventPublisher;
-        WorldWalkerCallbackBridge bridge = newWalkBridge(goal, snapSrc, lease, overlay);
+        DisabledMoves moves = routing.moves();
+        WorldWalkerCallbackBridge bridge =
+                newWalkBridge(goal, snapSrc, lease, overlay, routing.movement());
         // rule-exception: platform thread rather than virtual — see CLAUDE.md,
         // "Script runner threads are platform threads". This executor is
         // spawned from a script's own thread and inherits its gate tag, which
@@ -912,16 +1001,26 @@ public class GameAPIImpl implements GameAPI {
                         () -> runWalk(w, goal, moves, bridge, lease, publisher, x, y), overlay));
     }
 
-    /** The executor's callbacks, reporting progress to the log and to {@code overlay}. */
+    /**
+     * What a walk's executor is allowed to use: the planner mask, and the movement
+     * options the callback bridge applies itself (Surge, Dive).
+     */
+    private record WalkRouting(DisabledMoves moves, MovementOptions movement) { }
+
+    /**
+     * The executor's callbacks, reporting progress to the log and to {@code overlay},
+     * firing movement abilities only as far as {@code movement} allows.
+     */
     private WorldWalkerCallbackBridge newWalkBridge(WwGoal goal, Supplier<GameSnapshot> snapSrc,
-                                                    WalkLease lease, WalkPathOverlay overlay) {
+                                                    WalkLease lease, WalkPathOverlay overlay,
+                                                    MovementOptions movement) {
         Consumer<WwEvent> events = e -> {
             log.info("ww-event: {}", e);
             overlay.onEvent(e);
         };
         return new WorldWalkerCallbackBridge(this, snapSrc, lease.cancel(), events, goal,
                 WorldWalkerCallbackBridge.REQUIREMENT_VARPS,
-                WorldWalkerCallbackBridge.Pacing.system(), overlay::onClick);
+                WorldWalkerCallbackBridge.Pacing.system(), overlay::onClick, movement);
     }
 
     /** Runs {@code walk}, and closes {@code overlay} however it ends: the lease is gone. */
@@ -957,12 +1056,23 @@ public class GameAPIImpl implements GameAPI {
     }
 
     /**
-     * The planner mask for a walk or query starting now: the free-to-play bit
-     * only when the setting is on and the account reads as not a member.
-     * Package-private so the rule is testable without the native library.
+     * The planner mask for a query starting now: the free-to-play bit only when
+     * the setting is on and the account reads as not a member. Package-private so
+     * the rule is testable without the native library.
      */
     DisabledMoves walkMoves() {
-        return DisabledMoves.forWalk(isRestrictingFreeToPlay, currentLocalPlayer());
+        return walkMoves(WorldPathConfig.DEFAULT);
+    }
+
+    /**
+     * The planner mask for a walk starting now under {@code config}: the movement
+     * category bits of every {@code allow*} flag it turns off, plus the free-to-play
+     * bit under the same rule as {@link #walkMoves()}. Package-private so the
+     * composition is testable without the native library.
+     */
+    DisabledMoves walkMoves(WorldPathConfig config) {
+        return DisabledMoves.forWalk(isRestrictingFreeToPlay, currentLocalPlayer())
+                .with(DisabledMoves.forConfig(config));
     }
 
     /**
@@ -1138,6 +1248,10 @@ public class GameAPIImpl implements GameAPI {
         try {
             if (moves.isFreeToPlay()) {
                 log.info("WorldWalker walk to ({},{}) is planned as free-to-play", x, y);
+            }
+            if (moves.hasCategories()) {
+                log.debug("WorldWalker walk to ({},{}): disabledMoves=0x{}",
+                        x, y, Integer.toHexString(moves.mask()));
             }
             status = w.runExecutor(goal, bridge, moves);
             log.info("WorldWalker walk to ({},{}) finished: {}", x, y, status);

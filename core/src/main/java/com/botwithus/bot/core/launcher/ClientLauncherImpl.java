@@ -8,7 +8,7 @@ import com.botwithus.bot.api.script.LauncherAccount;
 import com.botwithus.bot.api.script.LauncherEvent;
 import com.botwithus.bot.api.script.LauncherException;
 import com.botwithus.bot.api.script.StopMode;
-import org.msgpack.value.Value;
+import com.botwithus.msgpack.MsgValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,7 +66,7 @@ public final class ClientLauncherImpl implements HostClientLauncher, AutoCloseab
     public LaunchHandle launch(String accountId, LaunchOptions options) {
         Objects.requireNonNull(accountId, "accountId");
         Objects.requireNonNull(options, "options");
-        Value body = service.call(LauncherProtocol.METHOD_CLIENT_LAUNCH,
+        MsgValue body = service.call(LauncherProtocol.METHOD_CLIENT_LAUNCH,
                 LauncherRequests.clientLaunch(accountId, options.characterIndex()));
         String clientId = WireValues.string(body, "clientId").orElseThrow(() -> new LauncherException(
                 WireError.UNKNOWN_CODE, "client.launch answered without a clientId"));
@@ -163,7 +163,7 @@ public final class ClientLauncherImpl implements HostClientLauncher, AutoCloseab
     /** Looks the launch up and acts on where it is. */
     private void reconcile(PendingLaunch launch) {
         try {
-            Value body = service.call(LauncherProtocol.METHOD_CLIENT_STATUS,
+            MsgValue body = service.call(LauncherProtocol.METHOD_CLIENT_STATUS,
                     LauncherRequests.clientStatus(launch.clientId));
             apply(launch, LauncherDecoder.client(body));
         } catch (LauncherException e) {

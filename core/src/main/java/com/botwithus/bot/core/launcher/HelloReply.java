@@ -1,7 +1,7 @@
 package com.botwithus.bot.core.launcher;
 
 import com.botwithus.bot.api.script.LauncherException;
-import org.msgpack.value.Value;
+import com.botwithus.msgpack.MsgValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +29,7 @@ final class HelloReply {
      * @return the methods the service offers this connection
      * @throws LauncherException if the service negotiated something other than protocol 1 on the automation surface
      */
-    static Set<String> check(Value body) {
+    static Set<String> check(MsgValue body) {
         long version = WireValues.integer(body, "protocolVersion", -1L);
         String surface = WireValues.string(body, "surface", "");
         if (version != LauncherProtocol.PROTOCOL_VERSION || !surface.equals(LauncherProtocol.SURFACE_AUTOMATION)) {
@@ -37,8 +37,8 @@ final class HelloReply {
                     + " on surface '" + surface + "'; this host speaks protocol "
                     + LauncherProtocol.PROTOCOL_VERSION + " on the automation surface");
         }
-        Set<String> methods = WireValues.array(body, "methods").stream().filter(Value::isStringValue)
-                .map(m -> m.asStringValue().asString()).collect(Collectors.toUnmodifiableSet());
+        Set<String> methods = WireValues.array(body, "methods").stream()
+                .flatMap(m -> m.stringValue().stream()).collect(Collectors.toUnmodifiableSet());
         log.info("Launcher service {} accepted this host (connection {}, {} methods)",
                 WireValues.string(body, "serviceVersion", "?"), WireValues.integer(body, "connectionId", 0L),
                 methods.size());

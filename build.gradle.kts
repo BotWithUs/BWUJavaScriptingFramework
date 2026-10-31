@@ -27,6 +27,9 @@ subprojects {
 
     repositories {
         mavenCentral()
+        // com.botwithus:msgpack is published to the project's own static Maven
+        // repository (GitHub Pages), not to Maven Central.
+        maven { url = uri("https://botwithus.github.io/maven") }
     }
 
     // Type-safe `libs.*` accessors are not generated inside the root
@@ -58,8 +61,8 @@ subprojects {
         //                        publish `this` for callbacks (ImGui Application
         //                        subclasses, downcall handle binding). Fixing is
         //                        a constructor redesign, not a lint sweep.
-        //   -requires-automatic — module-info entries for msgpack-core and other
-        //                        automatic-module dependencies; addressed by
+        //   -requires-automatic — module-info entries for automatic-module
+        //                        dependencies; addressed by
         //                        extra-java-module-info shims where available.
         options.compilerArgs.addAll(
             listOf(

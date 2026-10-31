@@ -134,13 +134,15 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_SHORT, base + Layout.NPC_TILEY_OFFSET),
                 seg.get(ValueLayout.JAVA_BYTE,  base + Layout.NPC_PLANE_OFFSET),
                 seg.get(ValueLayout.JAVA_BYTE,  base + Layout.NPC_FLAGS_OFFSET) & 0xFF,
-                seg.get(ValueLayout.JAVA_SHORT, base + Layout.NPC_FOLLOWINGINDEX_OFFSET),
+                EntityIndexWire.read(seg, base + Layout.NPC_FOLLOWINGINDEX_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_ANIMATIONID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_STANCEID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_HP_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_MAXHP_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_SPOTANIMID_OFFSET),
-                orientationAt(base + Layout.NPC_ORIENTATION_OFFSET));
+                orientationAt(base + Layout.NPC_ORIENTATION_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_ACTIVETYPEID_OFFSET),
+                seg.get(ValueLayout.JAVA_INT,   base + Layout.NPC_COMBATLEVEL_OFFSET));
     }
 
     // ------------------------------------------------------------------
@@ -162,12 +164,13 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_SHORT, base + Layout.PLAYER_TILEY_OFFSET),
                 seg.get(ValueLayout.JAVA_BYTE,  base + Layout.PLAYER_PLANE_OFFSET),
                 seg.get(ValueLayout.JAVA_BYTE,  base + Layout.PLAYER_FLAGS_OFFSET) & 0xFF,
-                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PLAYER_FOLLOWINGINDEX_OFFSET),
+                EntityIndexWire.read(seg, base + Layout.PLAYER_FOLLOWINGINDEX_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_ANIMATIONID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_STANCEID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_COMBATLEVEL_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_SPOTANIMID_OFFSET),
-                orientationAt(base + Layout.PLAYER_ORIENTATION_OFFSET));
+                orientationAt(base + Layout.PLAYER_ORIENTATION_OFFSET),
+                PlayerNameDecoder.decode(seg, base + Layout.PLAYER_NAME_OFFSET));
     }
 
     // ------------------------------------------------------------------
@@ -367,9 +370,9 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_ID_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_STARTCYCLE_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PROJECTILE_ENDCYCLE_OFFSET),
-                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_SOURCEINDEX_OFFSET),
+                EntityIndexWire.read(seg, base + Layout.PROJECTILE_SOURCEINDEX_OFFSET),
                 seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_SOURCETYPE_OFFSET),
-                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_TARGETINDEX_OFFSET),
+                EntityIndexWire.read(seg, base + Layout.PROJECTILE_TARGETINDEX_OFFSET),
                 seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_TARGETTYPE_OFFSET),
                 seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_STARTTILEX_OFFSET),
                 seg.get(ValueLayout.JAVA_SHORT, base + Layout.PROJECTILE_STARTTILEY_OFFSET),

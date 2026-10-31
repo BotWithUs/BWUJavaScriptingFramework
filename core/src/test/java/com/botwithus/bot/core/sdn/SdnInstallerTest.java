@@ -3,7 +3,6 @@ package com.botwithus.bot.core.sdn;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
-import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.SdnDelivery;
 
 import com.google.gson.JsonArray;
@@ -406,8 +405,10 @@ class SdnInstallerTest {
     }
 
     /**
-     * A script that never finished constructing fails the install with the restart
-     * advice, and the same id then fails fast without asking the launcher again.
+     * A script that never finished constructing fails the install with advice that
+     * does not promise a restart fixes it (the usual cause is the script itself) and
+     * says to report a repeat, and the same id then fails fast without asking the
+     * launcher again.
      */
     @Test
     void install_aStalledScript_failsAndThenFailsFastUntilRestart() {
@@ -421,8 +422,9 @@ class SdnInstallerTest {
         SdnInstallResult first = installer.install(List.of(entry("7")));
         SdnInstallResult again = installer.install(List.of(entry("7")));
 
-        String expected = DELIVERED_NAME + " did not finish loading within "
-                + SDNScriptLoader.CONSTRUCT_BUDGET.toSeconds() + " seconds. Restart the host to try again.";
+        String expected = DELIVERED_NAME + " got stuck while starting. This is usually a problem in the script "
+                + "itself. If it happens again after you restart the host, report it from the launcher so the "
+                + "script's author can see where it got stuck.";
         assertAll(
                 () -> assertEquals(expected, assertInstanceOf(SdnInstallResult.Failed.class, first).reason()),
                 () -> assertEquals(expected, assertInstanceOf(SdnInstallResult.Failed.class, again).reason()),

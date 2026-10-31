@@ -4,8 +4,9 @@ import com.botwithus.bot.api.script.LaunchedClient;
 import com.botwithus.bot.api.script.LauncherAccount;
 import com.botwithus.bot.api.script.LauncherEvent;
 import com.botwithus.bot.api.script.LauncherException;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgValue;
 import org.junit.jupiter.api.Test;
-import org.msgpack.value.ValueFactory;
 
 import java.util.HexFormat;
 import java.util.List;
@@ -201,7 +202,7 @@ class LauncherDecoderTest {
 
     @Test
     void unknownEventsAndEnumStrings_areNotErrors() {
-        assertEquals(Optional.empty(), LauncherDecoder.event("future.thing", ValueFactory.emptyMap()));
+        assertEquals(Optional.empty(), LauncherDecoder.event("future.thing", MsgMap.empty()));
         assertEquals(LaunchedClient.State.UNKNOWN, LauncherDecoder.state("hibernating"));
         assertEquals(LauncherEvent.ExitReason.UNKNOWN, LauncherDecoder.exitReason("meteor"));
     }
@@ -212,8 +213,8 @@ class LauncherDecoderTest {
         byte[] trailing = new byte[good.length + 1];
         System.arraycopy(good, 0, trailing, 0, good.length);
         assertThrows(MalformedFrameException.class, () -> Envelope.decode(trailing));
-        byte[] v2 = LauncherRequests.pack(ValueFactory.newMapBuilder()
-                .put(ValueFactory.newString("v"), ValueFactory.newInteger(2)).build());
+        byte[] v2 = LauncherRequests.pack(MsgMap.builder()
+                .put(MsgValue.of("v"), MsgValue.of(2)).build());
         assertThrows(MalformedFrameException.class, () -> Envelope.decode(v2));
     }
 

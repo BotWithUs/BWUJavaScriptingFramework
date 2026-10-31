@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.runtime;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.TimeUnit;
@@ -21,7 +22,9 @@ import java.util.function.Supplier;
  *
  * <p>A construction that overruns cannot be stopped, since Java has no way to kill
  * a thread. It is left running on a daemon thread, named after the script so a
- * thread dump points at it.
+ * thread dump points at it, and the answer carries that thread's stack as it was
+ * when the budget ran out, so the log can say where the script is stuck without
+ * anyone having to take a dump.
  */
 public final class BoundedConstruction {
 
@@ -34,8 +37,33 @@ public final class BoundedConstruction {
         /** It threw {@code error}, an exception or an error, after {@code took}. */
         record Threw<T>(Throwable error, Duration took) implements Outcome<T> {}
 
-        /** It had not returned when the budget ran out, and is still running. */
-        record TimedOut<T>(Duration budget) implements Outcome<T> {}
+        /**
+         * It had not returned when the budget ran out, and is still running.
+         * {@code stack} is where its thread was at that moment, innermost frame
+         * first; it is empty only if the thread finished in the instant between
+         * the budget running out and the stack being taken.
+         */
+        record TimedOut<T>(Duration budget, List<StackTraceElement> stack) implements Outcome<T> {
+
+            private static final String FRAME_PREFIX = System.lineSeparator() + "\tat ";
+
+            public TimedOut {
+                stack = List.copyOf(stack);
+            }
+
+            /**
+             * The stack as a thread dump prints it, one {@code at} line per frame, each
+             * on its own line, so it reads the same way in a log a user sends in.
+             */
+            public String stackDump() {
+                if (stack.isEmpty()) {
+                    return System.lineSeparator() + "\t(no frames: it finished just after the budget ran out)";
+                }
+                StringBuilder dump = new StringBuilder();
+                stack.forEach(frame -> dump.append(FRAME_PREFIX).append(frame));
+                return dump.toString();
+            }
+        }
 
         /**
          * The thread waiting for it was interrupted. Says nothing about the script,
@@ -59,13 +87,13 @@ public final class BoundedConstruction {
         // code that may never return; a platform thread keeps a stuck one from
         // occupying a virtual-thread carrier. See CLAUDE.md, "Script runner threads
         // are platform threads".
-        Thread.ofPlatform().daemon().name(THREAD_PREFIX + what).start(task);
+        Thread thread = Thread.ofPlatform().daemon().name(THREAD_PREFIX + what).start(task);
         long start = System.nanoTime();
         try {
             T instance = task.get(budget.toNanos(), TimeUnit.NANOSECONDS);
             return new Outcome.Built<>(instance, since(start));
         } catch (TimeoutException e) {
-            return new Outcome.TimedOut<>(budget);
+            return new Outcome.TimedOut<>(budget, List.of(thread.getStackTrace()));
         } catch (ExecutionException e) {
             return new Outcome.Threw<>(e.getCause(), since(start));
         } catch (InterruptedException e) {

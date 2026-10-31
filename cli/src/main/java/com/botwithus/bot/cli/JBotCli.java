@@ -25,6 +25,7 @@ import com.botwithus.bot.cli.command.impl.UnmountCommand;
 import com.botwithus.bot.cli.diag.FreeToPlayRoutingSwitch;
 import com.botwithus.bot.cli.diag.MetricsCollection;
 import com.botwithus.bot.cli.diag.WalkerPathOverlay;
+import com.botwithus.bot.cli.gui.window.LwjglMemoryBackend;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogCapture;
 import com.botwithus.bot.cli.log.RunLogBootstrap;
@@ -69,6 +70,8 @@ public final class JBotCli {
             """;
 
     public static void main(String[] args) {
+        // First, before anything initialises LWJGL's MemoryUtil: see LwjglMemoryBackend.
+        LwjglMemoryBackend.selectFfm();
         // Force UTF-8 output on Windows
         PrintStream utf8Out = new PrintStream(System.out, true, StandardCharsets.UTF_8);
         PrintStream utf8Err = new PrintStream(System.err, true, StandardCharsets.UTF_8);

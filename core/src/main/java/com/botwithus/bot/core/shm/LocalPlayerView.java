@@ -31,15 +31,20 @@ public final class LocalPlayerView {
     public int  tileY()          { return seg.get(ValueLayout.JAVA_SHORT, Layout.LP_TILEY_OFFSET); }
     public int  plane()          { return seg.get(ValueLayout.JAVA_BYTE,  Layout.LP_PLANE_OFFSET); }
     public int  flags()          { return seg.get(ValueLayout.JAVA_BYTE,  Layout.LP_FLAGS_OFFSET) & 0xFF; }
-    public int  followingIndex() { return seg.get(ValueLayout.JAVA_SHORT, Layout.LP_FOLLOWINGINDEX_OFFSET); }
+    public int  followingIndex() { return EntityIndexWire.read(seg, Layout.LP_FOLLOWINGINDEX_OFFSET); }
     public int  animationId()    { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_ANIMATIONID_OFFSET); }
     public int  stanceId()       { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_STANCEID_OFFSET); }
-    public int  targetIndex()    { return seg.get(ValueLayout.JAVA_SHORT, Layout.LP_TARGETINDEX_OFFSET); }
+    public int  targetIndex()    { return EntityIndexWire.read(seg, Layout.LP_TARGETINDEX_OFFSET); }
     public int  targetType()     { return seg.get(ValueLayout.JAVA_BYTE,  Layout.LP_TARGETTYPE_OFFSET); }
     public boolean isMember()    { return seg.get(ValueLayout.JAVA_BYTE,  Layout.LP_ISMEMBER_OFFSET) != 0; }
     public int  spotAnimId()     { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_SPOTANIMID_OFFSET); }
 
     public boolean isMoving()    { return (flags() & Layout.FLAG_MOVING) != 0; }
+
+    /** Raw wire run energy (v24): 0..100, -1 unreadable in-world, 0 out of world. */
+    public int  runEnergy()      { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_RUNENERGY_OFFSET); }
+    /** Raw wire run weight in kg (v24), same sentinels as {@link #runEnergy()}. Not independently verified. */
+    public int  runWeight()      { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_RUNWEIGHT_OFFSET); }
 
     /**
      * Decoded facing (v21). Authoritative for the local player; the {@code players[]} row for

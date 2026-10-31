@@ -7,7 +7,7 @@ import com.botwithus.bot.api.snapshot.Orientation;
  * for the byte layout.
  *
  * @param serverIndex    server-side NPC slot
- * @param typeId         NPC type id, or -1 if not resolved
+ * @param typeId         BASE NPC type id the server sent, or -1 if not resolved
  * @param tileX          absolute world tile X (-1 if no graph node)
  * @param tileY          absolute world tile Y
  * @param plane          0..3
@@ -19,6 +19,9 @@ import com.botwithus.bot.api.snapshot.Orientation;
  * @param maxHp          max HP
  * @param spotAnimId     first active spot anim (graphic) id, or -1 if none
  * @param orientation    decoded facing (v21); unknown for 0xFFFF or an out-of-contract value
+ * @param activeTypeId   morph-resolved type id (v24); equals {@code typeId} with no morph, -1
+ *                       when the morph resolves to nothing
+ * @param combatLevel    per-instance combat level the client shows (v24)
  */
 public record NpcEntry(
         int serverIndex,
@@ -33,7 +36,9 @@ public record NpcEntry(
         int hp,
         int maxHp,
         int spotAnimId,
-        Orientation orientation
+        Orientation orientation,
+        int activeTypeId,
+        int combatLevel
 ) {
     public boolean isMoving() {
         return (flags & Layout.FLAG_MOVING) != 0;

@@ -209,6 +209,16 @@ public final class SettingKeys {
                     + "stairs and teleports over the game. Debug aid; costs a few calls a step.",
             FLAG, Boolean.FALSE);
 
+    public static final SettingKey<String> OVERLAY_INTERACT_KEYS = new SettingKey<>(
+            "overlay.interactKeys", "Overlay interact keys",
+            "Hold these keys over a pinned script overlay to click it; release them to let clicks through "
+                    + "to the game again. One or more of Ctrl, Shift and Alt, and optionally one letter, "
+                    + "digit or F1 to F12, such as Ctrl+Shift or Alt+Q.",
+            new SettingType.Text(Pattern.compile(
+                    "(?i)(ctrl|shift|alt)(\\+(ctrl|shift|alt))*(\\+([a-z0-9]|f[1-9]|f1[0-2]))?"),
+                    "Ctrl, Shift and/or Alt joined by '+', optionally ending in one letter, digit or F1 to F12"),
+            "Ctrl");
+
     // ── Walking ─────────────────────────────────────────────────────────
 
     public static final SettingKey<FreeToPlayRouting> WALK_FREE_TO_PLAY = new SettingKey<>(
@@ -250,7 +260,7 @@ public final class SettingKeys {
         keys.addAll(AlertSettingKeys.ALL);
         keys.addAll(List.of(START_MODE, TEXT_SIZE, REDUCE_MOTION, NATIVE_FRAME,
                 WINDOW_X, WINDOW_Y, WINDOW_WIDTH, WINDOW_HEIGHT, WINDOW_MAXIMISED,
-                WALK_FREE_TO_PLAY, COLLECT_RPC_TIMING, COLLECT_LOOP_TIMING, DRAW_WALKER_PATH));
+                WALK_FREE_TO_PLAY, COLLECT_RPC_TIMING, COLLECT_LOOP_TIMING, DRAW_WALKER_PATH, OVERLAY_INTERACT_KEYS));
         return List.copyOf(keys);
     }
 }

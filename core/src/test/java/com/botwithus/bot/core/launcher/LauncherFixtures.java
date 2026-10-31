@@ -1,11 +1,12 @@
 package com.botwithus.bot.core.launcher;
 
+import com.botwithus.msgpack.MsgInteger;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgValue;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -43,8 +44,8 @@ final class LauncherFixtures {
     record Fixture(String name, String file, String direction, List<String> surface, JsonObject value,
                    Set<String> binFields, byte[] bytes) {
 
-        /** @return the manifest value as msgpack-core would build it */
-        Value expectedValue() {
+        /** @return the manifest value as a msgpack value tree */
+        MsgValue expectedValue() {
             return toValue(value, "", binFields);
         }
 
@@ -101,41 +102,41 @@ final class LauncherFixtures {
         return expected.length == actual.length ? -1 : shared;
     }
 
-    static Value toValue(JsonElement json, String pointer, Set<String> binFields) {
+    static MsgValue toValue(JsonElement json, String pointer, Set<String> binFields) {
         if (json.isJsonNull()) {
-            return ValueFactory.newNil();
+            return MsgValue.nil();
         }
         if (json.isJsonObject()) {
-            var builder = ValueFactory.newMapBuilder();
+            var builder = MsgMap.builder();
             for (Map.Entry<String, JsonElement> e : json.getAsJsonObject().entrySet()) {
-                builder.put(ValueFactory.newString(e.getKey()),
+                builder.put(MsgValue.of(e.getKey()),
                         toValue(e.getValue(), pointer + "/" + e.getKey(), binFields));
             }
             return builder.build();
         }
         if (json.isJsonArray()) {
             JsonArray array = json.getAsJsonArray();
-            List<Value> items = new ArrayList<>();
+            List<MsgValue> items = new ArrayList<>();
             for (int i = 0; i < array.size(); i++) {
                 items.add(toValue(array.get(i), pointer + "/" + i, binFields));
             }
-            return ValueFactory.newArray(items);
+            return MsgValue.of(items);
         }
         return primitive(json, pointer, binFields);
     }
 
-    private static Value primitive(JsonElement json, String pointer, Set<String> binFields) {
+    private static MsgValue primitive(JsonElement json, String pointer, Set<String> binFields) {
         var primitive = json.getAsJsonPrimitive();
         if (primitive.isBoolean()) {
-            return ValueFactory.newBoolean(primitive.getAsBoolean());
+            return MsgValue.of(primitive.getAsBoolean());
         }
         if (primitive.isNumber()) {
-            return ValueFactory.newInteger(primitive.getAsBigInteger());
+            return MsgInteger.of(primitive.getAsBigInteger());
         }
         if (binFields.contains(pointer)) {
-            return ValueFactory.newBinary(HexFormat.of().parseHex(primitive.getAsString()));
+            return MsgValue.of(HexFormat.of().parseHex(primitive.getAsString()));
         }
-        return ValueFactory.newString(primitive.getAsString());
+        return MsgValue.of(primitive.getAsString());
     }
 
     private static Path resourceDir() {
