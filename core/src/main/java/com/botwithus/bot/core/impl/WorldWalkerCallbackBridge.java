@@ -219,9 +219,12 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final int VARP_HEROES_QUEST       = 2618;  // Heroes' Guild doors, 15
     private static final int VARP_KEY_RING           = 2673;  // stored keys, bit n = slot n
     private static final int VARP_PRIEST_IN_PERIL    = 2171;  // Paterdomus passage, complete at 60
+    private static final int VARP_SEARCH_OF_MYREQUE  = 2696;  // Canifis tavern trapdoor, 105
+    private static final int VARP_SHILO_VILLAGE      = 2793;  // Shilo gates + Hajedy's cart, 15
     static final List<Integer> REQUIREMENT_VARPS = List.of(
             VARP_TREE_GNOME_VILLAGE, VARP_THE_GRAND_TREE, VARP_CABIN_FEVER, VARP_REGICIDE,
-            VARP_ONE_SMALL_FAVOUR, VARP_QUEST_POINTS, VARP_HEROES_QUEST, VARP_KEY_RING, VARP_PRIEST_IN_PERIL);
+            VARP_ONE_SMALL_FAVOUR, VARP_QUEST_POINTS, VARP_HEROES_QUEST, VARP_KEY_RING, VARP_PRIEST_IN_PERIL,
+            VARP_SEARCH_OF_MYREQUE, VARP_SHILO_VILLAGE);
 
     private final GameAPI api;
     private final Supplier<GameSnapshot> snapshotSource;
