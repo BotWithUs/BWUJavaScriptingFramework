@@ -13,6 +13,7 @@ import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.VarpRead;
+import com.botwithus.bot.api.model.WorldPathConfig.MovementOptions;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
@@ -236,6 +237,9 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private final RandomGenerator rng;
     private final LongSupplier clockMs;
     private final Sleeper sleeper;
+    // Which movement abilities this run may fire at all; the per-hop gates below
+    // only ever narrow it.
+    private final MovementOptions movement;
 
     // Per-run movement-ability state. Callbacks arrive on the executor thread
     // only, so none of this is shared.
@@ -287,6 +291,26 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                               List<Integer> requirementVarps,
                               Pacing pacing,
                               Consumer<WwTile> clickSink) {
+        this(api, snapshotSource, cancel, eventSink, goal, requirementVarps, pacing, clickSink,
+                MovementOptions.ALL);
+    }
+
+    /**
+     * As above, firing only the movement abilities {@code movement} allows: its
+     * {@code allowSurge} / {@code allowDive} switch those abilities off for the whole run,
+     * ahead of every per-hop gate (distance, goal guard, magic level, loadout, cooldown).
+     * The rest of {@code movement} shapes the route, not the clicks, and is not read here.
+     */
+    WorldWalkerCallbackBridge(GameAPI api,
+                              Supplier<GameSnapshot> snapshotSource,
+                              AtomicBoolean cancel,
+                              Consumer<WwEvent> eventSink,
+                              WwGoal goal,
+                              List<Integer> requirementVarps,
+                              Pacing pacing,
+                              Consumer<WwTile> clickSink,
+                              MovementOptions movement) {
+        this.movement = Objects.requireNonNull(movement, "movement");
         Objects.requireNonNull(pacing, "pacing");
         this.clickSink = Objects.requireNonNull(clickSink, "clickSink");
         this.rng = pacing.rng();
@@ -745,10 +769,11 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     // short hop it can reach, then Surge for a long near-straight one.
     private List<AbilitySlot> candidates(int dx, int dy, LocalPlayer lp) {
         List<AbilitySlot> out = new ArrayList<>(2);
-        if (isDiveHop(dx, dy) && isFarEnoughFromGoalToDive(lp)) {
+        if (movement.allowDive() && isDiveHop(dx, dy) && isFarEnoughFromGoalToDive(lp)) {
             out.add(diveSlot);
         }
-        if (isSurgeHop(dx, dy) && magicLevel(lp) >= SURGE_MIN_MAGIC) {
+        if (movement.allowSurge() && isSurgeHop(dx, dy)
+                && magicLevel(lp) >= SURGE_MIN_MAGIC) {
             out.add(surgeSlot);
         }
         return out;

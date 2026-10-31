@@ -20,6 +20,7 @@ import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.model.WorldPathConfig;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
@@ -1145,6 +1146,78 @@ class WorldWalkerCallbackBridgeTest {
         verify(api, times(2)).queueAction(any(GameAction.class));
         verify(api, never()).components();
         assertTrue(sleeps.isEmpty());
+    }
+
+    // ======================= Movement options gate =======================
+
+    private WorldWalkerCallbackBridge bridgeAllowing(WorldPathConfig config) {
+        return new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(ALWAYS_FIRE), tile -> { },
+                config.movement());
+    }
+
+    @Test
+    void surgeNeverFiresWhenTheConfigDisallowsIt() {
+        bridge = bridgeAllowing(WorldPathConfig.builder().allowSurge(false).build());
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+        verify(api, never()).components();
+    }
+
+    @Test
+    void diveNeverFiresWhenTheConfigDisallowsIt() {
+        bridge = bridgeAllowing(WorldPathConfig.builder().allowDive(false).build());
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+        verify(api, never()).getStructType(WorldWalkerCallbackBridge.STRUCT_DIVE);
+    }
+
+    @Test
+    void aDisallowedDiveHandsAHopBothQualifyForToSurge() {
+        // 10 tiles due east is both a Dive hop and a Surge hop; Dive is
+        // preferred, so with it off Surge takes the hop.
+        bridge = bridgeAllowing(WorldPathConfig.builder().allowDive(false).build());
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3010, 3000, 0));
+
+        List<GameAction> actions = queuedActions(3);
+        assertEquals(ActionTypes.COMPONENT, actions.get(1).actionId());
+        assertEquals((1670 << 16) | 165, actions.get(1).param3());
+        verify(api, never()).getStructType(WorldWalkerCallbackBridge.STRUCT_DIVE);
+    }
+
+    @Test
+    void theDefaultConfigLeavesDiveOn() {
+        bridge = bridgeAllowing(WorldPathConfig.DEFAULT);
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        List<GameAction> actions = queuedActions(4);
+        assertEquals(ActionTypes.SELECT_COMPONENT, actions.get(1).actionId());
+    }
+
+    @Test
+    void aNullMovementIsRefused() {
+        assertThrows(NullPointerException.class, () -> new WorldWalkerCallbackBridge(api,
+                () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(ALWAYS_FIRE), tile -> { },
+                null));
     }
 
     @Test
