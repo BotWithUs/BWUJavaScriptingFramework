@@ -54,7 +54,7 @@ final class MicrophonePrompt {
     static final int MAX_NAME_CHARS = 48;
     /** The longest phrase shown. */
     static final int MAX_PHRASE_CHARS = 80;
-    /** The longest key shown; cut from the front, so its distinguishing end stays. */
+    /** The longest key shown; its middle gives way, so the module and the class's end stay. */
     static final int MAX_KEY_CHARS = 160;
     /** How long a question is on screen before its buttons take a press. */
     static final float ARM_SECONDS = 0.4f;
@@ -123,10 +123,12 @@ final class MicrophonePrompt {
         int shown = Math.min(phrases.size(), MAX_SHOWN_PHRASES);
         List<String> quoted = phrases.subList(0, shown).stream()
                 .map(p -> "“" + SafeText.line(p, MAX_PHRASE_CHARS) + "”").toList();
-        String body = SafeText.line(request.scriptName(), MAX_NAME_CHARS) + " wants to use your microphone to listen for spoken phrases. "
+        String body = SafeText.line(request.scriptName(), MAX_NAME_CHARS)
+                + " wants to use your microphone to listen for spoken phrases. "
                 + "Speech is recognised on this PC, and no audio leaves it.";
         String label = phrases.size() == 1 ? "It listens for this phrase:"
                 : "It listens for these " + phrases.size() + " phrases:";
-        return new Text(TITLE, body, SafeText.lineKeepingTail(request.scriptKey(), MAX_KEY_CHARS), label, quoted, phrases.size() - shown, FOOTNOTE);
+        return new Text(TITLE, body, SafeText.key(request.scriptKey(), MAX_KEY_CHARS), label, quoted,
+                phrases.size() - shown, FOOTNOTE);
     }
 }

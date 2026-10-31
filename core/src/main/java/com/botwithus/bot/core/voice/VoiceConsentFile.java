@@ -34,18 +34,24 @@ import java.util.Properties;
  * the file.</p>
  *
  * <p><b>The file is the truth, not this object.</b> Several hosts can be open at once, so
- * {@link #find} reads the file every time; a Reset or a Deny made in another host applies to
- * this host's next question. {@link #save} and {@link #forget} hold a lock on a sidecar
- * {@code .lock} file while they read the file, change the one script they are about, and
- * write it back through {@link AtomicFiles}, so two hosts never undo each other's changes.
- * {@link #all} is cached until the file changes, because the Settings page reads it every
- * frame.</p>
+ * {@link #find} reads the file every time, and a Deny saved by another host is what this host
+ * answers the next time a script asks. {@link #save} and {@link #forget} hold a lock on a
+ * sidecar {@code .lock} file while they read the file, apply their change, and write it back
+ * through {@link AtomicFiles}, so a change that reaches the file is not overwritten by
+ * another host's next save. {@link #all} is cached until the file changes, because the
+ * Settings page reads it every frame.</p>
+ *
+ * <p><b>A change that cannot be written is kept only if it is restrictive.</b> A Deny or a
+ * Reset that cannot be written (the file is damaged, another host holds the lock, or the
+ * write fails) is kept in memory: it overrides the file in this host, and it is written with
+ * the next change that gets the lock, or by {@link #flush} when the host closes. An Allow
+ * that cannot be written is not kept: the runs asking at that moment hold it for their run,
+ * and the file's answer stands for everything else.</p>
  *
  * <p><b>Anything unexpected reads as "no decision", never as consent.</b> A file that cannot
  * be read or parsed, a missing or different {@code format}, and a decision value other than
  * exactly {@code allow} or {@code deny} all leave the script undecided. Such a file is never
- * overwritten, so a damaged read cannot wipe the decisions it holds. A change that cannot be
- * written is kept in memory and holds until the host closes.</p>
+ * overwritten, so a damaged read cannot wipe the decisions it holds.</p>
  */
 public final class VoiceConsentFile implements VoiceConsentStore {
 
@@ -82,7 +88,7 @@ public final class VoiceConsentFile implements VoiceConsentStore {
 
     private final Path file;
     private final Path lockFile;
-    /** Guarded by {@code this}: changes not yet on disk; an empty value is a forget. */
+    /** Guarded by {@code this}: Denies and Resets not yet on disk (empty is a Reset). Never an Allow. */
     private final Map<String, Optional<StoredConsent>> unsaved = new HashMap<>();
     /** Guarded by {@code this}: the last read, reused by {@link #all} while the file is unchanged. */
     private Disk cached;
@@ -101,9 +107,9 @@ public final class VoiceConsentFile implements VoiceConsentStore {
 
     @Override
     public synchronized Optional<StoredConsent> find(String key) {
-        Optional<StoredConsent> pending = unsaved.get(key);
+        // Only a Deny or a Reset is ever pending, so this can only make the answer stricter.
         if (unsaved.containsKey(key)) {
-            return pending;
+            return unsaved.get(key);
         }
         return Optional.ofNullable(read().decisions().get(key));
     }
@@ -130,29 +136,64 @@ public final class VoiceConsentFile implements VoiceConsentStore {
         change(key, Optional.empty());
     }
 
-    /** Applies one script's change to the file under the lock, or keeps it in memory. */
+    /** Writes any Deny or Reset still pending. Called when the host closes. */
+    @Override
+    public synchronized void flush() {
+        if (!unsaved.isEmpty() && !persist(Optional.empty())) {
+            log.warn("{} microphone decision(s) could not be saved to {} and end with this host",
+                    unsaved.size(), file);
+        }
+    }
+
+    /**
+     * Writes one script's change together with every pending Deny and Reset. If it cannot be
+     * written, a Deny or a Reset is kept in memory and an Allow is dropped.
+     */
     private void change(String key, Optional<StoredConsent> consent) {
-        unsaved.put(key, consent);
+        boolean isAllow = consent.map(c -> c.decision() == MicrophoneDecision.ALLOWED).orElse(false);
+        if (isAllow) {
+            // A newer Allow replaces a pending Deny or Reset of the same script.
+            unsaved.remove(key);
+        } else {
+            unsaved.put(key, consent);
+        }
+        if (persist(isAllow ? consent : Optional.empty())) {
+            return;
+        }
+        if (isAllow) {
+            log.warn("The microphone Allow for {} was not saved; it holds only for the runs that asked", key);
+        } else {
+            log.warn("The microphone decision for {} was not saved yet; this host keeps it and retries", key);
+        }
+    }
+
+    /**
+     * Under the lock, applies every pending Deny and Reset, and {@code allow} if present, to
+     * what is on disk, and writes the result.
+     *
+     * @return whether it was written; when not, {@link #unsaved} is left as it was
+     */
+    private boolean persist(Optional<StoredConsent> allow) {
         try (Held lock = lock()) {
             if (lock == null) {
-                log.warn("Another host kept {} locked; the microphone decision for {} holds until this host closes",
-                        lockFile, key);
-                return;
+                log.warn("Another host kept {} locked", lockFile);
+                return false;
             }
             Disk disk = read();
             if (!disk.isTrusted()) {
-                log.warn("Not rewriting the unreadable {}; the microphone decision for {} holds until this host closes",
-                        file, key);
-                return;
+                log.warn("Not rewriting the unreadable {}", file);
+                return false;
             }
             Map<String, StoredConsent> next = new HashMap<>(disk.decisions());
-            consent.ifPresentOrElse(c -> next.put(key, c), () -> next.remove(key));
+            unsaved.forEach((key, pending) -> pending.ifPresentOrElse(c -> next.put(key, c), () -> next.remove(key)));
+            allow.ifPresent(a -> next.put(a.key(), a));
             write(next);
-            unsaved.remove(key);
+            unsaved.clear();
             cached = null;
+            return true;
         } catch (IOException e) {
-            log.warn("Could not save microphone decisions to {} ({}); the decision for {} holds until this host closes",
-                    file, e.getMessage(), key);
+            log.warn("Could not save microphone decisions to {} ({})", file, e.getMessage());
+            return false;
         }
     }
 

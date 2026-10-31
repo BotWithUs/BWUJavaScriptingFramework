@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.function.ToDoubleFunction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SafeTextTest {
@@ -50,35 +51,74 @@ class SafeTextTest {
     }
 
     @Test
-    void lineKeepingTail_keepsTheDistinguishingEnd() {
-        String key = "com.example." + "very".repeat(60) + "/com.example.Woodcutter";
+    void key_keepsTheModuleAndTheClassName_whenCappingByChars() {
+        String key = "com.example.wc/com.example." + "very".repeat(60) + ".Woodcutter";
 
-        String shown = SafeText.lineKeepingTail(key, 40);
+        String shown = SafeText.key(key, 40);
 
-        assertEquals(40, shown.length());
-        assertTrue(shown.startsWith(SafeText.ELLIPSIS), shown);
-        assertTrue(shown.endsWith("/com.example.Woodcutter"), shown);
+        assertTrue(shown.length() <= 40, shown);
+        assertEquals("com.example.wc/" + SafeText.ELLIPSIS + shown.substring(16), shown);
+        assertTrue(shown.endsWith(".Woodcutter"), shown);
     }
 
     @Test
-    void lineKeepingTail_cleansAsLineDoes() {
-        assertEquals("m/ evil", SafeText.lineKeepingTail("m/‮\nevil", 40));
+    void key_cleansAsLineDoes() {
+        assertEquals("m/ evil", SafeText.key("m/\u202E\nevil", 40));
     }
 
     @Test
-    void keepTail_shortensFromTheFront_toFitTheWidth() {
-        assertEquals("a/b.Short", SafeText.keepTail("a/b.Short", 20, CHARS));
-        assertEquals(SafeText.ELLIPSIS + "Woodcutter", SafeText.keepTail("com.example/com.example.Woodcutter", 11, CHARS));
+    void fitKey_leavesAKeyThatFitsAlone() {
+        assertEquals("a/b.Short", SafeText.fitKey("a/b.Short", 20, CHARS));
     }
 
     @Test
-    void keepTail_twoKeysThatDifferOnlyAtTheEnd_stillLookDifferent() {
-        String a = "com.example.shared.prefix/com.example.Woodcutter";
-        String b = "com.example.shared.prefix/com.example.Fisher";
+    void fitKey_dropsTheClassPackageFirst() {
+        assertEquals("tools/" + SafeText.ELLIPSIS + "Woodcutter",
+                SafeText.fitKey("tools/com.example.scripts.Woodcutter", 17, CHARS));
+    }
 
-        String shownA = SafeText.keepTail(a, 16, CHARS);
-        String shownB = SafeText.keepTail(b, 16, CHARS);
+    @Test
+    void fitKey_twoKeysDifferingOnlyInTheModuleHead_stayDifferent() {
+        String a = "com.alpha.tools/com.example.scripts.Woodcutter";
+        String b = "com.bravo.tools/com.example.scripts.Woodcutter";
+        // From the width that holds the whole module and the class name. Narrower than that,
+        // the module's middle has to give way and no fitting can keep every difference.
+        int moduleAndName = "com.alpha.tools/".length() + (SafeText.ELLIPSIS + "Woodcutter").length();
 
-        assertTrue(!shownA.equals(shownB), shownA + " vs " + shownB);
+        for (int width = moduleAndName; width < a.length(); width++) {
+            String shownA = SafeText.fitKey(a, width, CHARS);
+            String shownB = SafeText.fitKey(b, width, CHARS);
+            assertNotEquals(shownA, shownB, "at width " + width);
+            assertTrue(shownA.endsWith("Woodcutter"), shownA);
+        }
+    }
+
+    @Test
+    void fitKey_twoKeysDifferingOnlyAtTheModuleEnd_stayDifferent() {
+        String a = "com.example.tools1/com.example.scripts.Woodcutter";
+        String b = "com.example.tools2/com.example.scripts.Woodcutter";
+
+        for (int width = 16; width < a.length(); width++) {
+            assertNotEquals(SafeText.fitKey(a, width, CHARS), SafeText.fitKey(b, width, CHARS), "at width " + width);
+        }
+    }
+
+    @Test
+    void fitKey_twoKeysDifferingOnlyInTheClassName_stayDifferent() {
+        String a = "com.example.tools/com.example.scripts.Woodcutter";
+        String b = "com.example.tools/com.example.scripts.Fisher";
+
+        for (int width = 12; width < b.length(); width++) {
+            assertNotEquals(SafeText.fitKey(a, width, CHARS), SafeText.fitKey(b, width, CHARS), "at width " + width);
+        }
+    }
+
+    @Test
+    void fitKey_aModuleTooLongForTheWidth_losesItsMiddleNotItsEnds() {
+        String shown = SafeText.fitKey("com.alpha.very.long.module.name/com.example.Woodcutter", 30, CHARS);
+
+        assertTrue(shown.length() <= 30, shown);
+        assertTrue(shown.startsWith("com.alp"), shown);
+        assertTrue(shown.endsWith("/" + SafeText.ELLIPSIS + "Woodcutter"), shown);
     }
 }

@@ -137,6 +137,11 @@ public final class VoiceConsent implements VoiceGate {
         }
     }
 
+    /** Saves any decision the store could not write yet. Called when the host closes. */
+    public void flush() {
+        store.flush();
+    }
+
     // ── The script gates' side ────────────────────────────────────────────
 
     Optional<MicrophoneDecision> stored(ScriptIdentity script) {

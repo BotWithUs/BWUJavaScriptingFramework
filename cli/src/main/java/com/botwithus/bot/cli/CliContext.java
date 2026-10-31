@@ -382,11 +382,13 @@ public class CliContext {
     }
 
     /**
-     * Stops voice recognition and releases the speech engine. Called from the two shutdown
+     * Stops voice recognition, releases the speech engine, and saves any microphone decision
+     * that could not be written yet. Called from the two shutdown
      * paths, beside {@link #closeGamevals()}.
      */
     public void closeVoice() {
         voice.close();
+        voiceConsent.flush();
     }
 
     /**

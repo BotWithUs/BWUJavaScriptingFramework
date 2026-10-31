@@ -24,6 +24,10 @@ public interface VoiceConsentStore {
     /** Forgets the decision for the script with {@code key}, so it is asked again. */
     void forget(String key);
 
+    /** Writes anything not yet saved, for a store that may defer writes. Called when the host closes. */
+    default void flush() {
+    }
+
     /** A store that remembers for as long as the process runs. */
     static VoiceConsentStore inMemory() {
         return new MemoryConsentStore();

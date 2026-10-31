@@ -14,7 +14,7 @@ import java.util.Objects;
  */
 public record MicrophoneRow(String key, String name, boolean isAllowed) {
 
-    /** The longest key shown; cut from the front, so the class at its end stays visible. */
+    /** The longest key shown; its middle gives way, so the module and the class's end stay. */
     static final int MAX_KEY_CHARS = 160;
 
     public MicrophoneRow {
@@ -22,9 +22,9 @@ public record MicrophoneRow(String key, String name, boolean isAllowed) {
         Objects.requireNonNull(name, "name");
     }
 
-    /** The key as the table shows it: one clean line, its end kept. */
+    /** The key as the table shows it: one clean line, with the module and the class's end kept. */
     public String shownKey() {
-        return SafeText.lineKeepingTail(key, MAX_KEY_CHARS);
+        return SafeText.key(key, MAX_KEY_CHARS);
     }
 
     /** The decision as the table shows it. */

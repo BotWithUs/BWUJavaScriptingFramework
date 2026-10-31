@@ -128,8 +128,8 @@ final class MicrophoneConsentModal {
         float cy = y + tile + m().u(3);
         cy = paragraph(draw, ui.fonts().body(), x, cy, width, ImGuiTheme.COL_FG, text.body());
         ImFont mono = ui.fonts().monoCaption();
-        // Shortened from the front: a key's end (the class) is what tells two scripts apart.
-        ui.text(draw, mono, x, cy, ImGuiTheme.COL_FG2, SafeText.keepTail(text.scriptKey(), width,
+        // The module and the class's end are what tell two scripts apart; the middle gives way.
+        ui.text(draw, mono, x, cy, ImGuiTheme.COL_FG2, SafeText.fitKey(text.scriptKey(), width,
                 key -> ui.width(mono, key)));
         cy += fs() * LINE_EM + m().u(2);
         ui.text(draw, ui.fonts().small(), x, cy, ImGuiTheme.COL_FG2, text.listLabel());

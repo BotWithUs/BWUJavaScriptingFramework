@@ -213,6 +213,91 @@ class VoiceConsentFileTest {
         assertEquals(Optional.of(MicrophoneDecision.DENIED), store.find(KEY).map(StoredConsent::decision));
     }
 
+    // ── A change that could not be written ────────────────────────────────
+
+    /** Runs {@code change} while another holder has the sidecar lock, so it cannot be written. */
+    private void whileLocked(Runnable change) throws IOException {
+        Path lock = file().resolveSibling(VoiceConsentFile.FILE_NAME + ".lock");
+        try (FileChannel channel = FileChannel.open(lock, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             FileLock held = channel.lock()) {
+            change.run();
+            assertTrue(held.isValid());
+        }
+    }
+
+    private Optional<MicrophoneDecision> onDisk(String key) {
+        return new VoiceConsentFile(file()).find(key).map(StoredConsent::decision);
+    }
+
+    @Test
+    void anUnsavedAllow_neverOverridesADenySavedByAnotherHost() throws IOException {
+        VoiceConsentFile hostA = new VoiceConsentFile(file());
+        whileLocked(() -> hostA.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.ALLOWED)));
+
+        new VoiceConsentFile(file()).save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.DENIED));
+
+        assertEquals(Optional.of(MicrophoneDecision.DENIED), hostA.find(KEY).map(StoredConsent::decision));
+        assertEquals(List.of(MicrophoneDecision.DENIED),
+                hostA.all().stream().map(StoredConsent::decision).toList());
+    }
+
+    @Test
+    void anUnsavedAllow_isNeitherAnsweredNorListed_overNoDecision() throws IOException {
+        VoiceConsentFile store = new VoiceConsentFile(file());
+
+        whileLocked(() -> store.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.ALLOWED)));
+
+        assertEquals(Optional.empty(), store.find(KEY));
+        assertEquals(List.of(), store.all());
+    }
+
+    @Test
+    void anUnsavedDeny_isWrittenWithTheNextChange() throws IOException {
+        new VoiceConsentFile(file()).save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.ALLOWED));
+        VoiceConsentFile store = new VoiceConsentFile(file());
+        whileLocked(() -> store.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.DENIED)));
+        assertEquals(Optional.of(MicrophoneDecision.ALLOWED), onDisk(KEY), "sanity: the Deny is not on disk yet");
+
+        store.save(new StoredConsent(OTHER, "Fisher", MicrophoneDecision.DENIED));
+
+        assertEquals(Optional.of(MicrophoneDecision.DENIED), onDisk(KEY));
+        assertEquals(Optional.of(MicrophoneDecision.DENIED), onDisk(OTHER));
+    }
+
+    @Test
+    void anUnsavedReset_isWrittenWithTheNextChange() throws IOException {
+        new VoiceConsentFile(file()).save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.ALLOWED));
+        VoiceConsentFile store = new VoiceConsentFile(file());
+        whileLocked(() -> store.forget(KEY));
+        assertEquals(Optional.empty(), store.find(KEY), "this host already treats it as reset");
+
+        store.save(new StoredConsent(OTHER, "Fisher", MicrophoneDecision.DENIED));
+
+        assertEquals(Optional.empty(), onDisk(KEY));
+    }
+
+    @Test
+    void flush_writesAnUnsavedDeny_soTheNextStartDoesNotAllow() throws IOException {
+        new VoiceConsentFile(file()).save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.ALLOWED));
+        VoiceConsentFile store = new VoiceConsentFile(file());
+        whileLocked(() -> store.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.DENIED)));
+
+        store.flush();
+
+        assertEquals(Optional.of(MicrophoneDecision.DENIED), onDisk(KEY));
+    }
+
+    @Test
+    void aNewerAllow_replacesAnUnsavedDenyOfTheSameScript() throws IOException {
+        VoiceConsentFile store = new VoiceConsentFile(file());
+        whileLocked(() -> store.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.DENIED)));
+
+        store.save(new StoredConsent(KEY, "Woodcutter", MicrophoneDecision.ALLOWED));
+
+        assertEquals(Optional.of(MicrophoneDecision.ALLOWED), onDisk(KEY));
+        assertEquals(Optional.of(MicrophoneDecision.ALLOWED), store.find(KEY).map(StoredConsent::decision));
+    }
+
     @Test
     void awkwardKeysAndNames_roundTrip() {
         String[] keys = {"m/a=b:c d", "mod.ü/pkg.Ün$Inner", "m/#x!y\\z", "m/‮evil",

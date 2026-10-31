@@ -8,8 +8,8 @@ import java.util.function.ToDoubleFunction;
  * <p>A script's name and phrases come from the script itself, so they may hold line breaks,
  * control characters or invisible formatting characters (such as the ones that reverse the
  * direction of the text after them). Any of those could make one script's prompt read like
- * another's. {@link #line} removes them and caps the length; {@link #keepTail} shortens from
- * the front, for text whose end is what tells two values apart.</p>
+ * another's. {@link #line} removes them and caps the length. {@link #fitKey} shortens a script
+ * key while keeping both of the parts that tell two keys apart.</p>
  */
 public final class SafeText {
 
@@ -47,37 +47,69 @@ public final class SafeText {
     }
 
     /**
-     * {@code raw} cleaned as {@link #line} does, but cut from the front to {@code maxChars},
-     * so the end survives: for keys, whose last part tells two of them apart.
+     * {@code raw} cleaned as {@link #line} does, then fitted to {@code maxChars} by
+     * {@link #fitKey}: for a script key, where both ends tell two keys apart.
      */
-    public static String lineKeepingTail(String raw, int maxChars) {
-        String clean = line(raw, Integer.MAX_VALUE);
-        int length = clean.codePointCount(0, clean.length());
-        if (length <= maxChars) {
-            return clean;
-        }
-        int start = clean.offsetByCodePoints(0, length - Math.max(0, maxChars - 1));
-        return ELLIPSIS + clean.substring(start).stripLeading();
+    public static String key(String raw, int maxChars) {
+        return fitKey(line(raw, Integer.MAX_VALUE), maxChars, SafeText::codePoints);
     }
 
     /**
-     * The end of {@code text} that fits in {@code maxWidth} as measured by {@code width},
-     * after an ellipsis: the front gives way first, so the distinguishing end stays visible.
+     * A script key, {@code <module>/<class>}, shortened to fit {@code maxWidth} as measured by
+     * {@code width}, keeping what tells two keys apart: the whole module and the end of the
+     * class. The class's package gives way first. Only when the module and the class's simple
+     * name do not fit together is the middle of the module cut. A key with no {@code /} has its
+     * middle cut.
      */
-    public static String keepTail(String text, double maxWidth, ToDoubleFunction<String> width) {
+    public static String fitKey(String key, double maxWidth, ToDoubleFunction<String> width) {
+        if (width.applyAsDouble(key) <= maxWidth) {
+            return key;
+        }
+        int slash = key.indexOf('/');
+        if (slash < 0) {
+            return keepEnds(key, maxWidth, width);
+        }
+        String module = key.substring(0, slash + 1);
+        String type = key.substring(slash + 1);
+        int simple = simpleNameStart(type);
+        for (int start = nextCodePoint(type, 0); start <= simple; start = nextCodePoint(type, start)) {
+            String shown = module + ELLIPSIS + type.substring(start);
+            if (width.applyAsDouble(shown) <= maxWidth) {
+                return shown;
+            }
+        }
+        String tail = simple == 0 ? type : ELLIPSIS + type.substring(simple);
+        return keepEnds(module, maxWidth - width.applyAsDouble(tail), width) + tail;
+    }
+
+    /** {@code text} with its middle replaced by an ellipsis, keeping as much of both ends as fits. */
+    static String keepEnds(String text, double maxWidth, ToDoubleFunction<String> width) {
         if (width.applyAsDouble(text) <= maxWidth) {
             return text;
         }
-        for (int start = 1; start < text.length(); start++) {
-            if (Character.isLowSurrogate(text.charAt(start))) {
-                continue;
-            }
-            String shown = ELLIPSIS + text.substring(start);
+        int[] cps = text.codePoints().toArray();
+        for (int kept = cps.length - 1; kept > 0; kept--) {
+            int head = (kept + 1) / 2;
+            int tail = kept - head;
+            String shown = new String(cps, 0, head) + ELLIPSIS + new String(cps, cps.length - tail, tail);
             if (width.applyAsDouble(shown) <= maxWidth) {
                 return shown;
             }
         }
         return ELLIPSIS;
+    }
+
+    /** Where the class's simple name starts: after its last {@code .} or {@code $}. */
+    private static int simpleNameStart(String type) {
+        return Math.max(type.lastIndexOf('.'), type.lastIndexOf('$')) + 1;
+    }
+
+    private static int nextCodePoint(String text, int index) {
+        return index >= text.length() ? text.length() + 1 : index + Character.charCount(text.codePointAt(index));
+    }
+
+    private static double codePoints(String text) {
+        return text.codePointCount(0, text.length());
     }
 
     private static boolean isHidden(int cp) {
