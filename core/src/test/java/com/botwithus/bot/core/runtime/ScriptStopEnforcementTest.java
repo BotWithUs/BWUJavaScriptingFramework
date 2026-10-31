@@ -12,6 +12,12 @@ import com.botwithus.bot.api.voice.VoiceSession;
 import com.botwithus.bot.core.impl.EventBusImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
+import com.botwithus.bot.core.voice.ConsentAnswer;
+import com.botwithus.bot.core.voice.ConsentRequest;
+import com.botwithus.bot.core.voice.MicrophoneDecision;
+import com.botwithus.bot.core.voice.StoredConsent;
+import com.botwithus.bot.core.voice.VoiceConsent;
+import com.botwithus.bot.core.voice.VoiceConsentStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -454,15 +460,13 @@ class ScriptStopEnforcementTest {
         ScriptRuntime runtime = new ScriptRuntime(new ScriptContextImpl(
                 mock(GameAPI.class), new EventBusImpl(), new MessageBusImpl()).withVoiceInput(host));
         CountDownLatch listening = new CountDownLatch(1);
+        BotScript script = listenOnStart(listening);
+        VoiceConsentStore store = VoiceConsentStore.inMemory();
+        store.save(new StoredConsent(ScriptIdentity.of(script.getClass(), "listener").key(), "listener",
+                MicrophoneDecision.ALLOWED));
+        runtime.setVoiceGate(new VoiceConsent(store));
 
-        ScriptRunner runner = runtime.registerScript(new BotScript() {
-            @Override public void onStart(ScriptContext context) {
-                context.getVoiceInput().listen(List.of("stop"), heard -> { });
-                listening.countDown();
-            }
-            @Override public int onLoop() { return 10; }
-            @Override public void onStop() {}
-        });
+        ScriptRunner runner = runtime.registerScript(script);
         runner.start();
         assertTrue(listening.await(5, TimeUnit.SECONDS), "onStart never ran");
         assertEquals(0, closed.get(), "a running script's session must stay open");
@@ -471,6 +475,81 @@ class ScriptStopEnforcementTest {
         assertTrue(runner.awaitStop(5000));
 
         assertEquals(1, closed.get(), "stopping the script must close the session it left open");
+    }
+
+    @Test
+    @DisplayName("a runtime with no voice gate installed never opens the microphone")
+    void defaultVoiceGateRefusesEveryScript() throws Exception {
+        // Requirement: consent is enforced in core, so a host that wires no prompt and no
+        // gate cannot leak. Nothing below calls setVoiceGate.
+        AtomicInteger listens = new AtomicInteger();
+        VoiceInput host = countingListens(listens);
+        ScriptRuntime runtime = new ScriptRuntime(new ScriptContextImpl(
+                mock(GameAPI.class), new EventBusImpl(), new MessageBusImpl()).withVoiceInput(host));
+        CountDownLatch listening = new CountDownLatch(1);
+
+        ScriptRunner runner = runtime.registerScript(listenOnStart(listening));
+        runner.start();
+        assertTrue(listening.await(5, TimeUnit.SECONDS), "onStart never ran");
+        runner.stop();
+        assertTrue(runner.awaitStop(5000));
+
+        assertEquals(0, listens.get(), "the host's voice input must not be reached without consent");
+    }
+
+    @Test
+    @DisplayName("a script's first listen waits for the user, without blocking the script")
+    void firstListenAsksAndDoesNotBlock() throws Exception {
+        AtomicInteger listens = new AtomicInteger();
+        ScriptRuntime runtime = new ScriptRuntime(new ScriptContextImpl(
+                mock(GameAPI.class), new EventBusImpl(), new MessageBusImpl())
+                .withVoiceInput(countingListens(listens)));
+        VoiceConsent consent = new VoiceConsent(VoiceConsentStore.inMemory());
+        consent.attachPrompt();
+        runtime.setVoiceGate(consent);
+        CountDownLatch listening = new CountDownLatch(1);
+
+        ScriptRunner runner = runtime.registerScript(listenOnStart(listening));
+        runner.start();
+        assertTrue(listening.await(5, TimeUnit.SECONDS), "listen blocked the script's onStart");
+        assertEquals(0, listens.get(), "nothing is heard before the user answers");
+
+        ConsentRequest asked = consent.current().orElseThrow();
+        assertTrue(asked.scriptKey().startsWith(ScriptIdentity.UNNAMED_MODULE + "/"), asked.scriptKey());
+        assertTrue(consent.answer(asked, ConsentAnswer.ALLOW));
+        assertEquals(1, listens.get(), "Allow starts the session the script is holding");
+
+        runner.stop();
+        assertTrue(runner.awaitStop(5000));
+    }
+
+    @Test
+    @DisplayName("a script's identity is its module and class")
+    void scriptIdentityIsModuleAndClass() {
+        assertEquals(ScriptIdentity.UNNAMED_MODULE + "/" + ScriptStopEnforcementTest.class.getName(),
+                ScriptIdentity.of(ScriptStopEnforcementTest.class, "shown").key());
+        assertEquals("java.base/java.lang.String", ScriptIdentity.of(String.class, "shown").key());
+    }
+
+    private static VoiceInput countingListens(AtomicInteger listens) {
+        return new VoiceInput() {
+            @Override public boolean available() { return true; }
+            @Override public VoiceSession listen(List<String> phrases, Consumer<Heard> onHeard) {
+                listens.incrementAndGet();
+                return () -> { };
+            }
+        };
+    }
+
+    private static BotScript listenOnStart(CountDownLatch listening) {
+        return new BotScript() {
+            @Override public void onStart(ScriptContext context) {
+                context.getVoiceInput().listen(List.of("stop"), heard -> { });
+                listening.countDown();
+            }
+            @Override public int onLoop() { return 10; }
+            @Override public void onStop() {}
+        };
     }
 
     @Test

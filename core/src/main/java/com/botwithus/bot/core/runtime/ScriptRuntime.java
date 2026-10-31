@@ -11,13 +11,14 @@ import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.runlog.AgentIdentity;
 import com.botwithus.bot.core.runlog.KnownNames;
 import com.botwithus.bot.core.runlog.RunLogs;
-import com.botwithus.bot.core.voice.ScopedVoiceInput;
+import com.botwithus.bot.core.voice.VoiceConsent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -83,6 +84,11 @@ public class ScriptRuntime {
     private volatile Supplier<KnownNames> runNames = () -> KnownNames.NONE;
     private volatile int slot = RunLogging.NO_SLOT;
     private volatile Supplier<AgentIdentity> agentIdentity = () -> AgentIdentity.UNKNOWN;
+    /**
+     * Decides each script's voice input. Refuses every script until the host installs its
+     * own, so a host that wires no consent cannot open the microphone for a script.
+     */
+    private volatile VoiceGate voiceGate = VoiceConsent.refusingAll();
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
@@ -234,6 +240,14 @@ public class ScriptRuntime {
     }
 
     /**
+     * Installs what decides each script's voice input: the host's shared microphone
+     * consent. Applies to scripts registered after the call.
+     */
+    public void setVoiceGate(VoiceGate gate) {
+        this.voiceGate = Objects.requireNonNull(gate, "gate");
+    }
+
+    /**
      * Gives this connection's script runs a log file each. Until set, runs keep
      * breadcrumbs and crash summaries but write nothing. Applies from the next
      * run of every runner, registered or not.
@@ -362,7 +376,7 @@ public class ScriptRuntime {
      * null when the context isn't scopable (test mocks).
      */
     private record ScopedContext(ScriptContext context, ScopedEventBus bus,
-                                 ScopedMessageBus messages, ScopedVoiceInput voice) {}
+                                 ScopedMessageBus messages, ScriptVoice voice) {}
 
     /**
      * Builds a per-script {@link ScriptContext}: its own {@link ScopedEventBus}
@@ -382,8 +396,8 @@ public class ScriptRuntime {
         // listeners or ISC handlers outlive it keeps acting on the game after Stop.
         ScopedEventBus bus = new ScopedEventBus(impl.getEventBus());
         ScopedMessageBus messages = new ScopedMessageBus(impl.getMessageBus());
-        ScopedVoiceInput voice = new ScopedVoiceInput(impl.getVoiceInput());
         String name = resolveScriptName(script);
+        ScriptVoice voice = voiceGate.forScript(impl.getVoiceInput(), ScriptIdentity.of(script.getClass(), name));
         // Bound straight to the runner's own liveness state, which is created
         // here and handed to the runner below. isStopRequested() is documented
         // as something scripts poll inside long loops, so it must not cost a

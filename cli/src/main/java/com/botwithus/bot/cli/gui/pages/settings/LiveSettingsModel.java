@@ -65,9 +65,17 @@ public final class LiveSettingsModel implements SettingsModel {
      * @param profiles     the saved account profiles, when the host has a store for them
      * @param connections  the open connections, read when metrics are reset
      * @param integrations the alert services, once the host has started its alerts
+     * @param microphone   the remembered microphone decisions per script
      */
     public record Host(HostSettings settings, Optional<ScriptProfileStore> profiles,
-                       Supplier<List<Connection>> connections, Supplier<Optional<Integrations>> integrations) {
+                       Supplier<List<Connection>> connections, Supplier<Optional<Integrations>> integrations,
+                       MicrophoneDecisions microphone) {
+
+        /** A host with no microphone decisions to list. */
+        public Host(HostSettings settings, Optional<ScriptProfileStore> profiles,
+                    Supplier<List<Connection>> connections, Supplier<Optional<Integrations>> integrations) {
+            this(settings, profiles, connections, integrations, MicrophoneDecisions.none());
+        }
 
         /** A host without alerts: the Integrations section says they are not running. */
         public Host(HostSettings settings, Optional<ScriptProfileStore> profiles,
@@ -115,7 +123,7 @@ public final class LiveSettingsModel implements SettingsModel {
     public SettingsView view() {
         SettingsSheet.Inputs inputs = new SettingsSheet.Inputs(accounts(), folder(places.dataFolder()),
                 folder(places.scriptsFolder()), file(settings.file()), windowsPercent.getAsInt(), note,
-                host.integrations().get());
+                host.integrations().get(), host.microphone().rows());
         return SettingsSheet.build(settings, settings.status(), inputs);
     }
 
@@ -144,6 +152,11 @@ public final class LiveSettingsModel implements SettingsModel {
     public void forgetScripts(String accountUuid) {
         profiles().ifPresent(store -> store.setAccountScripts(accountUuid, List.of()));
         accountsReadAt = Instant.MIN;
+    }
+
+    @Override
+    public void resetMicrophone(String key) {
+        host.microphone().reset(key);
     }
 
     @Override

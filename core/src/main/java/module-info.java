@@ -1,3 +1,8 @@
+// "module": the qualified export of core.voice names com.botwithus.bot.cli, which depends on
+// core and so is never observable while core compiles. javac warns "module not found" for
+// that, and -Werror makes it fatal. The suppression covers only this lint category, whose
+// other job is the same unknown-module check on `exports ... to` / `opens ... to`.
+@SuppressWarnings("module")
 module com.botwithus.bot.core {
     uses com.botwithus.bot.api.BotScript;
     uses com.botwithus.bot.api.script.ManagementScript;
@@ -48,7 +53,10 @@ module com.botwithus.bot.core {
     exports com.botwithus.bot.core.sdn;
     exports com.botwithus.bot.core.secrets;
     exports com.botwithus.bot.core.shm;
-    exports com.botwithus.bot.core.voice;
+    // Qualified: the voice service and the consent store are host plumbing. Scripts are
+    // handed voice input only through ScriptContext.getVoiceInput(); only the host
+    // front-end builds the service and shows the consent prompt.
+    exports com.botwithus.bot.core.voice to com.botwithus.bot.cli;
     exports com.botwithus.bot.core.window;
     exports com.botwithus.bot.core.worldwalker;
 }

@@ -15,6 +15,14 @@ import java.util.function.Consumer;
  * one microphone and one active grammar per host: a new {@code listen}, from this script or
  * another, replaces the previous grammar, and the replaced session goes quiet.</p>
  *
+ * <p><b>The user decides whether a script may listen.</b> The first time a script calls
+ * {@code listen}, the host asks the user whether that script may use the microphone, and
+ * remembers the answer. Until the user allows it the session hears nothing, and if the user
+ * denies it, or closes the question without answering, it stays silent. A host with no
+ * window to ask in (a headless or console host) refuses any script the user has not already
+ * allowed. So never assume a session is live: a script whose voice commands are optional
+ * should keep working without them, and should not treat silence as an error.</p>
+ *
  * <p>Reach it from a script through
  * {@link com.botwithus.bot.api.ScriptContext#getVoiceInput()}. Sessions a script opens are
  * closed for it when it stops.</p>
@@ -42,6 +50,8 @@ public interface VoiceInput {
 
     /**
      * Whether a recogniser, a speech language pack and an audio input device are present.
+     * It says nothing about whether the user has allowed this script to listen, and never
+     * asks them.
      *
      * <p>Never throws; anything that prevents the check reports {@code false}. It asks the
      * operating system each time, so it can block for a moment. Call it once when the
@@ -52,7 +62,16 @@ public interface VoiceInput {
     boolean available();
 
     /**
-     * Starts listening for {@code phrases}, replacing whatever grammar was active.
+     * Starts listening for {@code phrases}, replacing whatever grammar was active, once the
+     * user has allowed this script to use the microphone.
+     *
+     * <p>Returns at once, without waiting for the user. If they have not decided yet, the
+     * returned session hears nothing until they allow it; the host asks them on the first
+     * call. Their answer applies to the latest session the script still holds open, so
+     * calling {@code listen} again while they decide replaces the phrases they are asked
+     * about rather than asking twice. Closing the session, or the script stopping, before
+     * they answer means nothing is ever heard from it. If they deny it, every session the
+     * script opens stays silent until they reset the decision in the host's settings.</p>
      *
      * <p>{@code onHeard} runs on a host thread dedicated to voice callbacks, never on the
      * script's own loop thread and never on the thread that talks to the speech engine. All
@@ -70,7 +89,8 @@ public interface VoiceInput {
      * @param phrases the phrases to recognise. There must be at least one; none may be blank,
      *                and no two may be the same once case, punctuation and spacing are ignored
      * @param onHeard called with each phrase heard while this session is the active one
-     * @return the session; close it to stop listening
+     * @return the session; close it to stop listening. It may never hear anything if the user
+     *         has not allowed this script
      * @throws IllegalArgumentException if {@code phrases} is empty, holds a blank phrase, or
      *                                  holds two phrases that would be indistinguishable
      * @throws NullPointerException     if {@code phrases}, a phrase, or {@code onHeard} is null

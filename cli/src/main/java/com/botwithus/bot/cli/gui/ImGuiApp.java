@@ -57,6 +57,7 @@ import com.botwithus.bot.cli.gui.pages.installed.LiveInstalledModel;
 import com.botwithus.bot.cli.gui.pages.management.LiveManagementModel;
 import com.botwithus.bot.cli.gui.pages.management.ManagementPage;
 import com.botwithus.bot.cli.gui.pages.settings.LiveSettingsModel;
+import com.botwithus.bot.cli.gui.pages.settings.MicrophoneDecisions;
 import com.botwithus.bot.cli.gui.pages.settings.SettingsPage;
 import com.botwithus.bot.cli.gui.pages.store.LiveStoreModel;
 import com.botwithus.bot.cli.gui.pages.store.StoreCatalogue;
@@ -180,6 +181,7 @@ public class ImGuiApp extends Application {
     private ScriptReports scriptReports;
     private ReportFlow reportFlow;
     private ReportDialog reportDialog;
+    private MicrophoneConsentModal microphoneModal;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "bwu-cmd");
@@ -287,6 +289,7 @@ public class ImGuiApp extends Application {
         guiOut.println(AnsiCodes.colorize(BANNER, AnsiCodes.CYAN));
 
         registerWithLauncher();
+        attachMicrophonePrompt();
         ctx.initManagementRuntime();
         // The first management load pass, which also starts the scripts that were
         // running when the host last stopped. Loading JARs blocks, so off the render thread.
@@ -326,6 +329,15 @@ public class ImGuiApp extends Application {
                 gate.closeRequestAnswer(System::getProperty));
         closeRequestModal = new CloseRequestModal(ui, closeRequestPrompt);
         launcherHost = LauncherHost.register(ctx, LauncherHost.GUI_LABEL, gate, closeRequestPrompt::offer);
+    }
+
+    /**
+     * Lets scripts ask for the microphone: before any script starts, so the first
+     * {@code listen} of an auto-started script is asked rather than refused.
+     */
+    private void attachMicrophonePrompt() {
+        microphoneModal = new MicrophoneConsentModal(ui, new MicrophonePrompt(ctx.getVoiceConsent()));
+        ctx.getVoiceConsent().attachPrompt();
     }
 
     private void acknowledgeClose(long requestId, CloseDecision decision) {
@@ -597,7 +609,8 @@ public class ImGuiApp extends Application {
         LiveSettingsModel.Places places = new LiveSettingsModel.Places(HostSettings.defaultBaseDir(),
                 LocalScriptLoader.scriptsDir(), LiveSettingsModel.exportFolderIn(home), home, Path.of(""));
         LiveSettingsModel.Host host = new LiveSettingsModel.Host(settings,
-                Optional.ofNullable(ctx.getProfileStore()), ctx::getConnections, ctx::getIntegrations);
+                Optional.ofNullable(ctx.getProfileStore()), ctx::getConnections, ctx::getIntegrations,
+                MicrophoneDecisions.of(ctx.getVoiceConsent()));
         return new SettingsPage(ui, new LiveSettingsModel(host, places, LiveSettingsModel::openOnDesktop,
                 task -> Thread.ofVirtual().name("settings-io").start(task), Clock.systemDefaultZone(),
                 fontRebuild::monitorPercent));
@@ -635,6 +648,7 @@ public class ImGuiApp extends Application {
         currentMode = modeRequest.resolve(shell.render(currentMode, board, toastRoutes));
         reportDialog.render();
         closeRequestModal.render();
+        microphoneModal.render();
         if (closeRequestPrompt.takeShutdownRequest()) {
             shutdown();
         }
@@ -655,6 +669,8 @@ public class ImGuiApp extends Application {
 
     @Override
     protected void disposeImGui() {
+        // Nothing will answer from here on: questions still waiting refuse their scripts for this run.
+        ctx.getVoiceConsent().detachPrompt();
         // The sandboxes share this context's font atlas, so they go first.
         scriptUis.close();
         hostIni.save();

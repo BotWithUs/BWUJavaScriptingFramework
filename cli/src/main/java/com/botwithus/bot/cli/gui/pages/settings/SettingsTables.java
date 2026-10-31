@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.Controls.Tone;
 import com.botwithus.bot.cli.gui.Icons;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
+import com.botwithus.bot.cli.gui.SafeText;
 
 import imgui.ImDrawList;
 import imgui.ImFont;
@@ -13,9 +14,10 @@ import imgui.type.ImString;
 import java.util.List;
 
 /**
- * The two tables on the Settings page: saved accounts (who resumes what) and
- * every key in {@code config.properties}. Both are drawn straight onto the draw
- * list in the page's token style rather than as ImGui tables.
+ * The tables on the Settings page: saved accounts (who resumes what), the scripts
+ * with a remembered microphone decision, and every key in {@code config.properties}.
+ * All are drawn straight onto the draw list in the page's token style rather than as
+ * ImGui tables.
  */
 final class SettingsTables {
 
@@ -24,12 +26,14 @@ final class SettingsTables {
     private static final float KEY_ROW_EM = 2.4f;
     private static final float AUTO_START_COLUMN_EM = 7.33f;
     private static final float FORGET_COLUMN_EM = 4f;
+    private static final float DECISION_COLUMN_EM = 8f;
     private static final float VALUE_COLUMN_EM = 14.67f;
     private static final float ACCOUNT_SHARE = 0.4f;
     private static final float KEY_SHARE = 0.55f;
     private static final float EMPTY_ROW_EM = 3f;
     private static final String RAW_ID = "raw:";
     private static final String NOTHING_SAVED = "nothing saved";
+    private static final String NO_MICROPHONE = "No script has asked for the microphone yet.";
 
     private final Controls ui;
     private final SettingsWidgets widgets;
@@ -133,6 +137,62 @@ final class SettingsTables {
         float h = m.chipHeight();
         draw.addRect(x + 0.5f, y + 0.5f, x + w - 0.5f, y + h - 0.5f, ImGuiTheme.COL_BORDER, m.radiusSmall());
         ui.textCentredY(draw, ui.fonts().caption(), x + m.u(2), y, h, fg, label);
+    }
+
+    // ── Microphone ─────────────────────────────────────────────────────────
+
+    /** Draws the scripts with a remembered microphone decision; returns the height. */
+    float microphone(List<MicrophoneRow> rows, float x, float y, float width, SettingsModel model) {
+        ImGuiTheme.Metrics m = ui.m();
+        if (rows.isEmpty()) {
+            float h = m.fontSize() * EMPTY_ROW_EM;
+            ui.textCentredY(ImGui.getWindowDrawList(), ui.fonts().small(), x + m.u(4), y, h, ImGuiTheme.COL_FG2,
+                    ui.ellipsize(ui.fonts().small(), NO_MICROPHONE, width - m.u(4) * 2f));
+            return h;
+        }
+        float[] cols = microphoneColumns(x, width);
+        float headerH = m.fontSize() * HEADER_EM;
+        header(y, headerH, cols, "Script", "Microphone");
+        float cy = y + headerH;
+        for (MicrophoneRow row : rows) {
+            cy += microphoneRow(row, cols, x, cy, width, model);
+        }
+        return cy - y;
+    }
+
+    /** Left edges of the three columns: script, decision, reset. */
+    private float[] microphoneColumns(float x, float width) {
+        ImGuiTheme.Metrics m = ui.m();
+        float fs = m.fontSize();
+        float reset = x + width - m.u(4) - fs * FORGET_COLUMN_EM;
+        float decision = reset - fs * DECISION_COLUMN_EM;
+        return new float[] {x + m.u(4), decision, reset};
+    }
+
+    private float microphoneRow(MicrophoneRow row, float[] cols, float x, float y, float width,
+                                SettingsModel model) {
+        ImGuiTheme.Metrics m = ui.m();
+        float h = m.fontSize() * ACCOUNT_ROW_EM;
+        ImDrawList draw = ImGui.getWindowDrawList();
+        ImFont name = ui.fonts().small();
+        ImFont key = ui.fonts().monoCaption();
+        float textTop = y + (h - name.getFontSize() - key.getFontSize() - m.u(1)) * 0.5f;
+        float nameW = cols[1] - cols[0] - m.u(3);
+        ui.text(draw, name, cols[0], textTop, ImGuiTheme.COL_FG, ui.ellipsize(name, row.name(), nameW));
+        ui.text(draw, key, cols[0], textTop + name.getFontSize() + m.u(1), ImGuiTheme.COL_FG2,
+                SafeText.fitKey(row.shownKey(), nameW, k -> ui.width(key, k)));
+        int fg = row.isAllowed() ? ImGuiTheme.COL_INFO : ImGuiTheme.COL_FG2;
+        int bg = row.isAllowed() ? ImGuiTheme.COL_INFO_SOFT : ImGuiTheme.COL_SURFACE;
+        ui.chip(draw, cols[1], y + (h - m.chipHeight()) * 0.5f, row.decisionLabel(), fg, bg, 1f);
+        ImGui.setCursorScreenPos(cols[2], y + (h - m.controlHeight()) * 0.5f);
+        if (ui.button("##mic-reset-" + row.key(), Icons.ROTATE_LEFT, "", Tone.ICON, true)) {
+            model.resetMicrophone(row.key());
+        }
+        if (ImGui.isItemHovered()) {
+            ImGui.setTooltip("Forget this answer. " + row.name() + " is asked again the next time it listens.");
+        }
+        draw.addLine(x, y, x + width, y, ImGuiTheme.COL_BORDER, m.hairline());
+        return h;
     }
 
     // ── All config keys ────────────────────────────────────────────────────

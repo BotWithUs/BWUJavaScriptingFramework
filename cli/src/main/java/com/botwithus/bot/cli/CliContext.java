@@ -104,6 +104,8 @@ import com.botwithus.bot.api.script.ManagementScript;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.core.gameval.HostGamevals;
+import com.botwithus.bot.core.voice.VoiceConsent;
+import com.botwithus.bot.core.voice.VoiceConsentFile;
 import com.botwithus.bot.core.voice.VoiceInputService;
 
 import java.awt.image.BufferedImage;
@@ -200,6 +202,13 @@ public class CliContext {
      * {@code listen}. Closed from the two shutdown paths by {@link #closeVoice()}.
      */
     private final VoiceInputService voice = VoiceInputService.windowsDefaultMicrophone();
+    /**
+     * Which scripts may use {@link #voice}. Every connection's runtime goes through it, so
+     * a script reaches the microphone only once the user has allowed it. Decisions are kept
+     * in the data folder; undecided scripts are asked through the GUI's prompt, and stay
+     * refused in a host with no GUI.
+     */
+    private final VoiceConsent voiceConsent = new VoiceConsent(VoiceConsentFile.inUserHome());
     private final ConnectionHistory connectionHistory = new ConnectionHistory();
     private final Clock clock = Clock.systemUTC();
     /**
@@ -373,11 +382,26 @@ public class CliContext {
     }
 
     /**
-     * Stops voice recognition and releases the speech engine. Called from the two shutdown
+     * Stops voice recognition, releases the speech engine, and saves any microphone decision
+     * that could not be written yet. Called from the two shutdown
      * paths, beside {@link #closeGamevals()}.
      */
     public void closeVoice() {
         voice.close();
+        voiceConsent.flush();
+    }
+
+    /**
+     * Which scripts may use the microphone; the GUI attaches its prompt and lists decisions here.
+     *
+     * <p>"exports": core exports {@code core.voice} to this module alone, because the voice
+     * service and the consent store are host plumbing. javac warns that a client of this
+     * package might not see the type, but no module requires {@code com.botwithus.bot.cli}:
+     * it is the application. Do not widen the export to quiet the lint.</p>
+     */
+    @SuppressWarnings("exports")
+    public VoiceConsent getVoiceConsent() {
+        return voiceConsent;
     }
 
     /** Stops the alerts. Called from the two shutdown paths, beside {@link #closeGamevals()}. */
@@ -850,6 +874,7 @@ public class CliContext {
         ClientImpl client = new ClientImpl(name, gameAPI, eventBus, pipe::isOpen, pump.region(),
                 characterName);
         ScriptRuntime runtime = newRuntime(context, name, scriptCtxChannel, eventBus);
+        runtime.setVoiceGate(voiceConsent);
         wireScriptGate(runtime, rpc, gameAPI);
 
         Connection conn = new Connection(name, pipe, rpc, runtime, new ScriptManagerImpl(runtime), connectedAt);
