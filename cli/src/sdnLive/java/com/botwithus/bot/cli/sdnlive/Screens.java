@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.sdnlive;
 
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.cli.gui.pages.store.InstallActivity;
 import com.botwithus.bot.cli.gui.pages.store.LiveStoreModel;
 import com.botwithus.bot.cli.gui.pages.store.RowState;
@@ -58,11 +59,12 @@ final class Screens {
             return installer.install(entries);
         };
         StoreCopies copies = StoreCopies.of(installer.ledger());
+        StoreRegistrar registrar = new StoreRegistrar(installer.shelf());
         // No local scripts, as in PickerScreen: only the Store may supply these entries.
-        this.store = new LiveStoreModel(catalogue, counted, copies, installer::isDeliveryEnabled,
+        this.store = new LiveStoreModel(catalogue, counted, registrar, copies, installer::isDeliveryEnabled,
                 FavouritesStore.inUserHome(), host.context()::getConnections, List::of,
                 task -> Thread.ofVirtual().name("sdn-store-install").start(task), InstantSource.system());
-        this.picker = new PickerScreen(host.context()::getConnections, catalogue, counted, copies);
+        this.picker = new PickerScreen(host.context()::getConnections, catalogue, counted, registrar, copies);
     }
 
     /** Asks for the catalogue and waits until both screens list every one of {@code ids}. */

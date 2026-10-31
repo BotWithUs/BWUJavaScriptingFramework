@@ -1,5 +1,7 @@
 package com.botwithus.bot.api.model;
 
+import java.util.Objects;
+
 /**
  * Configuration for world-scale pathfinding. All fields use defaults matching
  * the pathfinder's own; only override what you need.
@@ -9,8 +11,18 @@ package com.botwithus.bot.api.model;
  * var config = WorldPathConfig.builder()
  *         .allowTeleports(false)
  *         .allowShortcuts(true)
+ *         .allowSurge(false)
  *         .build();
  * }</pre>
+ *
+ * <p>What the world walker honours: the {@code allow*} flags, here and on
+ * {@link #movement()}. It routes against a pre-baked graph, so
+ * {@code agilityLevel}, {@code maxIterations}, the five {@code *Cost} fields,
+ * {@code globalTeleportMinHeuristic} and {@code heuristicWeight} are carried
+ * but not applied. A walker build that predates movement options honours none
+ * of the {@code allow*} flags except {@link MovementOptions#allowSurge()} and
+ * {@link MovementOptions#allowDive()}, which the host applies itself; the host
+ * logs a warning when that happens.</p>
  *
  * @param agilityLevel              player agility level (≤1 = auto-read from stats)
  * @param maxIterations             max pathfinder iterations
@@ -27,6 +39,7 @@ package com.botwithus.bot.api.model;
  * @param transportCost             extra cost for transport links
  * @param globalTeleportMinHeuristic min heuristic distance before teleports considered
  * @param heuristicWeight           A* heuristic weight multiplier
+ * @param movement                  the special movement the walker may use; never {@code null}
  */
 public record WorldPathConfig(
         int agilityLevel,
@@ -43,7 +56,8 @@ public record WorldPathConfig(
         float climboverCost,
         float transportCost,
         float globalTeleportMinHeuristic,
-        float heuristicWeight
+        float heuristicWeight,
+        MovementOptions movement
 ) {
 
     // ── Defaults matching the server. Named once and reused by both DEFAULT and
@@ -58,7 +72,7 @@ public record WorldPathConfig(
     private static final float DEFAULT_TELEPORT_MIN_HEURISTIC   = 100.0f;
     private static final float DEFAULT_HEURISTIC_WEIGHT         = 1.0f;
 
-    /** Default config matching server defaults. */
+    /** Default config matching server defaults, with every movement option allowed. */
     public static final WorldPathConfig DEFAULT = new WorldPathConfig(
             DEFAULT_AGILITY_LEVEL_AUTO, DEFAULT_MAX_ITERATIONS,
             true, true, true, true, true, true,
@@ -67,8 +81,62 @@ public record WorldPathConfig(
             DEFAULT_TELEPORT_MIN_HEURISTIC, DEFAULT_HEURISTIC_WEIGHT
     );
 
+    public WorldPathConfig {
+        Objects.requireNonNull(movement, "movement");
+    }
+
+    /**
+     * The constructor as it was before {@link #movement()} existed: every movement option
+     * allowed.
+     */
+    public WorldPathConfig(int agilityLevel, int maxIterations,
+                           boolean allowDoors, boolean allowShortcuts,
+                           boolean allowPlaneTransitions, boolean allowClimbovers,
+                           boolean allowTransports, boolean allowTeleports,
+                           float doorCost, float transitionCost, float shortcutCost,
+                           float climboverCost, float transportCost,
+                           float globalTeleportMinHeuristic, float heuristicWeight) {
+        this(agilityLevel, maxIterations, allowDoors, allowShortcuts, allowPlaneTransitions,
+                allowClimbovers, allowTransports, allowTeleports, doorCost, transitionCost,
+                shortcutCost, climboverCost, transportCost, globalTeleportMinHeuristic,
+                heuristicWeight, MovementOptions.ALL);
+    }
+
     public static Builder builder() {
         return new Builder();
+    }
+
+    /**
+     * Special movement the walker may use, each allowed by default. The first seven narrow
+     * the transitions the planner routes through; they apply on top of
+     * {@link #allowTeleports()} and {@link #allowTransports()}, so turning a whole class off
+     * there turns these off with it. {@code allowSurge} and {@code allowDive} gate the
+     * movement abilities the host fires on long walk hops.
+     *
+     * @param allowSpiritTrees          allow spirit-tree travel
+     * @param allowGliders              allow gnome-glider travel
+     * @param allowCharters             allow charter ships
+     * @param allowFairyRings           allow fairy rings
+     * @param allowLodestones           allow lodestone teleports
+     * @param allowMagicCarpets         allow magic-carpet travel
+     * @param allowOtherTeleportChains  allow every other teleport chain (items, spells, ...)
+     * @param allowSurge                allow the Surge ability on walk hops
+     * @param allowDive                 allow the Dive / Bladed Dive ability on walk hops
+     */
+    public record MovementOptions(
+            boolean allowSpiritTrees,
+            boolean allowGliders,
+            boolean allowCharters,
+            boolean allowFairyRings,
+            boolean allowLodestones,
+            boolean allowMagicCarpets,
+            boolean allowOtherTeleportChains,
+            boolean allowSurge,
+            boolean allowDive
+    ) {
+        /** Every movement option allowed. */
+        public static final MovementOptions ALL =
+                new MovementOptions(true, true, true, true, true, true, true, true, true);
     }
 
     public static final class Builder {
@@ -87,6 +155,15 @@ public record WorldPathConfig(
         private float transportCost = DEFAULT_TRANSPORT_COST;
         private float globalTeleportMinHeuristic = DEFAULT_TELEPORT_MIN_HEURISTIC;
         private float heuristicWeight = DEFAULT_HEURISTIC_WEIGHT;
+        private boolean allowSpiritTrees = true;
+        private boolean allowGliders = true;
+        private boolean allowCharters = true;
+        private boolean allowFairyRings = true;
+        private boolean allowLodestones = true;
+        private boolean allowMagicCarpets = true;
+        private boolean allowOtherTeleportChains = true;
+        private boolean allowSurge = true;
+        private boolean allowDive = true;
 
         private Builder() {}
 
@@ -105,6 +182,15 @@ public record WorldPathConfig(
         public Builder transportCost(float val) { transportCost = val; return this; }
         public Builder globalTeleportMinHeuristic(float val) { globalTeleportMinHeuristic = val; return this; }
         public Builder heuristicWeight(float val) { heuristicWeight = val; return this; }
+        public Builder allowSpiritTrees(boolean val) { allowSpiritTrees = val; return this; }
+        public Builder allowGliders(boolean val) { allowGliders = val; return this; }
+        public Builder allowCharters(boolean val) { allowCharters = val; return this; }
+        public Builder allowFairyRings(boolean val) { allowFairyRings = val; return this; }
+        public Builder allowLodestones(boolean val) { allowLodestones = val; return this; }
+        public Builder allowMagicCarpets(boolean val) { allowMagicCarpets = val; return this; }
+        public Builder allowOtherTeleportChains(boolean val) { allowOtherTeleportChains = val; return this; }
+        public Builder allowSurge(boolean val) { allowSurge = val; return this; }
+        public Builder allowDive(boolean val) { allowDive = val; return this; }
 
         public WorldPathConfig build() {
             return new WorldPathConfig(
@@ -112,7 +198,10 @@ public record WorldPathConfig(
                     allowDoors, allowShortcuts, allowPlaneTransitions,
                     allowClimbovers, allowTransports, allowTeleports,
                     doorCost, transitionCost, shortcutCost, climboverCost,
-                    transportCost, globalTeleportMinHeuristic, heuristicWeight
+                    transportCost, globalTeleportMinHeuristic, heuristicWeight,
+                    new MovementOptions(allowSpiritTrees, allowGliders, allowCharters,
+                            allowFairyRings, allowLodestones, allowMagicCarpets,
+                            allowOtherTeleportChains, allowSurge, allowDive)
             );
         }
     }

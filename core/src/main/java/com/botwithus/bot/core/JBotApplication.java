@@ -3,7 +3,7 @@ package com.botwithus.bot.core;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.diag.StubGuard;
 import com.botwithus.bot.api.gameval.GamevalIndex;
-import com.botwithus.bot.core.gameval.SqliteGamevalIndex;
+import com.botwithus.bot.core.gameval.HostGamevals;
 import com.botwithus.bot.core.impl.ClientImpl;
 import com.botwithus.bot.core.impl.ClientProviderImpl;
 import com.botwithus.bot.core.impl.EventBusImpl;
@@ -51,7 +51,9 @@ public final class JBotApplication {
             EventBusImpl eventBus = new EventBusImpl();
             MessageBusImpl messageBus = new MessageBusImpl();
             NXTCache nxtCache = openNxtCacheOrNull(pid);
-            GamevalIndex gamevals = SqliteGamevalIndex.openDefaultOrEmpty();
+            // Reads the shipped index (or a local build of the client's own) at once; a
+            // rebuild against this client's cache, when one is due, runs in the background.
+            GamevalIndex gamevals = HostGamevals.openForHost(pid);
 
             // Pump owns the SHM mapping; we open it before constructing
             // GameAPIImpl so the entity facades (snapshot reads) can read from

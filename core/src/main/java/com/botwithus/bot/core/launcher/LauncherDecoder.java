@@ -4,7 +4,7 @@ import com.botwithus.bot.api.script.LaunchOptions;
 import com.botwithus.bot.api.script.LaunchedClient;
 import com.botwithus.bot.api.script.LauncherAccount;
 import com.botwithus.bot.api.script.LauncherEvent;
-import org.msgpack.value.Value;
+import com.botwithus.msgpack.MsgValue;
 
 import java.util.List;
 import java.util.Optional;
@@ -22,9 +22,9 @@ final class LauncherDecoder {
     }
 
     /** @return the accounts in {@code accounts.list}'s body */
-    static List<LauncherAccount> accounts(Value body) {
+    static List<LauncherAccount> accounts(MsgValue body) {
         return WireValues.array(body, "accounts").stream()
-                .filter(Value::isMapValue)
+                .filter(WireValues::isMap)
                 .map(a -> new LauncherAccount(WireValues.string(a, "id", ""), WireValues.string(a, "name", "")))
                 .toList();
     }
@@ -33,30 +33,30 @@ final class LauncherDecoder {
      * @return {@code sdn.bundle}'s offer. A missing field reads as {@code 0} or an
      *         empty digest, which {@link SdnBundleDownload} then refuses.
      */
-    static SdnBundleOffer sdnBundleOffer(Value body) {
+    static SdnBundleOffer sdnBundleOffer(MsgValue body) {
         return new SdnBundleOffer(WireValues.integer(body, "deliveryId", 0L), WireValues.integer(body, "size", 0L),
                 WireValues.binary(body, "sha256").orElseGet(() -> new byte[0]),
-                WireValues.integer(body, "chunkSize", 0L));
+                WireValues.integer(body, "chunkSize", 0L), SdnWire.delivered(body), SdnWire.failed(body));
     }
 
     /** @return {@code sdn.bundle_chunk}'s bytes; empty when absent, which the download refuses */
-    static byte[] sdnBundleChunk(Value body) {
+    static byte[] sdnBundleChunk(MsgValue body) {
         return WireValues.binary(body, "data").orElseGet(() -> new byte[0]);
     }
 
     /** @return the clients in {@code client.list}'s body */
-    static List<LaunchedClient> clients(Value body) {
-        return WireValues.array(body, "clients").stream().filter(Value::isMapValue)
+    static List<LaunchedClient> clients(MsgValue body) {
+        return WireValues.array(body, "clients").stream().filter(WireValues::isMap)
                 .map(LauncherDecoder::client).toList();
     }
 
     /** @return the {@code Client} record (ADR 4.2) */
-    static LaunchedClient client(Value c) {
+    static LaunchedClient client(MsgValue c) {
         Optional<LaunchedClient.LaunchedBy> launchedBy = WireValues.field(c, "launchedBy")
-                .filter(Value::isMapValue)
+                .filter(WireValues::isMap)
                 .map(b -> new LaunchedClient.LaunchedBy(WireValues.integer(b, "pid", 0L),
                         WireValues.string(b, "hostKind", ""), WireValues.string(b, "label")));
-        Value licence = WireValues.map(c, "licence");
+        MsgValue licence = WireValues.map(c, "licence");
         return new LaunchedClient(WireValues.string(c, "clientId", ""), WireValues.integer(c, "pid", 0L),
                 WireValues.string(c, "accountId", ""), WireValues.string(c, "accountName", ""),
                 (int) WireValues.integer(c, "characterIndex", LaunchOptions.NO_CHARACTER),
@@ -74,7 +74,7 @@ final class LauncherDecoder {
      *
      * @return the event, or empty for an event this host does not know
      */
-    static Optional<LauncherEvent> event(String method, Value body) {
+    static Optional<LauncherEvent> event(String method, MsgValue body) {
         return switch (method) {
             case LauncherProtocol.EVENT_CLIENT_STARTED -> Optional.of(new LauncherEvent.ClientStarted(client(body)));
             case LauncherProtocol.EVENT_CLIENT_STATE -> Optional.of(clientState(body));
@@ -98,25 +98,25 @@ final class LauncherDecoder {
     }
 
     /** @return the close request in {@code host.close_requested}'s body */
-    static CloseRequest closeRequest(Value body) {
+    static CloseRequest closeRequest(MsgValue body) {
         return new CloseRequest(WireValues.integer(body, "requestId", 0L),
                 WireValues.string(body, "reason", ""), WireValues.integer(body, "hostsBlocking", 0L));
     }
 
-    private static LauncherEvent clientState(Value body) {
-        Value detail = WireValues.map(body, "detail");
+    private static LauncherEvent clientState(MsgValue body) {
+        MsgValue detail = WireValues.map(body, "detail");
         return new LauncherEvent.ClientStateChanged(WireValues.string(body, "clientId", ""),
                 state(WireValues.string(body, "state", "")), WireValues.string(detail, "stage"),
                 WireValues.string(detail, "code"), WireValues.string(detail, "message"));
     }
 
-    private static LauncherEvent dataUpdate(Value body) {
+    private static LauncherEvent dataUpdate(MsgValue body) {
         return new LauncherEvent.DataUpdateAvailable(dataPhase(WireValues.string(body, "phase", "")),
                 WireValues.string(body, "stagedSha"), WireValues.array(body, "blockedBy").size(),
                 WireValues.bool(body, "applyWhenHostsClose", false));
     }
 
-    private static LauncherEvent licenceChanged(Value body) {
+    private static LauncherEvent licenceChanged(MsgValue body) {
         OptionalLong failures = WireValues.integer(body, "failures");
         return new LauncherEvent.LicenceChanged(WireValues.string(body, "link", ""),
                 WireValues.string(body, "clientId"),

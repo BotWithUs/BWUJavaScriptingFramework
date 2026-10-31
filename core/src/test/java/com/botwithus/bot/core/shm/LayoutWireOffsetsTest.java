@@ -23,8 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LayoutWireOffsetsTest {
 
     @Test
-    void protocolVersionIsTwentyThree() {
-        assertEquals(23, Layout.PROTOCOL_VERSION,
+    void protocolVersionIsTwentyFour() {
+        assertEquals(24, Layout.PROTOCOL_VERSION,
                 "PROTOCOL_VERSION must equal kProtocolVersion in SharedLayout.h");
     }
 
@@ -36,14 +36,14 @@ class LayoutWireOffsetsTest {
     @Test
     void openInterfaceBlockIsPinned() {
         assertEquals(256, Layout.OPEN_IFACE_CAP, "kOpenIfaceCap");
-        assertEquals(320376, Layout.SNAP_OPENIFACECOUNT_OFFSET, "offsetof(Snapshot, openIfaceCount)");
-        assertEquals(320380, Layout.SNAP_OPENIFACETOTAL_OFFSET, "offsetof(Snapshot, openIfaceTotal)");
-        assertEquals(320384, Layout.SNAP_OPENIFACES_OFFSET, "offsetof(Snapshot, openIfaces)");
-        assertEquals(321408, Layout.SNAP_OPENIFACEFLAGS_OFFSET, "offsetof(Snapshot, openIfaceFlags)");
-        assertEquals(321664, Layout.SNAP_OPENIFACEPAD_OFFSET,
+        assertEquals(361344, Layout.SNAP_OPENIFACECOUNT_OFFSET, "offsetof(Snapshot, openIfaceCount)");
+        assertEquals(361348, Layout.SNAP_OPENIFACETOTAL_OFFSET, "offsetof(Snapshot, openIfaceTotal)");
+        assertEquals(361352, Layout.SNAP_OPENIFACES_OFFSET, "offsetof(Snapshot, openIfaces)");
+        assertEquals(362376, Layout.SNAP_OPENIFACEFLAGS_OFFSET, "offsetof(Snapshot, openIfaceFlags)");
+        assertEquals(362632, Layout.SNAP_OPENIFACEPAD_OFFSET,
                 "offsetof(Snapshot, _padAfterOpenIfaces)");
-        assertEquals(321668, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, "offsetof(Snapshot, groundItemCount)");
-        assertEquals(321672, Layout.SNAP_GROUNDITEMS_OFFSET, "offsetof(Snapshot, groundItems)");
+        assertEquals(362636, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, "offsetof(Snapshot, groundItemCount)");
+        assertEquals(362640, Layout.SNAP_GROUNDITEMS_OFFSET, "offsetof(Snapshot, groundItems)");
     }
 
     /**
@@ -62,8 +62,8 @@ class LayoutWireOffsetsTest {
 
     @Test
     void projectileBlockIsPinned() {
-        assertEquals(338056, Layout.SNAP_PROJECTILECOUNT_OFFSET, "offsetof(Snapshot, projectileCount)");
-        assertEquals(338060, Layout.SNAP_PROJECTILES_OFFSET, "offsetof(Snapshot, projectiles)");
+        assertEquals(379024, Layout.SNAP_PROJECTILECOUNT_OFFSET, "offsetof(Snapshot, projectileCount)");
+        assertEquals(379028, Layout.SNAP_PROJECTILES_OFFSET, "offsetof(Snapshot, projectiles)");
     }
 
     /**
@@ -81,32 +81,69 @@ class LayoutWireOffsetsTest {
 
     /**
      * v21 appended a {@code u16 orientation} (plus a u16 pad) to NpcEntry and PlayerEntry and
-     * gave LocalPlayer's old u32 pad to it, keeping LocalPlayer at 552.
+     * gave LocalPlayer's old u32 pad to it. v24 left those fields where they were and grew the
+     * rows behind them, so they are pinned here beside the new geometry.
      */
     @Test
-    void entityRowsCarryOrientationAtTheV21Offsets() {
-        assertEquals(40, Layout.NPC_ENTRY_SIZE, "sizeof(ipc::NpcEntry)");
+    void entityRowsKeepOrientationAtTheV21Offsets() {
         assertEquals(36, Layout.NPC_ORIENTATION_OFFSET, "offsetof(NpcEntry, orientation)");
-        assertEquals(32, Layout.PLAYER_ENTRY_SIZE, "sizeof(ipc::PlayerEntry)");
         assertEquals(28, Layout.PLAYER_ORIENTATION_OFFSET, "offsetof(PlayerEntry, orientation)");
-        assertEquals(552, Layout.LOCAL_PLAYER_SIZE, "sizeof(ipc::LocalPlayer)");
         assertEquals(32, Layout.LP_ORIENTATION_OFFSET, "offsetof(LocalPlayer, orientation)");
-        assertEquals(41544, Layout.SNAP_PLAYERS_OFFSET, "offsetof(Snapshot, players)");
+    }
+
+    /** v24: NpcEntry 40 to 48 with activeTypeId at +40 and combatLevel at +44. */
+    @Test
+    void npcEntryCarriesActiveTypeAndCombatLevel() {
+        assertEquals(48, Layout.NPC_ENTRY_SIZE, "sizeof(ipc::NpcEntry)");
+        assertEquals(4, Layout.NPC_TYPEID_OFFSET, "offsetof(NpcEntry, typeId) is still the base id");
+        assertEquals(40, Layout.NPC_ACTIVETYPEID_OFFSET, "offsetof(NpcEntry, activeTypeId)");
+        assertEquals(44, Layout.NPC_COMBATLEVEL_OFFSET, "offsetof(NpcEntry, combatLevel)");
+    }
+
+    /** v24: PlayerEntry 32 to 48 with a 16-byte name at +32 and the truncation bit in flags. */
+    @Test
+    void playerEntryCarriesTheName() {
+        assertEquals(48, Layout.PLAYER_ENTRY_SIZE, "sizeof(ipc::PlayerEntry)");
+        assertEquals(32, Layout.PLAYER_NAME_OFFSET, "offsetof(PlayerEntry, name)");
+        assertEquals(16, Layout.PLAYER_NAME_CAP, "kPlayerNameCap");
+        assertEquals(Layout.PLAYER_ENTRY_SIZE, Layout.PLAYER_NAME_OFFSET + Layout.PLAYER_NAME_CAP,
+                "name is the last field; the row ends immediately after it");
+        assertEquals(2, Layout.FLAG_NAME_TRUNCATED, "kFlagNameTruncated = 1u << 1");
+    }
+
+    /** v24: LocalPlayer 552 to 560 with runEnergy and runWeight appended after the skills. */
+    @Test
+    void localPlayerCarriesRunState() {
+        assertEquals(560, Layout.LOCAL_PLAYER_SIZE, "sizeof(ipc::LocalPlayer)");
+        assertEquals(552, Layout.LP_RUNENERGY_OFFSET, "offsetof(LocalPlayer, runEnergy)");
+        assertEquals(556, Layout.LP_RUNWEIGHT_OFFSET, "offsetof(LocalPlayer, runWeight)");
     }
 
     @Test
-    void gameCycleMovedByExactlyTheOpenInterfaceGrowth() {
-        assertEquals(346252, Layout.SNAP_GAMECYCLE_OFFSET,
-                "v23 grew the open-interface block; gameCycle shifts with everything after");
-        assertEquals(345996 + Layout.OPEN_IFACE_CAP, Layout.SNAP_GAMECYCLE_OFFSET,
-                "the v23 shift must be exactly one flags byte per slot = 256");
+    void entityArraysAreAtTheV24Offsets() {
+        assertEquals(584, Layout.SNAP_NPCCOUNT_OFFSET, "offsetof(Snapshot, npcCount)");
+        assertEquals(588, Layout.SNAP_NPCS_OFFSET, "offsetof(Snapshot, npcs)");
+        assertEquals(49740, Layout.SNAP_PLAYERCOUNT_OFFSET, "offsetof(Snapshot, playerCount)");
+        assertEquals(49744, Layout.SNAP_PLAYERS_OFFSET, "offsetof(Snapshot, players)");
+        assertEquals(148048, Layout.SNAP_LOCATIONCOUNT_OFFSET, "offsetof(Snapshot, locationCount)");
+        assertEquals(148052, Layout.SNAP_LOCATIONS_OFFSET, "offsetof(Snapshot, locations)");
+        assertEquals(344664, Layout.SNAP_INVENTORYCOUNT_OFFSET, "offsetof(Snapshot, inventoryCount)");
+        assertEquals(344924, Layout.SNAP_INVITEMCOUNT_OFFSET, "offsetof(Snapshot, invItemCount)");
+        assertEquals(361312, Layout.SNAP_PRODUCER_OFFSET, "offsetof(Snapshot, producer)");
+    }
+
+    @Test
+    void gameCycleMovedByExactlyTheRowGrowth() {
+        assertEquals(387220, Layout.SNAP_GAMECYCLE_OFFSET, "offsetof(Snapshot, gameCycle)");
+        assertEquals(346252 + 40968, Layout.SNAP_GAMECYCLE_OFFSET,
+                "v24 moves every field from locationCount on by 8 + 8 * 1024 + 16 * 2048 = 40968");
     }
 
     @Test
     void dynamicRegionBlockOffsetsArePinned() {
-        assertEquals(346256, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
-        assertEquals(346292, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
-        assertEquals(346296, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
+        assertEquals(387224, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
+        assertEquals(387260, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
+        assertEquals(387264, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
     }
 
     @Test
@@ -149,7 +186,7 @@ class LayoutWireOffsetsTest {
 
     @Test
     void snapshotSizeIsPinned() {
-        assertEquals(411832, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
+        assertEquals(452800, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
     }
 
     /**

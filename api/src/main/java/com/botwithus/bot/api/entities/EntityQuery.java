@@ -68,16 +68,17 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
 
     /** Filter by display name (case-insensitive substring). */
     public Q named(String name) {
-        String needle = name.toLowerCase();
+        String needle = normaliseName(name).toLowerCase();
         return filter(t -> {
-            String n = nameOf(t);
+            String n = normalisedNameOf(t);
             return n != null && n.toLowerCase().contains(needle);
         });
     }
 
     /** Filter by display name (case-insensitive exact match). */
     public Q namedExact(String name) {
-        return filter(t -> name.equalsIgnoreCase(nameOf(t)));
+        String wanted = normaliseName(name);
+        return filter(t -> wanted.equalsIgnoreCase(normalisedNameOf(t)));
     }
 
     /**
@@ -86,11 +87,16 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
      * @throws PatternSyntaxException if {@code regex} is malformed
      */
     public Q nameMatching(String regex) {
-        Pattern compiled = Pattern.compile(regex);
+        Pattern compiled = Pattern.compile(normaliseName(regex));
         return filter(t -> {
-            String n = nameOf(t);
+            String n = normalisedNameOf(t);
             return n != null && compiled.matcher(n).matches();
         });
+    }
+
+    private String normalisedNameOf(T t) {
+        String n = nameOf(t);
+        return n == null ? null : normaliseName(n);
     }
 
     /** Filter by type/definition id. */
@@ -268,4 +274,13 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
      * sight of a typeId, then cache for the rest of the session.
      */
     protected abstract String nameOf(T t);
+
+    /**
+     * Applied to both sides of every name filter before comparing: the candidate's
+     * {@link #nameOf} and the caller's needle. Identity by default; an entity whose names carry
+     * look-alike characters overrides it.
+     */
+    protected String normaliseName(String name) {
+        return name;
+    }
 }

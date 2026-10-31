@@ -9,9 +9,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.ServiceConfigurationError;
+import java.util.ServiceLoader;
+import java.util.function.Supplier;
 
 /**
  * Facade that combines local script loading (JAR files) and SDN script loading
@@ -36,6 +40,13 @@ public final class SDNScriptLoader {
      * this on in production defeats the unsigned-DLL guard.
      */
     public static final String LOCKDOWN_OPTIONAL_PROP = "botwithus.sdn.lockdown.optional";
+
+    /**
+     * How long one delivered script may take to construct before the install gives
+     * up on it. Generous: a constructor that builds a large script's graph runs well
+     * inside it, so only one that blocks reaches it.
+     */
+    public static final Duration CONSTRUCT_BUDGET = Duration.ofSeconds(30);
 
     private SDNScriptLoader() {}
 
@@ -96,7 +107,9 @@ public final class SDNScriptLoader {
             ClassLoader sdnClassLoader = sdnLoader.loadScriptBundle(
                     SDNScriptLoader.class.getClassLoader());
 
-            List<BotScript> scripts = providersFrom(sdnClassLoader);
+            List<BotScript> scripts = providersFrom(sdnClassLoader).stream()
+                    .map(ServiceLoader.Provider::get)
+                    .toList();
 
             if (scripts.isEmpty()) {
                 log.info("No BotScript providers found in SDN bundle.");
@@ -105,7 +118,7 @@ public final class SDNScriptLoader {
             }
 
             return scripts;
-        } catch (Exception e) {
+        } catch (Exception | ServiceConfigurationError e) {
             log.error("SDN script loading failed: {}", e.getMessage());
             return List.of();
         }
@@ -160,20 +173,100 @@ public final class SDNScriptLoader {
     }
 
     private static SdnDelivery toDelivery(DefinedBundle bundle) {
+        return toDelivery(bundle, CONSTRUCT_BUDGET);
+    }
+
+    /**
+     * The delivery {@code bundle}'s jars make, each script constructed within
+     * {@code budget}. Package-private so a test can drive it with a plain loader and
+     * a short budget; production always passes {@link #CONSTRUCT_BUDGET}.
+     */
+    static SdnDelivery toDelivery(DefinedBundle bundle, Duration budget) {
+        if (bundle.refusal().isPresent()) {
+            return SdnDelivery.refused(bundle.refusal().get());
+        }
         List<SdnDelivery.Jar> jars = new ArrayList<>();
+        List<SdnDelivery.Stall> stalls = new ArrayList<>();
         for (DefinedBundle.Jar jar : bundle.jars()) {
-            List<BotScript> found = providersFrom(jar.loader());
-            if (!found.isEmpty()) {
-                jars.add(new SdnDelivery.Jar(jar.position(), found));
+            JarOutcome outcome = jarOf(jar, budget);
+            switch (outcome) {
+                case JarOutcome.Loaded loaded -> jars.add(loaded.jar());
+                case JarOutcome.Stalled stalled -> stalls.add(stalled.stall());
+                case JarOutcome.Empty ignored -> { }
+                case JarOutcome.Interrupted ignored -> {
+                    log.info("SDN: interrupted while loading the delivery; the remaining jars are not loaded");
+                    return new SdnDelivery(bundle.jarCount(), jars, stalls);
+                }
             }
         }
-        SdnDelivery delivery = new SdnDelivery(bundle.jarCount(), jars);
+        SdnDelivery delivery = new SdnDelivery(bundle.jarCount(), jars, stalls);
         if (bundle.jarCount() > 0 && delivery.isEmpty()) {
             log.info("No BotScript providers found in SDN bundle.");
         } else if (!delivery.isEmpty()) {
             log.info("Loaded {} script(s) from {} SDN jar(s).", delivery.scripts().size(), jars.size());
         }
         return delivery;
+    }
+
+    /** What one defined jar came to. */
+    private sealed interface JarOutcome {
+        record Loaded(SdnDelivery.Jar jar) implements JarOutcome {}
+        record Stalled(SdnDelivery.Stall stall) implements JarOutcome {}
+        record Empty() implements JarOutcome {}
+        record Interrupted() implements JarOutcome {}
+    }
+
+    /**
+     * The scripts one defined jar provides, each made once within {@code budget}
+     * and kept with its provider so more instances can be made later. A provider
+     * that throws is skipped; one that does not return stops the jar.
+     */
+    private static JarOutcome jarOf(DefinedBundle.Jar jar, Duration budget) {
+        log.info("SDN: jar {}: looking up its script providers", jar.position() + 1);
+        List<ServiceLoader.Provider<BotScript>> providers = providersFrom(jar.loader());
+        log.info("SDN: jar {}: {} provider(s) found", jar.position() + 1, providers.size());
+        List<BotScript> scripts = new ArrayList<>();
+        List<Supplier<BotScript>> copies = new ArrayList<>();
+        for (ServiceLoader.Provider<BotScript> provider : providers) {
+            Optional<JarOutcome> stop = constructOne(jar, provider, budget, scripts, copies);
+            if (stop.isPresent()) {
+                return stop.get();
+            }
+        }
+        return scripts.isEmpty() ? new JarOutcome.Empty()
+                : new JarOutcome.Loaded(new SdnDelivery.Jar(jar.position(), scripts, copies));
+    }
+
+    /**
+     * Makes one instance of {@code provider}, adding it and its factory on success.
+     *
+     * @return how the jar ends when it must stop at this provider; empty to go on
+     */
+    private static Optional<JarOutcome> constructOne(DefinedBundle.Jar jar, ServiceLoader.Provider<BotScript> provider,
+                                                     Duration budget, List<BotScript> scripts,
+                                                     List<Supplier<BotScript>> copies) {
+        String cls = provider.type().getName();
+        log.info("SDN: constructing {}", cls);
+        return switch (BoundedConstruction.construct(provider.type().getSimpleName(), provider::get, budget)) {
+            case BoundedConstruction.Outcome.Built<BotScript> built -> {
+                log.info("SDN: constructed {} in {} ms", cls, built.took().toMillis());
+                scripts.add(built.instance());
+                copies.add(provider::get);
+                yield Optional.empty();
+            }
+            case BoundedConstruction.Outcome.Threw<BotScript> threw -> {
+                log.warn("SDN: {} threw while constructing, skipping it", cls, threw.error());
+                yield Optional.empty();
+            }
+            case BoundedConstruction.Outcome.TimedOut<BotScript> timedOut -> {
+                log.error("SDN: {} did not finish constructing within {} s; its thread is left running "
+                        + "and it cannot be loaded again this run. Where it was stuck:{}",
+                        cls, timedOut.budget().toSeconds(), timedOut.stackDump());
+                yield Optional.of(new JarOutcome.Stalled(new SdnDelivery.Stall(jar.position(), cls)));
+            }
+            case BoundedConstruction.Outcome.Interrupted<BotScript> ignored ->
+                    Optional.of(new JarOutcome.Interrupted());
+        };
     }
 
     /**
@@ -188,11 +281,11 @@ public final class SDNScriptLoader {
      * isolation is the reason the delivery is N loaders rather than one merged
      * jar.
      */
-    private static List<BotScript> providersFrom(ClassLoader loader) {
+    private static List<ServiceLoader.Provider<BotScript>> providersFrom(ClassLoader loader) {
         try {
-            return SdnBundleProviders.load(loader, SdnLoader.moduleOf(loader), ModuleLayer.boot(),
+            return SdnBundleProviders.providers(loader, SdnLoader.moduleOf(loader), ModuleLayer.boot(),
                     BotScript.class);
-        } catch (Exception | ServiceConfigurationError e) {
+        } catch (Exception | ServiceConfigurationError | LinkageError e) {
             log.warn("SDN: a delivered bundle yielded no usable providers, skipping it: {}",
                     e.getMessage(), e);
             return List.of();

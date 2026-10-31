@@ -3,6 +3,7 @@ package com.botwithus.bot.api.component;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.util.Interfaces;
 
@@ -60,7 +61,30 @@ public final class ComponentNode {
     public int spriteId()       { return data.spriteId(); }
     public int itemId()         { return data.itemId(); }
     public int itemAmount()     { return data.itemAmount(); }
+    /** Hidden by its own flag. Not the same as off screen; see {@link #isVisibleGlobal()}. */
     public boolean isHidden()   { return data.isHidden(); }
+    /** The component's own visibility flag (v24). */
+    public boolean isVisible()  { return data.isVisible(); }
+    /** On screen: visible at every level up to a root, across sub-interface mounts (v24). */
+    public boolean isVisibleGlobal() { return data.isVisibleGlobal(); }
+    /** Raw slot flag byte behind {@link #isVisible()}, or {@code -1} when there is none. */
+    public int slotFlags()      { return data.visibility().slotFlags(); }
+    /** True only for a layer, the one category that scrolls. */
+    public boolean isScrollable() { return data.scroll().isScrollable(); }
+    /** Horizontal scroll offset, clamped as the client clamps it; {@code 0} on a non-layer. */
+    public int scrollX()        { return data.scroll().x(); }
+    /** Vertical scroll offset, clamped as the client clamps it; {@code 0} on a non-layer. */
+    public int scrollY()        { return data.scroll().y(); }
+    /** Scrolled content width; {@code 0} on a non-layer. */
+    public int scrollWidth()    { return data.scroll().contentWidth(); }
+    /** Scrolled content height; {@code 0} on a non-layer. */
+    public int scrollHeight()   { return data.scroll().contentHeight(); }
+    /**
+     * The parent the client walks next when it decides visibility: live parent, else static
+     * parent, else the host component of the sub-interface mount. Unlike {@link #parent()} it
+     * works on a detached node and crosses interface boundaries. {@code null} at a root.
+     */
+    public ComponentRef parentGlobal() { return data.parentGlobalRef(); }
     public int x()              { return data.x(); }
     public int y()              { return data.y(); }
     public int width()          { return data.width(); }

@@ -1,5 +1,6 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.model.WorldPathConfig;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -15,7 +16,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * The mask a connection hands the walker: off until the host turns the setting
- * on, and then only for an account the snapshot reads as not a member.
+ * on, and then only for an account the snapshot reads as not a member; plus one
+ * movement-category bit per {@code allow*} flag the walk's config turns off.
  */
 class WalkMovesTest {
 
@@ -59,6 +61,33 @@ class WalkMovesTest {
         api.setRestrictFreeToPlay(true);
 
         assertEquals(DisabledMoves.NONE, api.walkMoves());
+    }
+
+    @Test
+    void aConfig_disablesItsCategories_withoutTheSettingOn() {
+        snapshot.set(snapshotOf(self(false)));
+        WorldPathConfig config = WorldPathConfig.builder().allowLodestones(false).build();
+
+        assertEquals(new DisabledMoves(DisabledMoves.LODESTONES_BIT), api.walkMoves(config));
+    }
+
+    @Test
+    void aConfig_andFreeToPlay_combineIntoOneMask() {
+        snapshot.set(snapshotOf(self(false)));
+        api.setRestrictFreeToPlay(true);
+        WorldPathConfig config = WorldPathConfig.builder()
+                .allowFairyRings(false).allowDoors(false).build();
+
+        assertEquals(DisabledMoves.FREE_TO_PLAY.with(new DisabledMoves(
+                DisabledMoves.FAIRY_RINGS_BIT | DisabledMoves.DOORS_BIT)), api.walkMoves(config));
+    }
+
+    @Test
+    void theDefaultConfig_addsNothingToTheSetting() {
+        snapshot.set(snapshotOf(self(false)));
+        api.setRestrictFreeToPlay(true);
+
+        assertEquals(DisabledMoves.FREE_TO_PLAY, api.walkMoves(WorldPathConfig.DEFAULT));
     }
 
     private static GameSnapshot snapshotOf(LocalPlayer self) {

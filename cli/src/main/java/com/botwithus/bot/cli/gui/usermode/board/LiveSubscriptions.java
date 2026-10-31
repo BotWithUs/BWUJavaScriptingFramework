@@ -2,6 +2,7 @@ package com.botwithus.bot.cli.gui.usermode.board;
 
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
@@ -53,6 +54,7 @@ final class LiveSubscriptions {
     private final Supplier<? extends Collection<Connection>> connections;
     private final SdnCatalogueRefresher refresher;
     private final Function<List<SdnCatalogueEntry>, SdnInstallResult> installer;
+    private final StoreRegistrar registrar;
     private final StoreCopies storeCopies;
     private final Supplier<List<LocalScript>> localScripts;
     private final Executor installExecutor;
@@ -63,17 +65,19 @@ final class LiveSubscriptions {
     /**
      * @param connections   the host's connections, read fresh on every call
      * @param installer     asks the launcher for catalogue scripts and loads them; blocks
+     * @param registrar     registers a delivery on a client, a new instance per client
      * @param storeCopies   recognises a loaded Store copy and finds its install record,
      *                      which says whether a newer build is out
      * @param localScripts  the picker's local catalogue, as last loaded
      */
     LiveSubscriptions(Supplier<? extends Collection<Connection>> connections, SdnCatalogueRefresher refresher,
                       Function<List<SdnCatalogueEntry>, SdnInstallResult> installer,
-                      StoreCopies storeCopies,
+                      StoreRegistrar registrar, StoreCopies storeCopies,
                       Supplier<List<LocalScript>> localScripts, Executor installExecutor) {
         this.connections = connections;
         this.refresher = refresher;
         this.installer = installer;
+        this.registrar = registrar;
         this.storeCopies = storeCopies;
         this.localScripts = localScripts;
         this.installExecutor = installExecutor;
@@ -187,21 +191,44 @@ final class LiveSubscriptions {
     private void install(String clientId, SdnCatalogueEntry entry) {
         try {
             settle(clientId, entry, installer.apply(List.of(entry)));
-        } catch (RuntimeException e) {
-            log.warn("SDN: installing {} threw", entry.name(), e);
-            fail(entry, "Something went wrong while installing: " + e.getMessage());
+        } catch (VirtualMachineError e) {
+            // Said on the row, then left to end the thread: the JVM is not in a state to go on.
+            thrown(entry, e);
+            throw e;
+        } catch (RuntimeException | Error e) {
+            thrown(entry, e);
+        } finally {
+            failIfStillInstalling(entry);
+        }
+    }
+
+    private void thrown(SdnCatalogueEntry entry, Throwable e) {
+        log.error("SDN: installing {} threw", entry.name(), e);
+        fail(entry, "Something went wrong while installing: " + e);
+    }
+
+    /**
+     * The last guard on the row: every path above settles it, and one that does not
+     * must not leave it on "Installing" with nothing said.
+     */
+    private void failIfStillInstalling(SdnCatalogueEntry entry) {
+        SubscriptionState state = installs.get(entry.id());
+        if (state != null && !state.isChoosable()) {
+            log.error("SDN: installing {} ended without settling its row", entry.name());
+            fail(entry, "The install ended without a result. Try again, and report it if it happens again.");
         }
     }
 
     private void settle(String clientId, SdnCatalogueEntry entry, SdnInstallResult result) {
         switch (result) {
-            case SdnInstallResult.Installed installed -> startDelivered(clientId, entry, installed);
+            case SdnInstallResult.Installed installed -> installed.refusalFor(entry.id()).ifPresentOrElse(
+                    refusal -> fail(entry, refusal.text()), () -> startDelivered(clientId, entry, installed));
             case SdnInstallResult.NothingSelected ignored -> fail(entry, "Nothing was requested from the launcher.");
             case SdnInstallResult.DeliveryDisabled ignored -> fail(entry,
                     "This host was not started by the launcher, so it cannot install scripts. "
                             + "Start it from the BotWithUs launcher.");
-            case SdnInstallResult.CourierUnavailable ignored -> fail(entry,
-                    "The launcher did not deliver the script. Check it is still running, then try again.");
+            case SdnInstallResult.CourierUnavailable none -> fail(entry, none.text());
+            case SdnInstallResult.Refused refused -> fail(entry, refused.text());
             case SdnInstallResult.Failed failed -> fail(entry, failed.reason());
         }
     }
@@ -211,9 +238,11 @@ final class LiveSubscriptions {
      * starts the chosen script on the client it was picked for.
      */
     private void startDelivered(String clientId, SdnCatalogueEntry entry, SdnInstallResult.Installed installed) {
-        for (Connection conn : liveConnections()) {
-            installed.scripts().forEach(conn.getRuntime()::registerScript);
+        List<Connection> live = liveConnections();
+        for (Connection conn : live) {
+            registrar.registerOn(conn.getRuntime(), installed.scripts());
         }
+        log.info("SDN: registered {} delivered script(s) on {} client(s)", installed.scripts().size(), live.size());
         List<BotScript> paired = installed.scriptsFor(entry.id());
         Optional<BotScript> chosen = SubscriptionMatch.scriptToStart(entry, paired, LiveSubscriptions::registeredName);
         if (chosen.isEmpty()) {

@@ -15,7 +15,7 @@ dependencies {
     // Pulls skilling-core (+ its sqlite-jdbc/gson) onto the runtime module path
     // so it joins the boot ModuleLayer — see the matching requires in module-info.
     implementation(project(":skilling-core"))
-    implementation(libs.msgpack.core)
+    implementation(libs.msgpack)
     implementation(libs.gson)
     implementation(libs.logback.classic)
     // Reader for the baked gameval name index (~/.botwithus/native/gameval.sqlite).
@@ -25,7 +25,6 @@ dependencies {
 }
 
 extraJavaModuleInfo {
-    automaticModule("org.msgpack:msgpack-core", "msgpack.core")
     // No entry for sqlite-jdbc: since 3.47 it ships a real module-info
     // (`org.xerial.sqlitejdbc`), so it needs no patching and jlink can link it
     // directly. Adding one fails the transform with "patching of real modules
@@ -51,7 +50,34 @@ tasks.named<Test>("test") {
     filter {
         excludeTestsMatching(LAUNCHER_DRIFT_TEST)
         excludeTestsMatching(LAUNCHER_SCOPE_LIVE_TEST)
+        excludeTestsMatching(GAMEVAL_LOCAL_BUILD_LIVE_TEST)
+        excludeTestsMatching(PRODUCER_HEADER_DRIFT_TEST)
     }
+}
+
+// A real NXTCache.dll against the player's real game cache (read-only), building
+// into a temp directory. Needs a DLL with nxt_build_gameval_db:
+//   ./gradlew :core:gamevalLocalBuildLiveTest -Dnxtcache.dll=<path> [-Dbotwithus.gameval.cache=<dir>]
+val GAMEVAL_LOCAL_BUILD_LIVE_TEST = "com.botwithus.bot.core.gameval.LocalGamevalBuildLiveTest"
+tasks.register<Test>("gamevalLocalBuildLiveTest") {
+    description = "Build gameval.sqlite from the local game cache with a real NXTCache.dll"
+    group = "verification"
+    useJUnitPlatform()
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+    systemProperty("botwithus.gameval.build.live", "true")
+    listOf("nxtcache.dll", "botwithus.gameval.cache").forEach { key ->
+        System.getProperty(key)?.let { systemProperty(key, it) }
+    }
+    testLogging {
+        events("passed", "failed", "skipped", "standard_out")
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching(GAMEVAL_LOCAL_BUILD_LIVE_TEST)
+    }
+    // The verdict depends on the game cache on disk, which Gradle cannot see.
+    outputs.upToDateWhen { false }
 }
 
 tasks.register<JavaExec>("benchmark") {
@@ -325,6 +351,39 @@ tasks.register<Test>("sdnValidationTest") {
     filter {
         includeTestsMatching("com.botwithus.bot.core.crypto.SdnForgedEnvelopeTest")
     }
+}
+
+// ── Producer wire header ───────────────────────────────────────────────────
+
+val PRODUCER_HEADER_DRIFT_TEST = "com.botwithus.bot.core.shm.ProducerHeaderDriftTest"
+
+// Layout against NXTLibrary's SharedLayout.h at the revision the host is bound
+// to (ProducerHeaderDriftTest.BOUND_PRODUCER_SHA), or at -Pbotwithus.producer.rev.
+// Needs a producer checkout:
+//   ./gradlew :core:producerHeaderDriftTest -Pbotwithus.producer.repo=<path> [-Pbotwithus.producer.rev=<sha>]
+// It defaults to the sibling ../NXTLibrary and reports skipped (not run) when
+// there is none.
+tasks.register<Test>("producerHeaderDriftTest") {
+    description = "Compare Layout with the producer's SharedLayout.h at the bound revision"
+    group = "verification"
+    useJUnitPlatform()
+    val repo = (project.findProperty("botwithus.producer.repo") as String?)
+        ?: rootProject.projectDir.resolve("../NXTLibrary").absolutePath
+    systemProperty("botwithus.producer.repo", repo)
+    (project.findProperty("botwithus.producer.rev") as String?)?.let {
+        systemProperty("botwithus.producer.rev", it)
+    }
+    testLogging {
+        events("passed", "failed", "skipped")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching(PRODUCER_HEADER_DRIFT_TEST)
+    }
+    // The verdict depends on another repository, not on inputs Gradle can see.
+    outputs.upToDateWhen { false }
 }
 
 // ── Launcher protocol (launcher ADR 0007, A6) ──────────────────────────────

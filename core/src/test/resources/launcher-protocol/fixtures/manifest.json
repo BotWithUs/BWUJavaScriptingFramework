@@ -2114,6 +2114,32 @@
           "scriptIds": [
             "7",
             "12"
+          ],
+          "allowPartial": true
+        }
+      },
+      "binFields": [
+        "/body/publicKey"
+      ],
+      "builder": "SdnBundleRequest"
+    },
+    {
+      "name": "sdn.bundle.req.legacy",
+      "file": "sdn.bundle.req.legacy.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 120,
+        "kind": "req",
+        "method": "sdn.bundle",
+        "body": {
+          "publicKey": "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+          "scriptIds": [
+            "7",
+            "12"
           ]
         }
       },
@@ -2140,6 +2166,42 @@
           "size": 600000,
           "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
           "chunkSize": 524288
+        }
+      },
+      "binFields": [
+        "/body/sha256"
+      ],
+      "builder": "SdnBundleOffer"
+    },
+    {
+      "name": "sdn.bundle.resp.partial",
+      "file": "sdn.bundle.resp.partial.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 120,
+        "kind": "resp",
+        "method": "sdn.bundle",
+        "ok": true,
+        "body": {
+          "deliveryId": 1,
+          "size": 600000,
+          "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+          "chunkSize": 524288,
+          "delivered": [
+            "7"
+          ],
+          "failed": [
+            {
+              "scriptId": "12",
+              "reason": "cloudflare_challenge",
+              "httpStatus": 403,
+              "cfRay": "8d2f3a1b4c5d6e7f-AMS"
+            }
+          ]
         }
       },
       "binFields": [
@@ -2211,6 +2273,69 @@
       },
       "binFields": [],
       "builder": "Error"
+    },
+    {
+      "name": "sdn.bundle.error.not_delivered",
+      "file": "sdn.bundle.error.not_delivered.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 120,
+        "kind": "resp",
+        "method": "sdn.bundle",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "sdn_not_delivered",
+          "message": "Not delivered: cloudflare_challenge.",
+          "retryable": true,
+          "detail": {
+            "reason": "cloudflare_challenge",
+            "scriptId": "7",
+            "httpStatus": 403,
+            "cfRay": "8d2f3a1b4c5d6e7f-AMS",
+            "failed": [
+              {
+                "scriptId": "7",
+                "reason": "cloudflare_challenge",
+                "httpStatus": 403,
+                "cfRay": "8d2f3a1b4c5d6e7f-AMS"
+              },
+              {
+                "scriptId": "12",
+                "reason": "no_build",
+                "httpStatus": 404
+              }
+            ]
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "sdn.legacy_request.event",
+      "file": "sdn.legacy_request.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "sdn.legacy_request",
+        "body": {
+          "pid": 4242
+        },
+        "seq": 14
+      },
+      "binFields": [],
+      "builder": "SdnLegacyRequest"
     }
   ]
 }

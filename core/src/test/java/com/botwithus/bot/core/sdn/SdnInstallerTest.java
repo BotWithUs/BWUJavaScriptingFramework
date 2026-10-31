@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -37,6 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -87,6 +89,7 @@ class SdnInstallerTest {
             case SdnInstallResult.NothingSelected ignored -> fail("nothing selected");
             case SdnInstallResult.DeliveryDisabled ignored -> fail("delivery disabled");
             case SdnInstallResult.CourierUnavailable ignored -> fail("courier unavailable");
+            case SdnInstallResult.Refused refused -> fail(refused.text());
             case SdnInstallResult.Failed failed -> fail(failed.reason());
         };
     }
@@ -245,13 +248,14 @@ class SdnInstallerTest {
     }
 
     @Test
-    void install_jarCountDisagreesWithTheRequest_pairsAndRecordsNothing() {
-        SdnInstallResult.Installed result = installed(delivering(jars(new DeliveredScript()))
-                .install(List.of(entry("7"), entry("12"))));
+    void install_jarCountDisagreesWithTheRequest_isRefusedWhole() {
+        StoreShelf shelf = new StoreShelf();
+        SdnInstallResult result = new SdnInstaller(dir, () -> true, () -> jars(new DeliveredScript()),
+                SdnPipeRoute.none(), ledger(), shelf).install(List.of(entry("7"), entry("12")));
 
         assertAll(
-                () -> assertEquals(1, result.scripts().size(), "the scripts still load"),
-                () -> assertTrue(result.byEntryId().isEmpty(), "but none can be credited to an entry"),
+                () -> assertEquals(new SdnInstallResult.Failed(SdnReasonText.MISMATCH_TEXT), result),
+                () -> assertTrue(shelf.classes().isEmpty(), "nothing from a mismatched delivery is kept"),
                 () -> assertTrue(ledger().all().isEmpty()));
     }
 
@@ -383,6 +387,87 @@ class SdnInstallerTest {
                     .forEach(id -> ids.add(id.getAsString()));
             return ids;
         }
+    }
+
+    /** Fails if a delivery is not kept: a later client or a reload would have nothing to register. */
+    @Test
+    void install_shelvesTheDeliveryUnderTheEntryItWasPairedWith() {
+        StoreShelf shelf = new StoreShelf();
+        SdnInstaller installer = new SdnInstaller(dir, () -> true, () -> jars(new DeliveredScript()),
+                SdnPipeRoute.none(), ledger(), shelf);
+
+        installed(installer.install(List.of(entry("7"))));
+
+        assertAll(
+                () -> assertEquals(Set.of("7"), shelf.catalogueIds()),
+                () -> assertEquals(Set.of(DeliveredScript.class.getName()), shelf.classes()),
+                () -> assertSame(shelf, installer.shelf()));
+    }
+
+    /**
+     * A script that never finished constructing fails the install with advice that
+     * does not promise a restart fixes it (the usual cause is the script itself) and
+     * says to report a repeat, and the same id then fails fast without asking the
+     * launcher again.
+     */
+    @Test
+    void install_aStalledScript_failsAndThenFailsFastUntilRestart() {
+        AtomicInteger asked = new AtomicInteger();
+        SdnInstaller installer = new SdnInstaller(dir, () -> true, () -> {
+            asked.incrementAndGet();
+            return new SdnDelivery(1, List.of(),
+                    List.of(new SdnDelivery.Stall(0, DeliveredScript.class.getName())));
+        }, ledger());
+
+        SdnInstallResult first = installer.install(List.of(entry("7")));
+        SdnInstallResult again = installer.install(List.of(entry("7")));
+
+        String expected = DELIVERED_NAME + " got stuck while starting. This is usually a problem in the script "
+                + "itself. If it happens again after you restart the host, report it from the launcher so the "
+                + "script's author can see where it got stuck.";
+        assertAll(
+                () -> assertEquals(expected, assertInstanceOf(SdnInstallResult.Failed.class, first).reason()),
+                () -> assertEquals(expected, assertInstanceOf(SdnInstallResult.Failed.class, again).reason()),
+                () -> assertEquals(1, asked.get(), "the retry must not ask the launcher and stall again"),
+                () -> assertTrue(ledger().all().isEmpty(), "nothing from a stalled delivery is recorded"));
+    }
+
+    /**
+     * S2: a stalled id no longer fails a batch; the rest install, and the stalled one
+     * is named in the result with its own message.
+     */
+    @Test
+    void install_aBatchWithAStalledId_installsTheRest_andNamesTheStalledOne() {
+        AtomicInteger asked = new AtomicInteger();
+        SdnInstaller installer = new SdnInstaller(dir, () -> true, () -> asked.getAndIncrement() == 0
+                ? new SdnDelivery(1, List.of(), List.of(new SdnDelivery.Stall(0, DeliveredScript.class.getName())))
+                : jars(new DeliveredScript()), ledger());
+        installer.install(List.of(entry("7")));
+
+        SdnInstallResult.Installed installed = installed(installer.install(List.of(
+                entry("7", "Stuck One", DeliveredScript.class.getName(), BUILD), entry("12"))));
+
+        assertAll(
+                () -> assertEquals(1, installed.scriptsFor("12").size()),
+                () -> assertEquals(Optional.of(SdnInstaller.stalledMessage("Stuck One")),
+                        installed.refusalFor("7").map(SdnInstallResult.ScriptRefusal::text)),
+                () -> assertEquals(Optional.of(SdnInstaller.stalledMessage(DELIVERED_NAME)),
+                        installer.stalledReason("7")),
+                () -> assertEquals(Optional.empty(), installer.stalledReason("12")));
+    }
+
+    /** N1: a stall in a delivery that cannot be paired marks no entry, and its message names the class. */
+    @Test
+    void install_aStallInAnUnpairableDelivery_marksNoEntry() {
+        SdnInstaller installer = new SdnInstaller(dir, () -> true, () -> new SdnDelivery(2, List.of(),
+                List.of(new SdnDelivery.Stall(0, "com.example.Stuck"))), ledger());
+
+        SdnInstallResult result = installer.install(List.of(entry("7")));
+
+        assertAll(
+                () -> assertEquals(new SdnInstallResult.Failed(SdnInstaller.stalledMessage("com.example.Stuck")),
+                        result),
+                () -> assertEquals(Optional.empty(), installer.stalledReason("7")));
     }
 
     /** What a delivery carries. */

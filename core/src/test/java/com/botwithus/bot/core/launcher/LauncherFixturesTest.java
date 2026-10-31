@@ -1,12 +1,12 @@
 package com.botwithus.bot.core.launcher;
 
 import com.botwithus.bot.api.script.StopMode;
+import com.botwithus.msgpack.MsgValue;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
-import org.msgpack.value.Value;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -40,16 +40,18 @@ class LauncherFixturesTest {
     private static final Pattern VENDOR_LINE = Pattern.compile("^([0-9a-f]{40})  (\\S+)$", Pattern.MULTILINE);
 
     /** Every fixture this host sends, and how this host's builder makes it from the manifest value. */
-    private static final Map<String, Function<JsonObject, Value>> BUILDERS = builders();
+    private static final Map<String, Function<JsonObject, MsgValue>> BUILDERS = builders();
 
     /**
      * Automation requests this host never sends. {@code hello.req} is the GUI's hello
      * ({@code clientKind:"gui"}). {@code hello.req.host.agentproto} is the native host's hello
      * ({@code hostKind:"native"}, with the optional {@code agentProtocol}). This host sends
-     * {@code hello.req.host}.
+     * {@code hello.req.host}. {@code sdn.bundle.req.legacy} is {@code sdn.bundle} without
+     * {@code allowPartial}, which this host never sends; it is vendored for launchers that
+     * still have to accept it.
      */
     private static final Set<String> NOT_SENT_BY_THIS_HOST =
-            Set.of("hello.req", "hello.req.host.agentproto");
+            Set.of("hello.req", "hello.req.host.agentproto", "sdn.bundle.req.legacy");
 
     @TestFactory
     Stream<DynamicTest> everyFixture_unpackThenRepack_isByteIdentical() {
@@ -156,8 +158,8 @@ class LauncherFixturesTest {
         }
     }
 
-    private static Map<String, Function<JsonObject, Value>> builders() {
-        Map<String, Function<JsonObject, Value>> b = new LinkedHashMap<>();
+    private static Map<String, Function<JsonObject, MsgValue>> builders() {
+        Map<String, Function<JsonObject, MsgValue>> b = new LinkedHashMap<>();
         b.put("hello.req.host", body -> LauncherRequests.hello(new HelloParams(
                 body.get("clientVersion").getAsString(), body.get("hostPid").getAsLong(),
                 Optional.of(body.get("hostLabel").getAsString()))));
@@ -169,7 +171,7 @@ class LauncherFixturesTest {
         b.put("client.stop.req", body -> LauncherRequests.clientStop(body.get("clientId").getAsString(),
                 stopMode(body.get("mode").getAsString())));
         b.put("client.status.req", body -> LauncherRequests.clientStatus(body.get("clientId").getAsString()));
-        Function<JsonObject, Value> subscribe = body -> LauncherRequests.subscribe(
+        Function<JsonObject, MsgValue> subscribe = body -> LauncherRequests.subscribe(
                 body.getAsJsonArray("topics").asList().stream().map(JsonElement::getAsString).toList());
         b.put("events.subscribe.req", subscribe);
         b.put("events.subscribe.req.native", subscribe);

@@ -20,6 +20,7 @@ import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.model.WorldPathConfig;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
@@ -311,11 +312,16 @@ class WorldWalkerCallbackBridgeTest {
     // gate needs: the spirit trees (2661), The Grand Tree (2740), the Mos
     // Le'Harmless (2326) and Port Tyras (2102) charters, the Feldip Hills
     // glider (2671, One Small Favour), the Champions' Guild door (1297, quest
-    // points), the Heroes' Guild doors (2618, Heroes' Quest) and the key ring's
-    // stored keys (2673, bit-tested). A gate on a varp missing here is denied.
-    private static final Map<Integer, Integer> DATASET_VARP_GATES = Map.of(
-            2661, 9, 2740, 160, 2326, 140, 2102, 15, 2671, 200,
-            1297, 33, 2618, 15, 2673, KEY_RING_BRASS_AND_TOP_BIT);
+    // points), the Heroes' Guild doors (2618, Heroes' Quest), the key ring's
+    // stored keys (2673, bit-tested), the passage under Paterdomus (2171,
+    // Priest in Peril), the Canifis trapdoor (2696, In Search of the Myreque)
+    // and the Shilo Village gates and cart (2793). A gate on a varp missing
+    // here is denied.
+    private static final Map<Integer, Integer> DATASET_VARP_GATES = Map.ofEntries(
+            Map.entry(2661, 9), Map.entry(2740, 160), Map.entry(2326, 140), Map.entry(2102, 15),
+            Map.entry(2671, 200), Map.entry(1297, 33), Map.entry(2618, 15),
+            Map.entry(2673, KEY_RING_BRASS_AND_TOP_BIT), Map.entry(2171, 60), Map.entry(2696, 105),
+            Map.entry(2793, 15));
 
     // The executor learns varps only from this snapshot, so a varp_at_least gate
     // (Tree Gnome Village's spirit trees) is denied unless the host puts it here.
@@ -1140,6 +1146,78 @@ class WorldWalkerCallbackBridgeTest {
         verify(api, times(2)).queueAction(any(GameAction.class));
         verify(api, never()).components();
         assertTrue(sleeps.isEmpty());
+    }
+
+    // ======================= Movement options gate =======================
+
+    private WorldWalkerCallbackBridge bridgeAllowing(WorldPathConfig config) {
+        return new WorldWalkerCallbackBridge(api, () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(ALWAYS_FIRE), tile -> { },
+                config.movement());
+    }
+
+    @Test
+    void surgeNeverFiresWhenTheConfigDisallowsIt() {
+        bridge = bridgeAllowing(WorldPathConfig.builder().allowSurge(false).build());
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+
+        bridge.walkTo(new WwTile(3020, 3000, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+        verify(api, never()).components();
+    }
+
+    @Test
+    void diveNeverFiresWhenTheConfigDisallowsIt() {
+        bridge = bridgeAllowing(WorldPathConfig.builder().allowDive(false).build());
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+        verify(api, never()).getStructType(WorldWalkerCallbackBridge.STRUCT_DIVE);
+    }
+
+    @Test
+    void aDisallowedDiveHandsAHopBothQualifyForToSurge() {
+        // 10 tiles due east is both a Dive hop and a Surge hop; Dive is
+        // preferred, so with it off Surge takes the hop.
+        bridge = bridgeAllowing(WorldPathConfig.builder().allowDive(false).build());
+        when(snapshot.self()).thenReturn(playerWithMagic(3000, 3000, 0, 99));
+        stubSurgeOnIface(1670, 165);
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3010, 3000, 0));
+
+        List<GameAction> actions = queuedActions(3);
+        assertEquals(ActionTypes.COMPONENT, actions.get(1).actionId());
+        assertEquals((1670 << 16) | 165, actions.get(1).param3());
+        verify(api, never()).getStructType(WorldWalkerCallbackBridge.STRUCT_DIVE);
+    }
+
+    @Test
+    void theDefaultConfigLeavesDiveOn() {
+        bridge = bridgeAllowing(WorldPathConfig.DEFAULT);
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        List<GameAction> actions = queuedActions(4);
+        assertEquals(ActionTypes.SELECT_COMPONENT, actions.get(1).actionId());
+    }
+
+    @Test
+    void aNullMovementIsRefused() {
+        assertThrows(NullPointerException.class, () -> new WorldWalkerCallbackBridge(api,
+                () -> snapshot, cancel, events::add, NO_GOAL,
+                WorldWalkerCallbackBridge.REQUIREMENT_VARPS, pacing(ALWAYS_FIRE), tile -> { },
+                null));
     }
 
     @Test

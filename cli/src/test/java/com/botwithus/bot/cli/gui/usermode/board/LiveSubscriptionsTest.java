@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui.usermode.board;
 
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
+import com.botwithus.bot.core.sdn.StoreShelf;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.ScriptManifest;
@@ -14,6 +16,7 @@ import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
+import com.botwithus.bot.core.sdn.SdnReasonText;
 import com.botwithus.bot.core.sdn.StoreCopies;
 
 import org.junit.jupiter.api.AfterEach;
@@ -28,6 +31,7 @@ import java.time.InstantSource;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -119,7 +123,8 @@ class LiveSubscriptionsTest {
     private LiveSubscriptions subscriptions(Supplier<? extends Collection<Connection>> connections,
                                             SdnCatalogueEntry entry, BotScript delivery,
                                             List<LocalScript> locals) {
-        return new LiveSubscriptions(connections, catalogue(entry), delivers(delivery), StoreCopies.of(ledger),
+        return new LiveSubscriptions(connections, catalogue(entry), delivers(delivery),
+                new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger),
                 () -> locals, Runnable::run);
     }
 
@@ -263,11 +268,54 @@ class LiveSubscriptionsTest {
                     installs.incrementAndGet();
                     return new SdnInstallResult.Installed(List.of(), Map.of());
                 },
-                StoreCopies.of(ledger), List::of, Runnable::run);
+                new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), List::of, Runnable::run);
 
         subs.start(CLIENT, SCRIPT_ID);
 
         assertEquals(0, installs.get(), "an update is never installed behind the user's back");
         assertNotNull(runtime.findRunner(SHARED_NAME).lastStartedAt());
+    }
+    /**
+     * Fails at the base: the picker caught only RuntimeException, so an Error left
+     * the row on "Installing" for good, with nothing on the row to say why.
+     */
+    @Test
+    void start_installThatThrowsAnError_leavesInstallingWithAMessage() {
+        LiveSubscriptions subs = new LiveSubscriptions(() -> List.of(conn),
+                catalogue(entry(DeliveredWoodcutting.class.getName())), entries -> {
+                    throw new NoClassDefFoundError("com/example/Missing");
+                }, new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), List::of, Runnable::run);
+
+        subs.start(CLIENT, SCRIPT_ID);
+
+        SubscriptionState.Failed failed = assertInstanceOf(SubscriptionState.Failed.class, onlyRow(subs).state());
+        assertTrue(failed.message().contains("com/example/Missing"), failed::message);
+    }
+
+    /** The last guard: an installer that answers nothing the picker knows still settles the row. */
+    @Test
+    void start_installThatReturnsNull_stillLeavesInstalling() {
+        LiveSubscriptions subs = new LiveSubscriptions(() -> List.of(conn),
+                catalogue(entry(DeliveredWoodcutting.class.getName())), entries -> null,
+                new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), List::of, Runnable::run);
+
+        subs.start(CLIENT, SCRIPT_ID);
+
+        assertInstanceOf(SubscriptionState.Failed.class, onlyRow(subs).state());
+    }
+    /** A partial delivery without this script fails the row with the launcher's reason, in the user's words. */
+    @Test
+    void start_partialDeliveryWithoutThisScript_failsTheRowWithItsReason() {
+        String text = "Subscription needed: your account doesn't have " + SHARED_NAME + ".";
+        LiveSubscriptions subs = new LiveSubscriptions(() -> List.of(conn),
+                catalogue(entry(DeliveredWoodcutting.class.getName())),
+                entries -> new SdnInstallResult.Installed(List.of(), Map.of(), List.of(
+                        new SdnInstallResult.ScriptRefusal(Optional.of(SCRIPT_ID),
+                                Optional.of(SdnReasonText.NOT_ENTITLED), text))),
+                new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), List::of, Runnable::run);
+
+        subs.start(CLIENT, SCRIPT_ID);
+
+        assertEquals(new SubscriptionState.Failed(text), onlyRow(subs).state());
     }
 }

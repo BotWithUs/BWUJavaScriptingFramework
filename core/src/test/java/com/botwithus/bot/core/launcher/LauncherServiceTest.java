@@ -2,10 +2,10 @@ package com.botwithus.bot.core.launcher;
 
 import com.botwithus.bot.api.script.LauncherEvent;
 import com.botwithus.bot.api.script.LauncherException;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgValue;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
 
 import java.time.Duration;
 import java.util.List;
@@ -48,7 +48,7 @@ class LauncherServiceTest {
     void registers_withAHostHelloThenSubscribesToEveryAutomationTopic() {
         start();
         List<FakeLauncherService.Received> first = fake.received().subList(0, 2);
-        Value hello = first.get(0).body();
+        MsgValue hello = first.get(0).body();
         assertAll(
                 () -> assertEquals(LauncherProtocol.METHOD_HELLO, first.get(0).method()),
                 () -> assertEquals(Optional.of("host"), WireValues.string(hello, "clientKind")),
@@ -74,10 +74,10 @@ class LauncherServiceTest {
 
     @Test
     void ackClose_sendsTheDecision() {
-        fake.handle(LauncherProtocol.METHOD_HOST_ACK_CLOSE, body -> FakeLauncherService.ok(ValueFactory.emptyMap()));
+        fake.handle(LauncherProtocol.METHOD_HOST_ACK_CLOSE, body -> FakeLauncherService.ok(MsgMap.empty()));
         start();
         service.ackClose(17, CloseDecision.LATER);
-        Value ack = fake.received(LauncherProtocol.METHOD_HOST_ACK_CLOSE).getFirst().body();
+        MsgValue ack = fake.received(LauncherProtocol.METHOD_HOST_ACK_CLOSE).getFirst().body();
         assertEquals(Optional.of("later"), WireValues.string(ack, "decision"));
         assertEquals(17, WireValues.integer(ack, "requestId", 0L));
     }
@@ -159,7 +159,7 @@ class LauncherServiceTest {
     @Test
     void unknownEvent_isIgnored() throws InterruptedException {
         start();
-        fake.pushEvent("future.thing", ValueFactory.emptyMap());
+        fake.pushEvent("future.thing", MsgMap.empty());
         fake.pushEvent(LauncherProtocol.EVENT_AGENT_UPDATED, FakeLauncherService.body().put("sha", "a").build());
         FakeLauncherService.await("the known event", WAIT, () -> !events.isEmpty());
         assertEquals(List.of(new LauncherEvent.AgentUpdated("a")), events);
@@ -206,7 +206,7 @@ class LauncherServiceTest {
                 () -> service.call(LauncherProtocol.METHOD_SERVICE_STATUS, Envelope.emptyBody()));
     }
 
-    private static List<String> topics(Value body) {
-        return WireValues.array(body, "topics").stream().map(v -> v.asStringValue().asString()).toList();
+    private static List<String> topics(MsgValue body) {
+        return WireValues.array(body, "topics").stream().map(v -> v.stringValue().orElseThrow()).toList();
     }
 }

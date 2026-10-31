@@ -64,6 +64,7 @@ import com.botwithus.bot.cli.gui.pages.store.StorePage;
 import com.botwithus.bot.cli.gui.usermode.UserModeRenderer;
 import com.botwithus.bot.cli.gui.usermode.board.ClientBoard;
 import com.botwithus.bot.cli.gui.usermode.board.LiveClientBoard;
+import com.botwithus.bot.cli.gui.window.LwjglMemoryBackend;
 import com.botwithus.bot.cli.log.LogBuffer;
 import com.botwithus.bot.cli.log.LogBufferAppender;
 import com.botwithus.bot.cli.log.LogCapture;
@@ -76,6 +77,7 @@ import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
 import com.botwithus.bot.cli.gui.scriptui.TypedChars;
 import com.botwithus.bot.cli.report.ScriptReports;
 import com.botwithus.bot.cli.sdn.FavouritesStore;
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.stream.StreamManager;
@@ -90,6 +92,7 @@ import com.botwithus.bot.core.sdn.SdnCatalogueSource;
 import com.botwithus.bot.core.sdn.SdnInstaller;
 import com.botwithus.bot.core.sdn.SdnPipeRoute;
 import com.botwithus.bot.core.sdn.StoreCopies;
+import com.botwithus.bot.core.sdn.StoreRestorer;
 import com.botwithus.bot.core.runlog.RunLogs;
 import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.ManagementScriptLoader;
@@ -121,6 +124,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Main imgui-based application. The shell draws Normal mode's Clients page, or
@@ -139,6 +143,10 @@ public class ImGuiApp extends Application {
     private static final String WINDOW_TITLE = "BotWithUs";
     /** The window/dock layout file's name, in the host's data folder. */
     private static final String IMGUI_INI = "imgui.ini";
+    /** When the Store restore is first tried: soon after start-up, by when a first catalogue is usually back. */
+    private static final long STORE_RESTORE_FIRST_SECONDS = 5;
+    /** How often a Store restore is asked whether it is due; the restorer itself paces any retry. */
+    private static final long STORE_RESTORE_EVERY_SECONDS = 15;
     /** How long the Installed scripts page reuses one read of the host: its badge and body share it. */
     private static final Duration INSTALLED_VIEW_MAX_AGE = Duration.ofMillis(250);
     /** How long the Management page reuses one read of the host: its badge and body share it. */
@@ -186,6 +194,8 @@ public class ImGuiApp extends Application {
     private ManagementPage management;
     // The Script Store's background catalogue ticker, and the user's favourite and seen scripts.
     private ScheduledExecutorService catalogueTicker;
+    /** The host's one catalogue loop; built with the installer so a restore can read it from start-up. */
+    private SdnCatalogueRefresher sdnCatalogue;
     private FavouritesStore favourites;
     private float dpiScale = 1f;
 
@@ -261,7 +271,14 @@ public class ImGuiApp extends Application {
         ctx.setAutoStartManager(autoStartManager);
 
         // Read at each install: the launcher registration happens further down.
-        sdnInstaller = new SdnInstaller(SdnPipeRoute.over(() -> launcherHost.map(LauncherHost::service)));
+        sdnInstaller = new SdnInstaller(SdnPipeRoute.over(() -> launcherHost.map(LauncherHost::service)),
+                ctx.storeShelf());
+        // One catalogue for the whole host: the Script Store and Normal mode's
+        // "Your subscriptions" group read the same refresher, so there is one fetch loop.
+        sdnCatalogue = StoreCatalogue.refresherFor(new SdnCatalogueSource());
+        catalogueTicker = StoreCatalogue.tickInBackground(sdnCatalogue);
+        // Before auto-start, so a script it names that the Store installed waits for the restore.
+        startStoreRestore();
         scriptReports = ScriptReports.forHost(ctx, sdnInstaller.ledger()::find);
         registry = new CommandRegistry();
         registerCommands(registry, profileStore, autoStartManager);
@@ -278,6 +295,23 @@ public class ImGuiApp extends Application {
 
         buildPanels();
         captureGlfwHandle();
+    }
+
+    /**
+     * Asks the launcher again for the Store scripts this PC installed, on the
+     * catalogue's ticker: from start-up, whether or not a client ever connects. A
+     * client connecting nudges it too ({@code CliContext}), which only brings a
+     * retry forward. Each restored script is registered on every live client.
+     */
+    private void startStoreRestore() {
+        StoreRestorer restorer = new StoreRestorer(new StoreRestorer.Deps(sdnInstaller.ledger(),
+                sdnInstaller.shelf(), sdnCatalogue::shown, sdnInstaller::isDeliveryEnabled, sdnInstaller::install,
+                ctx::registerStoreScriptsOnLiveClients,
+                task -> Thread.ofVirtual().name("sdn-store-restore").start(task), InstantSource.system(),
+                sdnInstaller::stalledReason));
+        ctx.setStoreRestorer(restorer);
+        catalogueTicker.scheduleWithFixedDelay(restorer::request, STORE_RESTORE_FIRST_SECONDS,
+                STORE_RESTORE_EVERY_SECONDS, TimeUnit.SECONDS);
     }
 
     /**
@@ -419,17 +453,13 @@ public class ImGuiApp extends Application {
         // why the opener only requests and the shell opens it on the next frame.
         Clock clock = Clock.systemDefaultZone();
         InspectorState inspectorState = new InspectorState(clock);
-        inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx), scriptUis);
+        inspector = new InspectorDock(ui, inspectorState, new LiveInspectorSource(ctx), scriptUis, ctx.getSettings());
         ctx.setConfigPanelOpener(inspectorState.clientScriptOpener());
         // Dev only (DevGate): a live check of script UIs opens one without anybody clicking.
         // The request waits for the script to load; the drawer resolves it each frame.
         DevGate.fromSystemProperties().openScriptUi(System::getProperty).ifPresent(name -> inspectorState.request(
                 new InspectorRequest(new InspectorSubject.ManagementScript(name), InspectorTab.SCRIPT_UI)));
 
-        // One catalogue for the whole host: the Script Store and Normal mode's
-        // "Your subscriptions" group read the same refresher, so there is one fetch loop.
-        SdnCatalogueRefresher sdnCatalogue = StoreCatalogue.refresherFor(new SdnCatalogueSource());
-        catalogueTicker = StoreCatalogue.tickInBackground(sdnCatalogue);
         favourites = FavouritesStore.inUserHome();
         LiveClientBoard liveBoard = new LiveClientBoard(ctx, this::openLogs, clock, sdnCatalogue, sdnInstaller,
                 executor);
@@ -480,7 +510,8 @@ public class ImGuiApp extends Application {
     /** The Script Store over the host's catalogue; its "Open" goes to Installed scripts. */
     private StorePage storePage(SdnCatalogueRefresher sdnCatalogue, SdnInstaller sdnInstaller) {
         LiveStoreModel model = new LiveStoreModel(sdnCatalogue, sdnInstaller::install,
-                StoreCopies.of(sdnInstaller.ledger()), sdnInstaller::isDeliveryEnabled, favourites, ctx::getConnections,
+                new StoreRegistrar(sdnInstaller.shelf()), StoreCopies.of(sdnInstaller.ledger()),
+                sdnInstaller::isDeliveryEnabled, favourites, ctx::getConnections,
                 () -> ctx.getLastLoadReport().scripts(),
                 task -> Thread.ofVirtual().name("sdn-store-install").start(task), InstantSource.system());
         return new StorePage(ui, model, id -> pages.select(id));
@@ -711,6 +742,8 @@ public class ImGuiApp extends Application {
     }
 
     public static void main(String[] args) {
+        // First, before anything initialises LWJGL's MemoryUtil: see LwjglMemoryBackend.
+        LwjglMemoryBackend.selectFfm();
         launch(new ImGuiApp());
     }
 }

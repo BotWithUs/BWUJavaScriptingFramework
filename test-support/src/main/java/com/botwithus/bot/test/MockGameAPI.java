@@ -32,6 +32,7 @@ import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
+import com.botwithus.bot.api.model.SpotAnimation;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.VarbitValue;
@@ -40,6 +41,7 @@ import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldPathConfig;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
+import com.botwithus.bot.api.model.PlayerAppearance;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 
 import java.util.List;
@@ -281,6 +283,11 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public List<SpotAnimation> querySpotAnims() {
+        throw notStubbed("querySpotAnims");
+    }
+
+    @Override
     public WorldMapElements mapElements() {
         throw notStubbed("mapElements");
     }
@@ -368,6 +375,11 @@ final class MockGameAPI implements GameAPI {
     }
 
     // ---- Interface tree walk -----------------------------------------------
+
+    @Override
+    public PlayerAppearance getPlayerAppearance(int serverIndex) {
+        throw notStubbed("getPlayerAppearance");
+    }
 
     @Override
     public Component getComponent(int interfaceId, int componentId) {

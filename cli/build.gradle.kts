@@ -14,6 +14,7 @@ plugins {
 // from the catalog and apply the classifier here at the single use site.
 val lwjglVersion = libs.versions.lwjgl.get()
 val lwjglNatives = "natives-windows"
+val lwjglLinuxNatives = "natives-linux"
 
 dependencies {
     implementation(project(":api"))
@@ -36,11 +37,10 @@ dependencies {
     runtimeOnly("${libs.lwjgl.core.get().module}:$lwjglVersion:$lwjglNatives")
     runtimeOnly("${libs.lwjgl.glfw.get().module}:$lwjglVersion:$lwjglNatives")
     runtimeOnly("${libs.lwjgl.opengl.get().module}:$lwjglVersion:$lwjglNatives")
+    // Test-only, never in the runtime image: LwjglMemoryBackendTest starts LWJGL's
+    // core (memory only, no GL) in a child JVM, and CI runs it on Linux.
+    testRuntimeOnly("${libs.lwjgl.core.get().module}:$lwjglVersion:$lwjglLinuxNatives")
     implementation(libs.logback.classic)
-}
-
-extraJavaModuleInfo {
-    automaticModule("org.msgpack:msgpack-core", "msgpack.core")
 }
 
 application {

@@ -36,6 +36,7 @@ public final class Npc implements EntityContext {
     /** Definition cache shared across all Npc wrappers in the same Npcs facade. */
     private final IntFunction<NpcType> typeLookup;
     private NpcType cachedType;
+    private NpcType cachedActiveType;
 
     Npc(GameAPI api,
         com.botwithus.bot.api.snapshot.Npc raw,
@@ -51,9 +52,30 @@ public final class Npc implements EntityContext {
     // ---------------- Identity ----------------
 
     public int serverIndex()    { return raw.serverIndex(); }
+    /** The <b>base</b> type id the server sent. Identity; see {@link #activeTypeId()} for appearance. */
     public int typeId()         { return raw.typeId(); }
-    public String name()        { NpcType t = getType(); return t == null ? null : t.name(); }
-    public int combatLevel()    { NpcType t = getType(); return t == null ? 0 : t.combatLevel(); }
+    /**
+     * The morph-resolved type id (wire v24): the type the client names and shows options for.
+     * Equals {@link #typeId()} for an NPC with no morph, {@code -1} when the morph resolves to
+     * nothing (see {@link #isHidden()}).
+     */
+    public int activeTypeId()   { return raw.activeTypeId(); }
+    /** True when this NPC is shown as a different type than its base one. */
+    public boolean isMorphed()  { return raw.isMorphed(); }
+    /** Display name from the active type, falling back to the base type; {@code null} if neither resolves. */
+    public String name()        { NpcType t = getActiveType(); return t == null ? null : t.name(); }
+    /**
+     * Combat level as the client shows it. The per-instance wire value (v24) when there is one
+     * ({@code 0} is real, for a non-combat NPC); otherwise the active type's, then the base
+     * type's, then {@code 0}.
+     */
+    public int combatLevel() {
+        if (raw.combatLevel() >= 0) {
+            return raw.combatLevel();
+        }
+        NpcType t = getActiveType();
+        return t == null ? 0 : t.combatLevel();
+    }
 
     // ---------------- Position (EntityContext) ----------------
 
@@ -84,8 +106,12 @@ public final class Npc implements EntityContext {
         int max = raw.maxHp();
         return max <= 0 ? 0 : (raw.hp() * FULL_HEALTH_PERCENT) / max;
     }
-    /** The snapshot only carries visible NPCs; this stub always returns {@code false}. */
-    public boolean isHidden()      { return false; }
+    /**
+     * True when the morph resolves to nothing ({@link #activeTypeId()} is {@code -1}), so the
+     * client hides this NPC. An NPC whose base type did not resolve either reads false: that is
+     * an unresolved row, not a hidden one.
+     */
+    public boolean isHidden()      { return raw.isHidden(); }
     /** Chebyshev distance to the local player tile, or {@code MAX_VALUE} if the player isn't loaded. */
     public int distanceToPlayer()  {
         var lp = api.getLocalPlayer();
@@ -128,7 +154,11 @@ public final class Npc implements EntityContext {
 
     // ---------------- Definition ----------------
 
-    /** Cached NpcType for this NPC's base typeId. May be {@code null} if the lookup fails. */
+    /**
+     * Cached NpcType for this NPC's <b>base</b> typeId. May be {@code null} if the lookup fails.
+     * For name and options use {@link #getActiveType()}: a morphing NPC's base type is often
+     * nameless.
+     */
     public NpcType getType() {
         if (cachedType == null) {
             cachedType = typeLookup.apply(typeId());
@@ -136,9 +166,23 @@ public final class Npc implements EntityContext {
         return cachedType;
     }
 
-    /** Right-click options. Empty list if the definition isn't available. */
+    /**
+     * Cached NpcType the client actually shows: {@link #activeTypeId()} when there is one, else
+     * the base type. Falls back to the base type when the active id does not resolve.
+     * {@code null} when neither does.
+     */
+    public NpcType getActiveType() {
+        if (cachedActiveType == null) {
+            int activeId = raw.appearanceTypeId();
+            NpcType active = activeId == typeId() ? null : typeLookup.apply(activeId);
+            cachedActiveType = active != null ? active : getType();
+        }
+        return cachedActiveType;
+    }
+
+    /** Right-click options, from the active type. Empty list if the definition isn't available. */
     public List<String> getOptions() {
-        NpcType t = getType();
+        NpcType t = getActiveType();
         return t == null ? List.of() : t.options();
     }
 
@@ -153,12 +197,12 @@ public final class Npc implements EntityContext {
     }
 
     public boolean isDefinitionVisible() {
-        NpcType t = getType();
+        NpcType t = getActiveType();
         return t != null && t.visible();
     }
 
     public boolean isClickable() {
-        NpcType t = getType();
+        NpcType t = getActiveType();
         return t != null && t.clickable();
     }
 
@@ -198,7 +242,7 @@ public final class Npc implements EntityContext {
 
     @Override
     public String toString() {
-        return "Npc{" + name() + " id=" + typeId()
+        return "Npc{" + name() + " id=" + typeId() + (isMorphed() ? " active=" + activeTypeId() : "")
                 + " @" + tileX() + "," + tileY() + "," + plane() + "}";
     }
 }

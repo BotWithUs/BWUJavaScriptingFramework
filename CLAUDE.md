@@ -39,9 +39,15 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 
 - **Pipe name**: producer publishes `\\.\pipe\BotWithUs_<pid>`. Java side: `core/.../pipe/PipeClient.java` (`NAME_PREFIX`, `firstAvailableOrThrow`), all `new PipeClient(...)` callers.
 - **SHM mapping**: producer publishes `Local\nxt_snapshot_<pid>`. Java side: `core/.../shm/Layout.java` (`MAPPING_NAME_PREFIX`), `SharedRegion`.
-- **Wire protocol version**: `Layout.PROTOCOL_VERSION` (currently `23`) must equal `kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h` (and the `static_assert(nxt::ipc::kProtocolVersion == 23, ...)` in `NXTDebugger/src/attach/Session.h`). `SharedRegion.open()` validates and refuses mismatched versions. `core/.../shm/LayoutWireOffsetsTest` pins the version, the dynamic-region block offsets and `SNAPSHOT_SIZE` as hardcoded literals so a cap edit on either side of the wire makes the two disagree loudly.
+- **Wire protocol version**: `Layout.PROTOCOL_VERSION` (currently `24`) must equal `kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h` (and the `static_assert(nxt::ipc::kProtocolVersion == 24, ...)` in `NXTDebugger/src/attach/Session.h`). `SharedRegion.open()` validates and refuses mismatched versions. `core/.../shm/LayoutWireOffsetsTest` pins the version, the row geometry, the moved offsets and `SNAPSHOT_SIZE` as hardcoded literals so a cap edit on either side of the wire makes the two disagree loudly. The opt-in `:core:producerHeaderDriftTest -Pbotwithus.producer.repo=<NXTLibrary checkout>` checks `Layout` against the header's own `static_assert`s and constants at the revision named in `ProducerHeaderDriftTest.BOUND_PRODUCER_SHA` (override with `-Pbotwithus.producer.rev=`); move that sha whenever the binding moves.
 - **Open-interface flags** (v23): `openIfaceFlags[256]` (`Layout.SNAP_OPENIFACEFLAGS_OFFSET`) is index-parallel to `openIfaces[]`, one u8 per id; only `[0, openIfaceCount)` is meaningful. Bits 0-2 are the client's raw open type (0 modal, 1 overlay, 3 client-script child, 7 unknown), bit 3 is set when a client script opened it, bits 4-7 are reserved and ignored on decode. The **bit** layout lives on `api/.../snapshot/OpenInterface` (`TYPE_MASK`, `FLAG_CLIENT_OPENED`), the same one-home rule as `DynamicRegion`; scripts reach it through `GameSnapshot.openInterfaces()` / `openInterface(id)` and `OpenInterface.isModal()`. The type is kept raw rather than as an enum so a newly seen value is carried, not lost. Inserting the array moved every field from `_padAfterOpenIfaces` on by exactly 256 (`SNAPSHOT_SIZE` 411832); `Layout` derives the tail as one running chain, and `LayoutWireOffsetsTest` plus `GameSnapshotOpenInterfaceFlagsTest` pin the moved offsets as literals.
 - **Dynamic regions** (v19): `GameSnapshot.dynamicRegion()` publishes the client's instance chunk-descriptor grid — the table that maps an instance tile back to the static tile it was copied from, so a static-baked navigation layer can path inside a player-owned house or a Dungeoneering floor. Byte offsets live in `Layout` (`DYNREGION_*`, `SNAP_DYN*`); the **bit** layout of a descriptor lives on `api/.../snapshot/DynamicRegion` because scripts decode it and `api` cannot depend on `core` — one home, not two copies. The snapshot-backed region is a flyweight over shared memory, so anything retaining it past the tick must copy it — prefer `DynamicRegion.copyOfStable(snapshot)`, which re-checks `publishSeq()` around the copy, over bare `copyOf(...)`: the grid is up to 64 KB read out of a live double-buffered mapping with no seqlock, and a half-stale grid resolves to plausible wrong tiles rather than failing. Two traps the javadoc is loud about and reviewers should stay loud about: origin/max are **mapsquares** while `gridW`/`gridH` are **chunks**, and `maxMapX`/`maxMapY` bound the loaded window rather than the resolvable grid.
+- **Entity names, morphs and run state** (v24): `PlayerEntry` 32 → 48 adds a `char[16]` UTF-8 `name` (`Layout.PLAYER_NAME_OFFSET`) plus `FLAG_NAME_TRUNCATED` in the flags byte; `NpcEntry` 40 → 48 adds `activeTypeId` and a per-instance `combatLevel`; `LocalPlayer` 552 → 560 adds `runEnergy`/`runWeight`. Every field from `npcs` on moved. Traps to keep loud:
+  - **An empty player name means "not known yet"**, not "no name": the client writes it while decoding appearance, and some in-world players read empty. The players query maps it to `null` so no name filter matches it, not even `named("")`. Names can carry U+00A0 (the client's cp1252 0xA0); the players query folds it to a space on both sides via `EntityQuery.normaliseName`, while `name()` returns the raw string.
+  - **`Npc.typeId()` is the base id; name, options, combat level and `isClickable` come from `activeTypeId`** (falling back to the base). Before v24 the host resolved them from the base, so morphing NPCs (Xenia 9633 → 11476) read a null name. `withId`/`withGameval` match either id. `isHidden()` is `activeTypeId == -1 && typeId != -1`; a row with neither resolved is unresolved, not hidden. `combatLevel()` prefers the wire value (`0` is real) and only falls back to the definition on a record built with a pre-v24 constructor (`COMBAT_LEVEL_UNKNOWN`).
+  - **`runEnergy`/`runWeight` read `-1` out of the world** even though the wire holds `0` there (`GameSnapshotImpl.runStateOrUnknown`), matching the native, Python and Lua hosts, so `0` always means an empty bar. `runWeight` is not independently verified.
+  - The new RPC `get_player_appearance` (`GameAPI.getPlayerAppearance`) is additive and maps each agent refusal string to an `AppearanceStatus`; the argument refusal throws `IllegalArgumentException` instead. Its slots are in **client order, not wearpos**.
+  - The component map gained `visible`, `visible_global`, `slot_flags`, `parent_global` and the layer scroll keys (additive, no bump of its own), and `hidden` now means `visible ? 0 : 1` for every category. `ComponentQuery.visible()`/`hidden()` partition on `visible_global`. An absent `visible`/`visible_global` (an agent older than the keys) is derived from `hidden` rather than read as `false`, or `visible()` would match nothing.
 - **Entity facing** (v21): `Npc` / `Player` / `LocalPlayer` carry an `Orientation` decoded from a `u16` on each row (`Layout.NPC_ORIENTATION_OFFSET` / `PLAYER_ORIENTATION_OFFSET` / `LP_ORIENTATION_OFFSET`). `0xFFFF` is unknown; anything else outside `0..16383` is a producer bug that the decode path (`OrientationWireDecoder`, one per `SharedRegion`) turns into unknown plus one WARN per session. It never throws out of a snapshot read, while `new Orientation(bad)` does throw. The zero offset `Orientation.NORTH_RAW = 8192` comes from static analysis and awaits a live check. Compare facings with `isSameFacingAs` (one-unit tolerance), never `equals`: the client's conversion truncates, so an angle can read back one unit short.
 - **The snapshot's three clocks** (v18): `GameSnapshot.serverTick()` is the 600ms server tick and the one scripts should pace against; `gameCycle()` is the client's ~20ms counter and the unit `Projectile.startCycle()`/`endCycle()` use; `publishSeq()` is the producer's republish counter — same cadence as `gameCycle()` but a different number space, so never compare them. `publishSeq()` was called `tickId()` through v17, and pacing off it ran ~30x fast.
 - **Event-type discriminators**: `Layout.EVT_*` mirrors `kEvent*` enum in `NXTLibrary/src/ipc/Events.h`. Decoder switch arms in `EventRingReader` must cover every type the producer emits.
@@ -93,20 +99,22 @@ Three things that will bite if changed carelessly:
 
 ### CI and branch protection
 
-`master` is the integration branch: pull requests target it and branches start from it. (`develop` still exists on the remote, but it is far behind `master` and holds a few commits that were never merged. Do not branch from it or target it.) Two rulesets apply, both with an empty bypass list, so they bind org admins too:
+`develop` is the integration branch: pull requests target it and branches start from `origin/develop`. `master` trails `develop`. Promoting `develop` to `master` is a decision the user makes at release time; host builds for a release are currently cut from `develop`. `develop` is also GitHub's default branch, so `gh pr create` and the web UI propose it as the base.
 
-- **`master protection`** (branch `master`):
+Three rulesets apply, all with an empty bypass list, so they bind org admins too:
+
+- **`develop protection`** (branch `develop`) and **`master protection`** (branch `master`) carry the same rules:
   - changes land only through a pull request;
-  - the `build` check must be green (not strict, so the branch does not have to be up to date with `master` first);
+  - the `build` check must be green (not strict, so a branch does not have to be up to date with its base first);
   - no force-push and no deletion;
   - stale reviews are dismissed on push.
 
-  It requires **zero** approving reviews, and that is deliberate. The user reviews and merges PRs personally. GitHub forbids approving your own PR, so a required approval would need a second person that the project does not have. Agents open PRs and leave the merge to the user.
+  Both require **zero** approving reviews, and that is deliberate. The user reviews and merges PRs personally. GitHub forbids approving your own PR, so a required approval would need a second person that the project does not have. Agents open PRs and leave the merge to the user.
 - **`release tags are immutable`** (tags `v*`) — a release tag cannot be deleted, moved, or force-updated. That is what makes "a published version is never replaced" true at the git level and not just by workflow convention.
 
-`ci.yml` provides the required `build` check. **Its job must stay named `build`** — the required-check context is matched by job name, so renaming the job blocks every merge to `master` until the ruleset is updated to match.
+`ci.yml` provides the required `build` check. **Its job must stay named `build`** — the required-check context is matched by job name, so renaming the job blocks every merge to `develop` and to `master` until both rulesets are updated to match.
 
-**CI does not run `./gradlew build`.** It builds `:api :core :test-support :quest-core :skilling-core` and runs `:cli:check` (the `cli` tests, plus compiling the `preview` source set). `cli` needs nothing from `local.properties` to configure or test — every key it reads is optional and used only by `run` and the jlink/jpackage tasks — so keep it that way: a key that becomes required at configuration time breaks CI. The preview renders (`:cli:renderPreviews`, `:cli:previewSmokeTest`) need a desktop with OpenGL and are not run in CI. `example-script` and `sdn-test-script` stay out: they reference quest constants that `quest-core` only generates when `quest.research.dir` points at the research data, and emits as a stub otherwise. Pull requests run CI whatever branch they target, so stacked PRs are checked too.
+**CI does not run `./gradlew build`.** It builds `:api :core :test-support :quest-core :skilling-core` and runs `:cli:check` (the `cli` tests, plus compiling the `preview` source set). `cli` needs nothing from `local.properties` to configure or test — every key it reads is optional and used only by `run` and the jlink/jpackage tasks — so keep it that way: a key that becomes required at configuration time breaks CI. The preview renders (`:cli:renderPreviews`, `:cli:previewSmokeTest`) need a desktop with OpenGL and are not run in CI. CI runs on Ubuntu, so a `cli` test that loads LWJGL natives needs the Linux classifier at test runtime — `cli/build.gradle.kts` adds it as a `testRuntimeOnly` `natives-linux` dependency, leaving the shipped runtime classpath Windows-only; without it the test passes locally and fails only in CI. `example-script` and `sdn-test-script` stay out: they reference quest constants that `quest-core` only generates when `quest.research.dir` points at the research data, and emits as a stub otherwise. Pull requests run CI whatever branch they target, so stacked PRs are checked too.
 
 ### Machine-specific paths (`local.properties`)
 
@@ -159,7 +167,7 @@ Runtime, transports, RPC, script discovery, native bridges:
 - **`pipe/PipeClient`** — Windows named-pipe client (`\\.\pipe\BotWithUs_<pid>`), length-prefixed framing. **Single-threaded access** (concurrent reads/writes deadlock the kernel handle).
 - **`shm/`** — Reader for the shared-memory snapshot + event ring published by the DLL (`SharedRegion`, `SnapshotView`, `EventRingReader`, typed entry views).
 - **`rpc/RpcClient`** — Synchronous msgpack JSON-RPC over the pipe. Configurable per-call timeouts, retry/backoff policy, per-method `RpcMetrics`.
-- **`msgpack/MessagePackCodec`** — Serialization via `org.msgpack:msgpack-core:0.9.8`.
+- **`msgpack/MessagePackCodec`** — `Map <-> byte[]` codec over `com.botwithus:msgpack` (module `com.botwithus.msgpack`, Panama-based, no dependencies, no `sun.misc.Unsafe`), published to `https://botwithus.github.io/maven`. Every decoded integer is a `Long`. The launcher client (`launcher/`) uses the same library's `MsgValue` tree.
 - **`impl/`** — Concrete implementations: `GameAPIImpl`, `EventBusImpl`, `ClientImpl`, `ClientProviderImpl`, `ScriptContextImpl`, `ScriptManagerImpl`, `ScriptSchedulerImpl`, `MessageBusImpl`, `SharedStateImpl`, `Walker`, plus `impl/snapshot/` for the snapshot view backed by `SharedRegion`.
 - **`runtime/`** — Script lifecycle: `LocalScriptLoader` (filesystem JAR discovery), `SDNScriptLoader` (signed-network distribution), `ManagementScriptLoader`, `ScriptRunner` (per-script virtual thread; sets MDC `script.name` and `connection.name`), `ScriptRuntime`, `ScriptProfiler`, `ConnectionContext`.
 
@@ -191,6 +199,8 @@ So `AssertRouter`, the one assert handler, **parks the script's render thread fo
 - **Never call `ImGuiIO.setIniFilename` with a non-null value, anywhere in the process.** imgui-java's setter frees the field's old value whenever the last value *any* context was given was non-null, because it tracks that in one process-wide static. A fresh sandbox's `IniFilename` is a string literal, so after the host once set its path that way, creating a sandbox killed the process with heap corruption (`0xC0000374`). `cli/.../gui/HostIni` loads and saves the host's layout file by hand for this reason. `ScriptUiGuardForkTest.anIniPathSetThroughImGuiIo_makesTheFirstSandboxCorruptTheHeap` pins the hazard.
 - **Every call into a `ScriptUI` happens in the sandbox frame**: `attach`, `render`, and `drawsOwnChrome` (asked after `render`, inside the root window). `ScriptUiRenderer.drawsOwnChrome(slot)` serves the last answer and asks in an unseen sandbox frame the first time, because the host needs it before it opens the window. Do not "simplify" it into a direct call on the UI thread: that is script code with the host's context current.
 - **A frameless pop-out is moved by the host, not by Dear ImGui.** `PanelInput`'s invisible button means every press over a panel lands on an item, so ImGui never drags the window. The sandbox reports a left press over its root on no item (`FrameOutcome.Drawn.isBackgroundPress`), and `BackgroundDrag` moves the window with `setNextWindowPos`. `BackgroundDragTest` pins both directions, including a hovered widget that is not yet active, which is the only case the `isAnyItemHovered` check decides.
+- **A frameless pop-out is resized by the host too.** The same panel covers the window's edges, so Dear ImGui's own edge resize never fires there, and `ScriptUiRenderer.composite` sets the script's cursor over ImGui's resize cursor every frame. The window is `NoResize`, and `BorderResize` hit-tests a band along its edges with the main window's `BorderHitTest` (`FramelessChrome.resizeBorder`) before the UI is drawn, then sizes it with `setNextWindowPos/Size` from a `ResizeDrag`. While the band has the pointer, the UI is drawn with `isPointerTaken`: no hover, press or cursor reaches the script, so no `BackgroundDrag` starts either. The band is offered only while no button is held, so a drag on a script widget that crosses the edge stays the script's. `BorderResizeTest` pins every edge and corner and the precedence cases.
+  - **With a typing script UI** (the hold below), a border press still resizes: the hold is released at the end of each frame, so the band's check, which runs before the panel, never sees it. `BorderResize` also hovers with `AllowWhenBlockedByActiveItem` as a second guard. The script still sees the pointer as `Pointer.away` with the buttons down and no position, so no script widget under the band is hit, and the script's text field lets go as it would for a press anywhere outside it. `BorderResizeWhileTypingTest` pins all of this, plus the main window's button and drag strip taking the next press after a resize.
 - **The host holds an active item for a typing script UI for one frame only.** `HostFocus.hold` makes the panel's input item the host's active item from where the panel is drawn, and `ScriptUiRenderer.endFrame` lets it go. An active item is global to the host's context, so a hold carried into the next frame takes every press from every other item there: the page's Start buttons, the frameless top bar's `##window-drag`, and Dear ImGui's click-to-focus. Shipped that way, one click in a script's UI locked the host's GUI. Five rules keep it from coming back:
   - Host shortcuts that run before the panel must ask `ScriptUiRenderer.hasKeyboard()`, as `InspectorDock.handleEscape` does. `isAnyItemActive()` is false there.
   - The sandbox reports `wantsKeyboard` from `WantTextInput` or an active item of its own, never from `WantCaptureKeyboard`. With keyboard navigation on, that stays true for as long as the sandbox's root has focus, which is forever after the first press.
@@ -273,9 +283,35 @@ Three things to keep straight when extending it:
   tables. Absent file → `GamevalIndex.empty()`, every lookup empty,
   `isAvailable()` false. Lookups are lazy and memoised (hits *and* misses);
   eagerly loading the whole table would retain ~200 MB. One process-wide index
-  is opened at the composition root (`CliContext.getOrInitGamevals()`,
-  `JBotApplication.openGamevalIndex()`) and shared by every connection — the
-  same treatment `NXTCache` gets.
+  is opened at the composition root (`CliContext.getOrInitGamevals(pid)`,
+  `JBotApplication.main`) through `HostGamevals.openForHost(pid)` and shared by
+  every connection — the same treatment `NXTCache` gets.
+- **The host keeps the index current from the player's own cache**
+  (`core.gameval.HostGamevals`). The shipped file goes stale with every game
+  update; since 951-1 the live cache carries index 67 itself. At startup the host
+  probes `nxt_gameval_index_version` on a *private* `NXTCache.openLocal` handle
+  (no live fallback, so the names match the client the player runs) and reads, in
+  order: the `-Dbotwithus.gameval` override untouched (nothing probed or built);
+  `~/.botwithus/native/gameval-local/gameval-<index_version>.sqlite` if any host
+  already built it; the shipped DB if its `meta.index_version` already matches;
+  otherwise the shipped DB *now* while a background build runs, then a swap
+  (`SwappableGamevalIndex`). NOT_FOUND, an `NXTCache.dll` without the builder,
+  or no local cache all read the shipped DB with one log line.
+  - **The shipped `gameval.sqlite` is never written.** It is a launcher data.zip
+    payload with a `.sha256` sidecar, and the next data.zip apply would undo a
+    host write anyway.
+  - **Local builds are immutable and version-named** (`LocalGamevalStore`): built
+    to `<pid>-<n>.build`, then renamed to a name that does not exist yet. Windows
+    refuses to rename *over* a file sqlite holds open; renaming to a new name has
+    no such problem, so any number of hosts can read the same file. A lock file
+    taken without waiting stops two hosts building the same version; the loser
+    polls for the winner's file in the background. Startup never waits on it.
+  - **A swap does not re-resolve ids already resolved.** A query built in
+    `onStart` against the shipped DB keeps its ids until rebuilt. A build takes
+    ~2–6 s on a real cache, which is why it runs in the background at all.
+  - `LocalGamevalBuildLiveTest` (`:core:gamevalLocalBuildLiveTest
+    -Dnxtcache.dll=<a DLL with nxt_build_gameval_db>`) drives the real builder
+    against the real local cache, read-only, into a temp dir.
 
 `meta.schema_version` gates the file: the reader refuses anything but `1`, so a
 format change fails loud rather than misreading rows. `GamevalTypeTest` pins the
@@ -359,7 +395,7 @@ Intentionally violated rule:
 
 ### Script runner threads are **platform** threads, not virtual
 
-`ScriptRunner.start()` and `ManagementScriptRunner.start()` use `Thread.ofPlatform()`, and `RpcClient.start()` does the same for `rpc-reader`. `VoiceInputService` uses two more: `voice-callback` runs script callbacks (untrusted code, same reasoning), and `voice-engine` holds a COM apartment, which is bound to an OS thread and so cannot live on a virtual thread at all. Each site carries a `// rule-exception:` comment pointing here.
+`ScriptRunner.start()` and `ManagementScriptRunner.start()` use `Thread.ofPlatform()`, `RpcClient.start()` does the same for `rpc-reader`, and `BoundedConstruction.construct()` does the same for each `sdn-construct-<Script>` thread, which runs a delivered Store script's constructor and may never return. `VoiceInputService` uses two more: `voice-callback` runs script callbacks (untrusted code, same reasoning), and `voice-engine` holds a COM apartment, which is bound to an OS thread and so cannot live on a virtual thread at all. Each site carries a `// rule-exception:` comment pointing here.
 
 Intentionally violated rule:
 

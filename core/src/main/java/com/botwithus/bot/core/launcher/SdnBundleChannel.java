@@ -1,7 +1,5 @@
 package com.botwithus.bot.core.launcher;
 
-import com.botwithus.bot.api.script.LauncherException;
-
 import java.util.List;
 
 /**
@@ -19,20 +17,18 @@ public interface SdnBundleChannel {
     boolean offersSdnBundles();
 
     /**
-     * {@code sdn.bundle}.
+     * {@code sdn.bundle}, asking for a partial delivery.
      *
      * @param publicKey the key the bundle is sealed to
      * @param scriptIds the catalogue ids wanted, in the order the jars should arrive
-     * @throws LauncherException the service's error, or {@code service_unavailable}
-     *                           / {@code service_stopped} when no service answered
+     * @return the offer, or how the call ended without one; never throws for a refusal
      */
-    SdnBundleOffer requestSdnBundle(byte[] publicKey, List<String> scriptIds);
+    SdnCall<SdnBundleOffer> requestSdnBundle(byte[] publicKey, List<String> scriptIds);
 
     /**
      * {@code sdn.bundle_chunk}.
      *
-     * @return the chunk's bytes, exactly as the service sent them
-     * @throws LauncherException as {@link #requestSdnBundle}
+     * @return the chunk's bytes exactly as the service sent them, or how the call ended
      */
-    byte[] sdnBundleChunk(long deliveryId, long index);
+    SdnCall<byte[]> sdnBundleChunk(long deliveryId, long index);
 }

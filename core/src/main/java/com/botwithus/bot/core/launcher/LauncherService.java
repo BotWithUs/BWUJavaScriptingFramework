@@ -3,7 +3,8 @@ package com.botwithus.bot.core.launcher;
 import com.botwithus.bot.api.script.LauncherEvent;
 import com.botwithus.bot.api.script.LauncherException;
 import com.botwithus.bot.core.launcher.FrameChannel.ChannelClosedException;
-import org.msgpack.value.Value;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,6 +18,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * This process's one connection to the launcher service's automation pipe:
@@ -121,7 +123,7 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
      * @throws LauncherException the service's error, or {@code service_unavailable} /
      *                           {@code service_stopped} when no service answered
      */
-    Value call(String method, Value body) {
+    MsgValue call(String method, MsgValue body) {
         ServiceSession current = session;
         if (current == null) {
             throw notConnected(null);
@@ -133,9 +135,7 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
             throw notConnected(e);
         }
         if (!response.isOk()) {
-            WireError error = response.error().orElseGet(() -> new WireError(WireError.UNKNOWN_CODE,
-                    "a failed response with no error", false, OptionalLong.empty(), Optional.empty()));
-            throw error.toException(method);
+            throw errorOf(response).toException(method);
         }
         return response.body();
     }
@@ -160,15 +160,49 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
     }
 
     @Override
-    public SdnBundleOffer requestSdnBundle(byte[] publicKey, List<String> scriptIds) {
-        return LauncherDecoder.sdnBundleOffer(call(LauncherProtocol.METHOD_SDN_BUNDLE,
-                LauncherRequests.sdnBundle(publicKey, scriptIds)));
+    public SdnCall<SdnBundleOffer> requestSdnBundle(byte[] publicKey, List<String> scriptIds) {
+        return sdnCall(LauncherProtocol.METHOD_SDN_BUNDLE, LauncherRequests.sdnBundle(publicKey, scriptIds),
+                LauncherDecoder::sdnBundleOffer);
     }
 
     @Override
-    public byte[] sdnBundleChunk(long deliveryId, long index) {
-        return LauncherDecoder.sdnBundleChunk(call(LauncherProtocol.METHOD_SDN_BUNDLE_CHUNK,
-                LauncherRequests.sdnBundleChunk(deliveryId, index)));
+    public SdnCall<byte[]> sdnBundleChunk(long deliveryId, long index) {
+        return sdnCall(LauncherProtocol.METHOD_SDN_BUNDLE_CHUNK, LauncherRequests.sdnBundleChunk(deliveryId, index),
+                LauncherDecoder::sdnBundleChunk);
+    }
+
+    /**
+     * {@link #call} for the SDN methods, which answer with a value rather than throw:
+     * a refusal keeps the reason the service gave, and no answer says whether the
+     * service was gone or only slow.
+     */
+    private <T> SdnCall<T> sdnCall(String method, MsgValue body, Function<MsgValue, T> decode) {
+        ServiceSession current = session;
+        if (current == null) {
+            return new SdnCall.Unavailable<>(false);
+        }
+        Envelope response;
+        try {
+            response = current.call(method, body, timings.callTimeout());
+        } catch (ChannelClosedException e) {
+            log.info("SDN: {} got no answer: {}", method, e.getMessage());
+            return new SdnCall.Unavailable<>(e.isTimeout());
+        }
+        if (response.isOk()) {
+            return new SdnCall.Answered<>(decode.apply(response.body()));
+        }
+        WireError error = errorOf(response);
+        if (error.code().equals(LauncherProtocol.ERROR_SDN_NOT_DELIVERED)) {
+            return new SdnCall.Refused<>(SdnWire.refusal(error.detail()));
+        }
+        return new SdnCall.Failed<>(error.code());
+    }
+
+    /** The response's error, or a stand-in when a failed response named none. */
+    private static WireError errorOf(Envelope response) {
+        return response.error().orElseGet(() -> new WireError(WireError.UNKNOWN_CODE,
+                "a failed response with no error", false, OptionalLong.empty(), Optional.empty(),
+                MsgMap.empty()));
     }
 
     /**

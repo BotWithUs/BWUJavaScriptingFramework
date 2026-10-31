@@ -1,7 +1,7 @@
 package com.botwithus.bot.core.launcher;
 
 import com.botwithus.bot.core.launcher.FrameChannel.ChannelClosedException;
-import org.msgpack.value.Value;
+import com.botwithus.msgpack.MsgValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -83,7 +83,7 @@ final class ServiceSession implements AutoCloseable {
      *                                answer came within {@code timeout}; the
      *                                session is closed in every such case
      */
-    Envelope call(String method, Value body, Duration timeout) {
+    Envelope call(String method, MsgValue body, Duration timeout) {
         if (isClosed.get()) {
             throw new ChannelClosedException("the connection to the service is closed");
         }
@@ -136,7 +136,7 @@ final class ServiceSession implements AutoCloseable {
             return response.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
         } catch (TimeoutException e) {
             ChannelClosedException noAnswer = new ChannelClosedException(
-                    "the service did not answer " + method + " within " + timeout.toSeconds() + " s", e);
+                    "the service did not answer " + method + " within " + timeout.toSeconds() + " s", e, true);
             closeWith(noAnswer);
             throw noAnswer;
         } catch (ExecutionException e) {

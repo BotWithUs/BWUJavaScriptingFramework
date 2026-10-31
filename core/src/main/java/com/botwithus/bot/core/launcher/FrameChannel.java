@@ -50,12 +50,26 @@ public interface FrameChannel extends AutoCloseable {
 
         private static final long serialVersionUID = 1L;
 
+        /** Whether the service was there but did not answer in time, rather than gone. */
+        private final boolean isTimeout;
+
         public ChannelClosedException(String message) {
-            super(message);
+            this(message, null, false);
         }
 
         public ChannelClosedException(String message, Throwable cause) {
+            this(message, cause, false);
+        }
+
+        /** @param isTimeout whether a call went unanswered for its whole timeout */
+        public ChannelClosedException(String message, Throwable cause, boolean isTimeout) {
             super(message, cause);
+            this.isTimeout = isTimeout;
+        }
+
+        /** @return whether a call went unanswered for its whole timeout */
+        public boolean isTimeout() {
+            return isTimeout;
         }
     }
 }

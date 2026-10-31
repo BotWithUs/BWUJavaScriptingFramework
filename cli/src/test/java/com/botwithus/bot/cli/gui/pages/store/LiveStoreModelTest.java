@@ -1,5 +1,7 @@
 package com.botwithus.bot.cli.gui.pages.store;
 
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
+import com.botwithus.bot.core.sdn.StoreShelf;
 import com.botwithus.bot.api.BotScript;
 import com.botwithus.bot.api.ScriptCategory;
 import com.botwithus.bot.api.ScriptContext;
@@ -16,6 +18,7 @@ import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
 import com.botwithus.bot.core.sdn.SdnCatalogueResult;
 import com.botwithus.bot.core.sdn.SdnInstallResult;
+import com.botwithus.bot.core.sdn.SdnReasonText;
 import com.botwithus.bot.core.sdn.StoreCopies;
 
 import org.junit.jupiter.api.AfterEach;
@@ -171,7 +174,8 @@ class LiveStoreModelTest {
         return new LiveStoreModel(refresher, entries -> {
             installRequests.add(List.copyOf(entries));
             return launcherInstall.apply(entries);
-        }, StoreCopies.of(ledger), () -> deliveryEnabled, favourites, () -> List.of(conn), () -> localScripts,
+        }, new StoreRegistrar(new StoreShelf()), StoreCopies.of(ledger), () -> deliveryEnabled, favourites,
+                () -> List.of(conn), () -> localScripts,
                 queuedInstalls, InstantSource.fixed(NOW));
     }
 
@@ -560,6 +564,40 @@ class LiveStoreModelTest {
 
             assertTrue(assertInstanceOf(InstallActivity.Failed.class, model.view(StoreQuery.DEFAULT).install())
                     .message().contains("disk full"));
+        }
+
+        /**
+         * Fails at the base: an Error escaped the install boundary, so the row left
+         * "Installing" with no message at all.
+         */
+        @Test
+        void anInstallThatThrowsAnError_stillSettlesWithAMessage() {
+            launcherInstall = entries -> {
+                throw new NoClassDefFoundError("com/example/Missing");
+            };
+            LiveStoreModel model = model();
+
+            model.install(List.of("one"));
+            runDeferredInstalls();
+
+            StoreView after = model.view(StoreQuery.DEFAULT);
+            assertTrue(assertInstanceOf(InstallActivity.Failed.class, after.install()).message()
+                    .contains("com/example/Missing"));
+            assertTrue(after.find("one").orElseThrow().isInstallable());
+        }
+
+        /** The old text told the user to check a launcher that was running; this one says what is true. */
+        @Test
+        void noLauncherConnection_saysSo_ratherThanAskingIfItIsRunning() {
+            launcherInstall = entries -> new SdnInstallResult.CourierUnavailable(
+                    SdnInstallResult.NoAnswer.NOT_CONNECTED);
+            LiveStoreModel model = model();
+
+            model.install(List.of("one"));
+            runDeferredInstalls();
+
+            assertEquals(SdnReasonText.NOT_CONNECTED_TEXT, assertInstanceOf(InstallActivity.Failed.class,
+                    model.view(StoreQuery.DEFAULT).install()).message());
         }
 
         @Test

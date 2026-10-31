@@ -5,14 +5,16 @@ logback = "1.5.16"
 
 # Serialization / IPC
 gson = "2.11.0"
-msgpack = "0.9.8"
+msgpack = "0.1.0"
 
 # Data layer (Atlas — baked resolved.sqlite read by skilling-core)
 sqlite-jdbc = "3.47.1.0"
 
 # UI / GUI
 imgui = "1.90.0"
-lwjgl = "3.3.6"
+# 3.4.x carries the FFM memory backend the GUI selects (cli LwjglMemoryBackend);
+# from 3.4.2 the JDK 25 default is Unsafe-based again, so the bump alone is not enough.
+lwjgl = "3.4.3"
 
 # Testing
 junit = "5.12.1"
@@ -29,7 +31,7 @@ logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "lo
 
 # Serialization / IPC
 gson = { module = "com.google.code.gson:gson", version.ref = "gson" }
-msgpack-core = { module = "org.msgpack:msgpack-core", version.ref = "msgpack" }
+msgpack = { module = "com.botwithus:msgpack", version.ref = "msgpack" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqlite-jdbc" }
 
 # UI / GUI

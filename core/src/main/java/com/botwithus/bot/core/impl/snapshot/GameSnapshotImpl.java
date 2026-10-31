@@ -129,7 +129,20 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 LocalPlayer.HEALTH_UNKNOWN,
                 LocalPlayer.HEALTH_UNKNOWN,
                 skills,
-                lpv.orientation());
+                lpv.orientation(),
+                runStateOrUnknown(lpv.runEnergy()),
+                runStateOrUnknown(lpv.runWeight()));
+    }
+
+    /**
+     * The wire holds {@code 0} for run energy and weight out of the world, where {@code 0} would
+     * read as a real empty bar. Report {@link LocalPlayer#RUN_UNKNOWN} there instead, as the
+     * native, Python and Lua hosts do, so {@code 0} is never ambiguous. In-world the wire's own
+     * {@code -1} already means unknown and passes through.
+     */
+    private int runStateOrUnknown(int wire) {
+        boolean isInWorld = view.gameState() == GameSnapshot.GAME_STATE_IN_GAME && view.ownIndex() >= 0;
+        return isInWorld ? wire : LocalPlayer.RUN_UNKNOWN;
     }
 
     @Override
@@ -227,7 +240,9 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.hp(),
                 e.maxHp(),
                 e.spotAnimId(),
-                e.orientation());
+                e.orientation(),
+                e.activeTypeId(),
+                e.combatLevel());
     }
 
     private static Player toPlayer(PlayerEntry e) {
@@ -242,7 +257,8 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.stanceId(),
                 e.combatLevel(),
                 e.spotAnimId(),
-                e.orientation());
+                e.orientation(),
+                e.name());
     }
 
     private static GroundItem toGroundItem(GroundItemEntry e) {

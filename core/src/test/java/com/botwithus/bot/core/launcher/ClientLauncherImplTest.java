@@ -7,11 +7,11 @@ import com.botwithus.bot.api.script.LauncherEvent;
 import com.botwithus.bot.api.script.LauncherException;
 import com.botwithus.bot.api.script.StopMode;
 import com.botwithus.bot.core.runtime.ConnectionContext;
+import com.botwithus.msgpack.MsgMap;
+import com.botwithus.msgpack.MsgValue;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.msgpack.value.Value;
-import org.msgpack.value.ValueFactory;
 import org.slf4j.MDC;
 
 import java.time.Duration;
@@ -49,9 +49,9 @@ class ClientLauncherImplTest {
         fake.handle(LauncherProtocol.METHOD_CLIENT_LAUNCH,
                 body -> FakeLauncherService.ok(FakeLauncherService.body().put("clientId", "c7").build()));
         fake.handle(LauncherProtocol.METHOD_CLIENT_STATUS, body -> FakeLauncherService.ok(client("c7")));
-        fake.handle(LauncherProtocol.METHOD_CLIENT_STOP, body -> FakeLauncherService.ok(ValueFactory.emptyMap()));
+        fake.handle(LauncherProtocol.METHOD_CLIENT_STOP, body -> FakeLauncherService.ok(MsgMap.empty()));
         fake.handle(LauncherProtocol.METHOD_CLIENT_LIST, body -> FakeLauncherService.ok(FakeLauncherService.body()
-                .put("clients", ValueFactory.newArray(client("c7"))).build()));
+                .put("clients", MsgValue.of(List.of(client("c7")))).build()));
     }
 
     @AfterEach
@@ -151,7 +151,7 @@ class ClientLauncherImplTest {
     void launchSends_accountAndCharacter() {
         start(this::attached);
         launcher.launch(ACCOUNT, new LaunchOptions(2));
-        Value body = fake.received(LauncherProtocol.METHOD_CLIENT_LAUNCH).getFirst().body();
+        MsgValue body = fake.received(LauncherProtocol.METHOD_CLIENT_LAUNCH).getFirst().body();
         assertEquals(Optional.of(ACCOUNT), WireValues.string(body, "accountId"));
         assertEquals(2, WireValues.integer(body, "characterIndex", 0L));
     }
@@ -233,7 +233,7 @@ class ClientLauncherImplTest {
         return new AttachResult.Attached("BotWithUs_" + pid);
     }
 
-    private Value client(String clientId) {
+    private MsgValue client(String clientId) {
         return FakeLauncherService.body().put("clientId", clientId).put("pid", PID).put("accountId", ACCOUNT)
                 .put("accountName", "Main").put("characterIndex", -1).put("kind", "jagex").put("origin", "automation")
                 .put("state", clientState.get()).put("startedAtMs", 1L).put("agentSha", "")
@@ -241,7 +241,7 @@ class ClientLauncherImplTest {
                 .put("licence", FakeLauncherService.body().put("state", "ok").put("failures", 0).build()).build();
     }
 
-    private static Value stateEvent(String clientId, String state) {
+    private static MsgValue stateEvent(String clientId, String state) {
         return FakeLauncherService.body().put("clientId", clientId).put("state", state).build();
     }
 

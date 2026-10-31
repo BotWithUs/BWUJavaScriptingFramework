@@ -211,9 +211,16 @@ class CliContextClientRegistryTest {
         return conn;
     }
 
-    /** What the status tracker does when it reads a client: the path identification takes. */
+    /**
+     * What the status tracker does when it reads a client: the path identification takes.
+     * Flushed twice because identification cascades: the registry handles
+     * {@code ClientIdentified} on the dispatcher and publishes {@code ClientResumed} from
+     * there, behind the first barrier. {@code flush} only covers events published before
+     * it, so one flush lets the history read race that second event.
+     */
     private static void identify(CliContext ctx, Connection conn) {
         ctx.getStatusTracker().refresh(conn);
+        flush(ctx);
         flush(ctx);
     }
 

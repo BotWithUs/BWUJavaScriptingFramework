@@ -5,6 +5,7 @@ import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.gui.pages.StoreSignInLine;
 import com.botwithus.bot.cli.sdn.FavouritesStore;
+import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.sdn.SdnCatalogueEntry;
 import com.botwithus.bot.core.sdn.SdnCatalogueRefresher;
@@ -48,9 +49,10 @@ import java.util.stream.Collectors;
  * A name never matches, because a name is not an identity.</p>
  *
  * <p>Installs run on the executor given, never on the render thread, because each
- * waits for the launcher. A delivery is registered on every live client, which is
- * what gives it the same controls as a local script. Store scripts live in memory
- * only: a client that connects later, or a restart, does not get them back.</p>
+ * waits for the launcher. A delivery is registered on every live client, each with
+ * its own instance, which is what gives it the same controls as a local script. The
+ * host keeps every delivery on its {@code StoreShelf}, so a client that connects
+ * later and a reload get it too, and asks the launcher again after a restart.</p>
  *
  * <p>{@link #view}, {@link #markSeen} and {@link #signInLine} are for the render
  * thread; installs settle from the install executor.</p>
@@ -65,6 +67,7 @@ public final class LiveStoreModel implements StoreModel {
 
     private final SdnCatalogueRefresher refresher;
     private final Function<List<SdnCatalogueEntry>, SdnInstallResult> installer;
+    private final StoreRegistrar registrar;
     private final StoreCopies storeCopies;
     private final BooleanSupplier deliveryEnabled;
     private final FavouritesStore favourites;
@@ -85,6 +88,7 @@ public final class LiveStoreModel implements StoreModel {
     /**
      * @param refresher       the host's one catalogue loop, shared with Normal mode's picker
      * @param installer       asks the launcher for catalogue scripts and loads them; blocks
+     * @param registrar       registers a delivery on a client, a new instance per client
      * @param storeCopies     recognises a Store copy on a client and finds its install record
      * @param deliveryEnabled whether the launcher can hand this host a script at all
      * @param connections     the host's clients, read fresh on every call
@@ -94,6 +98,7 @@ public final class LiveStoreModel implements StoreModel {
      */
     public LiveStoreModel(SdnCatalogueRefresher refresher,
                           Function<List<SdnCatalogueEntry>, SdnInstallResult> installer,
+                          StoreRegistrar registrar,
                           StoreCopies storeCopies,
                           BooleanSupplier deliveryEnabled,
                           FavouritesStore favourites,
@@ -103,6 +108,7 @@ public final class LiveStoreModel implements StoreModel {
                           InstantSource clock) {
         this.refresher = refresher;
         this.installer = installer;
+        this.registrar = registrar;
         this.storeCopies = storeCopies;
         this.deliveryEnabled = deliveryEnabled;
         this.favourites = favourites;
@@ -297,22 +303,32 @@ public final class LiveStoreModel implements StoreModel {
     private void runInstall(List<SdnCatalogueEntry> batch) {
         try {
             lastInstall = settle(installer.apply(batch));
-        } catch (RuntimeException e) {
-            log.warn("SDN: installing {} script(s) threw", batch.size(), e);
-            lastInstall = new InstallActivity.Failed("Something went wrong while installing: " + e.getMessage());
+        } catch (VirtualMachineError e) {
+            // Said on the row, then left to end the thread: the JVM is not in a state to go on.
+            lastInstall = thrown(batch, e);
+            throw e;
+        } catch (RuntimeException | Error e) {
+            lastInstall = thrown(batch, e);
         } finally {
             batch.forEach(e -> installing.remove(e.id()));
         }
     }
 
+    /** The row's message for an install that threw; logged here, so no throw is silent. */
+    private static InstallActivity thrown(List<SdnCatalogueEntry> batch, Throwable e) {
+        log.error("SDN: installing {} script(s) threw", batch.size(), e);
+        return new InstallActivity.Failed("Something went wrong while installing: " + e);
+    }
+
     private InstallActivity settle(SdnInstallResult result) {
         return switch (result) {
-            case SdnInstallResult.Installed installed -> new InstallActivity.Finished(register(installed.scripts()));
+            case SdnInstallResult.Installed installed -> new InstallActivity.Finished(
+                    register(installed.scripts()) + refusedLines(installed.refused()));
             case SdnInstallResult.NothingSelected ignored ->
                     new InstallActivity.Failed("Nothing was requested from the launcher.");
             case SdnInstallResult.DeliveryDisabled ignored -> new InstallActivity.Failed(DELIVERY_DISABLED);
-            case SdnInstallResult.CourierUnavailable ignored -> new InstallActivity.Failed(
-                    "The launcher did not deliver the scripts. Check it is still running, then try again.");
+            case SdnInstallResult.CourierUnavailable none -> new InstallActivity.Failed(none.text());
+            case SdnInstallResult.Refused refused -> new InstallActivity.Failed(refused.text());
             case SdnInstallResult.Failed failed -> new InstallActivity.Failed("Could not install: " + failed.reason());
         };
     }
@@ -324,15 +340,24 @@ public final class LiveStoreModel implements StoreModel {
     private String register(List<BotScript> scripts) {
         List<Connection> live = liveConnections();
         for (Connection conn : live) {
-            scripts.forEach(conn.getRuntime()::registerScript);
+            registrar.registerOn(conn.getRuntime(), scripts);
         }
+        log.info("SDN: registered {} delivered script(s) on {} client(s)", scripts.size(), live.size());
         String what = plural(scripts.size(), "script");
         if (live.isEmpty()) {
-            return "Installed " + what + ", but no client is connected to load them into. "
-                    + "Install again once a client is connected.";
+            return "Installed " + what + ". Each client that connects gets them.";
         }
         return "Installed " + what + " on " + plural(live.size(), "client")
                 + ". Start them from Installed scripts or a client card.";
+    }
+
+    /** One sentence per requested script that was left out while the rest installed. */
+    private static String refusedLines(List<SdnInstallResult.ScriptRefusal> refused) {
+        StringBuilder lines = new StringBuilder();
+        for (SdnInstallResult.ScriptRefusal refusal : refused) {
+            lines.append(' ').append(refusal.text());
+        }
+        return lines.toString();
     }
 
     private static String plural(int n, String noun) {
