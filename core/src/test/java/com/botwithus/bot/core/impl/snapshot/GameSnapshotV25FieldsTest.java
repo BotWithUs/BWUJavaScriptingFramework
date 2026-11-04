@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The v25 server tile, decoded end to end through {@link GameSnapshotImpl}.
  *
- * <p>Bytes are written at <b>literal</b> offsets from NXTLibrary's SharedLayout.h at f273151, not
+ * <p>Bytes are written at <b>literal</b> offsets from NXTLibrary's SharedLayout.h at f6fdf35, not
  * through {@link Layout}: a fixture written through the reader's own constants would round-trip
  * whatever they said. Row 1 is written as well as row 0 so the new stride is pinned with the fields,
  * and each visual tile differs from its server tile so that reading one for the other fails.</p>

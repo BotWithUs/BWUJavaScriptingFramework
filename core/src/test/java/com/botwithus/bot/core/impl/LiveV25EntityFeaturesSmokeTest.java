@@ -64,7 +64,7 @@ class LiveV25EntityFeaturesSmokeTest {
 
     private static final Duration LEG_TIMEOUT = Duration.ofSeconds(45);
     private static final Duration CHICK_TIMEOUT = Duration.ofSeconds(240);
-    private static final Duration BAR_TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration BAR_TIMEOUT = Duration.ofSeconds(120);
     private static final Duration LEAD_TIMEOUT = Duration.ofSeconds(6);
     private static final Duration SETTLE_TIMEOUT = Duration.ofSeconds(5);
     private static final long ATTACK_PERIOD_MS = 8000;
@@ -191,6 +191,15 @@ class LiveV25EntityFeaturesSmokeTest {
     @Test
     @EnabledIfSystemProperty(named = WALKS_PROPERTY, matches = "true")
     void headbarsFromAFight() throws InterruptedException {
+        walkTo(WALK_END);
+        try {
+            readBarsDuringAFight();
+        } finally {
+            walkTo(BANK_CHEST);
+        }
+    }
+
+    private void readBarsDuringAFight() throws InterruptedException {
         int own = self().serverIndex();
         boolean sawOwnBar = false;
         boolean sawNpcBar = false;
@@ -217,8 +226,9 @@ class LiveV25EntityFeaturesSmokeTest {
             }
             Thread.sleep(POLL_MS);
         }
-        assertTrue(sawOwnBar || sawNpcBar, "no headbar on self or on any NPC during a fight");
         log.info("v25 live: saw own bar={} npc bar={}", sawOwnBar, sawNpcBar);
+        assertTrue(sawOwnBar, "no headbar on self while attacking");
+        assertTrue(sawNpcBar, "no headbar on any NPC during the fight");
     }
 
     private static boolean isDuck(int typeId) {
