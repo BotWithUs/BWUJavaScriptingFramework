@@ -45,7 +45,7 @@ class ProducerHeaderDriftTest {
     /**
      * The producer revision this host's {@link Layout} is bound to: the NXTLibrary PR #54 head.
      */
-    static final String BOUND_PRODUCER_SHA = "42493930c60598e39829b9efe4f43963e5664343";
+    static final String BOUND_PRODUCER_SHA = "f2731513325b7725e4e8fef74e8f125359951bd1";
     private static final String HEADER_PATH = "src/ipc/SharedLayout.h";
 
     // The literal must END the comparison (followed by ',', ')' or '&&'). Many asserts compare

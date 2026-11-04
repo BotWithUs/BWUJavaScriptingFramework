@@ -33,7 +33,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * {@code get_overhead_text}, {@code get_headbars} and {@code query_hint_arrows} through
- * {@link GameAPIImpl}. Reply shapes are the wrapped ones the NXTLibrary PR #54 review settled on.
+ * {@link GameAPIImpl}. Reply shapes are NXTLibrary's PUBLIC_PROTOCOL.md section 6.2 at f273151.
  */
 class EntityReadsDecodeTest {
 

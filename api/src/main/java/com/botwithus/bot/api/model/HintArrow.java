@@ -13,9 +13,10 @@ package com.botwithus.bot.api.model;
  * @param type        what it points at
  * @param rawType     the agent's {@code type} code, kept for a {@link HintArrowType#UNKNOWN} type
  * @param targetIndex server index for an NPC or player arrow, otherwise {@link #NO_VALUE}
- * @param plane       plane the arrow is on
- * @param tileX       tile X, or {@link #NO_VALUE} if the stored position is not a coordinate
- * @param tileY       tile Y, or {@link #NO_VALUE} if the stored position is not a coordinate
+ * @param plane       plane the arrow is on, or {@link #NO_VALUE} if outside {@code 0..3}
+ * @param tileX       tile X, or {@link #NO_VALUE} if the stored position is not a coordinate or
+ *                    reads tile (0,0)
+ * @param tileY       tile Y, on the same terms as {@code tileX}
  * @param rangeTiles  the arrow's range in tiles
  */
 public record HintArrow(
@@ -29,7 +30,7 @@ public record HintArrow(
         int tileY,
         int rangeTiles) {
 
-    /** {@link #slot()}, {@link #targetIndex()}, {@link #tileX()} or {@link #tileY()} with no value. */
+    /** {@link #slot()}, {@link #targetIndex()}, {@link #plane()}, {@link #tileX()} or {@link #tileY()} with no value. */
     public static final int NO_VALUE = -1;
 
     /** Where the client holds an arrow. */

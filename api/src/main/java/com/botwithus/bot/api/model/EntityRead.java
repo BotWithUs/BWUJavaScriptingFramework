@@ -6,8 +6,9 @@ package com.botwithus.bot.api.model;
  *
  * @param status {@link EntityReadStatus#OK} when {@link #value()} is a real reading
  * @param value  the reading; on a refusal, the empty form of the type (never {@code null})
- * @param isTruncated true when the agent held more than it could send: {@link #value()} is real but
- *               incomplete (a list is missing rows, a text was cut). Always false on a refusal
+ * @param isTruncated true when {@link #value()} is real but incomplete: a list hit a cap (32 arrows,
+ *               64 headbars), a budget or a damaged link, or a text was longer than the 255 bytes
+ *               kept. Always false on a refusal
  * @param <T>    the reading's type
  */
 public record EntityRead<T>(EntityReadStatus status, T value, boolean isTruncated) {

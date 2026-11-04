@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class GameSnapshotOrientationTest {
 
     // offsetof(Snapshot, npcs) / players / self and the row geometry, as literals from the v25
-    // header (NXTLibrary 4249393). The orientation fields have not moved since v21; v25 moved the
+    // header (NXTLibrary f273151). The orientation fields have not moved since v21; v25 moved the
     // arrays by 8 and widened the player row to 56.
     private static final long NPC_COUNT = 592;
     private static final long NPCS = 596;
