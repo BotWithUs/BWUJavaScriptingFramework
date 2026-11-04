@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class GameSnapshotOpenInterfaceFlagsTest {
 
-    // offsetof(Snapshot, ...) in the v25 SharedLayout.h (NXTLibrary f6fdf35). v24 had each 16392
+    // offsetof(Snapshot, ...) in the v25 SharedLayout.h (NXTLibrary 412510a). v24 had each 16392
     // lower.
     private static final long WIRE_OPEN_IFACE_COUNT = 377736;
     private static final long WIRE_OPEN_IFACE_TOTAL = 377740;

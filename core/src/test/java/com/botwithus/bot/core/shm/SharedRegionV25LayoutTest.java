@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
  * Where {@link SharedRegion} cuts the mapping at v25, the first version where
  * {@code sizeof(Snapshot)} (469192) is not a multiple of 64. The buffers sit a rounded stride
  * (469248) apart, so a reader stepping by {@code snapshotSize} lands 56 bytes short and reads
- * plausible wrong data. Every number is a literal from NXTLibrary's SharedLayout.h at f6fdf35
+ * plausible wrong data. Every number is a literal from NXTLibrary's SharedLayout.h at 412510a
  * ({@code kSnapshotStride}, {@code kSnapshotOff1}, {@code kRingOff}). The header publishes
  * {@code ringSize} as {@code sizeof(EventRing)}, so the host's total stops 32 bytes short of the
  * producer's rounded {@code kRegionSize} (1069696), which holds nothing.
