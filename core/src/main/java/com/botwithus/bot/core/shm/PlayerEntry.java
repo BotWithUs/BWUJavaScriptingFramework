@@ -18,6 +18,9 @@ import com.botwithus.bot.api.snapshot.Orientation;
  * @param orientation    decoded facing (v21); unknown for 0xFFFF or an out-of-contract value
  * @param name           display name (v24), decoded from UTF-8 up to the first NUL; empty
  *                       until the client has decoded the player's appearance, never null
+ * @param serverTileX    tile X the server last sent this player towards (v25), or -1 when unreadable
+ * @param serverTileY    tile Y the server last sent this player towards (v25), or -1 when unreadable
+ * @param serverPlane    plane that tile is on (v25), or -1 when unreadable
  */
 public record PlayerEntry(
         int serverIndex,
@@ -31,7 +34,10 @@ public record PlayerEntry(
         int combatLevel,
         int spotAnimId,
         Orientation orientation,
-        String name
+        String name,
+        int serverTileX,
+        int serverTileY,
+        int serverPlane
 ) {
     public boolean isMoving() {
         return (flags & Layout.FLAG_MOVING) != 0;

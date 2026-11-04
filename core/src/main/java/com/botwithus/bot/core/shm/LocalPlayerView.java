@@ -46,6 +46,13 @@ public final class LocalPlayerView {
     /** Raw wire run weight in kg (v24), same sentinels as {@link #runEnergy()}. Not independently verified. */
     public int  runWeight()      { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_RUNWEIGHT_OFFSET); }
 
+    /** Raw wire server tile X (v25): -1 unreadable in-world, 0 out of world. */
+    public int  serverTileX()    { return seg.get(ValueLayout.JAVA_SHORT, Layout.LP_SERVERTILEX_OFFSET); }
+    /** Raw wire server tile Y (v25), same sentinels as {@link #serverTileX()}. */
+    public int  serverTileY()    { return seg.get(ValueLayout.JAVA_SHORT, Layout.LP_SERVERTILEY_OFFSET); }
+    /** Raw wire server plane (v25), same sentinels as {@link #serverTileX()}. */
+    public int  serverPlane()    { return seg.get(ValueLayout.JAVA_BYTE,  Layout.LP_SERVERPLANE_OFFSET); }
+
     /**
      * Decoded facing (v21). Authoritative for the local player; the {@code players[]} row for
      * {@code ownIndex} is a byte copy. The producer writes the unknown sentinel here even out of

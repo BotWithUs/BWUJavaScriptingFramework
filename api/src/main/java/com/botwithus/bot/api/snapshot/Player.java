@@ -21,6 +21,14 @@ package com.botwithus.bot.api.snapshot;
  *                       player's appearance, so a player who has only just come into view reads
  *                       {@code ""} for a while. When {@link #isNameTruncated()} is true this is
  *                       a prefix of the real name.
+ * @param serverTileX    tile X the server last sent this player towards (wire v25), or
+ *                       {@link #SERVER_TILE_UNKNOWN}. {@link #tileX()} is where the player is
+ *                       <b>drawn</b>; this is where it is <b>going</b>. It leads during a walk (1 to
+ *                       3 tiles on a running player) and both end on the same tile. Do not assume
+ *                       they are equal on an idle player: forced movement moves this one first
+ * @param serverTileY    tile Y, as {@link #serverTileX()}
+ * @param serverPlane    plane of that tile (wire v25), or {@link #SERVER_TILE_UNKNOWN}. Only plane
+ *                       0 has been read live
  */
 public record Player(
         int serverIndex,
@@ -34,7 +42,10 @@ public record Player(
         int combatLevel,
         int spotAnimId,
         Orientation orientation,
-        String name
+        String name,
+        int serverTileX,
+        int serverTileY,
+        int serverPlane
 ) {
 
     private static final int FLAG_MOVING = 1;
@@ -44,6 +55,9 @@ public record Player(
 
     /** {@link #name()} when the name is not known yet. */
     public static final String NAME_UNKNOWN = "";
+
+    /** {@link #serverTileX()}, {@link #serverTileY()} and {@link #serverPlane()} with no reading. */
+    public static final int SERVER_TILE_UNKNOWN = -1;
 
     public Player {
         if (name == null) {
@@ -65,6 +79,21 @@ public record Player(
                   int spotAnimId, Orientation orientation) {
         this(serverIndex, tileX, tileY, plane, flags, followingIndex, animationId, stanceId,
                 combatLevel, spotAnimId, orientation, NAME_UNKNOWN);
+    }
+
+    /** Builds a row with an unknown server tile; kept so pre-v25 callers compile unchanged. */
+    public Player(int serverIndex, int tileX, int tileY, int plane, int flags,
+                  int followingIndex, int animationId, int stanceId, int combatLevel,
+                  int spotAnimId, Orientation orientation, String name) {
+        this(serverIndex, tileX, tileY, plane, flags, followingIndex, animationId, stanceId,
+                combatLevel, spotAnimId, orientation, name, SERVER_TILE_UNKNOWN,
+                SERVER_TILE_UNKNOWN, SERVER_TILE_UNKNOWN);
+    }
+
+    /** True when {@link #serverTileX()}, {@link #serverTileY()} and {@link #serverPlane()} are a real reading. */
+    public boolean hasServerTile() {
+        return serverTileX != SERVER_TILE_UNKNOWN && serverTileY != SERVER_TILE_UNKNOWN
+                && serverPlane != SERVER_TILE_UNKNOWN;
     }
 
     /** True when the name is known, i.e. {@link #name()} is not empty. */

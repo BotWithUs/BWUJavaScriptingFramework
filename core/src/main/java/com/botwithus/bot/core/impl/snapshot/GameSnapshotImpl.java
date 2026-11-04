@@ -131,7 +131,10 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 skills,
                 lpv.orientation(),
                 runStateOrUnknown(lpv.runEnergy()),
-                runStateOrUnknown(lpv.runWeight()));
+                runStateOrUnknown(lpv.runWeight()),
+                serverTileOrUnknown(lpv.serverTileX()),
+                serverTileOrUnknown(lpv.serverTileY()),
+                serverTileOrUnknown(lpv.serverPlane()));
     }
 
     /**
@@ -141,8 +144,20 @@ public final class GameSnapshotImpl implements GameSnapshot {
      * {@code -1} already means unknown and passes through.
      */
     private int runStateOrUnknown(int wire) {
-        boolean isInWorld = view.gameState() == GameSnapshot.GAME_STATE_IN_GAME && view.ownIndex() >= 0;
-        return isInWorld ? wire : LocalPlayer.RUN_UNKNOWN;
+        return isInWorld() ? wire : LocalPlayer.RUN_UNKNOWN;
+    }
+
+    /**
+     * The self block is zero-filled out of the world, which would read as a real tile at (0,0).
+     * Same treatment as {@link #runStateOrUnknown}, so a server tile is either real or
+     * {@link LocalPlayer#SERVER_TILE_UNKNOWN}.
+     */
+    private int serverTileOrUnknown(int wire) {
+        return isInWorld() ? wire : LocalPlayer.SERVER_TILE_UNKNOWN;
+    }
+
+    private boolean isInWorld() {
+        return view.gameState() == GameSnapshot.GAME_STATE_IN_GAME && view.ownIndex() >= 0;
     }
 
     @Override
@@ -258,7 +273,10 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 e.combatLevel(),
                 e.spotAnimId(),
                 e.orientation(),
-                e.name());
+                e.name(),
+                e.serverTileX(),
+                e.serverTileY(),
+                e.serverPlane());
     }
 
     private static GroundItem toGroundItem(GroundItemEntry e) {

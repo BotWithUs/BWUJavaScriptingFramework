@@ -25,16 +25,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class GameSnapshotOpenInterfaceFlagsTest {
 
-    // offsetof(Snapshot, ...) in the v24 SharedLayout.h (NXTLibrary c1231ca; the same header
-    // blob, 833da0e, as the bound head 84a1376). v23 had each 40968 lower.
-    private static final long WIRE_OPEN_IFACE_COUNT = 361344;
-    private static final long WIRE_OPEN_IFACE_TOTAL = 361348;
-    private static final long WIRE_OPEN_IFACES = 361352;
-    private static final long WIRE_OPEN_IFACE_FLAGS = 362376;
-    private static final long WIRE_GROUND_ITEM_COUNT = 362636;
-    private static final long WIRE_GROUND_ITEMS = 362640;
-    private static final long WIRE_GAME_CYCLE = 387220;
-    private static final long WIRE_DYN_REGION = 387224;
+    // offsetof(Snapshot, ...) in the v25 SharedLayout.h (NXTLibrary 4249393). v24 had each 16392
+    // lower.
+    private static final long WIRE_OPEN_IFACE_COUNT = 377736;
+    private static final long WIRE_OPEN_IFACE_TOTAL = 377740;
+    private static final long WIRE_OPEN_IFACES = 377744;
+    private static final long WIRE_OPEN_IFACE_FLAGS = 378768;
+    private static final long WIRE_GROUND_ITEM_COUNT = 379028;
+    private static final long WIRE_GROUND_ITEMS = 379032;
+    private static final long WIRE_GAME_CYCLE = 403612;
+    private static final long WIRE_DYN_REGION = 403616;
 
     private static final int BANK = 517;
     private static final int HUD = 1465;

@@ -23,6 +23,12 @@ public final class Layout {
     public static final int MAGIC = 0x5354584E;
 
     /** Wire protocol version. Must equal {@code kProtocolVersion} in NXTLibrary's SharedLayout.h.
+     *  v25 added the server tile, where the server has told the client the entity is going, as
+     *  opposed to the visual {@code tileX}/{@code tileY}. PlayerEntry 48 to 56:
+     *  {@link #PLAYER_SERVERTILEX_OFFSET serverTileX}, {@link #PLAYER_SERVERTILEY_OFFSET serverTileY}
+     *  and {@link #PLAYER_SERVERPLANE_OFFSET serverPlane}, then 3 zero pad bytes. LocalPlayer 560 to
+     *  568: the same three at {@link #LP_SERVERTILEX_OFFSET}. NPC rows do not carry them. Every field
+     *  after {@code players[]} moved by 16392, and {@link #SNAPSHOT_SIZE} went from 452800 to 469192.
      *  v24 grew all three entity rows. PlayerEntry 32 to 48: a {@code char[16]} UTF-8 display
      *  name at {@link #PLAYER_NAME_OFFSET} (NUL-terminated, at most 15 bytes, empty until the
      *  client has decoded the player's appearance) plus {@link #FLAG_NAME_TRUNCATED} in the
@@ -105,7 +111,7 @@ public final class Layout {
      *  longer pay a per-call RPC round-trip.
      *  v13 dropped the per-interface {@code ifaceVersions[]} array; interface state is read
      *  fresh on demand via RPC rather than cached behind an invalidation token. */
-    public static final int PROTOCOL_VERSION = 24;
+    public static final int PROTOCOL_VERSION = 25;
 
     /** Mapping name prefix; appended with the target game-process pid. */
     public static final String MAPPING_NAME_PREFIX = "Local\\nxt_snapshot_";
@@ -277,10 +283,10 @@ public final class Layout {
     // bytes 29..31 are trailing pad; not accessed
 
     // ------------------------------------------------------------------
-    // PlayerEntry (48 bytes)
+    // PlayerEntry (56 bytes)
     // ------------------------------------------------------------------
 
-    public static final int PLAYER_ENTRY_SIZE = 48;
+    public static final int PLAYER_ENTRY_SIZE = 56;
 
     public static final int PLAYER_SERVERINDEX_OFFSET    = 0;    // i32
     public static final int PLAYER_TILEX_OFFSET          = 4;    // i16
@@ -295,6 +301,11 @@ public final class Layout {
     public static final int PLAYER_ORIENTATION_OFFSET    = 28;   // u16  v21 facing; 0xFFFF unknown
     // bytes 30..31 are _pad0; not accessed
     public static final int PLAYER_NAME_OFFSET           = 32;   // char[16] v24 UTF-8, NUL-terminated
+    // v25. -1 in all three when unreadable.
+    public static final int PLAYER_SERVERTILEX_OFFSET    = 48;   // i16
+    public static final int PLAYER_SERVERTILEY_OFFSET    = 50;   // i16
+    public static final int PLAYER_SERVERPLANE_OFFSET    = 52;   // i8
+    // bytes 53..55 are _serverTilePad; not accessed
 
     // ------------------------------------------------------------------
     // SkillEntry (16 bytes)
@@ -308,10 +319,10 @@ public final class Layout {
     public static final int SKILL_BOOSTEDLEVEL_OFFSET = 12;
 
     // ------------------------------------------------------------------
-    // LocalPlayer (40 + 32*16 + 8 = 560 bytes)
+    // LocalPlayer (40 + 32*16 + 8 + 8 = 568 bytes)
     // ------------------------------------------------------------------
 
-    public static final int LOCAL_PLAYER_SIZE = 560;
+    public static final int LOCAL_PLAYER_SIZE = 568;
 
     public static final int LP_SERVERINDEX_OFFSET     = 0;
     public static final int LP_COMBATLEVEL_OFFSET     = 4;
@@ -337,6 +348,11 @@ public final class Layout {
     // in-world; 0 out of world (the host reports -1 there instead, see LocalPlayer).
     public static final int LP_RUNENERGY_OFFSET       = LP_SKILLS_OFFSET + SKILL_CAP * SKILL_ENTRY_SIZE;
     public static final int LP_RUNWEIGHT_OFFSET       = LP_RUNENERGY_OFFSET + 4;
+    // v25, appended after the run state. -1 in all three when unreadable; 0 out of world (the
+    // host reports -1 there instead, see LocalPlayer). +565..567 is _serverTilePad, not accessed.
+    public static final int LP_SERVERTILEX_OFFSET     = LP_RUNWEIGHT_OFFSET + 4;   // i16
+    public static final int LP_SERVERTILEY_OFFSET     = LP_SERVERTILEX_OFFSET + 2; // i16
+    public static final int LP_SERVERPLANE_OFFSET     = LP_SERVERTILEY_OFFSET + 2; // i8
 
     // ------------------------------------------------------------------
     // InventoryItem (8) and InventoryHeader (8)
