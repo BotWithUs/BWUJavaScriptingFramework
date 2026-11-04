@@ -85,6 +85,11 @@ class HintArrowsQueryTest {
     }
 
     @Test
+    void onPlane_matchesEntityArrowsToo() {
+        assertEquals(List.of(ON_NPC, ON_PLAYER, FAR_TILE, NEAR_TILE), query().onPlane(0).all());
+    }
+
+    @Test
     void nearPlayer_staysOnThePlayersPlane() {
         assertEquals(List.of(NEAR_TILE), query().nearPlayer(10).all());
         assertEquals(List.of(FAR_TILE, NEAR_TILE), query().nearPlayer().all());
@@ -121,7 +126,7 @@ class HintArrowsQueryTest {
     @Test
     void refusedRead_looksLikeNoArrows() {
         when(api.queryHintArrows()).thenReturn(
-                EntityRead.refused(EntityReadStatus.NOT_IN_WORLD, List.of()));
+                EntityRead.refused(EntityReadStatus.NOT_IN_WORLD, List.of(), "not_in_world"));
 
         assertTrue(query().all().isEmpty());
         assertNull(query().first());

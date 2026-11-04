@@ -91,7 +91,8 @@ public record LocalPlayer(
      * Value {@link #serverTileX()}, {@link #serverTileY()} and {@link #serverPlane()} carry when
      * there is no reading: the producer could not read it in-world, the client is not in the world
      * (the wire holds {@code 0} there, which this host reports as unknown so that it can never pass
-     * for a tile), or the record was built with a pre-v25 constructor.
+     * for a tile), or the record was built with a pre-v25 constructor. On the beta client channel it
+     * is always this: a normal result, not a fault.
      */
     public static final int SERVER_TILE_UNKNOWN = -1;
 

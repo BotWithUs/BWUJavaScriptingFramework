@@ -30,7 +30,10 @@ public record HintArrow(
         int tileY,
         int rangeTiles) {
 
-    /** {@link #slot()}, {@link #targetIndex()}, {@link #plane()}, {@link #tileX()} or {@link #tileY()} with no value. */
+    /**
+     * {@link #slot()}, {@link #targetIndex()}, {@link #plane()}, {@link #tileX()} or
+     * {@link #tileY()} with no value.
+     */
     public static final int NO_VALUE = -1;
 
     /** Where the client holds an arrow. */

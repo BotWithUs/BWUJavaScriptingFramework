@@ -28,10 +28,11 @@ public record Headbar(int headbarId, int value, int valueStart, int startCycle, 
     /** {@link #value()} of a full bar. */
     public static final int MAX_VALUE = 255;
 
+    private static final double EMPTY_PERCENT = 0.0;
     private static final double FULL_PERCENT = 100.0;
 
-    /** {@link #value()} as a percentage of a full bar, {@code 0.0..100.0}. */
+    /** {@link #value()} as a percentage of a full bar, held to {@code 0.0..100.0}. */
     public double percent() {
-        return value * FULL_PERCENT / MAX_VALUE;
+        return Math.clamp(value * FULL_PERCENT / MAX_VALUE, EMPTY_PERCENT, FULL_PERCENT);
     }
 }

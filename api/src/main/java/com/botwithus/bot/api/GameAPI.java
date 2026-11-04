@@ -47,8 +47,8 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
@@ -500,6 +500,9 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     PlayerAppearance getPlayerAppearance(int serverIndex);
 
     // ---------------------------------------------------------------- Entity reads (wire v25)
+    //
+    // On the beta client channel all three always answer EntityReadStatus.CHANNEL_UNSUPPORTED. That
+    // is a normal result, not a fault, and it does not throw.
 
     /**
      * The text above an entity right now. Each call is a pipe round-trip onto the game thread.

@@ -74,7 +74,7 @@ public final class Player implements EntityContext {
     public int serverTileY() { return raw.serverTileY(); }
     /** Plane of the server tile (wire v25). */
     public int serverPlane() { return raw.serverPlane(); }
-    /** True when the server tile is a real reading. */
+    /** True when the server tile is a real reading. Always false on the beta client channel, which is normal. */
     public boolean hasServerTile() { return raw.hasServerTile(); }
 
     /**

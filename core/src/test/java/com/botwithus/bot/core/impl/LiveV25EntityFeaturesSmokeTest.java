@@ -2,8 +2,10 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.entities.Npc;
+import com.botwithus.bot.api.entities.Player;
 import com.botwithus.bot.api.model.EntityKind;
 import com.botwithus.bot.api.model.EntityRead;
+import com.botwithus.bot.api.model.EntityReadStatus;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.Headbar;
 import com.botwithus.bot.api.model.HintArrow;
@@ -30,12 +32,14 @@ import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * The wire-v25 features read from a live agent through the stack a script uses. Logs each value it
- * saw, then asserts on it. A missing observation fails rather than skips.
+ * saw, then asserts on it. A missing observation fails rather than skips, so the hint-arrow read
+ * needs a character holding an arrow; the harness character holds one in its owner tree.
  *
  * <p>Opt in with {@code -Dbotwithus.smoke.live=true}, pin the client with
  * {@code -Dbotwithus.harness.pid=<pid>}. The hint-arrow and silent-self reads are read-only. <b>The
@@ -69,6 +73,7 @@ class LiveV25EntityFeaturesSmokeTest {
     private static final Duration SETTLE_TIMEOUT = Duration.ofSeconds(5);
     private static final long ATTACK_PERIOD_MS = 8000;
     private static final long POLL_MS = 50;
+    private static final long MIN_TEXT_MS_LEFT = 500;
 
     private SharedRegion region;
     private RpcClient rpc;
@@ -131,10 +136,13 @@ class LiveV25EntityFeaturesSmokeTest {
         assertEquals(WALK_END[1], arrived.serverTileY());
 
         int own = arrived.serverIndex();
-        var row = api.snapshot().players().byServerIndex(own).orElseThrow();
-        log.info("v25 live: own players[] row server=({},{},{})", row.serverTileX(), row.serverTileY(), row.serverPlane());
+        Player row = ownPlayer();
+        log.info("v25 live: own players[] row server=({},{},{}) hasServerTile={}", row.serverTileX(),
+                row.serverTileY(), row.serverPlane(), row.hasServerTile());
+        assertTrue(row.hasServerTile());
         assertEquals(arrived.serverTileX(), row.serverTileX(), "the own row agrees with self");
         assertEquals(arrived.serverTileY(), row.serverTileY(), "the own row agrees with self");
+        assertEquals(arrived.serverPlane(), row.serverPlane(), "the own row agrees with self");
         walkTo(BANK_CHEST);
     }
 
@@ -145,6 +153,7 @@ class LiveV25EntityFeaturesSmokeTest {
                 read.value().size());
         read.value().forEach(a -> log.info("v25 live: hint arrow {}", a));
         assertTrue(read.isAvailable(), "query_hint_arrows must answer in the world: " + read.status());
+        assertFalse(read.value().isEmpty(), "the character must hold an arrow, or this reads nothing");
         log.info("v25 live: facade nearest={} count={}", api.hintArrows().nearest(), api.hintArrows().count());
         assertEquals(read.value().size(), api.hintArrows().count(), "the facade sees what the RPC returned");
     }
@@ -156,7 +165,9 @@ class LiveV25EntityFeaturesSmokeTest {
         log.info("v25 live: own overhead status={} value={}", read.status(), read.value());
         assertTrue(read.isAvailable(), "own player must answer: " + read.status());
         assertTrue(read.value().isEmpty(), "this smoke sends no chat, so self is silent");
-        assertFalse(api.getOverheadText(EntityKind.PLAYER, Short.MAX_VALUE).isAvailable(), "an empty index refuses");
+        assertTrue(ownPlayer().getOverheadText().isEmpty(), "the Player facade agrees");
+        assertEquals(EntityReadStatus.NOT_FOUND, api.getOverheadText(EntityKind.PLAYER, Short.MAX_VALUE).status(),
+                "an index out of range refuses with its own code");
     }
 
     @Test
@@ -170,10 +181,12 @@ class LiveV25EntityFeaturesSmokeTest {
             while (System.nanoTime() < deadline) {
                 for (Npc chick : api.npcs().query().filter(n -> n.typeId() == CHICK).all()) {
                     EntityRead<Optional<OverheadText>> read = api.getOverheadText(EntityKind.NPC, chick.serverIndex());
-                    if (read.value().isPresent()) {
+                    if (read.value().filter(t -> t.expiresInMs() >= MIN_TEXT_MS_LEFT).isPresent()) {
+                        Optional<String> facade = chick.getOverheadText();
                         log.info("v25 live: chick idx={} overhead={} facade={}", chick.serverIndex(),
-                                read.value().get(), chick.getOverheadText());
+                                read.value().get(), facade);
                         assertEquals("Cheep!", read.value().get().text());
+                        assertEquals(Optional.of("Cheep!"), facade, "the Npc facade asks the same table");
                         return;
                     }
                 }
@@ -200,7 +213,6 @@ class LiveV25EntityFeaturesSmokeTest {
     }
 
     private void readBarsDuringAFight() throws InterruptedException {
-        int own = self().serverIndex();
         boolean sawOwnBar = false;
         boolean sawNpcBar = false;
         long lastAttack = 0;
@@ -211,7 +223,7 @@ class LiveV25EntityFeaturesSmokeTest {
                 api.queueAction(new GameAction(NPC_OPTION_2_ACTION, ducks.getFirst().serverIndex(), 0, 0));
                 lastAttack = System.currentTimeMillis();
             }
-            List<Headbar> ownBars = api.getHeadbars(EntityKind.PLAYER, own).value();
+            List<Headbar> ownBars = ownPlayer().getHeadbars();
             if (!ownBars.isEmpty() && !sawOwnBar) {
                 sawOwnBar = true;
                 ownBars.forEach(b -> log.info("v25 live: own headbar {} percent={}", b, b.percent()));
@@ -233,6 +245,12 @@ class LiveV25EntityFeaturesSmokeTest {
 
     private static boolean isDuck(int typeId) {
         return typeId == DUCKS[0] || typeId == DUCKS[1];
+    }
+
+    private Player ownPlayer() {
+        Player own = api.players().byServerIndex(self().serverIndex());
+        assertNotNull(own, "the local player has a row in players[]");
+        return own;
     }
 
     private LocalPlayer self() {

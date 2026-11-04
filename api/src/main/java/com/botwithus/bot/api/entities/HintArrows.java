@@ -27,9 +27,10 @@ import java.util.function.Predicate;
  * refused read looks like no arrows here, and a truncated list looks complete;
  * {@link GameAPI#queryHintArrows()} is how to see either.</p>
  *
- * <p><b>The position filters only match tile arrows</b> ({@link HintArrow#hasTile()}). An NPC or
- * player arrow carries an index, not a tile: find it with {@link Query#targetingNpc} or
- * {@link Query#targetingPlayer}.</p>
+ * <p><b>{@link Query#onTile}, {@link Query#near}, {@link Query#nearPlayer} and {@link Query#nearest}
+ * only match tile arrows</b> ({@link HintArrow#hasTile()}). An NPC or player arrow carries an index,
+ * not a tile: find it with {@link Query#targetingNpc} or {@link Query#targetingPlayer}.
+ * {@link Query#onPlane} looks at the arrow's plane alone, so it matches any kind of arrow.</p>
  */
 public final class HintArrows {
 
@@ -103,7 +104,7 @@ public final class HintArrows {
             return nearPlayer(DEFAULT_QUERY_RADIUS_TILES);
         }
 
-        /** Arrows on this plane. */
+        /** Arrows on this plane, of any kind, including NPC and player arrows. */
         public Query onPlane(int plane) {
             return filter(a -> a.plane() == plane);
         }
@@ -133,7 +134,9 @@ public final class HintArrows {
         /**
          * The matching tile arrow closest to the {@link #near} centre, else to the local player, or
          * {@code null}. Arrows with no tile are never nearest, and with no centre and no local
-         * player there is nothing to measure from, so this is {@code null}.
+         * player there is nothing to measure from, so this is {@code null}. Distance ignores plane, as
+         * {@code EntityQuery.nearest()} does: combine with {@link #onPlane} or {@link #nearPlayer} to
+         * stay on one floor.
          */
         public HintArrow nearest() {
             LocalPlayer self = hasCenter ? null : api.getLocalPlayer();

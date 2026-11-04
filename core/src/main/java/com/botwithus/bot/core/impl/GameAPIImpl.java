@@ -31,11 +31,11 @@ import com.botwithus.bot.api.model.AppearanceSlot;
 import com.botwithus.bot.api.model.AppearanceStatus;
 import com.botwithus.bot.api.model.EntityKind;
 import com.botwithus.bot.api.model.EntityRead;
+import com.botwithus.bot.api.model.EntityReadStatus;
 import com.botwithus.bot.api.model.Headbar;
 import com.botwithus.bot.api.model.HintArrow;
-import com.botwithus.bot.api.model.OverheadText;
-import com.botwithus.bot.api.model.EntityReadStatus;
 import com.botwithus.bot.api.model.HintArrowType;
+import com.botwithus.bot.api.model.OverheadText;
 import com.botwithus.bot.api.model.PlayerAppearance;
 import com.botwithus.bot.api.model.ResourceItem;
 import com.botwithus.bot.api.model.ResourceSection;
@@ -773,7 +773,7 @@ public class GameAPIImpl implements GameAPI {
             Map<String, Object> r = rpc.callSync(OVERHEAD_TEXT_METHOD, entityTarget(kind, serverIndex));
             return EntityRead.ok(decodeOverheadText(r), getBool(r, TRUNCATED_KEY));
         } catch (RpcRemoteException e) {
-            return EntityRead.refused(refusalStatus(OVERHEAD_TEXT_METHOD, e), Optional.empty());
+            return EntityRead.refused(refusalStatus(OVERHEAD_TEXT_METHOD, e), Optional.empty(), e.producerMessage());
         }
     }
 
@@ -784,7 +784,7 @@ public class GameAPIImpl implements GameAPI {
             List<Headbar> bars = getMapList(r, "headbars").stream().map(GameAPIImpl::decodeHeadbar).toList();
             return EntityRead.ok(bars, getBool(r, TRUNCATED_KEY));
         } catch (RpcRemoteException e) {
-            return EntityRead.refused(refusalStatus(HEADBARS_METHOD, e), List.of());
+            return EntityRead.refused(refusalStatus(HEADBARS_METHOD, e), List.of(), e.producerMessage());
         }
     }
 
@@ -795,7 +795,7 @@ public class GameAPIImpl implements GameAPI {
             List<HintArrow> arrows = getMapList(r, "arrows").stream().map(GameAPIImpl::decodeHintArrow).toList();
             return EntityRead.ok(arrows, getBool(r, TRUNCATED_KEY));
         } catch (RpcRemoteException e) {
-            return EntityRead.refused(refusalStatus(HINT_ARROWS_METHOD, e), List.of());
+            return EntityRead.refused(refusalStatus(HINT_ARROWS_METHOD, e), List.of(), e.producerMessage());
         }
     }
 
@@ -824,7 +824,7 @@ public class GameAPIImpl implements GameAPI {
         if (r.get("text") == null) {
             return Optional.empty();
         }
-        return Optional.of(new OverheadText(getString(r, "text"), getInt(r, "expiresInMs")));
+        return Optional.of(new OverheadText(getString(r, "text"), getLong(r, "expiresInMs")));
     }
 
     private static Headbar decodeHeadbar(Map<String, Object> m) {

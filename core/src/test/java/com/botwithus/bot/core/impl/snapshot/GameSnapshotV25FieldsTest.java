@@ -121,6 +121,8 @@ class GameSnapshotV25FieldsTest {
             LocalPlayer self = new GameSnapshotImpl(new SnapshotView(seg)).self();
 
             assertEquals(LocalPlayer.SERVER_TILE_UNKNOWN, self.serverTileX());
+            assertEquals(LocalPlayer.SERVER_TILE_UNKNOWN, self.serverTileY(), "a sign-extended i16");
+            assertEquals(LocalPlayer.SERVER_TILE_UNKNOWN, self.serverPlane(), "a sign-extended i8");
             assertFalse(self.hasServerTile());
         }
     }

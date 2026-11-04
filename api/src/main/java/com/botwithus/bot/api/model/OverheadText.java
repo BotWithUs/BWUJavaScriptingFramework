@@ -8,5 +8,5 @@ package com.botwithus.bot.api.model;
  *                    without reporting that
  * @param expiresInMs milliseconds it has left at the moment of the read
  */
-public record OverheadText(String text, int expiresInMs) {
+public record OverheadText(String text, long expiresInMs) {
 }

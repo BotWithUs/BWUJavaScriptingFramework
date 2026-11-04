@@ -56,7 +56,11 @@ public record Player(
     /** {@link #name()} when the name is not known yet. */
     public static final String NAME_UNKNOWN = "";
 
-    /** {@link #serverTileX()}, {@link #serverTileY()} and {@link #serverPlane()} with no reading. */
+    /**
+     * {@link #serverTileX()}, {@link #serverTileY()} and {@link #serverPlane()} with no reading.
+     * On the beta client channel it
+     * is always this: a normal result, not a fault.
+     */
     public static final int SERVER_TILE_UNKNOWN = -1;
 
     public Player {

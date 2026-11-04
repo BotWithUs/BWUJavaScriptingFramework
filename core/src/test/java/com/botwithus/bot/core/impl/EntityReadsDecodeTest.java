@@ -42,7 +42,8 @@ class EntityReadsDecodeTest {
     private static final String ARROWS = "query_hint_arrows";
     private static final int SERVER_INDEX = 42;
     private static final Map<String, Object> NPC_TARGET = Map.of("targetType", "npc", "serverIndex", SERVER_INDEX);
-    private static final Map<String, Object> PLAYER_TARGET = Map.of("targetType", "player", "serverIndex", SERVER_INDEX);
+    private static final Map<String, Object> PLAYER_TARGET =
+            Map.of("targetType", "player", "serverIndex", SERVER_INDEX);
 
     private final RpcClient rpc = mock(RpcClient.class);
     private final GameAPIImpl api = new GameAPIImpl(rpc);
@@ -117,12 +118,45 @@ class EntityReadsDecodeTest {
         EntityRead<List<HintArrow>> arrows = api.queryHintArrows();
 
         assertEquals(expected, text.status());
+        assertEquals(wire, text.refusalText(), "the agent's words are kept");
+        assertEquals(wire, bars.refusalText());
+        assertEquals(wire, arrows.refusalText());
         assertTrue(text.value().isEmpty());
         assertEquals(expected, bars.status());
         assertTrue(bars.value().isEmpty());
         assertEquals(expected, arrows.status());
         assertTrue(arrows.value().isEmpty());
         assertFalse(text.isTruncated() || bars.isTruncated() || arrows.isTruncated());
+    }
+
+    @Test
+    void anAnswer_hasNoRefusalText() {
+        when(rpc.callSync(HEADBARS, NPC_TARGET)).thenReturn(Map.of("headbars", List.of(), "truncated", false));
+
+        assertEquals("", api.getHeadbars(EntityKind.NPC, SERVER_INDEX).refusalText());
+    }
+
+    /** What a mismatched agent build sends; the text is the only thing that explains it. */
+    @Test
+    void unrecognisedRefusal_keepsTheAgentsWords() {
+        String agentSays = "method not found: get_headbars";
+        when(rpc.callSync(HEADBARS, NPC_TARGET)).thenThrow(new RpcRemoteException(HEADBARS, agentSays));
+
+        EntityRead<List<Headbar>> read = api.getHeadbars(EntityKind.NPC, SERVER_INDEX);
+
+        assertEquals(EntityReadStatus.UNRECOGNISED, read.status());
+        assertEquals(agentSays, read.refusalText());
+    }
+
+    /** The agent writes 64 bits, so a large expiry must not wrap to a negative or a small number. */
+    @Test
+    void overheadText_expiryKeepsAllSixtyFourBits() {
+        long beyondAnInt = (long) Integer.MAX_VALUE + 1000L;
+        when(rpc.callSync(OVERHEAD, NPC_TARGET)).thenReturn(
+                Map.of("text", "Cheep!", "expiresInMs", beyondAnInt, "truncated", false));
+
+        assertEquals(beyondAnInt, api.getOverheadText(EntityKind.NPC, SERVER_INDEX)
+                .value().orElseThrow().expiresInMs());
     }
 
     @Test
@@ -208,6 +242,8 @@ class EntityReadsDecodeTest {
         assertEquals(0.0, bar(0).percent());
         assertEquals(20.0, bar(51).percent());
         assertTrue(bar(1).percent() > 0.0, "a nearly empty bar is not an empty bar");
+        assertEquals(100.0, bar(300).percent(), "held to the promised range");
+        assertEquals(0.0, bar(-1).percent(), "held to the promised range");
     }
 
     // ---------------- query_hint_arrows ----------------
