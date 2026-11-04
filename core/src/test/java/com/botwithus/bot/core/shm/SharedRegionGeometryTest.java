@@ -21,6 +21,12 @@ class SharedRegionGeometryTest {
             Layout.RING_SLOTS_OFFSET + (long) Layout.EVENT_RING_SLOTS * Layout.EVENT_SLOT_SIZE;
     private static final long TOTAL = RING_OFF + MIN_RING;
 
+    /** What the v25 producer publishes: the buffers a rounded stride apart, not a size apart. */
+    @Test
+    void theV25ProducerGeometryPasses() {
+        assertDoesNotThrow(() -> SharedRegion.validateGeometry(469192, 64, 469312, 938560, 131104, 1069664));
+    }
+
     @Test
     void plausibleGeometryPasses() {
         assertDoesNotThrow(() ->

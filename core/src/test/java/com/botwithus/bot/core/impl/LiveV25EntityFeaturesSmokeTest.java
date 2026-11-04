@@ -43,8 +43,9 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <p>Opt in with {@code -Dbotwithus.smoke.live=true}, pin the client with
  * {@code -Dbotwithus.harness.pid=<pid>}. The hint-arrow and silent-self reads are read-only. <b>The
- * other three move the character</b>, so they also need {@code -Dbotwithus.live.walks=true}: a walk,
- * a trip to the Rimmington chicks and back, and an attack on the ducks by the Lumbridge pond. They
+ * other four move the character</b>, so they also need {@code -Dbotwithus.live.walks=true}: a walk,
+ * a trip to the Rimmington chicks and back, an attack on the ducks by the Lumbridge pond, and a wait
+ * at the bank chest for another player to come into view. They
  * start from the Lumbridge bank chest (3215,3256), like the agent's own scenarios.</p>
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -62,6 +63,9 @@ class LiveV25EntityFeaturesSmokeTest {
     private static final int[] WALK_START = {3222, 3235};
     private static final int[] WALK_END = {3235, 3235};
     private static final int[] BANK_CHEST = {3215, 3256};
+    /** Further than this between a walking player's two tiles means one of them is misread. */
+    private static final int MAX_SERVER_TILE_LEAD = 16;
+    private static final Duration OTHER_PLAYER_TIMEOUT = Duration.ofSeconds(180);
     private static final int CHICK = 30870;
     private static final int[] DUCKS = {46, 2693};
     private static final int MIN_RUNNING_LEAD_TILES = 2;
@@ -198,6 +202,35 @@ class LiveV25EntityFeaturesSmokeTest {
                 walkTo(leg);
             }
         }
+    }
+
+    /** A row past the first: pins the 56-byte stride, and the fields, on data the agent wrote. */
+    @Test
+    @EnabledIfSystemProperty(named = WALKS_PROPERTY, matches = "true")
+    void anotherPlayersRowCarriesAServerTile() throws InterruptedException {
+        walkTo(BANK_CHEST);
+        int own = self().serverIndex();
+        long deadline = System.nanoTime() + OTHER_PLAYER_TIMEOUT.toNanos();
+        int maxCount = 0;
+        while (System.nanoTime() < deadline) {
+            maxCount = Math.max(maxCount, api.snapshot().players().count());
+            List<Player> others = api.players().query().filter(p -> p.serverIndex() != own).all();
+            if (!others.isEmpty()) {
+                log.info("v25 live: players[] count={} others={}", api.snapshot().players().count(), others.size());
+                others.forEach(this::assertPlausibleServerTile);
+                return;
+            }
+            Thread.sleep(POLL_MS);
+        }
+        fail("no other player came into view in " + OTHER_PLAYER_TIMEOUT + "; largest players[] count " + maxCount);
+    }
+
+    private void assertPlausibleServerTile(Player p) {
+        log.info("v25 live: other player idx={} name='{}' visual=({},{},{}) server=({},{},{})", p.serverIndex(),
+                p.name(), p.tileX(), p.tileY(), p.plane(), p.serverTileX(), p.serverTileY(), p.serverPlane());
+        assertTrue(p.hasServerTile(), "a loaded player has a server tile on the live channel");
+        assertTrue(p.distanceTo(p.serverTileX(), p.serverTileY()) <= MAX_SERVER_TILE_LEAD,
+                "the server tile stays near the visual tile");
     }
 
     /** Attacks ducks until the bars show: the same fight the agent's get-headbars scenario uses. */
