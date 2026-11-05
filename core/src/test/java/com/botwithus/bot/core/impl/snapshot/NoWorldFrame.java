@@ -17,16 +17,20 @@ import java.util.function.Consumer;
  * {@code LayoutWireOffsetsTest} and {@code ProducerHeaderDriftTest} pin the offsets themselves.</p>
  */
 public enum NoWorldFrame {
-    /** A mapping the agent has not published to: demand-zero, so index 0 looks valid. */
+    /** An older agent's mapping before its first publish: demand-zero, so index 0 looks valid. */
     NEVER_PUBLISHED(seg -> { }),
-    /** What the agent publishes at state 30 with no logged-in player, during login. */
-    STATE_30_RESET(seg -> writeReset(seg, GameSnapshot.GAME_STATE_IN_GAME)),
-    /** What the agent publishes in the lobby. */
-    LOBBY_RESET(NoWorldFrame::writeLobbyReset),
-    /** Not a shape the agent publishes: a lobby state over a self block that looks complete. */
+    /** An older agent at state 30 with no logged-in player: zero-filled self. */
+    ZERO_SELF_STATE_30(seg -> writeZeroSelf(seg, GameSnapshot.GAME_STATE_IN_GAME)),
+    /** An older agent in the lobby: zero-filled self. */
+    ZERO_SELF_LOBBY(NoWorldFrame::writeZeroSelfLobby),
+    /** Not a shape any agent publishes: a lobby state over a self block that looks complete. */
     LOBBY_OVER_STALE_SELF(NoWorldFrame::writeLobbyOverStaleSelf),
-    /** The pre-publish frame once the agent initialises the mapping with explicit sentinels. */
-    SENTINEL_INITIALISED(NoWorldFrame::writeSentinels);
+    /** A current agent with no client, which is also its mapping before the first publish. */
+    SENTINEL_NO_CLIENT(NoWorldFrame::writeSentinelsNoClient),
+    /** A current agent in the lobby. */
+    SENTINEL_LOBBY(NoWorldFrame::writeSentinelsLobby),
+    /** A current agent at state 30 with no logged-in player. */
+    SENTINEL_STATE_30(seg -> writeSentinels(seg, GameSnapshot.GAME_STATE_IN_GAME));
 
     public static final int TILE_X = 3222;
     public static final int TILE_Y = 3235;
@@ -38,6 +42,7 @@ public enum NoWorldFrame {
     public static final int NPC_TILE_X = 3;
     public static final int NPC_TILE_Y = 4;
 
+    private static final int GAME_STATE_NONE = 0;
     private static final int STATE_LOBBY = 20;
     private static final int NO_INDEX = -1;
     private static final int STALE_INDEX = 7;
@@ -80,14 +85,22 @@ public enum NoWorldFrame {
         return read(seg);
     }
 
-    private static void writeReset(MemorySegment seg, int gameState) {
+    private static void writeZeroSelf(MemorySegment seg, int gameState) {
         seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMESTATE_OFFSET, gameState);
         seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OWNINDEX_OFFSET, NO_INDEX);
         seg.set(ValueLayout.JAVA_SHORT, selfField(Layout.LP_ORIENTATION_OFFSET), ORIENTATION_UNKNOWN);
     }
 
-    private static void writeLobbyReset(MemorySegment seg) {
-        writeReset(seg, STATE_LOBBY);
+    private static void writeZeroSelfLobby(MemorySegment seg) {
+        writeZeroSelf(seg, STATE_LOBBY);
+    }
+
+    private static void writeSentinelsNoClient(MemorySegment seg) {
+        writeSentinels(seg, GAME_STATE_NONE);
+    }
+
+    private static void writeSentinelsLobby(MemorySegment seg) {
+        writeSentinels(seg, STATE_LOBBY);
     }
 
     private static void writeLobbyOverStaleSelf(MemorySegment seg) {
@@ -99,7 +112,8 @@ public enum NoWorldFrame {
         seg.set(ValueLayout.JAVA_INT, selfField(Layout.LP_SKILLS_OFFSET + Layout.SKILL_TYPEID_OFFSET), STALE_SKILL);
     }
 
-    private static void writeSentinels(MemorySegment seg) {
+    private static void writeSentinels(MemorySegment seg, int gameState) {
+        seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMESTATE_OFFSET, gameState);
         seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OWNINDEX_OFFSET, NO_INDEX);
         seg.set(ValueLayout.JAVA_INT, selfField(Layout.LP_SERVERINDEX_OFFSET), NO_INDEX);
         seg.set(ValueLayout.JAVA_SHORT, selfField(Layout.LP_SERVERTILEX_OFFSET), (short) NO_INDEX);

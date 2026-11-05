@@ -61,9 +61,9 @@ public interface GameSnapshot {
 
     /**
      * Local player's server index as the wire holds it: negative out of the
-     * world on a published frame. A frame the agent has not published can read
-     * {@code 0}, the same as a real index, so this alone does not say a player
-     * exists. Use {@link #self()}, or test {@link #gameState()} as well.
+     * world on a published frame. Before its first publish an older agent's
+     * frame reads {@code 0}, the same as a real index, so this alone does not say
+     * a player exists. Use {@link #self()}, or test {@link #gameState()} as well.
      */
     int ownIndex();
 

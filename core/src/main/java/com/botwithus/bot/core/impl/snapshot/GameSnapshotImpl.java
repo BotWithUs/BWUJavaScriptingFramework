@@ -139,8 +139,8 @@ public final class GameSnapshotImpl implements GameSnapshot {
 
     /**
      * Whether the self block holds a player, the same rule the native and Python hosts apply.
-     * Neither half is enough alone. A frame the agent has not published is all zero, so
-     * {@code ownIndex} reads a valid-looking {@code 0}; and the agent publishes game state
+     * Neither half is enough alone. Before its first publish an older agent's frame is all zero,
+     * so {@code ownIndex} reads a valid-looking {@code 0}; and every agent publishes game state
      * {@code 30} with {@code ownIndex} {@code -1} during the login transition. Index {@code 0}
      * is a real player, so this cannot be narrowed to {@code ownIndex > 0}.
      */

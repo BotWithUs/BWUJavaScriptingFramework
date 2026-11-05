@@ -128,7 +128,7 @@ class GameSnapshotV25FieldsTest {
         }
     }
 
-    /** The self block is zero-filled out of the world; that must not read as a tile at (0,0). */
+    /** An older agent zero-fills the self block out of the world; that must not read as a tile. */
     @Test
     void self_outOfWorld_isAbsentRatherThanATileAtZero() {
         try (Arena arena = Arena.ofConfined()) {

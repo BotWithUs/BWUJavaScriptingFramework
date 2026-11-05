@@ -337,8 +337,8 @@ public final class Layout {
     public static final int LP_TARGETTYPE_OFFSET      = 26;
     public static final int LP_ISMEMBER_OFFSET        = 27;
     public static final int LP_SPOTANIMID_OFFSET      = 28;   // i32  first active spot anim id; -1 if none
-    // v21: +32 is orientation (u16, 0xFFFF unknown, and 0xFFFF out of world even though the
-    // rest of the block is zero-filled); +34 is _orientationPad, not accessed. Together they
+    // v21: +32 is orientation (u16, 0xFFFF unknown, and 0xFFFF out of world, where the block
+    // holds no player); +34 is _orientationPad, not accessed. Together they
     // are the 4 bytes that were one u32 pad through v20 and keep sizeof(LocalPlayer) a
     // multiple of 8 so the producer block downstream stays 8-aligned.
     public static final int LP_ORIENTATION_OFFSET     = 32;   // u16

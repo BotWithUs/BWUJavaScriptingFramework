@@ -56,7 +56,7 @@ public final class LocalPlayerView {
     /**
      * Decoded facing (v21). Authoritative for the local player; the {@code players[]} row for
      * {@code ownIndex} is a byte copy. The producer writes the unknown sentinel here even out of
-     * world, where the rest of this block is zero-filled.
+     * world, where this block holds no player.
      */
     public Orientation orientation() {
         int wire = Short.toUnsignedInt(seg.get(ValueLayout.JAVA_SHORT, Layout.LP_ORIENTATION_OFFSET));

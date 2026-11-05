@@ -90,7 +90,7 @@ class NoWorldFrameTest {
         assertNull(api.getPlayerStat(MAGIC_SKILL));
     }
 
-    /** A zeroed self block reads as not a member, which would plan a free-to-play route. */
+    /** A self block with no player reads as not a member, which would plan a free-to-play route. */
     @ParameterizedTest
     @EnumSource(NoWorldFrame.class)
     void walkMoves_isNotRestrictedByAPlayerThatIsNotThere(NoWorldFrame noWorld) {
@@ -157,7 +157,7 @@ class NoWorldFrameTest {
         assertEquals(CapabilitySnapshot.empty(), bridge.readCapability());
     }
 
-    /** A zeroed self block reads as not a member, which would fail a members quest's check. */
+    /** A self block with no player reads as not a member, which would fail a members quest's check. */
     @ParameterizedTest
     @EnumSource(NoWorldFrame.class)
     void questRequirements_doNotReportMembershipMissing(NoWorldFrame noWorld) {
