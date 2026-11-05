@@ -14,6 +14,7 @@ import com.botwithus.bot.api.entities.WorldMapElements;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.WorldMapElement;
+import com.botwithus.bot.api.snapshot.LocalPlayer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,12 +79,13 @@ public class DivinationScript implements BotScript {
             return -1;
         }
 
-        if (api.getLocalPlayer() == null) {
+        LocalPlayer self = api.getLocalPlayer();
+        if (self == null) {
             return 600;
         }
 
         // Walk to spot if too far
-        int distance = distanceToSpot(api);
+        int distance = distanceToSpot(self);
         publisher.annotation("distance_to_spot", distance);
         if (distance > 30) {
             log.info("Walking to divination spot...");
@@ -178,10 +180,9 @@ public class DivinationScript implements BotScript {
         return stat != null ? stat.level() : 1;
     }
 
-    private int distanceToSpot(GameAPI api) {
-        var lp = api.getLocalPlayer();
-        int dx = lp.tileX() - spot.tileX();
-        int dy = lp.tileY() - spot.tileY();
+    private int distanceToSpot(LocalPlayer self) {
+        int dx = self.tileX() - spot.tileX();
+        int dy = self.tileY() - spot.tileY();
         return (int) Math.sqrt(dx * dx + dy * dy);
     }
 

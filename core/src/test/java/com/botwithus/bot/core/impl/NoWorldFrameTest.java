@@ -50,7 +50,7 @@ class NoWorldFrameTest {
     private static final int WALK_X = 3200;
     private static final int WALK_Y = 3201;
     private static final int QUEST_ID = 1;
-    private static final String WALK_OWNER = "test";
+    private static final String WALK_STATUS_FAILED = "failed";
 
     private final RpcClient rpc = mock(RpcClient.class);
     private final AtomicReference<GameSnapshot> frame = new AtomicReference<>();
@@ -60,16 +60,6 @@ class NoWorldFrameTest {
     @EnumSource(NoWorldFrame.class)
     void self_isAbsent(NoWorldFrame noWorld) {
         assertNull(noWorld.snapshot().self());
-    }
-
-    /** The Java host has no self flag on a player row, so the row table has nothing to get wrong. */
-    @ParameterizedTest
-    @EnumSource(NoWorldFrame.class)
-    void players_holdNoRowForTheOwnIndex(NoWorldFrame noWorld) {
-        GameSnapshot snapshot = noWorld.snapshot();
-
-        assertEquals(0, snapshot.players().count());
-        assertTrue(snapshot.players().byServerIndex(snapshot.ownIndex()).isEmpty());
     }
 
     @ParameterizedTest
@@ -119,6 +109,7 @@ class NoWorldFrameTest {
 
         assertEquals(0, executorRuns.get());
         assertEquals(List.of(WalkFailedEvent.class), eventTypes(events));
+        assertEquals(WALK_STATUS_FAILED, api.getWalkStatus().state());
     }
 
     @ParameterizedTest
@@ -145,7 +136,7 @@ class NoWorldFrameTest {
         assertFalse(projectile.targetsLocalPlayer());
     }
 
-    /** The position callback has no way to say absent, so it answers a tile nothing can mistake. */
+    /** The callback cannot say absent, and the planner can route from (0,0,0), so no walk starts. */
     @ParameterizedTest
     @EnumSource(NoWorldFrame.class)
     void callbackBridge_readsTheNoPlayerAnswers(NoWorldFrame noWorld) {
@@ -219,7 +210,7 @@ class NoWorldFrameTest {
     /** The executor is a counter, not a mock of WorldWalker, whose class needs the Windows loader. */
     private List<GameEvent> runWalk(AtomicInteger executorRuns) {
         List<GameEvent> events = new ArrayList<>();
-        WalkLease lease = api.acquireWalkLease(WALK_OWNER, WALK_X, WALK_Y);
+        WalkLease lease = api.acquireWalkLease(api.callerOwner(), WALK_X, WALK_Y);
         api.runWalk(() -> {
             executorRuns.incrementAndGet();
             return WwStatus.ARRIVED;

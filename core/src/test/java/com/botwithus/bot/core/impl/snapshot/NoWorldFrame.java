@@ -115,6 +115,8 @@ public enum NoWorldFrame {
     private static void writeSentinels(MemorySegment seg, int gameState) {
         seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMESTATE_OFFSET, gameState);
         seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OWNINDEX_OFFSET, NO_INDEX);
+        seg.set(ValueLayout.JAVA_INT, Layout.SNAP_ROOTIFACEID_OFFSET, NO_INDEX);
+        seg.set(ValueLayout.JAVA_INT, Layout.SNAP_SERVERTICK_OFFSET, NO_INDEX);
         seg.set(ValueLayout.JAVA_INT, selfField(Layout.LP_SERVERINDEX_OFFSET), NO_INDEX);
         seg.set(ValueLayout.JAVA_SHORT, selfField(Layout.LP_SERVERTILEX_OFFSET), (short) NO_INDEX);
         seg.set(ValueLayout.JAVA_SHORT, selfField(Layout.LP_SERVERTILEY_OFFSET), (short) NO_INDEX);

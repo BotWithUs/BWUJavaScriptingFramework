@@ -23,6 +23,10 @@ import com.botwithus.bot.api.model.WorldPathConfig;
  * the host and any managing {@code ManagementScript} keep override authority
  * over every script's walk. The full contract is on {@link NavigationAPI}.</p>
  *
+ * <p><b>A walk needs a local player.</b> With none, as during login or a world
+ * hop, no walk starts and the blocking call returns {@link WalkResult#FAILED}
+ * straight away.</p>
+ *
  * <p>Obtain an instance through {@link ScriptContext#getNavigation()}.</p>
  *
  * @see GameAPI#walkToAsync(int, int)

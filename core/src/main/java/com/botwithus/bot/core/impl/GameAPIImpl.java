@@ -1343,7 +1343,7 @@ public class GameAPIImpl implements GameAPI {
         try {
             // With no player the executor's position callback can only answer (0,0,0), and it
             // would plan from that tile. Fail the walk through the usual terminal path instead.
-            if (snapshotSource != null && currentLocalPlayer() == null) {
+            if (currentLocalPlayer() == null) {
                 log.warn("WorldWalker walk to ({},{}) not started: no local player", x, y);
                 return;
             }

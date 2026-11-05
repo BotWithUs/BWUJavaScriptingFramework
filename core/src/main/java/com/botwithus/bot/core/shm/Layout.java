@@ -345,11 +345,12 @@ public final class Layout {
     public static final int LP_SKILLCOUNT_OFFSET      = 36;
     public static final int LP_SKILLS_OFFSET          = 40;
     // v24, appended after skills[SKILL_CAP] so every older offset is unmoved. -1 = unreadable
-    // in-world; 0 out of world (the host reports -1 there instead, see LocalPlayer).
+    // in-world; 0 out of world, where GameSnapshot.self() is null so nothing reads them.
     public static final int LP_RUNENERGY_OFFSET       = LP_SKILLS_OFFSET + SKILL_CAP * SKILL_ENTRY_SIZE;
     public static final int LP_RUNWEIGHT_OFFSET       = LP_RUNENERGY_OFFSET + 4;
-    // v25, appended after the run state. -1 in all three when unreadable; 0 out of world (the
-    // host reports -1 there instead, see LocalPlayer). +565..567 is _serverTilePad, not accessed.
+    // v25, appended after the run state. -1 in all three when unreadable. Out of world they are
+    // -1 from an agent with NXTLibrary #58 and 0 from an older one; either way GameSnapshot.self()
+    // is null, so nothing reads them. +565..567 is _serverTilePad, not accessed.
     public static final int LP_SERVERTILEX_OFFSET     = LP_RUNWEIGHT_OFFSET + 4;   // i16
     public static final int LP_SERVERTILEY_OFFSET     = LP_SERVERTILEX_OFFSET + 2; // i16
     public static final int LP_SERVERPLANE_OFFSET     = LP_SERVERTILEY_OFFSET + 2; // i8

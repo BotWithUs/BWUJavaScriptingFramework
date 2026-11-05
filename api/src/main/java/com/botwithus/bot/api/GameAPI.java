@@ -316,9 +316,9 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
 
     /**
      * No-plane convenience for {@link NavigationAPI#walkWorldPathAsync(int, int, int)}
-     * — uses the local player's current plane, falling back to plane 0 when
-     * not in-game. Lives here (not on {@code NavigationAPI}) because it
-     * needs {@link #snapshot()}.
+     * — uses the local player's current plane. With no local player no walk
+     * starts, as that method documents. Lives here (not on
+     * {@code NavigationAPI}) because it needs {@link #snapshot()}.
      *
      * <p>Reads the plane off the snapshot rather than
      * {@link #getLocalPlayer()}: only the plane is wanted, and the health read
