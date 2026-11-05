@@ -1336,11 +1336,17 @@ public class GameAPIImpl implements GameAPI {
         return refusals == null ? 0L : refusals.get();
     }
 
-    private void runWalk(WorldWalker w, WwGoal goal, DisabledMoves moves,
-                         WorldWalkerCallbackBridge bridge, WalkLease lease,
-                         Consumer<? super GameEvent> publisher, int x, int y) {
+    void runWalk(WorldWalker w, WwGoal goal, DisabledMoves moves,
+                 WorldWalkerCallbackBridge bridge, WalkLease lease,
+                 Consumer<? super GameEvent> publisher, int x, int y) {
         WwStatus status = WwStatus.FAILED;
         try {
+            // With no player the executor's position callback can only answer (0,0,0), and it
+            // would plan from that tile. Fail the walk through the usual terminal path instead.
+            if (snapshotSource != null && currentLocalPlayer() == null) {
+                log.warn("WorldWalker walk to ({},{}) not started: no local player", x, y);
+                return;
+            }
             if (moves.isFreeToPlay()) {
                 log.info("WorldWalker walk to ({},{}) is planned as free-to-play", x, y);
             }

@@ -13,6 +13,7 @@ import java.lang.foreign.ValueLayout;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -129,16 +130,11 @@ class GameSnapshotV25FieldsTest {
 
     /** The self block is zero-filled out of the world; that must not read as a tile at (0,0). */
     @Test
-    void self_outOfWorld_reportsUnknownRatherThanTheWireZero() {
+    void self_outOfWorld_isAbsentRatherThanATileAtZero() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment seg = selfSnapshot(arena, LOBBY, (short) 0, (short) 0, (byte) 0);
 
-            LocalPlayer self = new GameSnapshotImpl(new SnapshotView(seg)).self();
-
-            assertEquals(LocalPlayer.SERVER_TILE_UNKNOWN, self.serverTileX());
-            assertEquals(LocalPlayer.SERVER_TILE_UNKNOWN, self.serverTileY());
-            assertEquals(LocalPlayer.SERVER_TILE_UNKNOWN, self.serverPlane());
-            assertFalse(self.hasServerTile());
+            assertNull(new GameSnapshotImpl(new SnapshotView(seg)).self());
         }
     }
 

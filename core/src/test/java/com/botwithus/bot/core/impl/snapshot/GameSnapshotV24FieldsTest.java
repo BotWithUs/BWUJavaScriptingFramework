@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -188,16 +189,13 @@ class GameSnapshotV24FieldsTest {
         }
     }
 
-    /** The wire's out-of-world 0 is reported as unknown, so 0 always means an empty bar. */
+    /** There is no record out of the world, so a reported 0 always means an empty bar. */
     @Test
-    void self_outOfWorld_reportsUnknownRatherThanTheWireZero() {
+    void self_outOfWorld_isAbsentRatherThanAnEmptyBar() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment seg = selfSnapshot(arena, LOBBY, 0, 0);
 
-            LocalPlayer self = new GameSnapshotImpl(new SnapshotView(seg)).self();
-
-            assertEquals(LocalPlayer.RUN_UNKNOWN, self.runEnergy());
-            assertEquals(LocalPlayer.RUN_UNKNOWN, self.runWeight());
+            assertNull(new GameSnapshotImpl(new SnapshotView(seg)).self());
         }
     }
 

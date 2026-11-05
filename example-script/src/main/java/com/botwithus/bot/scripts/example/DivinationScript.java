@@ -78,6 +78,10 @@ public class DivinationScript implements BotScript {
             return -1;
         }
 
+        if (api.getLocalPlayer() == null) {
+            return 600;
+        }
+
         // Walk to spot if too far
         int distance = distanceToSpot(api);
         publisher.annotation("distance_to_spot", distance);
