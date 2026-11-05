@@ -43,10 +43,9 @@ class ProducerHeaderDriftTest {
     /** Which producer revision to read; defaults to {@link #BOUND_PRODUCER_SHA}. */
     static final String REV_PROPERTY = "botwithus.producer.rev";
     /**
-     * The producer revision this host's {@link Layout} is bound to: the NXTLibrary PR #41 head.
-     * SharedLayout.h is the same blob (833da0e) at c1231ca, 3c9ba5a and 84a1376.
+     * The producer revision this host's {@link Layout} is bound to: the NXTLibrary PR #54 head.
      */
-    static final String BOUND_PRODUCER_SHA = "84a137604ac330aa37a565a83e10a4fbe3e5ba05";
+    static final String BOUND_PRODUCER_SHA = "412510a5bd307e3249941cb75e6f728ca5ebde86";
     private static final String HEADER_PATH = "src/ipc/SharedLayout.h";
 
     // The literal must END the comparison (followed by ',', ')' or '&&'). Many asserts compare
@@ -92,6 +91,12 @@ class ProducerHeaderDriftTest {
         m.put("offsetof(PlayerEntry,name)", Layout.PLAYER_NAME_OFFSET);
         m.put("offsetof(LocalPlayer,runEnergy)", Layout.LP_RUNENERGY_OFFSET);
         m.put("offsetof(LocalPlayer,runWeight)", Layout.LP_RUNWEIGHT_OFFSET);
+        m.put("offsetof(PlayerEntry,serverTileX)", Layout.PLAYER_SERVERTILEX_OFFSET);
+        m.put("offsetof(PlayerEntry,serverTileY)", Layout.PLAYER_SERVERTILEY_OFFSET);
+        m.put("offsetof(PlayerEntry,serverPlane)", Layout.PLAYER_SERVERPLANE_OFFSET);
+        m.put("offsetof(LocalPlayer,serverTileX)", Layout.LP_SERVERTILEX_OFFSET);
+        m.put("offsetof(LocalPlayer,serverTileY)", Layout.LP_SERVERTILEY_OFFSET);
+        m.put("offsetof(LocalPlayer,serverPlane)", Layout.LP_SERVERPLANE_OFFSET);
         m.put("offsetof(Snapshot,players)", Layout.SNAP_PLAYERS_OFFSET);
         m.put("offsetof(Snapshot,openIfaceCount)", Layout.SNAP_OPENIFACECOUNT_OFFSET);
         m.put("offsetof(Snapshot,openIfaceTotal)", Layout.SNAP_OPENIFACETOTAL_OFFSET);

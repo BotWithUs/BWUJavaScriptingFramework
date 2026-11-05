@@ -2,11 +2,15 @@ package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.inventory.ActionTypes;
+import com.botwithus.bot.api.model.EntityKind;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.Headbar;
+import com.botwithus.bot.api.model.OverheadText;
 import com.botwithus.bot.api.snapshot.Orientation;
 import com.botwithus.bot.api.model.NpcType;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.IntFunction;
 
 /**
@@ -151,6 +155,23 @@ public final class Npc implements EntityContext {
      * read an angle back one unit short. Unknown when the producer could not read one.
      */
     public Orientation orientation() { return raw.orientation(); }
+
+    /**
+     * The text above this NPC right now, or empty when it is silent <b>or the read was
+     * refused</b>; use {@link GameAPI#getOverheadText} to tell those apart. One pipe round-trip.
+     */
+    public Optional<String> getOverheadText() {
+        return api.getOverheadText(EntityKind.NPC, serverIndex()).value().map(OverheadText::text);
+    }
+
+    /**
+     * Every headbar entry on this NPC, or empty when it has none <b>or the read was refused</b>;
+     * use {@link GameAPI#getHeadbars} to tell those apart. One pipe round-trip. Not filtered for
+     * liveness: an old entry is still listed.
+     */
+    public List<Headbar> getHeadbars() {
+        return api.getHeadbars(EntityKind.NPC, serverIndex()).value();
+    }
 
     // ---------------- Definition ----------------
 

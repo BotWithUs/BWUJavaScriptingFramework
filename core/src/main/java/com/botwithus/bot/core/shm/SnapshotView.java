@@ -170,7 +170,10 @@ public final class SnapshotView {
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_COMBATLEVEL_OFFSET),
                 seg.get(ValueLayout.JAVA_INT,   base + Layout.PLAYER_SPOTANIMID_OFFSET),
                 orientationAt(base + Layout.PLAYER_ORIENTATION_OFFSET),
-                PlayerNameDecoder.decode(seg, base + Layout.PLAYER_NAME_OFFSET));
+                PlayerNameDecoder.decode(seg, base + Layout.PLAYER_NAME_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PLAYER_SERVERTILEX_OFFSET),
+                seg.get(ValueLayout.JAVA_SHORT, base + Layout.PLAYER_SERVERTILEY_OFFSET),
+                seg.get(ValueLayout.JAVA_BYTE,  base + Layout.PLAYER_SERVERPLANE_OFFSET));
     }
 
     // ------------------------------------------------------------------

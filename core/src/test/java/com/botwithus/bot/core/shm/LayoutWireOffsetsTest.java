@@ -23,8 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LayoutWireOffsetsTest {
 
     @Test
-    void protocolVersionIsTwentyFour() {
-        assertEquals(24, Layout.PROTOCOL_VERSION,
+    void protocolVersionIsTwentyFive() {
+        assertEquals(25, Layout.PROTOCOL_VERSION,
                 "PROTOCOL_VERSION must equal kProtocolVersion in SharedLayout.h");
     }
 
@@ -36,14 +36,14 @@ class LayoutWireOffsetsTest {
     @Test
     void openInterfaceBlockIsPinned() {
         assertEquals(256, Layout.OPEN_IFACE_CAP, "kOpenIfaceCap");
-        assertEquals(361344, Layout.SNAP_OPENIFACECOUNT_OFFSET, "offsetof(Snapshot, openIfaceCount)");
-        assertEquals(361348, Layout.SNAP_OPENIFACETOTAL_OFFSET, "offsetof(Snapshot, openIfaceTotal)");
-        assertEquals(361352, Layout.SNAP_OPENIFACES_OFFSET, "offsetof(Snapshot, openIfaces)");
-        assertEquals(362376, Layout.SNAP_OPENIFACEFLAGS_OFFSET, "offsetof(Snapshot, openIfaceFlags)");
-        assertEquals(362632, Layout.SNAP_OPENIFACEPAD_OFFSET,
+        assertEquals(377736, Layout.SNAP_OPENIFACECOUNT_OFFSET, "offsetof(Snapshot, openIfaceCount)");
+        assertEquals(377740, Layout.SNAP_OPENIFACETOTAL_OFFSET, "offsetof(Snapshot, openIfaceTotal)");
+        assertEquals(377744, Layout.SNAP_OPENIFACES_OFFSET, "offsetof(Snapshot, openIfaces)");
+        assertEquals(378768, Layout.SNAP_OPENIFACEFLAGS_OFFSET, "offsetof(Snapshot, openIfaceFlags)");
+        assertEquals(379024, Layout.SNAP_OPENIFACEPAD_OFFSET,
                 "offsetof(Snapshot, _padAfterOpenIfaces)");
-        assertEquals(362636, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, "offsetof(Snapshot, groundItemCount)");
-        assertEquals(362640, Layout.SNAP_GROUNDITEMS_OFFSET, "offsetof(Snapshot, groundItems)");
+        assertEquals(379028, Layout.SNAP_GROUNDITEMCOUNT_OFFSET, "offsetof(Snapshot, groundItemCount)");
+        assertEquals(379032, Layout.SNAP_GROUNDITEMS_OFFSET, "offsetof(Snapshot, groundItems)");
     }
 
     /**
@@ -62,8 +62,8 @@ class LayoutWireOffsetsTest {
 
     @Test
     void projectileBlockIsPinned() {
-        assertEquals(379024, Layout.SNAP_PROJECTILECOUNT_OFFSET, "offsetof(Snapshot, projectileCount)");
-        assertEquals(379028, Layout.SNAP_PROJECTILES_OFFSET, "offsetof(Snapshot, projectiles)");
+        assertEquals(395416, Layout.SNAP_PROJECTILECOUNT_OFFSET, "offsetof(Snapshot, projectileCount)");
+        assertEquals(395420, Layout.SNAP_PROJECTILES_OFFSET, "offsetof(Snapshot, projectiles)");
     }
 
     /**
@@ -100,50 +100,66 @@ class LayoutWireOffsetsTest {
         assertEquals(44, Layout.NPC_COMBATLEVEL_OFFSET, "offsetof(NpcEntry, combatLevel)");
     }
 
-    /** v24: PlayerEntry 32 to 48 with a 16-byte name at +32 and the truncation bit in flags. */
+    /** v24 put a 16-byte name at +32 and the truncation bit in flags; v25 left them there. */
     @Test
     void playerEntryCarriesTheName() {
-        assertEquals(48, Layout.PLAYER_ENTRY_SIZE, "sizeof(ipc::PlayerEntry)");
         assertEquals(32, Layout.PLAYER_NAME_OFFSET, "offsetof(PlayerEntry, name)");
         assertEquals(16, Layout.PLAYER_NAME_CAP, "kPlayerNameCap");
-        assertEquals(Layout.PLAYER_ENTRY_SIZE, Layout.PLAYER_NAME_OFFSET + Layout.PLAYER_NAME_CAP,
-                "name is the last field; the row ends immediately after it");
+        assertEquals(Layout.PLAYER_SERVERTILEX_OFFSET, Layout.PLAYER_NAME_OFFSET + Layout.PLAYER_NAME_CAP,
+                "the server tile starts where the name ends");
         assertEquals(2, Layout.FLAG_NAME_TRUNCATED, "kFlagNameTruncated = 1u << 1");
     }
 
-    /** v24: LocalPlayer 552 to 560 with runEnergy and runWeight appended after the skills. */
+    /** v25: PlayerEntry 48 to 56, with the server tile at +48 and 3 pad bytes ending the row. */
+    @Test
+    void playerEntryCarriesTheServerTile() {
+        assertEquals(56, Layout.PLAYER_ENTRY_SIZE, "sizeof(ipc::PlayerEntry)");
+        assertEquals(48, Layout.PLAYER_SERVERTILEX_OFFSET, "offsetof(PlayerEntry, serverTileX)");
+        assertEquals(50, Layout.PLAYER_SERVERTILEY_OFFSET, "offsetof(PlayerEntry, serverTileY)");
+        assertEquals(52, Layout.PLAYER_SERVERPLANE_OFFSET, "offsetof(PlayerEntry, serverPlane)");
+    }
+
+    /** v24 appended runEnergy and runWeight after the skills; v25 left them there. */
     @Test
     void localPlayerCarriesRunState() {
-        assertEquals(560, Layout.LOCAL_PLAYER_SIZE, "sizeof(ipc::LocalPlayer)");
         assertEquals(552, Layout.LP_RUNENERGY_OFFSET, "offsetof(LocalPlayer, runEnergy)");
         assertEquals(556, Layout.LP_RUNWEIGHT_OFFSET, "offsetof(LocalPlayer, runWeight)");
     }
 
+    /** v25: LocalPlayer 560 to 568, with the server tile appended after the run state. */
     @Test
-    void entityArraysAreAtTheV24Offsets() {
-        assertEquals(584, Layout.SNAP_NPCCOUNT_OFFSET, "offsetof(Snapshot, npcCount)");
-        assertEquals(588, Layout.SNAP_NPCS_OFFSET, "offsetof(Snapshot, npcs)");
-        assertEquals(49740, Layout.SNAP_PLAYERCOUNT_OFFSET, "offsetof(Snapshot, playerCount)");
-        assertEquals(49744, Layout.SNAP_PLAYERS_OFFSET, "offsetof(Snapshot, players)");
-        assertEquals(148048, Layout.SNAP_LOCATIONCOUNT_OFFSET, "offsetof(Snapshot, locationCount)");
-        assertEquals(148052, Layout.SNAP_LOCATIONS_OFFSET, "offsetof(Snapshot, locations)");
-        assertEquals(344664, Layout.SNAP_INVENTORYCOUNT_OFFSET, "offsetof(Snapshot, inventoryCount)");
-        assertEquals(344924, Layout.SNAP_INVITEMCOUNT_OFFSET, "offsetof(Snapshot, invItemCount)");
-        assertEquals(361312, Layout.SNAP_PRODUCER_OFFSET, "offsetof(Snapshot, producer)");
+    void localPlayerCarriesTheServerTile() {
+        assertEquals(568, Layout.LOCAL_PLAYER_SIZE, "sizeof(ipc::LocalPlayer)");
+        assertEquals(560, Layout.LP_SERVERTILEX_OFFSET, "offsetof(LocalPlayer, serverTileX)");
+        assertEquals(562, Layout.LP_SERVERTILEY_OFFSET, "offsetof(LocalPlayer, serverTileY)");
+        assertEquals(564, Layout.LP_SERVERPLANE_OFFSET, "offsetof(LocalPlayer, serverPlane)");
+    }
+
+    @Test
+    void entityArraysAreAtTheV25Offsets() {
+        assertEquals(592, Layout.SNAP_NPCCOUNT_OFFSET, "offsetof(Snapshot, npcCount)");
+        assertEquals(596, Layout.SNAP_NPCS_OFFSET, "offsetof(Snapshot, npcs)");
+        assertEquals(49748, Layout.SNAP_PLAYERCOUNT_OFFSET, "offsetof(Snapshot, playerCount)");
+        assertEquals(49752, Layout.SNAP_PLAYERS_OFFSET, "offsetof(Snapshot, players)");
+        assertEquals(164440, Layout.SNAP_LOCATIONCOUNT_OFFSET, "offsetof(Snapshot, locationCount)");
+        assertEquals(164444, Layout.SNAP_LOCATIONS_OFFSET, "offsetof(Snapshot, locations)");
+        assertEquals(361056, Layout.SNAP_INVENTORYCOUNT_OFFSET, "offsetof(Snapshot, inventoryCount)");
+        assertEquals(361316, Layout.SNAP_INVITEMCOUNT_OFFSET, "offsetof(Snapshot, invItemCount)");
+        assertEquals(377704, Layout.SNAP_PRODUCER_OFFSET, "offsetof(Snapshot, producer)");
     }
 
     @Test
     void gameCycleMovedByExactlyTheRowGrowth() {
-        assertEquals(387220, Layout.SNAP_GAMECYCLE_OFFSET, "offsetof(Snapshot, gameCycle)");
-        assertEquals(346252 + 40968, Layout.SNAP_GAMECYCLE_OFFSET,
-                "v24 moves every field from locationCount on by 8 + 8 * 1024 + 16 * 2048 = 40968");
+        assertEquals(403612, Layout.SNAP_GAMECYCLE_OFFSET, "offsetof(Snapshot, gameCycle)");
+        assertEquals(387220 + 16392, Layout.SNAP_GAMECYCLE_OFFSET,
+                "v25 moves every field from locationCount on by 8 + 8 * 2048 = 16392");
     }
 
     @Test
     void dynamicRegionBlockOffsetsArePinned() {
-        assertEquals(387224, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
-        assertEquals(387260, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
-        assertEquals(387264, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
+        assertEquals(403616, Layout.SNAP_DYNREGION_OFFSET, "offsetof(Snapshot, dynRegion)");
+        assertEquals(403652, Layout.SNAP_DYNCHUNKCOUNT_OFFSET, "offsetof(Snapshot, dynChunkCount)");
+        assertEquals(403656, Layout.SNAP_DYNCHUNKS_OFFSET, "offsetof(Snapshot, dynChunks)");
     }
 
     @Test
@@ -186,7 +202,7 @@ class LayoutWireOffsetsTest {
 
     @Test
     void snapshotSizeIsPinned() {
-        assertEquals(452800, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
+        assertEquals(469192, Layout.SNAPSHOT_SIZE, "sizeof(Snapshot)");
     }
 
     /**

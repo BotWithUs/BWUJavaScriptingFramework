@@ -2,8 +2,14 @@ package com.botwithus.bot.api.entities;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.inventory.ActionTypes;
+import com.botwithus.bot.api.model.EntityKind;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.Headbar;
+import com.botwithus.bot.api.model.OverheadText;
 import com.botwithus.bot.api.snapshot.Orientation;
+
+import java.util.List;
+import java.util.Optional;
 
 /**
  * Rich wrapper around a snapshot {@link com.botwithus.bot.api.snapshot.Player}
@@ -61,6 +67,33 @@ public final class Player implements EntityContext {
      * read an angle back one unit short. Unknown when the producer could not read one.
      */
     public Orientation orientation() { return raw.orientation(); }
+
+    /** Tile X the server last sent this player towards (wire v25); {@link #tileX()} is where it is drawn. */
+    public int serverTileX() { return raw.serverTileX(); }
+    /** Tile Y the server last sent this player towards (wire v25). */
+    public int serverTileY() { return raw.serverTileY(); }
+    /** Plane of the server tile (wire v25). */
+    public int serverPlane() { return raw.serverPlane(); }
+    /** True when the server tile is a real reading. Always false on the beta client channel, which is normal. */
+    public boolean hasServerTile() { return raw.hasServerTile(); }
+
+    /**
+     * The text above this player right now, or empty when it is silent <b>or the read was
+     * refused</b>; use {@link GameAPI#getOverheadText} to tell those apart. One pipe round-trip.
+     * A player's text has not been read live yet; the same client field has, on NPCs.
+     */
+    public Optional<String> getOverheadText() {
+        return api.getOverheadText(EntityKind.PLAYER, serverIndex()).value().map(OverheadText::text);
+    }
+
+    /**
+     * Every headbar entry on this player, or empty when it has none <b>or the read was
+     * refused</b>; use {@link GameAPI#getHeadbars} to tell those apart. One pipe round-trip. Not
+     * filtered for liveness: an old entry is still listed.
+     */
+    public List<Headbar> getHeadbars() {
+        return api.getHeadbars(EntityKind.PLAYER, serverIndex()).value();
+    }
 
     @Override public int tileX() { return raw.tileX(); }
     @Override public int tileY() { return raw.tileY(); }

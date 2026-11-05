@@ -22,8 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The v24 snapshot fields, decoded end to end through {@link GameSnapshotImpl}: player names and
  * the truncation flag, NPC active type and combat level, and the local player's run state.
  *
- * <p>Bytes are written at <b>literal</b> offsets from NXTLibrary's SharedLayout.h at c1231ca
- * (the same blob, 833da0e, as the bound head 84a1376), checked there by compiling the header
+ * <p>Bytes are written at <b>literal</b> offsets from NXTLibrary's SharedLayout.h at 412510a (these
+ * fields kept their row offsets in v25; the arrays moved), checked there by compiling the header
  * and printing {@code offsetof}. They are not written through
  * {@link Layout}: a fixture written through the reader's own constants would round-trip whatever
  * they said. Row 1 is written as well as row 0 so each stride is pinned with its field.</p>
@@ -35,15 +35,15 @@ class GameSnapshotV24FieldsTest {
     private static final long SELF = 24;
     private static final long SELF_RUN_ENERGY = 552;
     private static final long SELF_RUN_WEIGHT = 556;
-    private static final long NPC_COUNT = 584;
-    private static final long NPCS = 588;
+    private static final long NPC_COUNT = 592;
+    private static final long NPCS = 596;
     private static final long NPC_STRIDE = 48;
     private static final long NPC_TYPE_ID = 4;
     private static final long NPC_ACTIVE_TYPE_ID = 40;
     private static final long NPC_COMBAT_LEVEL = 44;
-    private static final long PLAYER_COUNT = 49740;
-    private static final long PLAYERS = 49744;
-    private static final long PLAYER_STRIDE = 48;
+    private static final long PLAYER_COUNT = 49748;
+    private static final long PLAYERS = 49752;
+    private static final long PLAYER_STRIDE = 56;
     private static final long PLAYER_FLAGS = 9;
     private static final long PLAYER_NAME = 32;
     private static final int NAME_CAP = 16;

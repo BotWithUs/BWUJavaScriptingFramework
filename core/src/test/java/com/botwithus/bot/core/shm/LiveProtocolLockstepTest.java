@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -72,6 +73,11 @@ class LiveProtocolLockstepTest {
     /** Set by bwu-harness to the pid every other phase of the run is scoped to. */
     private static final String PID_PROPERTY = "botwithus.harness.pid";
 
+    private static final long V25_SNAPSHOT_OFF0 = 64;
+    private static final long V25_SNAPSHOT_OFF1 = 469312;
+    private static final long V25_RING_OFF = 938560;
+    private static final long V25_RING_SIZE = 131104;
+
     @Test
     void attachingRunsTheRejectionPath_ratherThanComparingConstantsThatMayNotBeTheOnesUsed() {
         Optional<SharedRegion> maybeRegion;
@@ -114,10 +120,23 @@ class LiveProtocolLockstepTest {
             int serverTick = snapshot.serverTick();
 
             log.info("host attached to the live agent: frontIdx={}, serverTick={}", front, serverTick);
+            assertRegionCutAsTheV25ProducerLaysItOut(region);
             assertTrue(front == 0 || front == 1,
                     "attach succeeded but the header's frontIdx is " + front
                             + ", which is neither published buffer -- the mapping is not what the layout says");
         }
+    }
+
+    /**
+     * The slices sit where the v25 producer put them, a 64-byte-rounded stride apart. A reader
+     * stepping by {@code snapshotSize} would land 56 bytes short and read plausible wrong data.
+     */
+    private static void assertRegionCutAsTheV25ProducerLaysItOut(SharedRegion region) {
+        long base = region.header().address();
+        assertEquals(V25_SNAPSHOT_OFF0, region.snapshot0().address() - base, "snapshot slot 0");
+        assertEquals(V25_SNAPSHOT_OFF1, region.snapshot1().address() - base, "snapshot slot 1");
+        assertEquals(V25_RING_OFF, region.ring().address() - base, "event ring");
+        assertEquals(V25_RING_SIZE, region.ring().byteSize(), "event ring size");
     }
 
     private static Optional<SharedRegion> openTarget() {

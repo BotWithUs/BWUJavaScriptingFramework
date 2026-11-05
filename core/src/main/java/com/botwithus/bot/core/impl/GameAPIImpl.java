@@ -29,6 +29,13 @@ import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.AppearanceSlot;
 import com.botwithus.bot.api.model.AppearanceStatus;
+import com.botwithus.bot.api.model.EntityKind;
+import com.botwithus.bot.api.model.EntityRead;
+import com.botwithus.bot.api.model.EntityReadStatus;
+import com.botwithus.bot.api.model.Headbar;
+import com.botwithus.bot.api.model.HintArrow;
+import com.botwithus.bot.api.model.HintArrowType;
+import com.botwithus.bot.api.model.OverheadText;
 import com.botwithus.bot.api.model.PlayerAppearance;
 import com.botwithus.bot.api.model.ResourceItem;
 import com.botwithus.bot.api.model.ResourceSection;
@@ -753,6 +760,94 @@ public class GameAPIImpl implements GameAPI {
                 getIntOr(r, "gender", PlayerAppearance.UNKNOWN),
                 slots,
                 getIntList(r, "colours"));
+    }
+
+    private static final String OVERHEAD_TEXT_METHOD = "get_overhead_text";
+    private static final String HEADBARS_METHOD = "get_headbars";
+    private static final String HINT_ARROWS_METHOD = "query_hint_arrows";
+    private static final String TRUNCATED_KEY = "truncated";
+
+    @Override
+    public EntityRead<Optional<OverheadText>> getOverheadText(EntityKind kind, int serverIndex) {
+        try {
+            Map<String, Object> r = rpc.callSync(OVERHEAD_TEXT_METHOD, entityTarget(kind, serverIndex));
+            return EntityRead.ok(decodeOverheadText(r), getBool(r, TRUNCATED_KEY));
+        } catch (RpcRemoteException e) {
+            return EntityRead.refused(refusalStatus(OVERHEAD_TEXT_METHOD, e), Optional.empty(), e.producerMessage());
+        }
+    }
+
+    @Override
+    public EntityRead<List<Headbar>> getHeadbars(EntityKind kind, int serverIndex) {
+        try {
+            Map<String, Object> r = rpc.callSync(HEADBARS_METHOD, entityTarget(kind, serverIndex));
+            List<Headbar> bars = getMapList(r, "headbars").stream().map(GameAPIImpl::decodeHeadbar).toList();
+            return EntityRead.ok(bars, getBool(r, TRUNCATED_KEY));
+        } catch (RpcRemoteException e) {
+            return EntityRead.refused(refusalStatus(HEADBARS_METHOD, e), List.of(), e.producerMessage());
+        }
+    }
+
+    @Override
+    public EntityRead<List<HintArrow>> queryHintArrows() {
+        try {
+            Map<String, Object> r = rpc.callSync(HINT_ARROWS_METHOD, Map.of());
+            List<HintArrow> arrows = getMapList(r, "arrows").stream().map(GameAPIImpl::decodeHintArrow).toList();
+            return EntityRead.ok(arrows, getBool(r, TRUNCATED_KEY));
+        } catch (RpcRemoteException e) {
+            return EntityRead.refused(refusalStatus(HINT_ARROWS_METHOD, e), List.of(), e.producerMessage());
+        }
+    }
+
+    private static Map<String, Object> entityTarget(EntityKind kind, int serverIndex) {
+        return Map.of("targetType", kind.wireName(), "serverIndex", serverIndex);
+    }
+
+    /**
+     * A refusal envelope becomes a status, except an argument error, which the agent prefixes with
+     * the method name and which is a caller bug. Only {@link RpcRemoteException} reaches here: a
+     * transport failure still propagates.
+     */
+    private static EntityReadStatus refusalStatus(String method, RpcRemoteException refusal) {
+        String code = refusal.producerMessage();
+        if (code != null && code.startsWith(method + ":")) {
+            throw new IllegalArgumentException(code, refusal);
+        }
+        return EntityReadStatus.fromWireCode(code);
+    }
+
+    /**
+     * The predicate is the {@code text} key being non-nil. {@code MapHelper.getString} reads nil as
+     * {@code ""}, so it can only be asked once the key is known to hold a value.
+     */
+    private static Optional<OverheadText> decodeOverheadText(Map<String, Object> r) {
+        if (r.get("text") == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new OverheadText(getString(r, "text"), getLong(r, "expiresInMs")));
+    }
+
+    private static Headbar decodeHeadbar(Map<String, Object> m) {
+        return new Headbar(
+                getIntOr(m, "headbarId", Headbar.NO_TYPE),
+                getInt(m, "value"),
+                getInt(m, "valueStart"),
+                getInt(m, "startCycle"),
+                getInt(m, "duration"));
+    }
+
+    private static HintArrow decodeHintArrow(Map<String, Object> m) {
+        int rawType = getInt(m, "type");
+        return new HintArrow(
+                HintArrow.Source.fromWireName(getString(m, "source")),
+                getIntOr(m, "slot", HintArrow.NO_VALUE),
+                HintArrowType.fromWireCode(rawType),
+                rawType,
+                getIntOr(m, "targetIndex", HintArrow.NO_VALUE),
+                getIntOr(m, "plane", HintArrow.NO_VALUE),
+                getIntOr(m, "tileX", HintArrow.NO_VALUE),
+                getIntOr(m, "tileY", HintArrow.NO_VALUE),
+                getInt(m, "rangeTiles"));
     }
 
     /**

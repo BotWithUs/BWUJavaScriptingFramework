@@ -7,6 +7,7 @@ import com.botwithus.bot.api.domain.NavigationAPI;
 import com.botwithus.bot.api.domain.SystemAPI;
 import com.botwithus.bot.api.domain.VariableAPI;
 import com.botwithus.bot.api.entities.GroundItems;
+import com.botwithus.bot.api.entities.HintArrows;
 import com.botwithus.bot.api.entities.Npcs;
 import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.Projectiles;
@@ -20,8 +21,13 @@ import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
+import com.botwithus.bot.api.model.EntityKind;
+import com.botwithus.bot.api.model.EntityRead;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.Headbar;
+import com.botwithus.bot.api.model.HintArrow;
+import com.botwithus.bot.api.model.OverheadText;
 import com.botwithus.bot.api.model.PlayerAppearance;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.ItemType;
@@ -42,6 +48,7 @@ import com.botwithus.bot.api.snapshot.LocalPlayer;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
@@ -491,6 +498,52 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      * @throws IllegalArgumentException when the agent rejects the argument itself
      */
     PlayerAppearance getPlayerAppearance(int serverIndex);
+
+    // ---------------------------------------------------------------- Entity reads (wire v25)
+    //
+    // On the beta client channel all three always answer EntityReadStatus.CHANNEL_UNSUPPORTED. That
+    // is a normal result, not a fault, and it does not throw.
+
+    /**
+     * The text above an entity right now. Each call is a pipe round-trip onto the game thread.
+     *
+     * <p>A reading of {@code Optional.empty()} with {@link EntityRead#isAvailable()} true means the
+     * entity is silent, including a text past its expiry that the client has not cleared yet. A
+     * refusal (not in the world, nothing loaded at that index, a timeout) comes back as
+     * {@link EntityRead#status()}, so "silent" and "could not read" stay apart. A player's text has
+     * not been read live yet; the same client field has, on NPCs.</p>
+     *
+     * @param kind        which entity table {@code serverIndex} is in
+     * @param serverIndex the entity's server index
+     * @throws IllegalArgumentException when the agent rejects the argument itself
+     */
+    EntityRead<Optional<OverheadText>> getOverheadText(EntityKind kind, int serverIndex);
+
+    /**
+     * Every headbar entry on an entity, slot by slot, with no liveness filter. Each call is a pipe
+     * round-trip onto the game thread. An available empty list means it has no bars; a refusal comes
+     * back as {@link EntityRead#status()}.
+     *
+     * @param kind        which entity table {@code serverIndex} is in
+     * @param serverIndex the entity's server index
+     * @throws IllegalArgumentException when the agent rejects the argument itself
+     */
+    EntityRead<List<Headbar>> getHeadbars(EntityKind kind, int serverIndex);
+
+    /**
+     * Low-level RPC: every hint arrow the client holds. Most scripts go through
+     * {@link #hintArrows()}, which collapses a refusal to an empty list; this is how to tell
+     * "no arrows" from "could not read".
+     */
+    EntityRead<List<HintArrow>> queryHintArrows();
+
+    /**
+     * A new hint-arrow query. Each terminal issues one {@link #queryHintArrows()} and filters in
+     * Java, because the RPC takes no filters.
+     */
+    default HintArrows.Query hintArrows() {
+        return HintArrows.query(this);
+    }
 
     // ---------------------------------------------------------------- Interface components
 

@@ -21,12 +21,17 @@ import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
+import com.botwithus.bot.api.model.EntityKind;
+import com.botwithus.bot.api.model.EntityRead;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.Headbar;
+import com.botwithus.bot.api.model.HintArrow;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.LoginState;
 import com.botwithus.bot.api.model.NpcType;
+import com.botwithus.bot.api.model.OverheadText;
 import com.botwithus.bot.api.model.PathResult;
 import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
@@ -46,6 +51,7 @@ import com.botwithus.bot.api.snapshot.LocalPlayer;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -379,6 +385,21 @@ final class MockGameAPI implements GameAPI {
     @Override
     public PlayerAppearance getPlayerAppearance(int serverIndex) {
         throw notStubbed("getPlayerAppearance");
+    }
+
+    @Override
+    public EntityRead<Optional<OverheadText>> getOverheadText(EntityKind kind, int serverIndex) {
+        throw notStubbed("getOverheadText");
+    }
+
+    @Override
+    public EntityRead<List<Headbar>> getHeadbars(EntityKind kind, int serverIndex) {
+        throw notStubbed("getHeadbars");
+    }
+
+    @Override
+    public EntityRead<List<HintArrow>> queryHintArrows() {
+        throw notStubbed("queryHintArrows");
     }
 
     @Override

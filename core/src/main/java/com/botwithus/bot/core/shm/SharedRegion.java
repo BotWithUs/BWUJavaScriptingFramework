@@ -116,10 +116,9 @@ public final class SharedRegion implements AutoCloseable {
         RegionLayout layout = probeHeader(mapping, pid);
         MemorySegment fullSlice = mapFullRegion(mapping, layout.totalSize());
 
-        SharedRegion r = new SharedRegion();
+        SharedRegion r = sliced(fullSlice, layout);
         r.mappingHandle = mapping;
         r.baseView      = fullSlice;
-        populateSlices(r, fullSlice, layout);
 
         log.info("Opened shared region for pid {} (snapshot={} bytes, ring={} bytes, total={} bytes)",
                 pid, layout.snapshotSize(), layout.ringSize(), layout.totalSize());
@@ -127,7 +126,7 @@ public final class SharedRegion implements AutoCloseable {
     }
 
     /** Resolved offsets/sizes captured from the header view during {@link #probeHeader}. */
-    private record RegionLayout(
+    record RegionLayout(
             long snapshotOff0, long snapshotOff1, long snapshotSize,
             long ringOff, long ringSize, long totalSize) {}
 
@@ -164,15 +163,7 @@ public final class SharedRegion implements AutoCloseable {
             validateMagicAndVersion(hdrSlice);
             validateTargetPid(hdrSlice, pid);
 
-            long snapshotSize = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTSIZE_OFFSET));
-            long snapshotOff0 = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTOFF0_OFFSET));
-            long snapshotOff1 = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTOFF1_OFFSET));
-            long ringOff      = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGOFF_OFFSET));
-            long ringSize     = Integer.toUnsignedLong(hdrSlice.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGSIZE_OFFSET));
-            long totalSize    = ringOff + ringSize;
-
-            validateGeometry(snapshotSize, snapshotOff0, snapshotOff1, ringOff, ringSize, totalSize);
-            layout = new RegionLayout(snapshotOff0, snapshotOff1, snapshotSize, ringOff, ringSize, totalSize);
+            layout = readLayout(hdrSlice);
         } catch (RuntimeException ex) {
             Kernel32.unmapViewOfFile(headerView);
             Kernel32.closeHandle(mapping);
@@ -181,6 +172,23 @@ public final class SharedRegion implements AutoCloseable {
 
         Kernel32.unmapViewOfFile(headerView);
         return layout;
+    }
+
+    /**
+     * The region layout exactly as the header publishes it. Nothing here is derived from
+     * {@code snapshotSize}: the buffers sit a 64-byte-rounded stride apart, which equals the size
+     * only when the size happens to be a multiple of 64. At v25 it is not (469192, stride 469248).
+     */
+    static RegionLayout readLayout(MemorySegment header) {
+        long snapshotSize = Integer.toUnsignedLong(header.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTSIZE_OFFSET));
+        long snapshotOff0 = Integer.toUnsignedLong(header.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTOFF0_OFFSET));
+        long snapshotOff1 = Integer.toUnsignedLong(header.get(ValueLayout.JAVA_INT, Layout.HEADER_SNAPSHOTOFF1_OFFSET));
+        long ringOff      = Integer.toUnsignedLong(header.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGOFF_OFFSET));
+        long ringSize     = Integer.toUnsignedLong(header.get(ValueLayout.JAVA_INT, Layout.HEADER_RINGSIZE_OFFSET));
+        long totalSize    = ringOff + ringSize;
+
+        validateGeometry(snapshotSize, snapshotOff0, snapshotOff1, ringOff, ringSize, totalSize);
+        return new RegionLayout(snapshotOff0, snapshotOff1, snapshotSize, ringOff, ringSize, totalSize);
     }
 
     private static MemorySegment mapFullRegion(MemorySegment mapping, long totalSize) {
@@ -195,11 +203,14 @@ public final class SharedRegion implements AutoCloseable {
         return fullView.reinterpret(totalSize);
     }
 
-    private static void populateSlices(SharedRegion r, MemorySegment fullSlice, RegionLayout layout) {
+    /** A region over already-mapped memory, cut where {@code layout} says; owns no handle yet. */
+    static SharedRegion sliced(MemorySegment fullSlice, RegionLayout layout) {
+        SharedRegion r = new SharedRegion();
         r.header    = fullSlice.asSlice(0, Layout.HEADER_SIZE);
         r.snapshot0 = fullSlice.asSlice(layout.snapshotOff0(), layout.snapshotSize());
         r.snapshot1 = fullSlice.asSlice(layout.snapshotOff1(), layout.snapshotSize());
         r.ring      = fullSlice.asSlice(layout.ringOff(),      layout.ringSize());
+        return r;
     }
 
     /** Upper bound on a plausible total mapping size (guards a bogus huge ringOff+ringSize). */
