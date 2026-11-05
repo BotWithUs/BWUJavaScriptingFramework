@@ -10,6 +10,7 @@ import com.botwithus.bot.quest.QuestStep;
 import com.botwithus.bot.quest.StepResult;
 
 import java.time.Duration;
+import java.util.OptionalLong;
 import java.util.function.Predicate;
 
 /**
@@ -18,17 +19,30 @@ import java.util.function.Predicate;
  * Succeeds on arrival (player within {@link #arrivalRadiusTiles} of the
  * target on the correct plane) — independent of any tracker varbit advance,
  * which is what fixes the deadlock the framework was designed to avoid.
+ *
+ * <p>Having no local player is treated as not ready rather than as a failed
+ * walk. Login, loading and world hops pass through that state, and a walk with
+ * no player fails at once, so counting it as a retry would stop the script
+ * within seconds. The step waits instead, and aborts only once the player has
+ * been absent for {@link #DEFAULT_NO_PLAYER_LIMIT} without a break.</p>
  */
 public final class WalkToStep implements QuestStep {
 
+    /** How long a player may stay absent before the step gives up, unless overridden. */
+    public static final Duration DEFAULT_NO_PLAYER_LIMIT = Duration.ofSeconds(60);
+
     private static final int DEFAULT_ARRIVAL_RADIUS = 2;
     private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(60);
+    private static final int NO_PLAYER_POLL_MS = 1_000;
 
     private final int targetX;
     private final int targetY;
     private final int targetPlane;
     private int arrivalRadiusTiles = DEFAULT_ARRIVAL_RADIUS;
     private Duration timeout = DEFAULT_TIMEOUT;
+    private Duration noPlayerLimit = DEFAULT_NO_PLAYER_LIMIT;
+    /** {@link System#nanoTime()} when the current absence began; empty while a player is present. */
+    private OptionalLong noPlayerSinceNanos = OptionalLong.empty();
 
     public WalkToStep(int x, int y, int plane) {
         this.targetX = x;
@@ -38,6 +52,12 @@ public final class WalkToStep implements QuestStep {
 
     public WalkToStep withTimeout(Duration t) {
         this.timeout = t;
+        return this;
+    }
+
+    /** Overrides how long the player may stay absent before the step aborts. */
+    public WalkToStep withNoPlayerLimit(Duration limit) {
+        this.noPlayerLimit = limit;
         return this;
     }
 
@@ -57,17 +77,39 @@ public final class WalkToStep implements QuestStep {
     }
 
     @Override
+    public void onEnter(QuestContext ctx) {
+        noPlayerSinceNanos = OptionalLong.empty();
+    }
+
+    @Override
     public StepResult execute(QuestContext ctx) {
         if (arrived(ctx.api())) {
             return StepResult.done();
         }
+        if (localPlayer(ctx.api()) == null) {
+            return waitForPlayer();
+        }
+        noPlayerSinceNanos = OptionalLong.empty();
         long budget = Math.min(timeout.toMillis(), Math.max(1_000L, ctx.remainingMs()));
         WalkResult result = ctx.navigation()
                 .walkWorldPath(targetX, targetY, targetPlane, budget);
         if (result == WalkResult.ARRIVED || arrived(ctx.api())) {
             return StepResult.done();
         }
+        if (localPlayer(ctx.api()) == null) {
+            return waitForPlayer();
+        }
         return StepResult.retry("walk " + result);
+    }
+
+    private StepResult waitForPlayer() {
+        long now = System.nanoTime();
+        long since = noPlayerSinceNanos.orElse(now);
+        noPlayerSinceNanos = OptionalLong.of(since);
+        if (now - since >= noPlayerLimit.toNanos()) {
+            return StepResult.abort("no local player for " + noPlayerLimit.toSeconds() + "s");
+        }
+        return StepResult.continueIn(NO_PLAYER_POLL_MS);
     }
 
     @Override
@@ -80,9 +122,13 @@ public final class WalkToStep implements QuestStep {
         return timeout;
     }
 
-    private boolean arrived(GameAPI api) {
+    private static LocalPlayer localPlayer(GameAPI api) {
         GameSnapshot snap = api.snapshot();
-        LocalPlayer lp = snap == null ? null : snap.self();
+        return snap == null ? null : snap.self();
+    }
+
+    private boolean arrived(GameAPI api) {
+        LocalPlayer lp = localPlayer(api);
         if (lp == null) {
             return false;
         }

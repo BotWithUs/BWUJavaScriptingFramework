@@ -105,6 +105,7 @@ class GameSnapshotImplTest {
     void selfNullWhenSelfServerIndexNegative() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMESTATE_OFFSET, GameSnapshot.GAME_STATE_IN_GAME);
             seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OWNINDEX_OFFSET, 5);
             writeLpInt(seg, Layout.LP_SERVERINDEX_OFFSET, -1);
 
@@ -116,6 +117,7 @@ class GameSnapshotImplTest {
     void selfPopulatedWithSkills() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMESTATE_OFFSET, GameSnapshot.GAME_STATE_IN_GAME);
             seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OWNINDEX_OFFSET, 7);
 
             writeLpInt(seg, Layout.LP_SERVERINDEX_OFFSET, 7);
@@ -518,6 +520,7 @@ class GameSnapshotImplTest {
     void localPlayerSkillsListIsImmutable() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment seg = allocSnapshot(arena);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMESTATE_OFFSET, GameSnapshot.GAME_STATE_IN_GAME);
             seg.set(ValueLayout.JAVA_INT, Layout.SNAP_OWNINDEX_OFFSET, 7);
             writeLpInt(seg, Layout.LP_SERVERINDEX_OFFSET, 7);
             writeLpInt(seg, Layout.LP_SKILLCOUNT_OFFSET, 1);

@@ -1093,7 +1093,8 @@ public class GameAPIImpl implements GameAPI {
                 .name("ww-executor-" + System.nanoTime())
                 .daemon(true)
                 .unstarted(() -> runWalkThenCloseOverlay(
-                        () -> runWalk(w, goal, moves, bridge, lease, publisher, x, y), overlay));
+                        () -> runWalk(() -> w.runExecutor(goal, bridge, moves), moves, lease, publisher, x, y),
+                        overlay));
     }
 
     /**
@@ -1336,11 +1337,16 @@ public class GameAPIImpl implements GameAPI {
         return refusals == null ? 0L : refusals.get();
     }
 
-    private void runWalk(WorldWalker w, WwGoal goal, DisabledMoves moves,
-                         WorldWalkerCallbackBridge bridge, WalkLease lease,
-                         Consumer<? super GameEvent> publisher, int x, int y) {
+    void runWalk(Supplier<WwStatus> executor, DisabledMoves moves, WalkLease lease,
+                 Consumer<? super GameEvent> publisher, int x, int y) {
         WwStatus status = WwStatus.FAILED;
         try {
+            // With no player the executor's position callback can only answer (0,0,0), and it
+            // would plan from that tile. Fail the walk through the usual terminal path instead.
+            if (currentLocalPlayer() == null) {
+                log.warn("WorldWalker walk to ({},{}) not started: no local player", x, y);
+                return;
+            }
             if (moves.isFreeToPlay()) {
                 log.info("WorldWalker walk to ({},{}) is planned as free-to-play", x, y);
             }
@@ -1348,7 +1354,7 @@ public class GameAPIImpl implements GameAPI {
                 log.debug("WorldWalker walk to ({},{}): disabledMoves=0x{}",
                         x, y, Integer.toHexString(moves.mask()));
             }
-            status = w.runExecutor(goal, bridge, moves);
+            status = executor.get();
             log.info("WorldWalker walk to ({},{}) finished: {}", x, y, status);
         } catch (Throwable t) {
             log.warn("WorldWalker executor threw", t);

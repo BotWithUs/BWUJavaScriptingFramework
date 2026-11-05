@@ -59,13 +59,18 @@ public interface GameSnapshot {
     /** {@link #gameState()} while the client is in the world. */
     int GAME_STATE_IN_GAME = 30;
 
-    /** Local player's server index, or negative if not in-game. */
+    /**
+     * Local player's server index as the wire holds it: negative out of the
+     * world on a published frame. Before its first publish an older agent's
+     * frame reads {@code 0}, the same as a real index, so this alone does not say
+     * a player exists. Use {@link #self()}, or test {@link #gameState()} as well.
+     */
     int ownIndex();
 
     /**
-     * The local player, or {@code null} if not currently in-game. Inspect
-     * {@link #gameState()} or {@link #ownIndex()} first if you need to
-     * distinguish login/lobby states.
+     * The local player, or {@code null} unless {@link #gameState()} is
+     * {@link #GAME_STATE_IN_GAME} and {@link #ownIndex()} is not negative. Inspect
+     * {@link #gameState()} first if you need to distinguish login/lobby states.
      *
      * <p>Read entirely out of shared memory, so
      * {@link LocalPlayer#currentHealth()} / {@link LocalPlayer#maxHealth()}

@@ -41,12 +41,12 @@ public final class LocalPlayerView {
 
     public boolean isMoving()    { return (flags() & Layout.FLAG_MOVING) != 0; }
 
-    /** Raw wire run energy (v24): 0..100, -1 unreadable in-world, 0 out of world. */
+    /** Raw wire run energy (v24): 0..100, -1 unreadable in-world. Only read when {@code self()} has a player. */
     public int  runEnergy()      { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_RUNENERGY_OFFSET); }
     /** Raw wire run weight in kg (v24), same sentinels as {@link #runEnergy()}. Not independently verified. */
     public int  runWeight()      { return seg.get(ValueLayout.JAVA_INT,   Layout.LP_RUNWEIGHT_OFFSET); }
 
-    /** Raw wire server tile X (v25): -1 unreadable in-world, 0 out of world. */
+    /** Raw wire server tile X (v25): -1 unreadable in-world. Only read when {@code self()} has a player. */
     public int  serverTileX()    { return seg.get(ValueLayout.JAVA_SHORT, Layout.LP_SERVERTILEX_OFFSET); }
     /** Raw wire server tile Y (v25), same sentinels as {@link #serverTileX()}. */
     public int  serverTileY()    { return seg.get(ValueLayout.JAVA_SHORT, Layout.LP_SERVERTILEY_OFFSET); }
@@ -56,7 +56,7 @@ public final class LocalPlayerView {
     /**
      * Decoded facing (v21). Authoritative for the local player; the {@code players[]} row for
      * {@code ownIndex} is a byte copy. The producer writes the unknown sentinel here even out of
-     * world, where the rest of this block is zero-filled.
+     * world, where this block holds no player.
      */
     public Orientation orientation() {
         int wire = Short.toUnsignedInt(seg.get(ValueLayout.JAVA_SHORT, Layout.LP_ORIENTATION_OFFSET));

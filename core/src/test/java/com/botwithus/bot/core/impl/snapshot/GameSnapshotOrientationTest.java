@@ -88,6 +88,7 @@ class GameSnapshotOrientationTest {
     void self_decodesFacingFromTheReusedPad() {
         try (Arena arena = Arena.ofConfined()) {
             MemorySegment seg = arena.allocate(Layout.SNAPSHOT_SIZE, Long.BYTES);
+            seg.set(ValueLayout.JAVA_INT, Layout.SNAP_GAMESTATE_OFFSET, GameSnapshot.GAME_STATE_IN_GAME);
             seg.set(ValueLayout.JAVA_INT, OWN_INDEX, OWN_SERVER_INDEX);
             seg.set(ValueLayout.JAVA_INT, SELF + SELF_SERVER_INDEX, OWN_SERVER_INDEX);
             writeU16(seg, SELF + SELF_ORIENTATION, WEST);

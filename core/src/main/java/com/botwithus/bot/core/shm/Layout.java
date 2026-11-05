@@ -337,19 +337,20 @@ public final class Layout {
     public static final int LP_TARGETTYPE_OFFSET      = 26;
     public static final int LP_ISMEMBER_OFFSET        = 27;
     public static final int LP_SPOTANIMID_OFFSET      = 28;   // i32  first active spot anim id; -1 if none
-    // v21: +32 is orientation (u16, 0xFFFF unknown, and 0xFFFF out of world even though the
-    // rest of the block is zero-filled); +34 is _orientationPad, not accessed. Together they
+    // v21: +32 is orientation (u16, 0xFFFF unknown, and 0xFFFF out of world, where the block
+    // holds no player); +34 is _orientationPad, not accessed. Together they
     // are the 4 bytes that were one u32 pad through v20 and keep sizeof(LocalPlayer) a
     // multiple of 8 so the producer block downstream stays 8-aligned.
     public static final int LP_ORIENTATION_OFFSET     = 32;   // u16
     public static final int LP_SKILLCOUNT_OFFSET      = 36;
     public static final int LP_SKILLS_OFFSET          = 40;
     // v24, appended after skills[SKILL_CAP] so every older offset is unmoved. -1 = unreadable
-    // in-world; 0 out of world (the host reports -1 there instead, see LocalPlayer).
+    // in-world; 0 out of world, where GameSnapshot.self() is null so nothing reads them.
     public static final int LP_RUNENERGY_OFFSET       = LP_SKILLS_OFFSET + SKILL_CAP * SKILL_ENTRY_SIZE;
     public static final int LP_RUNWEIGHT_OFFSET       = LP_RUNENERGY_OFFSET + 4;
-    // v25, appended after the run state. -1 in all three when unreadable; 0 out of world (the
-    // host reports -1 there instead, see LocalPlayer). +565..567 is _serverTilePad, not accessed.
+    // v25, appended after the run state. -1 in all three when unreadable. Out of world they are
+    // -1 from an agent with NXTLibrary #58 and 0 from an older one; either way GameSnapshot.self()
+    // is null, so nothing reads them. +565..567 is _serverTilePad, not accessed.
     public static final int LP_SERVERTILEX_OFFSET     = LP_RUNWEIGHT_OFFSET + 4;   // i16
     public static final int LP_SERVERTILEY_OFFSET     = LP_SERVERTILEX_OFFSET + 2; // i16
     public static final int LP_SERVERPLANE_OFFSET     = LP_SERVERTILEY_OFFSET + 2; // i8

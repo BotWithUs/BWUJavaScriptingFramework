@@ -49,6 +49,10 @@ public interface NavigationAPI {
      * already walking this character — check {@link #getWalkStatus()} for
      * {@code "refused_busy"}.</p>
      *
+     * <p>With no local player, as during login or a world hop, no walk starts:
+     * the status reads {@code "failed"} and a {@code WalkFailedEvent} is
+     * published. Wait for {@code snapshot().self()} before walking.</p>
+     *
      * @param x target world tile X
      * @param y target world tile Y
      */
@@ -61,6 +65,10 @@ public interface NavigationAPI {
      * <p>Refused, silently and without starting a walk, if another script is
      * already walking this character — check {@link #getWalkStatus()} for
      * {@code "refused_busy"}.</p>
+     *
+     * <p>With no local player, as during login or a world hop, no walk starts:
+     * the status reads {@code "failed"} and a {@code WalkFailedEvent} is
+     * published. Wait for {@code snapshot().self()} before walking.</p>
      *
      * @param x     target world tile X
      * @param y     target world tile Y
@@ -99,6 +107,10 @@ public interface NavigationAPI {
      * <p>Refused, silently and without starting a walk, if another script is
      * already walking this character — check {@link #getWalkStatus()} for
      * {@code "refused_busy"}.</p>
+     *
+     * <p>With no local player, as during login or a world hop, no walk starts:
+     * the status reads {@code "failed"} and a {@code WalkFailedEvent} is
+     * published. Wait for {@code snapshot().self()} before walking.</p>
      *
      * @param x             target world tile X
      * @param y             target world tile Y

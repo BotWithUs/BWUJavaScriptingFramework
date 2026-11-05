@@ -81,18 +81,18 @@ public record LocalPlayer(
 
     /**
      * Value {@link #runEnergy()} and {@link #runWeight()} carry when there is no reading: the
-     * producer could not read it in-world, the client is not in the world (the wire holds
-     * {@code 0} there, which this host reports as unknown so that {@code 0} always means an
-     * empty run bar), or the record was built with a pre-v24 constructor.
+     * producer could not read it in-world, or the record was built with a pre-v24 constructor.
+     * Out of the world there is no record to carry it, because {@link GameSnapshot#self()} is
+     * {@code null}, so {@code 0} always means an empty run bar.
      */
     public static final int RUN_UNKNOWN = -1;
 
     /**
      * Value {@link #serverTileX()}, {@link #serverTileY()} and {@link #serverPlane()} carry when
-     * there is no reading: the producer could not read it in-world, the client is not in the world
-     * (the wire holds {@code 0} there, which this host reports as unknown so that it can never pass
-     * for a tile), or the record was built with a pre-v25 constructor. On the beta client channel it
-     * is always this: a normal result, not a fault.
+     * there is no reading: the producer could not read it in-world, or the record was built with a
+     * pre-v25 constructor. Out of the world there is no record to carry it, because
+     * {@link GameSnapshot#self()} is {@code null}. On the beta client channel it is always this: a
+     * normal result, not a fault.
      */
     public static final int SERVER_TILE_UNKNOWN = -1;
 

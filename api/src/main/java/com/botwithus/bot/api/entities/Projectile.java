@@ -171,7 +171,7 @@ public final class Projectile implements EntityContext {
             return false;
         }
         GameSnapshot snap = api.snapshot();
-        if (snap == null) {
+        if (snap == null || snap.gameState() != GameSnapshot.GAME_STATE_IN_GAME) {
             return false;
         }
         int own = snap.ownIndex();

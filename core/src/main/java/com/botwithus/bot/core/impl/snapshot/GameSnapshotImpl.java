@@ -96,7 +96,7 @@ public final class GameSnapshotImpl implements GameSnapshot {
 
     @Override
     public LocalPlayer self() {
-        if (view.ownIndex() < 0) {
+        if (!isSelfBlockPublished()) {
             return null;
         }
         LocalPlayerView lpv = view.self();
@@ -130,33 +130,21 @@ public final class GameSnapshotImpl implements GameSnapshot {
                 LocalPlayer.HEALTH_UNKNOWN,
                 skills,
                 lpv.orientation(),
-                runStateOrUnknown(lpv.runEnergy()),
-                runStateOrUnknown(lpv.runWeight()),
-                serverTileOrUnknown(lpv.serverTileX()),
-                serverTileOrUnknown(lpv.serverTileY()),
-                serverTileOrUnknown(lpv.serverPlane()));
+                lpv.runEnergy(),
+                lpv.runWeight(),
+                lpv.serverTileX(),
+                lpv.serverTileY(),
+                lpv.serverPlane());
     }
 
     /**
-     * The wire holds {@code 0} for run energy and weight out of the world, where {@code 0} would
-     * read as a real empty bar. Report {@link LocalPlayer#RUN_UNKNOWN} there instead, as the
-     * native, Python and Lua hosts do, so {@code 0} is never ambiguous. In-world the wire's own
-     * {@code -1} already means unknown and passes through.
+     * Whether the self block holds a player, the same rule the native and Python hosts apply.
+     * Neither half is enough alone. Before its first publish an older agent's frame is all zero,
+     * so {@code ownIndex} reads a valid-looking {@code 0}; and every agent publishes game state
+     * {@code 30} with {@code ownIndex} {@code -1} during the login transition. Index {@code 0}
+     * is a real player, so this cannot be narrowed to {@code ownIndex > 0}.
      */
-    private int runStateOrUnknown(int wire) {
-        return isInWorld() ? wire : LocalPlayer.RUN_UNKNOWN;
-    }
-
-    /**
-     * The self block is zero-filled out of the world, which would read as a real tile at (0,0).
-     * Same treatment as {@link #runStateOrUnknown}, so a server tile is either real or
-     * {@link LocalPlayer#SERVER_TILE_UNKNOWN}.
-     */
-    private int serverTileOrUnknown(int wire) {
-        return isInWorld() ? wire : LocalPlayer.SERVER_TILE_UNKNOWN;
-    }
-
-    private boolean isInWorld() {
+    private boolean isSelfBlockPublished() {
         return view.gameState() == GameSnapshot.GAME_STATE_IN_GAME && view.ownIndex() >= 0;
     }
 

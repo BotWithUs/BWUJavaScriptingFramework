@@ -9,6 +9,7 @@ import com.botwithus.bot.api.config.ScriptConfig;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.core.impl.snapshot.NoWorldFrame;
 import com.botwithus.bot.core.runlog.CrashPhase;
 import com.botwithus.bot.core.runlog.CrashSummary;
 import com.botwithus.bot.core.runlog.HostIdentity;
@@ -17,6 +18,8 @@ import com.botwithus.bot.core.runlog.RunLogs;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -182,6 +185,21 @@ class ScriptRunnerRunLogTest {
         assertEquals(2, tiles.size(), summary.breadcrumbs().toString());
         assertTrue(tiles.get(0).endsWith(" tile 3222,3218,0"));
         assertTrue(tiles.get(1).endsWith(" tile 3223,3218,0"));
+    }
+
+    /** Each loop reads the snapshot for a tile, so a frame with no player must leave no crumb. */
+    @ParameterizedTest
+    @EnumSource(NoWorldFrame.class)
+    void theTileCrumb_isNotRecordedWithNoPlayer(NoWorldFrame noWorld) throws Exception {
+        GameAPI api = mock(GameAPI.class);
+        when(api.snapshot()).thenReturn(noWorld.snapshot());
+        ScriptContext ctx = mock(ScriptContext.class);
+        when(ctx.getGameAPI()).thenReturn(api);
+        ScriptRunner runner = runner(new WalksThenCrashes(), ctx);
+        runToEnd(runner, logs, "Walker Script");
+        CrashSummary summary = logs.lastCrash(CONNECTION, "Walker Script").orElseThrow();
+        assertTrue(summary.breadcrumbs().stream().noneMatch(l -> l.contains(" tile ")),
+                summary.breadcrumbs().toString());
     }
 
     private static LocalPlayer player(int x, int y) {
