@@ -13,8 +13,6 @@ import com.botwithus.bot.core.impl.snapshot.NoWorldFrame;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.DisabledMoves;
-import com.botwithus.bot.core.worldwalker.WorldWalker;
-import com.botwithus.bot.core.worldwalker.WwGoal;
 import com.botwithus.bot.core.worldwalker.WwStatus;
 import com.botwithus.bot.core.worldwalker.WwTile;
 import com.botwithus.bot.quest.QuestId;
@@ -26,6 +24,7 @@ import org.junit.jupiter.params.provider.EnumSource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -114,12 +113,11 @@ class NoWorldFrameTest {
     @EnumSource(NoWorldFrame.class)
     void walk_failsWithoutRunningTheExecutor(NoWorldFrame noWorld) {
         frame.set(noWorld.snapshot());
-        WorldWalker walker = mock(WorldWalker.class);
-        when(walker.runExecutor(any(), any(), any())).thenReturn(WwStatus.ARRIVED);
+        AtomicInteger executorRuns = new AtomicInteger();
 
-        List<GameEvent> events = runWalk(walker);
+        List<GameEvent> events = runWalk(executorRuns);
 
-        verify(walker, never()).runExecutor(any(), any(), any());
+        assertEquals(0, executorRuns.get());
         assertEquals(List.of(WalkFailedEvent.class), eventTypes(events));
     }
 
@@ -210,20 +208,22 @@ class NoWorldFrameTest {
     @Test
     void inWorldAtIndexZero_walkRunsTheExecutor() {
         frame.set(NoWorldFrame.inWorldAtIndexZero(0));
-        WorldWalker walker = mock(WorldWalker.class);
-        when(walker.runExecutor(any(), any(), any())).thenReturn(WwStatus.ARRIVED);
+        AtomicInteger executorRuns = new AtomicInteger();
 
-        List<GameEvent> events = runWalk(walker);
+        List<GameEvent> events = runWalk(executorRuns);
 
-        verify(walker).runExecutor(any(), any(), any());
+        assertEquals(1, executorRuns.get());
         assertEquals(List.of(WalkArrivedEvent.class), eventTypes(events));
     }
 
-    private List<GameEvent> runWalk(WorldWalker walker) {
+    /** The executor is a counter, not a mock of WorldWalker, whose class needs the Windows loader. */
+    private List<GameEvent> runWalk(AtomicInteger executorRuns) {
         List<GameEvent> events = new ArrayList<>();
         WalkLease lease = api.acquireWalkLease(WALK_OWNER, WALK_X, WALK_Y);
-        api.runWalk(walker, new WwGoal(WALK_X, WALK_Y, 0, 0), DisabledMoves.NONE,
-                mock(WorldWalkerCallbackBridge.class), lease, events::add, WALK_X, WALK_Y);
+        api.runWalk(() -> {
+            executorRuns.incrementAndGet();
+            return WwStatus.ARRIVED;
+        }, DisabledMoves.NONE, lease, events::add, WALK_X, WALK_Y);
         return events;
     }
 
