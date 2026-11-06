@@ -467,13 +467,11 @@ class WorldWalkerCallbackBridgeTest {
 
     // ============================== Refused walk ==============================
 
-    // The agent's anchor_timeout reason and its camera anchor case (#70 §6.3.2).
-    private static final int ANCHOR_TIMEOUT = 2;
-    private static final int CAMERA_ANCHOR = 3;
     private static final int HELD_MS = 3000;
 
     private static ActionRefusal refusedWalk(int x, int y) {
-        return new ActionRefusal(ActionTypes.WALK, 1, x, y, ANCHOR_TIMEOUT, CAMERA_ANCHOR, HELD_MS);
+        return new ActionRefusal(ActionTypes.WALK, 1, x, y, ActionRefusal.REASON_ANCHOR_TIMEOUT,
+                ActionRefusal.ANCHOR_CAMERA, HELD_MS);
     }
 
     @Test
@@ -499,7 +497,7 @@ class WorldWalkerCallbackBridgeTest {
 
         bridge.onActionRefused(refusedWalk(3226, 3211));
         bridge.onActionRefused(new ActionRefusal(ActionTypes.COMPONENT, 1, 3225, 3211,
-                ANCHOR_TIMEOUT, CAMERA_ANCHOR, HELD_MS));
+                ActionRefusal.REASON_ANCHOR_TIMEOUT, ActionRefusal.ANCHOR_CAMERA, HELD_MS));
         bridge.sleepTicks(1);
 
         verify(api, times(1)).queueAction(any(GameAction.class));
@@ -543,6 +541,22 @@ class WorldWalkerCallbackBridgeTest {
         GameAction last = actions.get(4);
         assertEquals(3203, last.param2());
         assertEquals(3210, last.param3());
+    }
+
+    @Test
+    void aRefusalHeardBeforeANewTargetIsNotActedOnForIt() {
+        when(snapshot.self()).thenReturn(player(3200, 3200, 0));
+        bridge.walkTo(new WwTile(3230, 3211, 0));
+        // A's refusal lands while the executor sleeps, then the executor moves on to B.
+        bridge.onActionRefused(refusedWalk(3230, 3211));
+        bridge.walkTo(new WwTile(3211, 3230, 0));
+
+        bridge.sleepTicks(1);
+
+        // Only the two full walks: no shorter click toward B on A's refusal.
+        List<GameAction> actions = queuedActions(2);
+        assertEquals(3211, actions.get(1).param2());
+        assertEquals(3230, actions.get(1).param3());
     }
 
     @Test

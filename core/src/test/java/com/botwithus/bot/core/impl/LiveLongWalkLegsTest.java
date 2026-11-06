@@ -2,6 +2,7 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.diag.StubGuard;
 import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
@@ -53,7 +54,8 @@ class LiveLongWalkLegsTest {
     private static final Logger log = LoggerFactory.getLogger(LiveLongWalkLegsTest.class);
 
     private static final int GAME_STATE_IN_GAME = 30;
-    private static final int WALK_ACTION = 23;
+    /** Which client to attach to; harnessTest forwards it. Unset: the only visible agent. */
+    private static final String PID_PROPERTY = "botwithus.harness.pid";
     /** WorldWalker's leg cap (kLegMaxTiles), mirrored rather than derived. */
     private static final int MAX_LEG_TILES = 22;
     private static final String REFUSED_ANCHOR_TIMEOUT = "refused_anchor_timeout";
@@ -84,11 +86,9 @@ class LiveLongWalkLegsTest {
 
     @BeforeAll
     void connect() {
-        List<String> pipes = PipeClient.scanPipes(PipeClient.NAME_PREFIX);
-        Assumptions.assumeFalse(pipes.isEmpty(), "SKIPPED, not passed: no agent pipe visible");
-        long pid = SharedRegion.parsePid(pipes.getFirst()).orElseThrow();
+        long pid = targetPid();
         region = SharedRegion.open(pid);
-        rpc = new RpcClient(new PipeClient(pipes.getFirst()));
+        rpc = new RpcClient(new PipeClient(PipeClient.NAME_PREFIX + pid));
         api = new RecordingApi(rpc, () -> new GameSnapshotImpl(region.snapshot()), feed);
         GameSnapshot snap = api.snapshot();
         Assumptions.assumeTrue(snap != null && snap.gameState() == GAME_STATE_IN_GAME,
@@ -139,6 +139,18 @@ class LiveLongWalkLegsTest {
         assertEquals(List.of(), overCap, "every walk click within " + MAX_LEG_TILES + " tiles");
         assertEquals(refusedBefore, refusedAfter, "no walk refused for want of a click");
         assertEquals(List.of(), refusals, "no action refused on the ring");
+    }
+
+    private static long targetPid() {
+        String pid = System.getProperty(PID_PROPERTY);
+        if (pid != null && !pid.isBlank()) {
+            return Long.parseLong(pid.trim());
+        }
+        List<Long> pids = SharedRegion.discoverPids();
+        Assumptions.assumeFalse(pids.isEmpty(), "SKIPPED, not passed: no agent pipe visible");
+        Assumptions.assumeTrue(pids.size() == 1,
+                "SKIPPED, not passed: several agents visible; set -D" + PID_PROPERTY);
+        return pids.getFirst();
     }
 
     private long refusedAnchorTimeouts() {
@@ -194,7 +206,7 @@ class LiveLongWalkLegsTest {
         @Override
         public void queueAction(GameAction action) {
             GameSnapshot snap = snapshot();
-            if (action.actionId() == WALK_ACTION && snap != null && snap.self() != null) {
+            if (action.actionId() == ActionTypes.WALK && snap != null && snap.self() != null) {
                 clicks.add(new Click(snap.self().tileX(), snap.self().tileY(), action.param2(),
                         action.param3()));
             }

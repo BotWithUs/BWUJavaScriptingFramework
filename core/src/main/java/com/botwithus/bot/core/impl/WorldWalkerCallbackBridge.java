@@ -38,11 +38,13 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -259,12 +261,16 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private final Map<Integer, Integer> iconSpriteByStruct = new HashMap<>();
     // Refused-walk state. The two references cross threads: the last WALK this
     // bridge queued is read by the event pump's thread (onActionRefused), which
-    // hands a matching refusal back through refusedWalk. The executor's target
-    // and the retry count are the executor thread's alone.
+    // hands a matching refusal back through refusedWalk. Everything else is the
+    // executor thread's alone: its target, the tiles queued for that target
+    // (the target and any shorter re-clicks), which a refusal must name to be
+    // acted on, the retry count, and whether giving up was already logged.
     private final AtomicReference<WwTile> lastQueuedWalk = new AtomicReference<>();
     private final AtomicReference<WwTile> refusedWalk = new AtomicReference<>();
+    private final Set<WwTile> walksForTarget = new HashSet<>();
     private WwTile walkTarget;
     private int refusedWalkRetries;
+    private boolean hasLoggedRefusalGiveUp;
 
     WorldWalkerCallbackBridge(GameAPI api,
                               Supplier<GameSnapshot> snapshotSource,
@@ -656,8 +662,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     public void walkTo(WwTile target) {
         log.info("ww walkTo ({},{},p{})", target.x(), target.y(), target.plane());
         if (!target.equals(walkTarget)) {
-            walkTarget = target;
-            refusedWalkRetries = 0;
+            startWalkTarget(target);
         }
         clickSink.accept(target);
         queueWalk(target);
@@ -724,7 +729,18 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         queueWalk(target);
     }
 
+    // A new executor target: a refusal heard for the old one, still pending,
+    // is dropped, and the new target gets its own retries.
+    private void startWalkTarget(WwTile target) {
+        walkTarget = target;
+        refusedWalkRetries = 0;
+        hasLoggedRefusalGiveUp = false;
+        walksForTarget.clear();
+        refusedWalk.set(null);
+    }
+
     private void queueWalk(WwTile target) {
+        walksForTarget.add(target);
         lastQueuedWalk.set(target);
         api.queueAction(new GameAction(ActionTypes.WALK, 1, target.x(), target.y()));
     }
@@ -752,7 +768,13 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private void retryRefusedWalk() {
         WwTile refused = refusedWalk.getAndSet(null);
         WwTile target = walkTarget;
-        if (refused == null || target == null || refusedWalkRetries >= REFUSED_WALK_RETRIES) {
+        // A refusal is acted on only for a walk issued toward the current
+        // target: one heard for an earlier hop is stale, however it got here.
+        if (refused == null || target == null || !walksForTarget.contains(refused)) {
+            return;
+        }
+        if (refusedWalkRetries >= REFUSED_WALK_RETRIES) {
+            logRefusalGiveUp(target, "retries exhausted");
             return;
         }
         LocalPlayer lp = currentPlayer();
@@ -762,6 +784,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         WwTile from = new WwTile(lp.tileX(), lp.tileY(), lp.plane());
         Optional<WwTile> shorter = shorterWalk(from, target, REFUSED_WALK_LEG_TILES >> refusedWalkRetries);
         if (shorter.isEmpty()) {
+            logRefusalGiveUp(target, from.plane() == target.plane() ? "target within the shorter leg"
+                                                                    : "target on another plane");
             return;
         }
         ++refusedWalkRetries;
@@ -769,6 +793,17 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                 target.y(), target.plane(), shorter.get().x(), shorter.get().y());
         clickSink.accept(shorter.get());
         queueWalk(shorter.get());
+    }
+
+    // Once per target: the refused walk is left to the executor's stall
+    // handling, which re-clicks, calls the hop stuck and re-plans shorter.
+    private void logRefusalGiveUp(WwTile target, String why) {
+        if (hasLoggedRefusalGiveUp) {
+            return;
+        }
+        hasLoggedRefusalGiveUp = true;
+        log.warn("ww refused walk toward ({},{},p{}) not re-clicked: {}; the executor's stall"
+                + " handling takes over", target.x(), target.y(), target.plane(), why);
     }
 
     /**

@@ -28,6 +28,17 @@ public record ActionRefusal(int actionId, int param1, int param2, int param3,
     /** The component stayed hidden and no opener is known for it. */
     public static final int REASON_NO_OPENER      = 3;
 
+    /** No hold: the action was refused at once. */
+    public static final int ANCHOR_NONE   = 0;
+    /** The hold waited on a scroll. */
+    public static final int ANCHOR_SCROLL = 1;
+    /** The hold waited on a window or tab to open. */
+    public static final int ANCHOR_OPEN   = 2;
+    /** The hold waited on the camera: the target was behind it. */
+    public static final int ANCHOR_CAMERA = 3;
+    /** The hold waited out a transient miss. */
+    public static final int ANCHOR_WAIT   = 4;
+
     /** Wire size of the body: seven 4-byte fields. */
     public static final int BODY_BYTES = 28;
 }
