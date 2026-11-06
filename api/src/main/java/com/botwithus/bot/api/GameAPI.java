@@ -590,9 +590,10 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     List<Component> getComponents(List<ComponentRef> refs);
 
     /**
-     * The live right-click ops of a component, or of one sub of it: the name of each op
-     * and the op mask the client checks before sending one. For a backpack slot pass the
-     * backpack grid and the slot index as {@code sub}. Each call is a pipe round-trip.
+     * The live right-click ops of a component, or of one sub of it: the ops the client's
+     * menu lists now, by name and op number, and the op-flags word that says which of them
+     * reach the server. For a backpack slot pass the backpack grid and the slot index as
+     * {@code sub}. Each call is a pipe round-trip.
      *
      * <p>Use this to turn an option name into the op number a {@code COMPONENT} action
      * needs. An item's cache option list ({@link ItemType#inventoryOptions()}) is not that

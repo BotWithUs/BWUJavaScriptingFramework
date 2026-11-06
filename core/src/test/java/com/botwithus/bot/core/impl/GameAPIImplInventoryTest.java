@@ -47,7 +47,7 @@ class GameAPIImplInventoryTest {
 
     /** The op the client sends for the backpack's Drop, verified on the wire for an arrow. */
     private static final int DROP_OP = 8;
-    /** A backpack slot's op mask with an arrow in it: ops 1, 2, 3, 7, 8 and 10 enabled. */
+    /** A backpack slot's op-flags word, read live: ops 1, 2, 3, 7, 8 and 10 transmit. */
     private static final int BACKPACK_SLOT_MASK = 0x00EB7D8E;
     private static final int ARROW = 882;
     private static final int ARROW_SLOT = 2;
@@ -270,7 +270,8 @@ class GameAPIImplInventoryTest {
 
     private static Map<String, Object> opsReply(int mask, Map<Integer, String> namesByOp) {
         List<Map<String, Object>> ops = new ArrayList<>();
-        namesByOp.forEach((op, name) -> ops.add(Map.of("op", op, "name", name)));
+        namesByOp.forEach((op, name) -> ops.add(Map.of("op", op, "name", name,
+                "transmits", (mask & (1 << op)) != 0)));
         return Map.of("mask", mask, "ops", ops);
     }
 
@@ -315,16 +316,20 @@ class GameAPIImplInventoryTest {
         verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
     }
 
+    /**
+     * An op the client lists with its mask bit clear runs only client-side script, and a
+     * player can still choose it, so a by-name interact still sends it.
+     */
     @Test
-    void interactFirstByOption_opDisabledByTheMask_sendsNothing() {
+    void interactFirstByOption_listedOpThatDoesNotTransmit_isStillSent() {
         build();
         arrowInSlotTwo();
         int dropBitCleared = BACKPACK_SLOT_MASK & ~(1 << DROP_OP);
         when(rpc.callSync(eq("get_component_ops"), anyMap())).thenReturn(
                 opsReply(dropBitCleared, Map.of(DROP_OP, "Drop")));
 
-        assertFalse(api.backpack().interactFirst(ARROW, "Drop"));
-        verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
+        assertTrue(api.backpack().interactFirst(ARROW, "Drop"));
+        verify(rpc).callSync(eq("queue_action"), anyMap());
     }
 
     /** An agent without get_component_ops refuses it: nothing is clicked, nothing throws. */
@@ -345,7 +350,7 @@ class GameAPIImplInventoryTest {
                 opsReply(BACKPACK_SLOT_MASK, Map.of(DROP_OP, "Drop")));
 
         assertEquals(BACKPACK_SLOT_MASK, ops.mask());
-        assertEquals(List.of(new ComponentOp(DROP_OP, "Drop")), ops.ops());
+        assertEquals(List.of(new ComponentOp(DROP_OP, "Drop", true)), ops.ops());
     }
 
     /** A u32 mask with bit 31 set arrives as a long; its low 32 bits are the mask. */
@@ -354,7 +359,7 @@ class GameAPIImplInventoryTest {
         long highBit = 0x8000_0100L;
         ComponentOps ops = GameAPIImpl.decodeComponentOps(Map.of("mask", highBit, "ops", List.of()));
 
-        assertTrue(ops.isEnabled(DROP_OP));
+        assertTrue(ops.isTransmitting(DROP_OP));
     }
 
     @Test

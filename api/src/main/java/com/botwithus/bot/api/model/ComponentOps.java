@@ -8,17 +8,16 @@ import java.util.OptionalInt;
  * (a backpack slot is a sub of the backpack grid), read from the client by
  * {@link com.botwithus.bot.api.GameAPI#getComponentOps}.
  *
- * <p>Two facts decide whether an option can be used, and both are here:</p>
- * <ul>
- *   <li>{@link #ops()} names each op. For an item in an inventory slot the names
- *       follow the item, so the same option can sit on a different op for a
- *       different item.</li>
- *   <li>{@link #mask()} is the op mask the client checks before it sends an op: bit
- *       {@code n} enables op {@code n}. An op whose bit is clear is never sent.</li>
- * </ul>
+ * <p>{@link #ops()} is the menu as the client would list it now: the agent applies the
+ * client's own rule for which ops show, so an op that is here is one a player could
+ * choose. For an item in an inventory slot the names follow the item, so the same option
+ * can sit on a different op for a different item, and a members item on a free world
+ * lists fewer ops than its cache definition.</p>
  *
- * @param mask the op mask; bit {@code n} enables op {@code n}
- * @param ops  every named op, in op order
+ * @param mask the component's op-flags word. Bit {@code n} set means op {@code n} reaches
+ *             the server; the word also carries flags that are not ops, so only bits
+ *             {@code 1..MAX_OP} are read as ops
+ * @param ops  every listed op, in op order
  */
 public record ComponentOps(int mask, List<ComponentOp> ops) {
 
@@ -32,8 +31,11 @@ public record ComponentOps(int mask, List<ComponentOp> ops) {
         ops = List.copyOf(ops);
     }
 
-    /** Whether the mask enables op {@code op}. False outside {@code 1..MAX_OP}. */
-    public boolean isEnabled(int op) {
+    /**
+     * Whether the mask lets op {@code op} reach the server. False outside
+     * {@code 1..MAX_OP}. A listed op with its bit clear still runs client-side script.
+     */
+    public boolean isTransmitting(int op) {
         if (op < 1 || op > MAX_OP) {
             return false;
         }
@@ -41,15 +43,15 @@ public record ComponentOps(int mask, List<ComponentOp> ops) {
     }
 
     /**
-     * The op number for an option name, matched case-insensitively, among the ops the
-     * mask enables. Empty when no enabled op has that name.
+     * The op number for an option name, matched case-insensitively among the listed ops.
+     * Empty when no listed op has that name.
      */
     public OptionalInt opNamed(String name) {
         if (name == null) {
             return OptionalInt.empty();
         }
         for (ComponentOp candidate : ops) {
-            if (name.equalsIgnoreCase(candidate.name()) && isEnabled(candidate.op())) {
+            if (name.equalsIgnoreCase(candidate.name())) {
                 return OptionalInt.of(candidate.op());
             }
         }

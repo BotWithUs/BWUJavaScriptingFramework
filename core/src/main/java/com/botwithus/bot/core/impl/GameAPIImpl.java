@@ -960,7 +960,7 @@ public class GameAPIImpl implements GameAPI {
         List<Map<String, Object>> rawOps = getMapList(r, "ops");
         List<ComponentOp> ops = new ArrayList<>(rawOps.size());
         for (Map<String, Object> raw : rawOps) {
-            ops.add(new ComponentOp(getInt(raw, "op"), getString(raw, "name")));
+            ops.add(new ComponentOp(getInt(raw, "op"), getString(raw, "name"), getBool(raw, "transmits")));
         }
         return new ComponentOps(getInt(r, "mask"), ops);
     }
