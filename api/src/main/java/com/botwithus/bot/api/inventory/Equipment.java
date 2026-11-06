@@ -40,13 +40,9 @@ public final class Equipment extends InventoryContainer {
     /**
      * Click the given semantic slot with the named right-click option.
      *
-     * <p><b>Caveat</b>: option lookup goes through {@code ItemType.inventoryOptions()}
-     * because the producer-side {@code getComponentOptions(iface, comp)} RPC
-     * was removed in the Slice 3 cull. Equipment-context options that
-     * <i>aren't</i> in the inventory-option list (e.g. {@code "Teleport"} on a
-     * worn slayer cape, {@code "Castle Wars"} on a ring of duelling)
-     * therefore won't resolve here — {@link #interact(Slot, int)} with a
-     * verified option index is the working path for those.</p>
+     * <p>The name is matched against the slot's live ops, the way
+     * {@link #interactFirst(int, String)} does for every container, so an option the
+     * worn item offers is found by the name the menu shows.</p>
      */
     public boolean interact(Slot slot, String option) {
         InventoryItem item = getSlot(slot);

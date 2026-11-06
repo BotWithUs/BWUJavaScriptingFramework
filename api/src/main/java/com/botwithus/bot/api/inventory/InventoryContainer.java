@@ -391,41 +391,34 @@ public class InventoryContainer {
 
     /**
      * Click the first slot containing {@code itemId} with the named option.
-     * Resolves {@code option} against {@link ItemType#inventoryOptions}.
-     * Returns {@code false} when the item isn't present or the option isn't
-     * on its menu.
+     *
+     * <p>The name is matched, case-insensitively, against the slot's <em>live</em> ops
+     * ({@link GameAPI#getComponentOps}), and the click sends the op the client has under
+     * that name. It is not looked up in {@link ItemType#inventoryOptions()}: an option's
+     * position in the cache list is not the op the client sends, and the client's default
+     * Drop is not in that list at all, so that lookup clicked a different option or
+     * none. One pipe round-trip for the lookup, one for the click.</p>
+     *
+     * @return {@code false} when the item isn't present, or no enabled op of its slot has
+     *         that name (including an agent too old to report ops); nothing is sent then
      */
     public boolean interactFirst(int itemId, String option) {
         InventoryItem it = getFirst(itemId);
         if (it == null) {
             return false;
         }
-        ItemType t = lookupType(itemId);
-        if (t == null) {
+        OptionalInt op = api.getComponentOps(interfaceId, componentId, it.slot()).opNamed(option);
+        if (op.isEmpty()) {
+            log.debug("inventory {} slot {}: no enabled op named '{}' on item {}",
+                    invId, it.slot(), option, itemId);
             return false;
         }
-        int idx = findOptionIndex(t.inventoryOptions(), option);
-        if (idx < 1) {
-            return false;
-        }
-        return interact(it.slot(), idx);
+        return interact(it.slot(), op.getAsInt());
     }
 
     /** Alias for {@link #interactFirst(int, String)}. */
     public boolean interact(int itemId, String option) {
         return interactFirst(itemId, option);
-    }
-
-    private static int findOptionIndex(List<String> options, String wanted) {
-        if (options == null || wanted == null) {
-            return -1;
-        }
-        for (int i = 0; i < options.size(); ++i) {
-            if (wanted.equalsIgnoreCase(options.get(i))) {
-                return i + 1;
-            }
-        }
-        return -1;
     }
 
     /**
