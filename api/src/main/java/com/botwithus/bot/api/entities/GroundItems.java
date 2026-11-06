@@ -101,8 +101,8 @@ public final class GroundItems {
         protected Stream<GroundItem> source() {
             // Producer already drops empty/dead stacks; consumer-side filters
             // (named, withId, withinDistance, ...) compose downstream.
-            // handle == itemId mirrors the retired RPC convention so the rich
-            // GroundItem.interact path keeps the action queue's param1 stable.
+            // handle == itemId mirrors the retired RPC convention. Actions do
+            // not use it: GroundItem.interact sends (itemId, tileX, tileY).
             GameSnapshot snap = api.snapshot();
             if (snap == null) {
                 return Stream.empty();
