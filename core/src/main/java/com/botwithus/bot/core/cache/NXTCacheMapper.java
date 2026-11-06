@@ -41,6 +41,15 @@ import static com.botwithus.bot.core.impl.MapHelper.getStringList;
  */
 final class NXTCacheMapper {
 
+    /** Right-click slots an item type carries, on the ground and in an inventory. */
+    private static final int ITEM_OPTION_SLOTS = 5;
+    /** Ground op 3 (0-based 2): the client shows "Take" there when the cache leaves it unset. */
+    private static final int GROUND_TAKE_SLOT = 2;
+    /** Inventory op 5 (0-based 4): the client shows "Drop" there when the cache leaves it unset. */
+    private static final int INVENTORY_DROP_SLOT = 4;
+    private static final String DEFAULT_GROUND_OPTION = "Take";
+    private static final String DEFAULT_INVENTORY_OPTION = "Drop";
+
     private NXTCacheMapper() {}
 
     static ItemType toItemType(Map<String, Object> j) {
@@ -59,12 +68,34 @@ final class NXTCacheMapper {
                 getIntOr(j, "wearpos2", ItemType.NO_WEARPOS),
                 getIntOr(j, "wearpos3", ItemType.NO_WEARPOS),
                 getBool(j, "isAllowedOnGE"),
-                getStringList(j, "groundOptions"),
+                withClientDefault(getStringList(j, "groundOptions"),
+                        GROUND_TAKE_SLOT, DEFAULT_GROUND_OPTION),
                 // The cache's "componentOptions" carries the inventory/UI
                 // right-click set; "groundOptions" stays distinct.
-                getStringList(j, "componentOptions"),
+                withClientDefault(getStringList(j, "componentOptions"),
+                        INVENTORY_DROP_SLOT, DEFAULT_INVENTORY_OPTION),
                 getObjectMap(j, "params")
         );
+    }
+
+    /**
+     * The option list the game's menu shows, not the one the cache stores. An item
+     * definition starts with "Take" in ground op 3 and "Drop" in inventory op 5, and
+     * the cache only <em>overrides</em> slots, so a slot the cache never set reads
+     * {@code ""} here but shows the default in game. Fills {@code slot} with
+     * {@code fallback} only when it is unset; an op the cache does set, including
+     * a different one in that slot, is kept. A short or absent list is padded to
+     * {@link #ITEM_OPTION_SLOTS} first, since the client's item has all five.
+     */
+    private static List<String> withClientDefault(List<String> options, int slot, String fallback) {
+        List<String> filled = new ArrayList<>(options);
+        while (filled.size() < ITEM_OPTION_SLOTS) {
+            filled.add("");
+        }
+        if (filled.get(slot).isEmpty()) {
+            filled.set(slot, fallback);
+        }
+        return List.copyOf(filled);
     }
 
     static NpcType toNpcType(Map<String, Object> j) {

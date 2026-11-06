@@ -29,8 +29,14 @@ import java.util.Map;
  * @param wearpos3         a third equipment slot this item blocks while worn, or
  *                         {@link #NO_WEARPOS} if none
  * @param exchangeable     whether this item can be traded on the Grand Exchange
- * @param groundOptions    the right-click options when the item is on the ground
- * @param inventoryOptions the right-click options when the item is in inventory
+ * @param groundOptions    the right-click options when the item is on the ground, five
+ *                         slots, {@code ""} for an empty one. As the game's menu shows
+ *                         them: slot 3 holds the client default {@code "Take"} unless the
+ *                         item's definition sets something else there
+ * @param inventoryOptions the right-click options when the item is in inventory, five
+ *                         slots. Slot 5 holds the client default {@code "Drop"} unless
+ *                         the definition sets something else there (often
+ *                         {@code "Destroy"})
  * @param params           additional key-value parameters from the item definition
  * @see com.botwithus.bot.api.GameAPI#getItemType
  */
