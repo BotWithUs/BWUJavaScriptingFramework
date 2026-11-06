@@ -29,8 +29,13 @@ import java.util.Map;
  * @param wearpos3         a third equipment slot this item blocks while worn, or
  *                         {@link #NO_WEARPOS} if none
  * @param exchangeable     whether this item can be traded on the Grand Exchange
- * @param groundOptions    the right-click options when the item is on the ground
- * @param inventoryOptions the right-click options when the item is in inventory
+ * @param groundOptions    the right-click options when the item is on the ground, five
+ *                         slots, {@code ""} for an empty one. As the game's menu shows
+ *                         them: slot 3 holds the client default {@code "Take"} unless the
+ *                         item's definition sets something else there
+ * @param inventoryOptions the right-click options when the item is in inventory, as
+ *                         the cache stores them. The game also shows a default
+ *                         {@code "Drop"} that is not listed here
  * @param params           additional key-value parameters from the item definition
  * @see com.botwithus.bot.api.GameAPI#getItemType
  */
@@ -70,8 +75,11 @@ public record ItemType(
      * @param notedId          the noted variant ID, or {@code -1} if none
      * @param wearpos          the equipment slot this item occupies, or {@code -1}
      * @param exchangeable     whether this item can be traded on the Grand Exchange
-     * @param groundOptions    the right-click options when the item is on the ground
-     * @param inventoryOptions the right-click options when the item is in inventory
+     * @param groundOptions    the right-click options when the item is on the ground, as
+     *                         for the canonical constructor (slot 3 is {@code "Take"} unless
+     *                         the definition sets something else there)
+     * @param inventoryOptions the right-click options when the item is in inventory, as
+     *                         the cache stores them, as for the canonical constructor
      * @param params           additional key-value parameters from the item definition
      */
     public ItemType(int id, String name, boolean members, boolean stackable, int shopPrice,

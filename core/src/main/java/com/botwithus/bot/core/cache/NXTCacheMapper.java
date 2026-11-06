@@ -41,6 +41,12 @@ import static com.botwithus.bot.core.impl.MapHelper.getStringList;
  */
 final class NXTCacheMapper {
 
+    /** Right-click slots an item type carries on the ground. */
+    private static final int GROUND_OPTION_SLOTS = 5;
+    /** Ground op 3 (0-based 2): the client shows "Take" there when the cache leaves it unset. */
+    private static final int GROUND_TAKE_SLOT = 2;
+    private static final String DEFAULT_GROUND_OPTION = "Take";
+
     private NXTCacheMapper() {}
 
     static ItemType toItemType(Map<String, Object> j) {
@@ -59,12 +65,37 @@ final class NXTCacheMapper {
                 getIntOr(j, "wearpos2", ItemType.NO_WEARPOS),
                 getIntOr(j, "wearpos3", ItemType.NO_WEARPOS),
                 getBool(j, "isAllowedOnGE"),
-                getStringList(j, "groundOptions"),
+                withDefaultTake(getStringList(j, "groundOptions")),
                 // The cache's "componentOptions" carries the inventory/UI
-                // right-click set; "groundOptions" stays distinct.
+                // right-click set; "groundOptions" stays distinct. Its client
+                // default ("Drop" in slot 5) is deliberately NOT filled: the
+                // inventory APIs send a slot's index as the backpack component's
+                // menu op, and the two do not line up (Drop is not op 5), so a
+                // filled "Drop" would click some other option.
                 getStringList(j, "componentOptions"),
                 getObjectMap(j, "params")
         );
+    }
+
+    /**
+     * The ground options the game's menu shows, not the ones the cache stores. An
+     * item definition starts with "Take" in ground op 3 and the cache only
+     * <em>overrides</em> slots, so for most items op 3 reads {@code ""} here but
+     * shows Take in game. Fills op 3 only when it is unset; an op the cache does
+     * set there ("Collect", "Light", ...) is kept. A short or absent list is padded
+     * to {@link #GROUND_OPTION_SLOTS} first, since the client's item has all five.
+     * Ground op N is sent as action {@code GROUND_ITEM<N>}, so op 3 is the action
+     * a player's Take sends.
+     */
+    private static List<String> withDefaultTake(List<String> options) {
+        List<String> filled = new ArrayList<>(options);
+        while (filled.size() < GROUND_OPTION_SLOTS) {
+            filled.add("");
+        }
+        if (filled.get(GROUND_TAKE_SLOT).isEmpty()) {
+            filled.set(GROUND_TAKE_SLOT, DEFAULT_GROUND_OPTION);
+        }
+        return List.copyOf(filled);
     }
 
     static NpcType toNpcType(Map<String, Object> j) {
