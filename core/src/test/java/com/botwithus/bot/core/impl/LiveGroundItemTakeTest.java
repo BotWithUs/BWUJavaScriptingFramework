@@ -26,7 +26,6 @@ import java.util.Optional;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -45,8 +44,8 @@ import static org.junit.jupiter.api.Assertions.fail;
  * once more so the fixture is not left on the floor, and logs loudly if that fails too.</p>
  *
  * <p>Drops and picks up an item. Opt in with {@code -Dbotwithus.live.groundItems=true} on
- * top of {@code :core:harnessTest}, with {@code -Dnxtcache.dll} / {@code -Dnxtcache.path}
- * set, because the option names come from the cache.</p>
+ * top of {@code :core:harnessTest}. The option names come from the cache, opened the way
+ * the host opens it ({@link NXTCache#openForHost()}), so no cache flag is needed.</p>
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
@@ -75,8 +74,7 @@ class LiveGroundItemTakeTest {
         long pid = targetPid();
         region = SharedRegion.open(pid);
         rpc = new RpcClient(new PipeClient(PipeClient.NAME_PREFIX + pid));
-        cache = NXTCache.tryOpenFromSystemProperty();
-        assertNotNull(cache, "ground options need NXTCache: set -Dnxtcache.dll / -Dnxtcache.path");
+        cache = NXTCache.openForHost();
         api = new GameAPIImpl(rpc, cache, () -> new GameSnapshotImpl(region.snapshot()));
         assertEquals(GameSnapshot.GAME_STATE_IN_GAME, api.snapshot().gameState(),
                 "the character must be in the world");
