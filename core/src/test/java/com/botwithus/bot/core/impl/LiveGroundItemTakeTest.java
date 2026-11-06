@@ -2,9 +2,7 @@ package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.entities.GroundItem;
-import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
-import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
@@ -24,7 +22,6 @@ import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,21 +37,17 @@ import static org.junit.jupiter.api.Assertions.fail;
  * action names the wrong tile is dispatched and then ignored by the server, so only the
  * backpack can tell a working take from a broken one.</p>
  *
- * <p>Two fixtures, chosen in this order:</p>
- * <ol>
- *   <li><b>Own drop.</b> If a backpack item offers both Drop and Take, it is dropped on the
- *       character's tile and taken back. Skips with a named reason when the drop is ignored,
- *       which happens while the backpack window is closed.</li>
- *   <li><b>Existing stack.</b> Otherwise the nearest stack on the character's plane within
- *       {@link #MAX_STACK_DISTANCE} tiles. Teardown drops the item again so the backpack ends
- *       as it started.</li>
- * </ol>
+ * <p>The fixture is the nearest existing stack on the character's plane within
+ * {@link #MAX_STACK_DISTANCE} tiles. It must be the only stack of its item on its tile: a
+ * take on a tile with two stacks of one item does not pick up, which is tracked separately
+ * and is not what this test is about. {@code -Dbotwithus.live.groundItemId} pins the item.</p>
  *
- * <p>Either way the stack must be the only stack of its item on its tile: a take on a tile
- * with two stacks of one item does not pick up, which is tracked separately and is not what
- * this test is about. {@code -Dbotwithus.live.groundItemId} pins the item.</p>
+ * <p><b>This leaves the item in the backpack.</b> Nothing here drops it again, because a
+ * by-name drop does not yet send the backpack's real Drop op; dropping it is left to the
+ * inventory-op work. On the harness character the stack is a respawning Lumbridge spawn (a
+ * knife or a bronze arrow), so what is left behind is one such item in the backpack.</p>
  *
- * <p>Moves an item and may walk the character. Opt in with
+ * <p>Takes an item and may walk the character. Opt in with
  * {@code -Dbotwithus.live.groundItems=true} on top of {@code :core:harnessTest}. The option
  * names come from the cache, opened the way the host opens it
  * ({@link NXTCache#openForHost()}), so no cache flag is needed.</p>
@@ -68,13 +61,9 @@ class LiveGroundItemTakeTest {
 
     private static final String PID_PROPERTY = "botwithus.harness.pid";
     private static final String ITEM_PROPERTY = "botwithus.live.groundItemId";
-    private static final String DROP = "Drop";
     private static final String TAKE = "Take";
-    /** The backpack's interface:component; drops are ignored while it is closed. */
-    private static final String BACKPACK_WINDOW = "1477:102";
     /** Furthest existing stack the test will walk to, in tiles (Chebyshev). */
     private static final int MAX_STACK_DISTANCE = 40;
-    private static final long DROP_TIMEOUT_MS = 6_000;
     /** A take on an existing stack includes the walk to it. */
     private static final long TAKE_TIMEOUT_MS = 90_000;
     private static final long POLL_MS = 150;
@@ -85,7 +74,6 @@ class LiveGroundItemTakeTest {
     private GameAPI api;
     private int itemId = -1;
     private int baselineCount;
-    private boolean isOwnDrop;
 
     @BeforeAll
     void connect() throws IOException {
@@ -99,10 +87,7 @@ class LiveGroundItemTakeTest {
     }
 
     @AfterAll
-    void restoreAndDisconnect() throws Exception {
-        if (api != null && itemId >= 0) {
-            restoreBackpack();
-        }
+    void disconnect() throws Exception {
         if (rpc != null) {
             rpc.close();
         }
@@ -116,33 +101,16 @@ class LiveGroundItemTakeTest {
 
     @Test
     void take_putsTheItemInTheBackpack() {
-        OptionalInt droppable = droppableItem();
-        GroundItem stack = droppable.isPresent() ? dropOwn(droppable.getAsInt()) : existingStack();
+        GroundItem stack = existingStack();
         log.info("ground take live: taking {} from {} (backpack x{})", stack, api.snapshot().self(),
                 baselineCount);
 
         assertTrue(stack.interact(TAKE), "Take must be on the stack's menu; options are "
                 + stack.getOptions());
-        int expected = isOwnDrop ? baselineCount : baselineCount + 1;
-        assertTrue(waitFor(() -> api.backpack().count(itemId) >= expected, TAKE_TIMEOUT_MS),
+        assertTrue(waitFor(() -> api.backpack().count(itemId) > baselineCount, TAKE_TIMEOUT_MS),
                 "Take was queued but item " + itemId + " did not arrive in the backpack");
-        log.info("ground take live: item {} now x{} in the backpack", itemId, api.backpack().count(itemId));
-    }
-
-    private GroundItem dropOwn(int id) {
-        itemId = id;
-        isOwnDrop = true;
-        baselineCount = api.backpack().count(itemId);
-        Assumptions.assumeTrue(ownTileStacks().isEmpty(), "SKIPPED, not passed: the character's tile"
-                + " already holds a stack of item " + itemId + "; move to a clear tile");
-
-        assertTrue(api.backpack().interactFirst(itemId, DROP), "Drop must be on the item's menu");
-        Assumptions.assumeTrue(waitFor(() -> api.backpack().count(itemId) < baselineCount, DROP_TIMEOUT_MS),
-                "SKIPPED, not passed: the drop was ignored; the backpack window (" + BACKPACK_WINDOW
-                        + ") is closed on some launches, so open it and rerun");
-        assertTrue(waitFor(() -> ownTileStacks().size() == 1, DROP_TIMEOUT_MS),
-                "the dropped item never showed up as one ground stack on the character's tile");
-        return ownTileStacks().getFirst();
+        log.info("ground take live: item {} now x{} in the backpack; left there, see the class javadoc",
+                itemId, api.backpack().count(itemId));
     }
 
     private GroundItem existingStack() {
@@ -153,49 +121,11 @@ class LiveGroundItemTakeTest {
                 .filter(g -> pinnedItem().map(p -> p == g.itemId()).orElse(true))
                 .filter(g -> isOnlyStackOnItsTile(g, all))
                 .min(Comparator.comparingInt(g -> distance(g, self)));
-        Assumptions.assumeTrue(nearest.isPresent(), "SKIPPED, not passed: nothing droppable in the"
-                + " backpack and no single stack within " + MAX_STACK_DISTANCE + " tiles");
+        Assumptions.assumeTrue(nearest.isPresent(), "SKIPPED, not passed: no single stack within "
+                + MAX_STACK_DISTANCE + " tiles");
         itemId = nearest.get().itemId();
         baselineCount = api.backpack().count(itemId);
         return nearest.get();
-    }
-
-    /** Puts the backpack back to its starting count of the fixture item, best effort. */
-    private void restoreBackpack() {
-        int now = api.backpack().count(itemId);
-        if (isOwnDrop && now < baselineCount) {
-            log.warn("ground take live: item {} still on the floor; retrying the take once", itemId);
-            ownTileStacks().stream().findFirst().ifPresent(g -> g.interact(TAKE));
-        } else if (!isOwnDrop && now > baselineCount) {
-            api.backpack().interactFirst(itemId, DROP);
-        } else {
-            return;
-        }
-        if (!waitFor(() -> api.backpack().count(itemId) == baselineCount, TAKE_TIMEOUT_MS)) {
-            log.error("ground take live: FIXTURE NOT RESTORED, item {} x{} in the backpack, started x{}",
-                    itemId, api.backpack().count(itemId), baselineCount);
-        }
-    }
-
-    private OptionalInt droppableItem() {
-        for (InventoryItem it : api.backpack().getItems()) {
-            ItemType type = api.getItemType(it.itemId());
-            boolean isPinnedOrAny = pinnedItem().map(p -> p == it.itemId()).orElse(true);
-            if (isPinnedOrAny && type != null && hasOption(type.inventoryOptions(), DROP)
-                    && hasOption(type.groundOptions(), TAKE)) {
-                return OptionalInt.of(it.itemId());
-            }
-        }
-        return OptionalInt.empty();
-    }
-
-    /** Stacks of the fixture item on the character's own tile and plane. */
-    private List<GroundItem> ownTileStacks() {
-        LocalPlayer self = api.snapshot().self();
-        return api.groundItems().query().withItemId(itemId).all().stream()
-                .filter(g -> g.tileX() == self.tileX() && g.tileY() == self.tileY()
-                        && g.plane() == self.plane())
-                .toList();
     }
 
     private static boolean isOnlyStackOnItsTile(GroundItem stack, List<GroundItem> all) {
@@ -213,10 +143,6 @@ class LiveGroundItemTakeTest {
             return Optional.empty();
         }
         return Optional.of(Integer.parseInt(pinned.trim()));
-    }
-
-    private static boolean hasOption(List<String> options, String wanted) {
-        return options != null && options.stream().anyMatch(wanted::equalsIgnoreCase);
     }
 
     private static boolean waitFor(BooleanSupplier condition, long timeoutMs) {

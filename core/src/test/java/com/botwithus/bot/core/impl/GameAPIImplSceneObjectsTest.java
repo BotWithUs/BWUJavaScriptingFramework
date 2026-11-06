@@ -325,8 +325,7 @@ class GameAPIImplSceneObjectsTest {
     @Test
     void groundItemsInteractByOption_sendsItemIdAndWorldTile() {
         build();
-        snap.grounds.add(new com.botwithus.bot.api.snapshot.GroundItem(
-                GROUND_ITEM_ID, 1, GROUND_TILE_X, GROUND_TILE_Y, 0));
+        snap.grounds.add(groundStackAt(GROUND_ITEM_ID, GROUND_TILE_X, GROUND_TILE_Y));
         itemTypes.put(GROUND_ITEM_ID, makeItem(GROUND_ITEM_ID, "Bronze arrow", List.of("Take", "Examine")));
 
         GroundItem g = api.groundItems().query().first();
@@ -341,8 +340,7 @@ class GameAPIImplSceneObjectsTest {
     @Test
     void groundItemsInteractByIndex_sendsItemIdAndWorldTile() {
         build();
-        snap.grounds.add(new com.botwithus.bot.api.snapshot.GroundItem(
-                GROUND_ITEM_ID, 1, GROUND_TILE_X, GROUND_TILE_Y, 0));
+        snap.grounds.add(groundStackAt(GROUND_ITEM_ID, GROUND_TILE_X, GROUND_TILE_Y));
         itemTypes.put(GROUND_ITEM_ID, makeItem(GROUND_ITEM_ID, "Bronze arrow", List.of("Take", "Examine")));
 
         api.groundItems().query().first().interact(2);
@@ -506,6 +504,11 @@ class GameAPIImplSceneObjectsTest {
      */
     private static com.botwithus.bot.api.snapshot.GroundItem groundStack(int itemId, int quantity) {
         return new com.botwithus.bot.api.snapshot.GroundItem(itemId, quantity, 0, 0, 0);
+    }
+
+    /** One item of {@code itemId} on world tile {@code (tileX, tileY)}, plane 0. */
+    private static com.botwithus.bot.api.snapshot.GroundItem groundStackAt(int itemId, int tileX, int tileY) {
+        return new com.botwithus.bot.api.snapshot.GroundItem(itemId, 1, tileX, tileY, 0);
     }
 
     private static com.botwithus.bot.api.model.ItemType makeItem(int id, String name, List<String> ground) {
