@@ -68,6 +68,15 @@ public final class GroundItem implements EntityContext {
     /**
      * Queue an action by 1-based right-click option index.
      *
+     * <p>The action names the stack the way the game's own menu entry does:
+     * {@code param1} is the item id, {@code param2}/{@code param3} are the
+     * stack's absolute world tile X/Y, exactly as the snapshot row reports
+     * them. The server matches a take against the item <em>and</em> the tile,
+     * so an action without the tile is dispatched and then ignored.</p>
+     *
+     * <p>The action carries no plane: the client resolves the tile on the
+     * local player's plane, so a stack on another floor is not taken.</p>
+     *
      * @throws IllegalArgumentException for {@code optionIndex} outside [1, 6]
      */
     public void interact(int optionIndex) {
@@ -76,10 +85,14 @@ public final class GroundItem implements EntityContext {
         }
         api.queueAction(new GameAction(
                 ActionTypes.GROUND_ITEM_OPTIONS[optionIndex],
-                handle(), 0, 0));
+                itemId(), tileX(), tileY()));
     }
 
-    /** Queue an action by option text. False if option isn't on the menu. */
+    /**
+     * Queue an action by option text, matched case-insensitively against the
+     * item type's ground options. Sends the same {@code (itemId, tileX, tileY)}
+     * shape as {@link #interact(int)}. False if the option isn't on the menu.
+     */
     public boolean interact(String option) {
         List<String> opts = getOptions();
         for (int i = 0; i < opts.size(); ++i) {

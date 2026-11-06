@@ -292,6 +292,7 @@ tasks.register<Test>("harnessTest") {
     // botwithus.live.expectOpenIfaceTypes the open type each must have (<id>:<type>).
     listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live",
            "worldwalker.dll", "worldwalker.artifact", "worldwalker.teleports", "botwithus.live.walks",
+           "botwithus.live.groundItems", "botwithus.live.groundItemId",
            "botwithus.live.expectOpenIfaces",
            "botwithus.live.expectOpenIfaceTypes", "botwithus.harness.pid").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }

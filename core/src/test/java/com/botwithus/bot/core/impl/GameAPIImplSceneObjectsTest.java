@@ -52,6 +52,15 @@ class GameAPIImplSceneObjectsTest {
     private static final int QUARTER_TURNS_ONE = 1;
     private static final int QUARTER_TURNS_THREE = 3;
 
+    // A take names the stack by item AND tile, the shape the game's own menu
+    // entry carries. The tile is deliberately non-zero: (itemId, 0, 0) is what
+    // the old code sent, and the server ignores it.
+    private static final int GROUND_ITEM_ID = 882;
+    private static final int GROUND_TILE_X = 3205;
+    private static final int GROUND_TILE_Y = 3227;
+    private static final int GROUND_ITEM1_ACTION = 18;
+    private static final int GROUND_ITEM2_ACTION = 19;
+
     private RpcClient rpc;
     private StubSnapshot snap;
     private Map<Integer, LocationType> locTypes;
@@ -314,16 +323,32 @@ class GameAPIImplSceneObjectsTest {
     }
 
     @Test
-    void groundItemsInteractByOption() {
+    void groundItemsInteractByOption_sendsItemIdAndWorldTile() {
         build();
-        // handle == itemId mirrors the producer's existing GROUND_ITEM_N action convention.
-        snap.grounds.add(new com.botwithus.bot.api.snapshot.GroundItem(7, 1, 0, 0, 0));
-        itemTypes.put(7, makeItem(7, "Coins", List.of("Take", "Examine")));
+        snap.grounds.add(groundStackAt(GROUND_ITEM_ID, GROUND_TILE_X, GROUND_TILE_Y));
+        itemTypes.put(GROUND_ITEM_ID, makeItem(GROUND_ITEM_ID, "Bronze arrow", List.of("Take", "Examine")));
 
         GroundItem g = api.groundItems().query().first();
         assertTrue(g.interact("Take"));
-        verify(rpc).callSync(eq("queue_action"),
-                eq(Map.of("action_id", 18, "param1", 7, "param2", 0, "param3", 0)));
+        verify(rpc).callSync(eq("queue_action"), eq(Map.of(
+                "action_id", GROUND_ITEM1_ACTION,
+                "param1", GROUND_ITEM_ID,
+                "param2", GROUND_TILE_X,
+                "param3", GROUND_TILE_Y)));
+    }
+
+    @Test
+    void groundItemsInteractByIndex_sendsItemIdAndWorldTile() {
+        build();
+        snap.grounds.add(groundStackAt(GROUND_ITEM_ID, GROUND_TILE_X, GROUND_TILE_Y));
+        itemTypes.put(GROUND_ITEM_ID, makeItem(GROUND_ITEM_ID, "Bronze arrow", List.of("Take", "Examine")));
+
+        api.groundItems().query().first().interact(2);
+        verify(rpc).callSync(eq("queue_action"), eq(Map.of(
+                "action_id", GROUND_ITEM2_ACTION,
+                "param1", GROUND_ITEM_ID,
+                "param2", GROUND_TILE_X,
+                "param3", GROUND_TILE_Y)));
     }
 
     // ---------------------------------------------------------------- Gameval names
@@ -479,6 +504,11 @@ class GameAPIImplSceneObjectsTest {
      */
     private static com.botwithus.bot.api.snapshot.GroundItem groundStack(int itemId, int quantity) {
         return new com.botwithus.bot.api.snapshot.GroundItem(itemId, quantity, 0, 0, 0);
+    }
+
+    /** One item of {@code itemId} on world tile {@code (tileX, tileY)}, plane 0. */
+    private static com.botwithus.bot.api.snapshot.GroundItem groundStackAt(int itemId, int tileX, int tileY) {
+        return new com.botwithus.bot.api.snapshot.GroundItem(itemId, 1, tileX, tileY, 0);
     }
 
     private static com.botwithus.bot.api.model.ItemType makeItem(int id, String name, List<String> ground) {
