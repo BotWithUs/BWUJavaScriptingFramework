@@ -29,6 +29,7 @@ import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.Location;
 import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.Skill;
+import com.botwithus.bot.core.shm.ActionRefusal;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
 import com.botwithus.bot.core.worldwalker.DialogueAnswerText;
@@ -462,6 +463,100 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(1, action.param1());
         assertEquals(3221, action.param2());
         assertEquals(3219, action.param3());
+    }
+
+    // ============================== Refused walk ==============================
+
+    // The agent's anchor_timeout reason and its camera anchor case (#70 §6.3.2).
+    private static final int ANCHOR_TIMEOUT = 2;
+    private static final int CAMERA_ANCHOR = 3;
+    private static final int HELD_MS = 3000;
+
+    private static ActionRefusal refusedWalk(int x, int y) {
+        return new ActionRefusal(ActionTypes.WALK, 1, x, y, ANCHOR_TIMEOUT, CAMERA_ANCHOR, HELD_MS);
+    }
+
+    @Test
+    void refusedWalkIsClickedAgainShorterAtTheNextSleep() {
+        when(snapshot.self()).thenReturn(player(3200, 3200, 0));
+        bridge.walkTo(new WwTile(3225, 3215, 0));
+
+        bridge.onActionRefused(refusedWalk(3225, 3215));
+        bridge.sleepTicks(1);
+
+        List<GameAction> actions = queuedActions(2);
+        GameAction retry = actions.get(1);
+        assertEquals(ActionTypes.WALK, retry.actionId());
+        // 10 tiles along the line to (25, 15) away: (10, 6).
+        assertEquals(3210, retry.param2());
+        assertEquals(3206, retry.param3());
+    }
+
+    @Test
+    void refusalOfAnotherActionOrTileIsIgnored() {
+        when(snapshot.self()).thenReturn(player(3200, 3200, 0));
+        bridge.walkTo(new WwTile(3225, 3211, 0));
+
+        bridge.onActionRefused(refusedWalk(3226, 3211));
+        bridge.onActionRefused(new ActionRefusal(ActionTypes.COMPONENT, 1, 3225, 3211,
+                ANCHOR_TIMEOUT, CAMERA_ANCHOR, HELD_MS));
+        bridge.sleepTicks(1);
+
+        verify(api, times(1)).queueAction(any(GameAction.class));
+    }
+
+    @Test
+    void refusedWalkRetriesHalveAndStopAtTheLimit() {
+        when(snapshot.self()).thenReturn(player(3200, 3200, 0));
+        bridge.walkTo(new WwTile(3230, 3211, 0));
+
+        // Each retry is refused in turn: 10 tiles out, then 5, then no more.
+        bridge.onActionRefused(refusedWalk(3230, 3211));
+        bridge.sleepTicks(1);
+        bridge.onActionRefused(refusedWalk(3210, 3203));
+        bridge.sleepTicks(1);
+        bridge.onActionRefused(refusedWalk(3205, 3201));
+        bridge.sleepTicks(1);
+
+        List<GameAction> actions = queuedActions(1 + WorldWalkerCallbackBridge.REFUSED_WALK_RETRIES);
+        assertEquals(3210, actions.get(1).param2());
+        assertEquals(3203, actions.get(1).param3());
+        assertEquals(3205, actions.get(2).param2());
+        assertEquals(3201, actions.get(2).param3());
+    }
+
+    @Test
+    void aNewTargetGetsItsOwnRetries() {
+        when(snapshot.self()).thenReturn(player(3200, 3200, 0));
+        bridge.walkTo(new WwTile(3230, 3211, 0));
+        bridge.onActionRefused(refusedWalk(3230, 3211));
+        bridge.sleepTicks(1);
+        bridge.onActionRefused(refusedWalk(3210, 3203));
+        bridge.sleepTicks(1);
+
+        bridge.walkTo(new WwTile(3211, 3230, 0));
+        bridge.onActionRefused(refusedWalk(3211, 3230));
+        bridge.sleepTicks(1);
+
+        // Two walks, two retries for the first target, a first retry for the new one.
+        List<GameAction> actions = queuedActions(5);
+        GameAction last = actions.get(4);
+        assertEquals(3203, last.param2());
+        assertEquals(3210, last.param3());
+    }
+
+    @Test
+    void shorterWalkStaysOnTheStraightLine() {
+        WwTile from = new WwTile(100, 100, 0);
+
+        assertEquals(Optional.of(new WwTile(90, 95, 0)),
+                WorldWalkerCallbackBridge.shorterWalk(from, new WwTile(80, 90, 0), 10));
+        assertEquals(Optional.empty(),
+                WorldWalkerCallbackBridge.shorterWalk(from, new WwTile(108, 100, 0), 10),
+                "already within the shorter leg");
+        assertEquals(Optional.empty(),
+                WorldWalkerCallbackBridge.shorterWalk(from, new WwTile(130, 100, 1), 10),
+                "another plane");
     }
 
     // ============================== Surge ==============================

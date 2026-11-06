@@ -23,6 +23,7 @@ import com.botwithus.bot.api.snapshot.Location;
 import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.api.snapshot.Skill;
 import com.botwithus.bot.api.util.Interfaces;
+import com.botwithus.bot.core.shm.ActionRefusal;
 import com.botwithus.bot.core.worldwalker.ChainStepKind;
 import com.botwithus.bot.core.worldwalker.CapabilitySnapshot;
 import com.botwithus.bot.core.worldwalker.DialogueAnswerText;
@@ -43,6 +44,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -163,6 +165,14 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final String SCRIPT_INT_RETURN = "int";
     // Handle the producer answers when it cannot acquire a script.
     private static final long NO_SCRIPT_HANDLE = 0L;
+    // A walk the agent refused (nxt-library #70: no click for it, e.g. its tile
+    // past the minimap's reach while behind the camera) is re-clicked toward the
+    // same target from at most this many tiles away, halved on each further
+    // refusal, at most REFUSED_WALK_RETRIES times per target. After that the
+    // executor's own stall handling takes over: a stuck hop shortens its legs
+    // for the rest of the run, and the run re-plans.
+    static final int          REFUSED_WALK_LEG_TILES = 10;
+    static final int          REFUSED_WALK_RETRIES = 2;
     // Ticks to wait after an ability before re-queueing the walk it cancelled.
     private static final int  RESUME_WALK_MIN_TICKS = 1;
     private static final int  RESUME_WALK_MAX_TICKS = 2;
@@ -247,6 +257,14 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private final AbilitySlot diveSlot  = new AbilitySlot(DIVE);
     // Icon sprite per struct id; only successful reads are memoised.
     private final Map<Integer, Integer> iconSpriteByStruct = new HashMap<>();
+    // Refused-walk state. The two references cross threads: the last WALK this
+    // bridge queued is read by the event pump's thread (onActionRefused), which
+    // hands a matching refusal back through refusedWalk. The executor's target
+    // and the retry count are the executor thread's alone.
+    private final AtomicReference<WwTile> lastQueuedWalk = new AtomicReference<>();
+    private final AtomicReference<WwTile> refusedWalk = new AtomicReference<>();
+    private WwTile walkTarget;
+    private int refusedWalkRetries;
 
     WorldWalkerCallbackBridge(GameAPI api,
                               Supplier<GameSnapshot> snapshotSource,
@@ -637,6 +655,10 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     @Override
     public void walkTo(WwTile target) {
         log.info("ww walkTo ({},{},p{})", target.x(), target.y(), target.plane());
+        if (!target.equals(walkTarget)) {
+            walkTarget = target;
+            refusedWalkRetries = 0;
+        }
         clickSink.accept(target);
         queueWalk(target);
         // Walk queued first, for both abilities. Surge dashes in current
@@ -703,7 +725,66 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     }
 
     private void queueWalk(WwTile target) {
+        lastQueuedWalk.set(target);
         api.queueAction(new GameAction(ActionTypes.WALK, 1, target.x(), target.y()));
+    }
+
+    /**
+     * Hears an action the agent refused (called on the event pump's thread). Only a WALK to the
+     * tile this bridge queued last counts; it is acted on at the executor's next
+     * {@link #sleepTicks}, so every click is queued from the executor thread.
+     */
+    void onActionRefused(ActionRefusal refusal) {
+        WwTile queued = lastQueuedWalk.get();
+        if (refusal.actionId() != ActionTypes.WALK || queued == null
+                || refusal.param2() != queued.x() || refusal.param3() != queued.y()) {
+            return;
+        }
+        log.info("ww walk to ({},{}) refused: reason={} anchorCase={} heldMs={}",
+                queued.x(), queued.y(), refusal.reason(), refusal.anchorCase(), refusal.heldMs());
+        refusedWalk.set(queued);
+    }
+
+    // A refused walk heard since the last sleep is clicked again shorter,
+    // toward the executor's own target, while retries for it remain. The
+    // executor keeps watching that target: the player walks toward it, stops
+    // at the shorter tile, and the executor's stall re-click then reaches.
+    private void retryRefusedWalk() {
+        WwTile refused = refusedWalk.getAndSet(null);
+        WwTile target = walkTarget;
+        if (refused == null || target == null || refusedWalkRetries >= REFUSED_WALK_RETRIES) {
+            return;
+        }
+        LocalPlayer lp = currentPlayer();
+        if (lp == null) {
+            return;
+        }
+        WwTile from = new WwTile(lp.tileX(), lp.tileY(), lp.plane());
+        Optional<WwTile> shorter = shorterWalk(from, target, REFUSED_WALK_LEG_TILES >> refusedWalkRetries);
+        if (shorter.isEmpty()) {
+            return;
+        }
+        ++refusedWalkRetries;
+        log.info("ww walkTo ({},{},p{}) refused; re-clicked shorter at ({},{})", target.x(),
+                target.y(), target.plane(), shorter.get().x(), shorter.get().y());
+        clickSink.accept(shorter.get());
+        queueWalk(shorter.get());
+    }
+
+    /**
+     * The tile {@code leg} tiles (Chebyshev) from {@code from} on the straight line to
+     * {@code target}; empty when {@code target} is on another plane or no farther than that. The
+     * game's pathfinder takes the click, so the tile need not be one the line could walk.
+     */
+    static Optional<WwTile> shorterWalk(WwTile from, WwTile target, int leg) {
+        int dx = target.x() - from.x();
+        int dy = target.y() - from.y();
+        int span = Math.max(Math.abs(dx), Math.abs(dy));
+        if (from.plane() != target.plane() || leg <= 0 || span <= leg) {
+            return Optional.empty();
+        }
+        return Optional.of(new WwTile(from.x() + dx * leg / span, from.y() + dy * leg / span,
+                from.plane()));
     }
 
     // A tile-targeted ability's tile use normally consumes the target mode its
@@ -1227,6 +1308,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
 
     @Override
     public void sleepTicks(int ticks) {
+        retryRefusedWalk();
         if (ticks <= 0) {
             return;
         }

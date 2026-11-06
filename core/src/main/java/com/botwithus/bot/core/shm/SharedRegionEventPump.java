@@ -29,6 +29,7 @@ public final class SharedRegionEventPump implements AutoCloseable {
     private static final long SHUTDOWN_JOIN_TIMEOUT_MS = 1000L;
 
     private final SharedRegion region;
+    private final ActionRefusalFeed refusals = new ActionRefusalFeed();
     private final EventRingReader reader;
     private final Thread thread;
     private volatile boolean running = true;
@@ -47,7 +48,7 @@ public final class SharedRegionEventPump implements AutoCloseable {
 
     SharedRegionEventPump(SharedRegion region, Consumer<GameEvent> consumer, String threadName) {
         this.region = region;
-        this.reader = new EventRingReader(region, /*fromHead*/ true);
+        this.reader = new EventRingReader(region, /*fromHead*/ true, refusals::publish);
         this.thread = new Thread(() -> runLoop(consumer), threadName);
         this.thread.setDaemon(true);
         this.thread.start();
@@ -82,6 +83,9 @@ public final class SharedRegionEventPump implements AutoCloseable {
 
     /** Diagnostic — exposes the underlying reader's drop counters. */
     public EventRingReader reader() { return reader; }
+
+    /** The action refusals this pump decodes, for the host's own reactions (not the event bus). */
+    public ActionRefusalFeed refusals() { return refusals; }
 
     /** Diagnostic — exposes the region for snapshot probes. */
     public SharedRegion region() { return region; }
