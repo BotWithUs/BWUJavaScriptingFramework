@@ -47,6 +47,15 @@ public class InventoryContainer {
     protected final int interfaceId;
     protected final int componentId;
     /**
+     * The option name routed to the cache-index lookup instead of the live ops. "Use" is
+     * the client's item-selection verb and never one of a component's ops 1..10, and the
+     * action that selects an inventory item for use-on has not been established, so this
+     * keeps the behaviour {@link #interactFirst(int, String)} had for it before the live
+     * lookup, unchanged.
+     */
+    public static final String USE = "Use";
+
+    /**
      * Shared definition cache backing the {@link #itemTypeLookup} closure.
      * Held on the abstraction so subclasses do not introduce hidden state
      * — every container kind (backpack, bank, equipment, future inventories)
@@ -391,16 +400,52 @@ public class InventoryContainer {
 
     /**
      * Click the first slot containing {@code itemId} with the named option.
-     * Resolves {@code option} against {@link ItemType#inventoryOptions}.
-     * Returns {@code false} when the item isn't present or the option isn't
-     * on its menu.
+     *
+     * <p>The name is matched, case-insensitively, against the slot's <em>live</em> ops
+     * ({@link GameAPI#getComponentOps}), and the click sends the op the client has under
+     * that name. It is not looked up in {@link ItemType#inventoryOptions()}: an option's
+     * position in the cache list is not the op the client sends, and the client's default
+     * Drop is not in that list at all, so that lookup clicked a different option or
+     * none. One pipe round-trip for the lookup, one for the click.</p>
+     *
+     * <p><b>Preconditions.</b> The container's interface must be open (for the backpack,
+     * its window), because a closed one does not resolve and its slot has no ops to read.
+     * The agent must have {@code get_component_ops}. Either one missing makes this return
+     * {@code false}; the host logs a WARN naming which, once per connection.</p>
+     *
+     * <p><b>{@code "Use"} is the exception.</b> It is the client's target verb, not one of
+     * the ops 1..10, so the live ops never list it. It is resolved as it was before the
+     * live lookup existed: the name's 1-based position in the item's cache options, sent as
+     * the op. That is not known to select the item for use-on; see {@link #USE}.</p>
+     *
+     * @return {@code false} when the item isn't present, or no listed op of its slot has
+     *         that name (including a closed interface or an agent too old to report ops);
+     *         nothing is sent then
      */
     public boolean interactFirst(int itemId, String option) {
         InventoryItem it = getFirst(itemId);
         if (it == null) {
             return false;
         }
-        ItemType t = lookupType(itemId);
+        if (USE.equalsIgnoreCase(option)) {
+            return interactByCacheIndex(it, option);
+        }
+        OptionalInt op = api.getComponentOps(interfaceId, componentId, it.slot()).opNamed(option);
+        if (op.isEmpty()) {
+            log.debug("inventory {} slot {}: no listed op named '{}' on item {}",
+                    invId, it.slot(), option, itemId);
+            return false;
+        }
+        return interact(it.slot(), op.getAsInt());
+    }
+
+    /**
+     * The pre-live-ops lookup, kept for {@link #USE} only: the option's 1-based position in
+     * the item's cache options, sent as the op. False when the item has no definition or
+     * the name is not in its cache options.
+     */
+    private boolean interactByCacheIndex(InventoryItem it, String option) {
+        ItemType t = lookupType(it.itemId());
         if (t == null) {
             return false;
         }
@@ -409,11 +454,6 @@ public class InventoryContainer {
             return false;
         }
         return interact(it.slot(), idx);
-    }
-
-    /** Alias for {@link #interactFirst(int, String)}. */
-    public boolean interact(int itemId, String option) {
-        return interactFirst(itemId, option);
     }
 
     private static int findOptionIndex(List<String> options, String wanted) {
@@ -426,6 +466,11 @@ public class InventoryContainer {
             }
         }
         return -1;
+    }
+
+    /** Alias for {@link #interactFirst(int, String)}. */
+    public boolean interact(int itemId, String option) {
+        return interactFirst(itemId, option);
     }
 
     /**

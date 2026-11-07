@@ -38,6 +38,7 @@ import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentOps;
 import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.SequenceType;
@@ -587,6 +588,22 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      *         the producer cap is exceeded.
      */
     List<Component> getComponents(List<ComponentRef> refs);
+
+    /**
+     * The live right-click ops of a component, or of one sub of it: the ops the client's
+     * menu lists now, by name and op number, and the op-flags word that says which of them
+     * reach the server. For a backpack slot pass the backpack grid and the slot index as
+     * {@code sub}. Each call is a pipe round-trip.
+     *
+     * <p>Use this to turn an option name into the op number a {@code COMPONENT} action
+     * needs. An item's cache option list ({@link ItemType#inventoryOptions()}) is not that
+     * mapping: its slot index is not the op the client sends.</p>
+     *
+     * @param sub the sub-component index; for an inventory grid, the 0-based slot
+     * @return the ops, or {@link ComponentOps#NONE} when the component does not resolve
+     *         or the agent refuses the call (an agent too old to have it, for one)
+     */
+    ComponentOps getComponentOps(int interfaceId, int componentId, int sub);
 
     /**
      * Returns the static (cache-defined) child component ids of

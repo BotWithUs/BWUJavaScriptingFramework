@@ -21,8 +21,12 @@ public final class Backpack extends InventoryContainer {
         super(api, INVENTORY_ID, INTERFACE_ID, COMPONENT_ID);
     }
 
-    /** Convenience: equivalent to {@link #interactFirst(int, String)} for clarity. */
+    /**
+     * {@link #interactFirst(int, String) interactFirst(itemId, "Use")}. "Use" is resolved by
+     * the item's cache options, not the slot's live ops, as it always was; see
+     * {@link InventoryContainer#USE} for why and for what is not known about it.
+     */
     public boolean use(int itemId) {
-        return interactFirst(itemId, "Use");
+        return interactFirst(itemId, USE);
     }
 }

@@ -294,7 +294,8 @@ tasks.register<Test>("harnessTest") {
            "worldwalker.dll", "worldwalker.artifact", "worldwalker.teleports", "botwithus.live.walks",
            "botwithus.live.groundItems", "botwithus.live.groundItemId",
            "botwithus.live.expectOpenIfaces",
-           "botwithus.live.expectOpenIfaceTypes", "botwithus.harness.pid").forEach { key ->
+           "botwithus.live.expectOpenIfaceTypes", "botwithus.live.inventoryOps",
+           "botwithus.live.dropItemId", "botwithus.harness.pid").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {

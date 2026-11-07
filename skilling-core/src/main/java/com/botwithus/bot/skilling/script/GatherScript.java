@@ -60,8 +60,10 @@ public abstract class GatherScript extends SkillScript {
     protected ResourceBox resourceBox() { return null; }
 
     /**
-     * Raw 1-based "Drop" option index, used as a fallback when the item's cache
-     * options aren't available (e.g. {@code 7} for logs). {@code -1} = name only.
+     * Raw "Drop" op number, sent as a fallback when a by-name Drop returns {@code false}:
+     * the slot's live ops do not list Drop, the backpack is not open, or the agent predates
+     * {@code get_component_ops}. A backpack slot's Drop is op 8 where it has been read live.
+     * {@code -1} = name only.
      */
     protected int dropOptionFallbackIndex() { return -1; }
 

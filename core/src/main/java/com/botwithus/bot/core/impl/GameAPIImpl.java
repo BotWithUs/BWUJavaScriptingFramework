@@ -43,6 +43,8 @@ import com.botwithus.bot.api.model.SkillRequirement;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldMapPlacement;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentOp;
+import com.botwithus.bot.api.model.ComponentOps;
 import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentScroll;
 import com.botwithus.bot.api.model.ComponentVisibility;
@@ -210,6 +212,8 @@ public class GameAPIImpl implements GameAPI {
      * index pass {@link GamevalIndex#empty()}, whose lookups all come back empty.
      */
     private final GamevalIndex gamevals;
+    /** One WARN per refusal reason for {@code get_component_ops}, per connection. */
+    private final ComponentOpsRefusals opsRefusals = new ComponentOpsRefusals();
 
     /**
      * Actions the agent refused on this connection. Each WorldWalker run listens
@@ -959,6 +963,35 @@ public class GameAPIImpl implements GameAPI {
             out.add(decodeComponent(node));
         }
         return out;
+    }
+
+    /**
+     * {@code get_component_ops {iface, comp, sub} -> {mask, ops:[{op, name, transmits}]}}. A
+     * refusal (an unresolved component, or an agent without the method) is
+     * {@link ComponentOps#NONE} so a by-name click reports "not offered" instead of throwing
+     * out of a script loop; {@link ComponentOpsRefusals} spends one WARN per reason on it.
+     * Only {@link RpcRemoteException} is caught: a dead pipe still propagates.
+     */
+    @Override
+    public ComponentOps getComponentOps(int interfaceId, int componentId, int sub) {
+        Map<String, Object> r;
+        try {
+            r = rpc.callSync("get_component_ops",
+                    Map.of("iface", interfaceId, "comp", componentId, "sub", sub));
+        } catch (RpcRemoteException e) {
+            opsRefusals.report(interfaceId, componentId, sub, e.producerMessage());
+            return ComponentOps.NONE;
+        }
+        return decodeComponentOps(r);
+    }
+
+    static ComponentOps decodeComponentOps(Map<String, Object> r) {
+        List<Map<String, Object>> rawOps = getMapList(r, "ops");
+        List<ComponentOp> ops = new ArrayList<>(rawOps.size());
+        for (Map<String, Object> raw : rawOps) {
+            ops.add(new ComponentOp(getInt(raw, "op"), getString(raw, "name"), getBool(raw, "transmits")));
+        }
+        return new ComponentOps(getInt(r, "mask"), ops);
     }
 
     @Override

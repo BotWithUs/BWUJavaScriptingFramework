@@ -6,12 +6,16 @@ import com.botwithus.bot.api.gameval.GamevalEntry;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.inventory.Backpack;
+import com.botwithus.bot.api.inventory.InventoryContainer;
+import com.botwithus.bot.api.model.ComponentOp;
+import com.botwithus.bot.api.model.ComponentOps;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
 import com.botwithus.bot.api.snapshot.InventoryItem;
 import com.botwithus.bot.api.util.Interfaces;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.rpc.RpcRemoteException;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -20,14 +24,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.TreeMap;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Slice-19 inventory facade tests. Snapshot-backed reads + cached
@@ -39,6 +47,20 @@ import static org.mockito.Mockito.verify;
  * production wrapper classes in {@code api/.../entities/}.
  */
 class GameAPIImplInventoryTest {
+
+    /** The op the client sends for the backpack's Drop, verified on the wire for an arrow. */
+    private static final int DROP_OP = 8;
+    /** A backpack slot's op-flags word, read live: ops 1, 2, 3, 7, 8 and 10 transmit. */
+    private static final int BACKPACK_SLOT_MASK = 0x00EB7D8E;
+    private static final int ARROW = 882;
+    private static final int ARROW_SLOT = 2;
+    /** "Use" is first in the arrow's cache options, so the old lookup sends op 1. */
+    private static final int USE_CACHE_POSITION = 1;
+    private static final String USE = InventoryContainer.USE;
+    /** The agent dispatcher's refusal for a method it does not have. */
+    private static final String METHOD_NOT_FOUND = "method not found: get_component_ops";
+    /** The handler's refusal for a component that does not resolve (a closed interface). */
+    private static final String OPS_NOT_FOUND = "get_component_ops: not_found";
 
     private RpcClient rpc;
     private StubSnapshot snap;
@@ -256,37 +278,157 @@ class GameAPIImplInventoryTest {
         verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
     }
 
-    @Test
-    void interactFirstByOptionResolvesViaItemType() {
-        build();
+    private static Map<String, Object> opsReply(int mask, Map<Integer, String> namesByOp) {
+        List<Map<String, Object>> ops = new ArrayList<>();
+        namesByOp.forEach((op, name) -> ops.add(Map.of("op", op, "name", name,
+                "transmits", (mask & (1 << op)) != 0)));
+        return Map.of("mask", mask, "ops", ops);
+    }
+
+    private static Map<String, Object> opsParams(int slot) {
+        return Map.of("iface", Backpack.INTERFACE_ID, "comp", Backpack.COMPONENT_ID, "sub", slot);
+    }
+
+    /**
+     * An arrow whose cache options name "Drop" (position 2) and "Use" (position 1). A test
+     * that expects nothing sent stubs this, so a silent fallback to the cache position
+     * would send op 2 and fail it.
+     */
+    private void arrowTypeWithDropInTheCache() {
+        itemTypes.put(ARROW, new ItemType(ARROW, "Bronze arrow", false, false, 0, 0, 0, -1, -1,
+                false, List.of(), List.of(USE, "Drop", "Examine"), Map.of()));
+    }
+
+    private void arrowInSlotTwo() {
         snap.setInv(Backpack.INVENTORY_ID, 4,
-                items(slot(0, 1511, 1), empty(1), empty(2), empty(3)));
-        itemTypes.put(1511, new ItemType(
-                1511, "Logs", false, false, 0, 0, 0, -1, -1, false,
-                List.of(),
-                List.of("Use", "Drop", "Examine"),
-                Map.of()));
+                items(slot(0, 555, 1), empty(1), slot(ARROW_SLOT, ARROW, 1), empty(3)));
+    }
 
-        Backpack bp = api.backpack();
-        assertTrue(bp.interactFirst(1511, "Drop"));
+    /**
+     * The click sends the op the slot's live ops name "Drop", not the option's position in
+     * the item's cache list. The cache list put "Drop" in position 2 here; the old lookup
+     * sent op 2 and clicked a different option.
+     */
+    @Test
+    void interactFirstByOption_sendsTheLiveOpForThatName() {
+        build();
+        arrowInSlotTwo();
+        itemTypes.put(ARROW, new ItemType(ARROW, "Bronze arrow", false, false, 0, 0, 0, -1, -1,
+                false, List.of(), List.of("Use", "Drop", "Examine"), Map.of()));
+        when(rpc.callSync(eq("get_component_ops"), eq(opsParams(ARROW_SLOT)))).thenReturn(
+                opsReply(BACKPACK_SLOT_MASK, new TreeMap<>(Map.of(2, "Wield", DROP_OP, "Drop"))));
 
-        // Drop is option 2 (index 2 in 1-based); param2 is the slot index (0),
-        // param3 packs iface/comp.
+        assertTrue(api.backpack().interactFirst(ARROW, "drop"));
+
         int packed = Interfaces.componentHash(Backpack.INTERFACE_ID, Backpack.COMPONENT_ID);
         verify(rpc).callSync(eq("queue_action"),
-                eq(Map.of("action_id", 57, "param1", 2, "param2", 0, "param3", packed)));
+                eq(Map.of("action_id", 57, "param1", DROP_OP, "param2", ARROW_SLOT, "param3", packed)));
     }
 
     @Test
-    void interactFirstByMissingOptionReturnsFalse() {
+    void interactFirstByOption_opNotOnTheSlot_sendsNothing() {
         build();
-        snap.setInv(Backpack.INVENTORY_ID, 4, items(slot(0, 1511, 1), empty(1), empty(2), empty(3)));
-        itemTypes.put(1511, new ItemType(
-                1511, "Logs", false, false, 0, 0, 0, -1, -1, false,
-                List.of(), List.of("Use"), Map.of()));
+        arrowInSlotTwo();
+        arrowTypeWithDropInTheCache();
+        when(rpc.callSync(eq("get_component_ops"), anyMap())).thenReturn(
+                opsReply(BACKPACK_SLOT_MASK, Map.of(2, "Wield")));
 
-        assertFalse(api.backpack().interactFirst(1511, "Drop"));
+        assertFalse(api.backpack().interactFirst(ARROW, "Drop"));
         verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
+    }
+
+    /**
+     * An op the client lists with its mask bit clear runs only client-side script, and a
+     * player can still choose it, so a by-name interact still sends it.
+     */
+    @Test
+    void interactFirstByOption_listedOpThatDoesNotTransmit_isStillSent() {
+        build();
+        arrowInSlotTwo();
+        int dropBitCleared = BACKPACK_SLOT_MASK & ~(1 << DROP_OP);
+        when(rpc.callSync(eq("get_component_ops"), anyMap())).thenReturn(
+                opsReply(dropBitCleared, Map.of(DROP_OP, "Drop")));
+
+        assertTrue(api.backpack().interactFirst(ARROW, "Drop"));
+        verify(rpc).callSync(eq("queue_action"), anyMap());
+    }
+
+    /**
+     * An agent without get_component_ops refuses it: nothing is clicked, nothing throws, and
+     * the cache list (which does name Drop here) is not used as a fallback.
+     */
+    @Test
+    void interactFirstByOption_agentRefusesTheOpsCall_sendsNothing() {
+        build();
+        arrowInSlotTwo();
+        arrowTypeWithDropInTheCache();
+        when(rpc.callSync(eq("get_component_ops"), anyMap()))
+                .thenThrow(new RpcRemoteException("get_component_ops", METHOD_NOT_FOUND));
+
+        assertFalse(api.backpack().interactFirst(ARROW, "Drop"));
+        verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
+    }
+
+    /** A closed backpack does not resolve: same outcome, no cache fallback. */
+    @Test
+    void interactFirstByOption_backpackClosed_sendsNothing() {
+        build();
+        arrowInSlotTwo();
+        arrowTypeWithDropInTheCache();
+        when(rpc.callSync(eq("get_component_ops"), anyMap()))
+                .thenThrow(new RpcRemoteException("get_component_ops", OPS_NOT_FOUND));
+
+        assertFalse(api.backpack().interactFirst(ARROW, "Drop"));
+        verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
+    }
+
+    /**
+     * "Use" is the client's target verb, never a listed op, so it keeps the lookup it had
+     * before the live ops: its 1-based position in the cache options, sent as the op, with
+     * no ops read.
+     */
+    @Test
+    void use_sendsTheCachePositionAndReadsNoOps() {
+        build();
+        arrowInSlotTwo();
+        arrowTypeWithDropInTheCache();
+
+        assertTrue(api.backpack().use(ARROW));
+
+        int packed = Interfaces.componentHash(Backpack.INTERFACE_ID, Backpack.COMPONENT_ID);
+        verify(rpc).callSync(eq("queue_action"),
+                eq(Map.of("action_id", 57, "param1", USE_CACHE_POSITION, "param2", ARROW_SLOT,
+                        "param3", packed)));
+        verify(rpc, never()).callSync(eq("get_component_ops"), anyMap());
+    }
+
+    @Test
+    void use_itemWithoutUseInItsCacheOptions_sendsNothing() {
+        build();
+        arrowInSlotTwo();
+        itemTypes.put(ARROW, new ItemType(ARROW, "Bronze arrow", false, false, 0, 0, 0, -1, -1,
+                false, List.of(), List.of("Wield"), Map.of()));
+
+        assertFalse(api.backpack().interactFirst(ARROW, "use"));
+        verify(rpc, never()).callSync(anyString(), anyMap());
+    }
+
+    @Test
+    void decodeComponentOps_readsMaskAndOps() {
+        ComponentOps ops = GameAPIImpl.decodeComponentOps(
+                opsReply(BACKPACK_SLOT_MASK, Map.of(DROP_OP, "Drop")));
+
+        assertEquals(BACKPACK_SLOT_MASK, ops.mask());
+        assertEquals(List.of(new ComponentOp(DROP_OP, "Drop", true)), ops.ops());
+    }
+
+    /** A u32 mask with bit 31 set arrives as a long; its low 32 bits are the mask. */
+    @Test
+    void decodeComponentOps_highBitMaskSurvives() {
+        long highBit = 0x8000_0100L;
+        ComponentOps ops = GameAPIImpl.decodeComponentOps(Map.of("mask", highBit, "ops", List.of()));
+
+        assertTrue(ops.isTransmitting(DROP_OP));
     }
 
     @Test

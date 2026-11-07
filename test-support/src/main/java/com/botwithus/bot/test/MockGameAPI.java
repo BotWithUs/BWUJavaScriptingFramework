@@ -19,6 +19,7 @@ import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentOps;
 import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.EntityKind;
@@ -583,6 +584,11 @@ final class MockGameAPI implements GameAPI {
     @Override
     public List<VarbitValue> queryVarbits(List<Integer> varbitIds) {
         throw notStubbed("queryVarbits");
+    }
+
+    @Override
+    public ComponentOps getComponentOps(int interfaceId, int componentId, int sub) {
+        throw notStubbed("getComponentOps");
     }
 
     @Override
