@@ -63,7 +63,8 @@ public final class JBotApplication {
                     () -> new GameSnapshotImpl(pump.region().snapshot()),
                     new StubGuard(),
                     eventBus::publish,
-                    gamevals);
+                    gamevals,
+                    pump.refusals());
             ClientProviderImpl clientProvider = new ClientProviderImpl();
             ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, messageBus);
 

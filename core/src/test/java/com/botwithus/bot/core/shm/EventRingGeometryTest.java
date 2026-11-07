@@ -160,4 +160,55 @@ class EventRingGeometryTest {
             assertTrue(delivered.isEmpty());
         }
     }
+
+    // ActionRefusedBody (nxt-library #70, Events.h): seven 4-byte fields,
+    // reason at +16, heldMs at +24.
+    private static void commitActionRefused(MemorySegment ring, int bodyLen) {
+        long slot = Layout.RING_SLOTS_OFFSET;   // seq 0 maps to slot 0
+        ring.set(ValueLayout.JAVA_INT, slot + Layout.SLOT_TYPE_OFFSET, Layout.EVT_ACTION_REFUSED);
+        ring.set(ValueLayout.JAVA_INT, slot + Layout.SLOT_BODYLEN_OFFSET, bodyLen);
+        long body = slot + Layout.SLOT_BODY_OFFSET;
+        ring.set(ValueLayout.JAVA_INT, body,      23);      // actionId = WALK
+        ring.set(ValueLayout.JAVA_INT, body + 4,  1);       // param1
+        ring.set(ValueLayout.JAVA_INT, body + 8,  3225);    // param2 = tile x
+        ring.set(ValueLayout.JAVA_INT, body + 12, 3218);    // param3 = tile y
+        ring.set(ValueLayout.JAVA_INT, body + 16, 2);       // reason = anchor_timeout
+        ring.set(ValueLayout.JAVA_INT, body + 20, 3);       // anchorCase = camera
+        ring.set(ValueLayout.JAVA_INT, body + 24, 3000);    // heldMs
+        ring.set(ValueLayout.JAVA_LONG, slot + Layout.SLOT_SEQ_OFFSET, 0L);  // commit
+        ring.set(ValueLayout.JAVA_LONG, Layout.RING_HEAD_OFFSET, 1L);        // publish
+    }
+
+    @Test
+    void actionRefusedGoesToTheRefusalFeedNotThePollConsumer() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment ring = ring(arena, Layout.EVENT_RING_SLOTS, Layout.EVENT_RING_SLOTS - 1, 0);
+            List<ActionRefusal> refusals = new ArrayList<>();
+            EventRingReader reader = new EventRingReader(ring, true, refusals::add);
+            commitActionRefused(ring, ActionRefusal.BODY_BYTES);
+
+            List<GameEvent> out = new ArrayList<>();
+            reader.poll(out::add);
+
+            assertTrue(out.isEmpty());
+            assertEquals(List.of(new ActionRefusal(23, 1, 3225, 3218,
+                    ActionRefusal.REASON_ANCHOR_TIMEOUT, 3, 3000)), refusals);
+            assertEquals(1L, reader.nextSeq());
+        }
+    }
+
+    @Test
+    void shortActionRefusedBodyIsDropped() {
+        try (Arena arena = Arena.ofConfined()) {
+            MemorySegment ring = ring(arena, Layout.EVENT_RING_SLOTS, Layout.EVENT_RING_SLOTS - 1, 0);
+            List<ActionRefusal> refusals = new ArrayList<>();
+            EventRingReader reader = new EventRingReader(ring, true, refusals::add);
+            commitActionRefused(ring, ActionRefusal.BODY_BYTES - Integer.BYTES);
+
+            reader.poll(e -> { });
+
+            assertTrue(refusals.isEmpty());
+            assertEquals(1L, reader.nextSeq());
+        }
+    }
 }

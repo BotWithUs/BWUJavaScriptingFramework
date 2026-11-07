@@ -861,7 +861,8 @@ public class CliContext {
                 () -> new GameSnapshotImpl(pump.region().snapshot()),
                 new StubGuard(),
                 eventBus::publish,
-                getOrInitGamevals(pid));
+                getOrInitGamevals(pid),
+                pump.refusals());
         CharacterNameSource characterName =
                 new CharacterNameSource(statusTracker::requestRefresh, clock::instant);
         ScriptContextImpl context = new ScriptContextImpl(gameAPI, eventBus, new MessageBusImpl())

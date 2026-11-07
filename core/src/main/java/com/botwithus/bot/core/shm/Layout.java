@@ -607,6 +607,8 @@ public final class Layout {
     public static final int EVT_CHAT_MESSAGE        = 20;
     public static final int EVT_KEY_INPUT           = 30;
     public static final int EVT_ACTION_EXECUTED     = 40;
+    /** Additive over the ring (no protocol bump): see {@link ActionRefusal}. */
+    public static final int EVT_ACTION_REFUSED      = 41;
     public static final int EVT_BREAK_STARTED       = 50;
     public static final int EVT_BREAK_ENDED         = 51;
     public static final int EVT_WALK_ARRIVED        = 60;

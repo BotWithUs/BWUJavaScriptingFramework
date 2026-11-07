@@ -24,6 +24,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
@@ -51,6 +52,9 @@ public final class EventRingReader {
 
     private final MemorySegment ring;
     private final int slotMask;
+    // Where an action-refused event goes: it is not a GameEvent, so it never
+    // reaches the poll consumer (see ActionRefusal).
+    private final Consumer<ActionRefusal> refusals;
 
     private long nextSeq;         // next sequence we expect to see
     private long droppedCount;    // sum over the lifetime of this reader
@@ -66,13 +70,27 @@ public final class EventRingReader {
      *                 when the reader attaches mid-session.
      */
     public EventRingReader(SharedRegion region, boolean fromHead) {
-        this(region.ring(), fromHead);
+        this(region.ring(), fromHead, refusal -> { });
+    }
+
+    /**
+     * As {@link #EventRingReader(SharedRegion, boolean)}, also decoding action-refused events
+     * into {@code refusals}, called on the polling thread.
+     */
+    public EventRingReader(SharedRegion region, boolean fromHead,
+                           Consumer<ActionRefusal> refusals) {
+        this(region.ring(), fromHead, refusals);
     }
 
     // Package-private seam so EventRingGeometryTest can supply a fabricated ring
     // segment with crafted slotCount/slotMask/head without a live mapping.
     EventRingReader(MemorySegment ring, boolean fromHead) {
+        this(ring, fromHead, refusal -> { });
+    }
+
+    EventRingReader(MemorySegment ring, boolean fromHead, Consumer<ActionRefusal> refusals) {
         this.ring = ring;
+        this.refusals = Objects.requireNonNull(refusals, "refusals");
         int slotCount = ring.get(ValueLayout.JAVA_INT, Layout.RING_SLOTCOUNT_OFFSET);
         int sm = ring.get(ValueLayout.JAVA_INT, Layout.RING_SLOTMASK_OFFSET);
         // Validate the producer-published ring geometry against the constants
@@ -191,6 +209,7 @@ public final class EventRingReader {
             case Layout.EVT_CHAT_MESSAGE       -> decodeChatMessage(bodyOff, bodyLen);
             case Layout.EVT_KEY_INPUT          -> decodeKeyInput(bodyOff, bodyLen);
             case Layout.EVT_ACTION_EXECUTED    -> decodeActionExecuted(bodyOff, bodyLen);
+            case Layout.EVT_ACTION_REFUSED     -> publishActionRefused(bodyOff, bodyLen);
             case Layout.EVT_BREAK_STARTED      -> decodeBreakStarted(bodyOff, bodyLen);
             case Layout.EVT_BREAK_ENDED        -> new BreakEndedEvent();
             case Layout.EVT_WALK_ARRIVED       -> decodeWalk(bodyOff, bodyLen, /*outcome*/0);
@@ -307,6 +326,24 @@ public final class EventRingReader {
         int p2       = ring.get(ValueLayout.JAVA_INT, off + 8);
         int p3       = ring.get(ValueLayout.JAVA_INT, off + 12);
         return new ActionExecutedEvent(actionId, p1, p2, p3);
+    }
+
+    // Body layout (ActionRefusedBody): i32 actionId, param1, param2, param3,
+    // u32 reason, anchorCase, heldMs. Handed to `refusals`, not the poll
+    // consumer, so the switch gets null back and delivers nothing.
+    private GameEvent publishActionRefused(long off, int len) {
+        if (len < ActionRefusal.BODY_BYTES) {
+            return null;
+        }
+        int actionId   = ring.get(ValueLayout.JAVA_INT, off);
+        int p1         = ring.get(ValueLayout.JAVA_INT, off + 4);
+        int p2         = ring.get(ValueLayout.JAVA_INT, off + 8);
+        int p3         = ring.get(ValueLayout.JAVA_INT, off + 12);
+        int reason     = ring.get(ValueLayout.JAVA_INT, off + 16);
+        int anchorCase = ring.get(ValueLayout.JAVA_INT, off + 20);
+        int heldMs     = ring.get(ValueLayout.JAVA_INT, off + 24);
+        refusals.accept(new ActionRefusal(actionId, p1, p2, p3, reason, anchorCase, heldMs));
+        return null;
     }
 
     private BreakStartedEvent decodeBreakStarted(long off, int len) {

@@ -78,6 +78,7 @@ import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcRemoteException;
 import com.botwithus.bot.core.runtime.ScriptGate;
+import com.botwithus.bot.core.shm.ActionRefusalFeed;
 import com.botwithus.bot.core.worldwalker.DisabledMoves;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
@@ -209,6 +210,12 @@ public class GameAPIImpl implements GameAPI {
      * index pass {@link GamevalIndex#empty()}, whose lookups all come back empty.
      */
     private final GamevalIndex gamevals;
+
+    /**
+     * Actions the agent refused on this connection. Each WorldWalker run listens
+     * for its own length, so its bridge can re-click a refused walk shorter.
+     */
+    private final ActionRefusalFeed refusals;
 
     /**
      * Last health reading and the server tick it was taken on, or {@code null}
@@ -343,6 +350,22 @@ public class GameAPIImpl implements GameAPI {
                        StubGuard stubGuard,
                        Consumer<? super GameEvent> eventPublisher,
                        GamevalIndex gamevals) {
+        this(rpc, cache, snapshotSource, stubGuard, eventPublisher, gamevals,
+                new ActionRefusalFeed());
+    }
+
+    /**
+     * Full ctor, additionally taking the connection's {@link ActionRefusalFeed}
+     * (the event pump's {@code refusals()}):
+     * a WorldWalker run listens to it so a walk click the agent refused is
+     * re-clicked shorter. The shorter ctors chain to a feed nothing publishes to.
+     */
+    public GameAPIImpl(RpcClient rpc, NXTCache cache,
+                       Supplier<GameSnapshot> snapshotSource,
+                       StubGuard stubGuard,
+                       Consumer<? super GameEvent> eventPublisher,
+                       GamevalIndex gamevals,
+                       ActionRefusalFeed refusals) {
         if (stubGuard == null) {
             throw new IllegalArgumentException("stubGuard");
         }
@@ -352,6 +375,10 @@ public class GameAPIImpl implements GameAPI {
         if (gamevals == null) {
             throw new IllegalArgumentException("gamevals");
         }
+        if (refusals == null) {
+            throw new IllegalArgumentException("refusals");
+        }
+        this.refusals = refusals;
         this.rpc = rpc;
         this.cache = cache;
         this.snapshotSource = snapshotSource;
@@ -1093,7 +1120,9 @@ public class GameAPIImpl implements GameAPI {
                 .name("ww-executor-" + System.nanoTime())
                 .daemon(true)
                 .unstarted(() -> runWalkThenCloseOverlay(
-                        () -> runWalk(() -> w.runExecutor(goal, bridge, moves), moves, lease, publisher, x, y),
+                        () -> runWalkHearingRefusals(bridge,
+                                () -> runWalk(() -> w.runExecutor(goal, bridge, moves), moves, lease,
+                                        publisher, x, y)),
                         overlay));
     }
 
@@ -1117,6 +1146,13 @@ public class GameAPIImpl implements GameAPI {
         return new WorldWalkerCallbackBridge(this, snapSrc, lease.cancel(), events, goal,
                 WorldWalkerCallbackBridge.REQUIREMENT_VARPS,
                 WorldWalkerCallbackBridge.Pacing.system(), overlay::onClick, movement);
+    }
+
+    /** Runs {@code walk} with {@code bridge} hearing every action the agent refuses meanwhile. */
+    private void runWalkHearingRefusals(WorldWalkerCallbackBridge bridge, Runnable walk) {
+        try (ActionRefusalFeed.Subscription _ = refusals.subscribe(bridge::onActionRefused)) {
+            walk.run();
+        }
     }
 
     /** Runs {@code walk}, and closes {@code overlay} however it ends: the lease is gone. */
