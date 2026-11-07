@@ -47,6 +47,15 @@ public class InventoryContainer {
     protected final int interfaceId;
     protected final int componentId;
     /**
+     * The option name routed to the cache-index lookup instead of the live ops. "Use" is
+     * the client's item-selection verb and never one of a component's ops 1..10, and the
+     * action that selects an inventory item for use-on has not been established, so this
+     * keeps the behaviour {@link #interactFirst(int, String)} had for it before the live
+     * lookup, unchanged.
+     */
+    public static final String USE = "Use";
+
+    /**
      * Shared definition cache backing the {@link #itemTypeLookup} closure.
      * Held on the abstraction so subclasses do not introduce hidden state
      * — every container kind (backpack, bank, equipment, future inventories)
@@ -399,21 +408,64 @@ public class InventoryContainer {
      * Drop is not in that list at all, so that lookup clicked a different option or
      * none. One pipe round-trip for the lookup, one for the click.</p>
      *
-     * @return {@code false} when the item isn't present, or no enabled op of its slot has
-     *         that name (including an agent too old to report ops); nothing is sent then
+     * <p><b>Preconditions.</b> The container's interface must be open (for the backpack,
+     * its window), because a closed one does not resolve and its slot has no ops to read.
+     * The agent must have {@code get_component_ops}. Either one missing makes this return
+     * {@code false}; the host logs a WARN naming which, once per connection.</p>
+     *
+     * <p><b>{@code "Use"} is the exception.</b> It is the client's target verb, not one of
+     * the ops 1..10, so the live ops never list it. It is resolved as it was before the
+     * live lookup existed: the name's 1-based position in the item's cache options, sent as
+     * the op. That is not known to select the item for use-on; see {@link #USE}.</p>
+     *
+     * @return {@code false} when the item isn't present, or no listed op of its slot has
+     *         that name (including a closed interface or an agent too old to report ops);
+     *         nothing is sent then
      */
     public boolean interactFirst(int itemId, String option) {
         InventoryItem it = getFirst(itemId);
         if (it == null) {
             return false;
         }
+        if (USE.equalsIgnoreCase(option)) {
+            return interactByCacheIndex(it, option);
+        }
         OptionalInt op = api.getComponentOps(interfaceId, componentId, it.slot()).opNamed(option);
         if (op.isEmpty()) {
-            log.debug("inventory {} slot {}: no enabled op named '{}' on item {}",
+            log.debug("inventory {} slot {}: no listed op named '{}' on item {}",
                     invId, it.slot(), option, itemId);
             return false;
         }
         return interact(it.slot(), op.getAsInt());
+    }
+
+    /**
+     * The pre-live-ops lookup, kept for {@link #USE} only: the option's 1-based position in
+     * the item's cache options, sent as the op. False when the item has no definition or
+     * the name is not in its cache options.
+     */
+    private boolean interactByCacheIndex(InventoryItem it, String option) {
+        ItemType t = lookupType(it.itemId());
+        if (t == null) {
+            return false;
+        }
+        int idx = findOptionIndex(t.inventoryOptions(), option);
+        if (idx < 1) {
+            return false;
+        }
+        return interact(it.slot(), idx);
+    }
+
+    private static int findOptionIndex(List<String> options, String wanted) {
+        if (options == null || wanted == null) {
+            return -1;
+        }
+        for (int i = 0; i < options.size(); ++i) {
+            if (wanted.equalsIgnoreCase(options.get(i))) {
+                return i + 1;
+            }
+        }
+        return -1;
     }
 
     /** Alias for {@link #interactFirst(int, String)}. */

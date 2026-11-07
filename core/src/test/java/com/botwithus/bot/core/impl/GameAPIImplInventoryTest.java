@@ -6,6 +6,7 @@ import com.botwithus.bot.api.gameval.GamevalEntry;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.inventory.Backpack;
+import com.botwithus.bot.api.inventory.InventoryContainer;
 import com.botwithus.bot.api.model.ComponentOp;
 import com.botwithus.bot.api.model.ComponentOps;
 import com.botwithus.bot.api.model.ItemType;
@@ -28,8 +29,10 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -51,6 +54,13 @@ class GameAPIImplInventoryTest {
     private static final int BACKPACK_SLOT_MASK = 0x00EB7D8E;
     private static final int ARROW = 882;
     private static final int ARROW_SLOT = 2;
+    /** "Use" is first in the arrow's cache options, so the old lookup sends op 1. */
+    private static final int USE_CACHE_POSITION = 1;
+    private static final String USE = InventoryContainer.USE;
+    /** The agent dispatcher's refusal for a method it does not have. */
+    private static final String METHOD_NOT_FOUND = "method not found: get_component_ops";
+    /** The handler's refusal for a component that does not resolve (a closed interface). */
+    private static final String OPS_NOT_FOUND = "get_component_ops: not_found";
 
     private RpcClient rpc;
     private StubSnapshot snap;
@@ -279,6 +289,16 @@ class GameAPIImplInventoryTest {
         return Map.of("iface", Backpack.INTERFACE_ID, "comp", Backpack.COMPONENT_ID, "sub", slot);
     }
 
+    /**
+     * An arrow whose cache options name "Drop" (position 2) and "Use" (position 1). A test
+     * that expects nothing sent stubs this, so a silent fallback to the cache position
+     * would send op 2 and fail it.
+     */
+    private void arrowTypeWithDropInTheCache() {
+        itemTypes.put(ARROW, new ItemType(ARROW, "Bronze arrow", false, false, 0, 0, 0, -1, -1,
+                false, List.of(), List.of(USE, "Drop", "Examine"), Map.of()));
+    }
+
     private void arrowInSlotTwo() {
         snap.setInv(Backpack.INVENTORY_ID, 4,
                 items(slot(0, 555, 1), empty(1), slot(ARROW_SLOT, ARROW, 1), empty(3)));
@@ -309,6 +329,7 @@ class GameAPIImplInventoryTest {
     void interactFirstByOption_opNotOnTheSlot_sendsNothing() {
         build();
         arrowInSlotTwo();
+        arrowTypeWithDropInTheCache();
         when(rpc.callSync(eq("get_component_ops"), anyMap())).thenReturn(
                 opsReply(BACKPACK_SLOT_MASK, Map.of(2, "Wield")));
 
@@ -332,16 +353,64 @@ class GameAPIImplInventoryTest {
         verify(rpc).callSync(eq("queue_action"), anyMap());
     }
 
-    /** An agent without get_component_ops refuses it: nothing is clicked, nothing throws. */
+    /**
+     * An agent without get_component_ops refuses it: nothing is clicked, nothing throws, and
+     * the cache list (which does name Drop here) is not used as a fallback.
+     */
     @Test
     void interactFirstByOption_agentRefusesTheOpsCall_sendsNothing() {
         build();
         arrowInSlotTwo();
+        arrowTypeWithDropInTheCache();
         when(rpc.callSync(eq("get_component_ops"), anyMap()))
-                .thenThrow(new RpcRemoteException("get_component_ops", "unknown method"));
+                .thenThrow(new RpcRemoteException("get_component_ops", METHOD_NOT_FOUND));
 
         assertFalse(api.backpack().interactFirst(ARROW, "Drop"));
         verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
+    }
+
+    /** A closed backpack does not resolve: same outcome, no cache fallback. */
+    @Test
+    void interactFirstByOption_backpackClosed_sendsNothing() {
+        build();
+        arrowInSlotTwo();
+        arrowTypeWithDropInTheCache();
+        when(rpc.callSync(eq("get_component_ops"), anyMap()))
+                .thenThrow(new RpcRemoteException("get_component_ops", OPS_NOT_FOUND));
+
+        assertFalse(api.backpack().interactFirst(ARROW, "Drop"));
+        verify(rpc, times(0)).callSync(eq("queue_action"), anyMap());
+    }
+
+    /**
+     * "Use" is the client's target verb, never a listed op, so it keeps the lookup it had
+     * before the live ops: its 1-based position in the cache options, sent as the op, with
+     * no ops read.
+     */
+    @Test
+    void use_sendsTheCachePositionAndReadsNoOps() {
+        build();
+        arrowInSlotTwo();
+        arrowTypeWithDropInTheCache();
+
+        assertTrue(api.backpack().use(ARROW));
+
+        int packed = Interfaces.componentHash(Backpack.INTERFACE_ID, Backpack.COMPONENT_ID);
+        verify(rpc).callSync(eq("queue_action"),
+                eq(Map.of("action_id", 57, "param1", USE_CACHE_POSITION, "param2", ARROW_SLOT,
+                        "param3", packed)));
+        verify(rpc, never()).callSync(eq("get_component_ops"), anyMap());
+    }
+
+    @Test
+    void use_itemWithoutUseInItsCacheOptions_sendsNothing() {
+        build();
+        arrowInSlotTwo();
+        itemTypes.put(ARROW, new ItemType(ARROW, "Bronze arrow", false, false, 0, 0, 0, -1, -1,
+                false, List.of(), List.of("Wield"), Map.of()));
+
+        assertFalse(api.backpack().interactFirst(ARROW, "use"));
+        verify(rpc, never()).callSync(anyString(), anyMap());
     }
 
     @Test

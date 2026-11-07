@@ -158,6 +158,9 @@ class LiveInventoryDropByNameTest {
     /** The pinned item, or the first backpack item whose slot offers Drop. */
     private InventoryItem droppableItem() {
         Optional<Integer> pinned = pinnedItem();
+        pinned.ifPresent(p -> Assumptions.assumeTrue(api.backpack().count(p) > 0,
+                "SKIPPED, not passed: the pinned item " + p + " (" + ITEM_PROPERTY
+                        + ") is not in the backpack"));
         for (InventoryItem it : api.backpack().getItems()) {
             boolean isPinnedOrAny = pinned.map(p -> p == it.itemId()).orElse(true);
             if (isPinnedOrAny && slotOps(it.slot()).opNamed(DROP).isPresent()) {

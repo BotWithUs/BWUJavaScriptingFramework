@@ -211,6 +211,8 @@ public class GameAPIImpl implements GameAPI {
      * index pass {@link GamevalIndex#empty()}, whose lookups all come back empty.
      */
     private final GamevalIndex gamevals;
+    /** One WARN per refusal reason for {@code get_component_ops}, per connection. */
+    private final ComponentOpsRefusals opsRefusals = new ComponentOpsRefusals();
 
     /**
      * Last health reading and the server tick it was taken on, or {@code null}
@@ -937,9 +939,10 @@ public class GameAPIImpl implements GameAPI {
     }
 
     /**
-     * {@code get_component_ops {iface, comp, sub} -> {mask, ops:[{op, name}]}}. A refusal
-     * (an unresolved component, or an agent without the method) is {@link ComponentOps#NONE}
-     * so a by-name click reports "not offered" instead of throwing out of a script loop.
+     * {@code get_component_ops {iface, comp, sub} -> {mask, ops:[{op, name, transmits}]}}. A
+     * refusal (an unresolved component, or an agent without the method) is
+     * {@link ComponentOps#NONE} so a by-name click reports "not offered" instead of throwing
+     * out of a script loop; {@link ComponentOpsRefusals} spends one WARN per reason on it.
      * Only {@link RpcRemoteException} is caught: a dead pipe still propagates.
      */
     @Override
@@ -949,8 +952,7 @@ public class GameAPIImpl implements GameAPI {
             r = rpc.callSync("get_component_ops",
                     Map.of("iface", interfaceId, "comp", componentId, "sub", sub));
         } catch (RpcRemoteException e) {
-            log.debug("get_component_ops {}:{} sub {} refused: {}",
-                    interfaceId, componentId, sub, e.producerMessage());
+            opsRefusals.report(interfaceId, componentId, sub, e.producerMessage());
             return ComponentOps.NONE;
         }
         return decodeComponentOps(r);
