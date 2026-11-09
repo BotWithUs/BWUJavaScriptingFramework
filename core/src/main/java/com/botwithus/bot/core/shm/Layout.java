@@ -618,4 +618,26 @@ public final class Layout {
     public static final int EVT_HEADBAR             = 71;
     public static final int EVT_SPOT_ANIM           = 72;
     public static final int EVT_RADIO_GROUP_SELECT  = 80;
+
+    // ------------------------------------------------------------------
+    // KeyInputBody (Events.h, EVT_KEY_INPUT). 8 bytes, little-endian:
+    //   u32 key; u8 isAlt; u8 isCtrl; u8 isShift; u8 flags;
+    // flags was padding (always 0) before the kKeyFlag* bits existed, so an
+    // older agent decodes to all flags clear. Bits outside the three below
+    // are reserved and ignored, never a reason to drop the event.
+    // ------------------------------------------------------------------
+
+    public static final int KEY_INPUT_KEY_OFFSET   = 0;
+    public static final int KEY_INPUT_ALT_OFFSET   = 4;
+    public static final int KEY_INPUT_CTRL_OFFSET  = 5;
+    public static final int KEY_INPUT_SHIFT_OFFSET = 6;
+    public static final int KEY_INPUT_FLAGS_OFFSET = 7;
+    public static final int KEY_INPUT_BODY_BYTES   = 8;
+
+    /** {@code kKeyFlagSynthetic}: sent by the agent's own key input. */
+    public static final int KEY_FLAG_SYNTHETIC          = 0x01;
+    /** {@code kKeyFlagTextInputFocused}: a text field (chat, prompt, native input) had the keyboard. */
+    public static final int KEY_FLAG_TEXT_INPUT_FOCUSED = 0x02;
+    /** {@code kKeyFlagRepeat}: autorepeat of a key already held. */
+    public static final int KEY_FLAG_REPEAT             = 0x04;
 }

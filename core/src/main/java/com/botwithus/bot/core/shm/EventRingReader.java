@@ -307,14 +307,22 @@ public final class EventRingReader {
     }
 
     private KeyInputEvent decodeKeyInput(long off, int len) {
-        if (len < 8) {
+        if (len < Layout.KEY_INPUT_BODY_BYTES) {
             return null;
         }
-        int key   = ring.get(ValueLayout.JAVA_INT,  off);
-        boolean isAlt   = ring.get(ValueLayout.JAVA_BYTE, off + 4) != 0;
-        boolean isCtrl  = ring.get(ValueLayout.JAVA_BYTE, off + 5) != 0;
-        boolean isShift = ring.get(ValueLayout.JAVA_BYTE, off + 6) != 0;
-        return new KeyInputEvent(key, isAlt, isCtrl, isShift);
+        int key         = ring.get(ValueLayout.JAVA_INT, off + Layout.KEY_INPUT_KEY_OFFSET);
+        boolean isAlt   = readFlagByte(off + Layout.KEY_INPUT_ALT_OFFSET);
+        boolean isCtrl  = readFlagByte(off + Layout.KEY_INPUT_CTRL_OFFSET);
+        boolean isShift = readFlagByte(off + Layout.KEY_INPUT_SHIFT_OFFSET);
+        int flags = ring.get(ValueLayout.JAVA_BYTE, off + Layout.KEY_INPUT_FLAGS_OFFSET);
+        return new KeyInputEvent(key, isAlt, isCtrl, isShift,
+                (flags & Layout.KEY_FLAG_SYNTHETIC) != 0,
+                (flags & Layout.KEY_FLAG_TEXT_INPUT_FOCUSED) != 0,
+                (flags & Layout.KEY_FLAG_REPEAT) != 0);
+    }
+
+    private boolean readFlagByte(long off) {
+        return ring.get(ValueLayout.JAVA_BYTE, off) != 0;
     }
 
     private ActionExecutedEvent decodeActionExecuted(long off, int len) {
