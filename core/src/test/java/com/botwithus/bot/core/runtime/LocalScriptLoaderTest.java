@@ -127,4 +127,21 @@ class LocalScriptLoaderTest {
                 () -> assertTrue(results.get("host-stand-in.jar").diagnostics().isEmpty(),
                         results.get("host-stand-in.jar").diagnostics().toString()));
     }
+
+    @Test
+    void aModuleThatDeclaresAProviderNoneOfWhichLoad_stillCarriesItsDiagnostic() throws Exception {
+        Path dir = scriptsDir();
+        Path work = tmp.resolve("work");
+        Path host = TestModules.hostStandIn(dir, work);
+        TestModules.provider(dir, work, host, TestModules.apiStandIn(dir, work));
+
+        ScriptLoadResult result = byFileName(load(dir)).get("provider.jar");
+
+        assertAll(
+                () -> assertTrue(result.error().orElseThrow().getMessage().contains("declares 'provides BotScript'"),
+                        result.error().orElseThrow().toString()),
+                () -> assertEquals(1, result.diagnostics().size(), result.diagnostics().toString()),
+                () -> assertTrue(result.diagnostics().getFirst().contains("'" + TestModules.PROVIDER + "'"),
+                        result.diagnostics().toString()));
+    }
 }

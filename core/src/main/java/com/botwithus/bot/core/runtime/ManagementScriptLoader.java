@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.ServiceLoader;
+import java.util.stream.Stream;
 
 /**
  * Discovers {@link ManagementScript} implementations from JAR files
@@ -166,16 +167,30 @@ public final class ManagementScriptLoader {
             List<ManagementLoadResult> results = new ArrayList<>();
             for (ManagementScript script : ServiceLoader.load(layer, ManagementScript.class)) {
                 log.info("Loaded: {}", script.getClass().getName());
-                results.add(ManagementLoadResult.success(jar, script, diagnostics));
+                results.add(ManagementLoadResult.success(jar, script));
             }
             if (results.isEmpty()) {
-                return List.of(ManagementLoadResult.failure(jar, new IllegalStateException(
-                        "Module '" + name + "' contains no ManagementScript providers"), diagnostics));
+                results.add(ManagementLoadResult.failure(jar, new IllegalStateException(
+                        "Module '" + name + "' contains no ManagementScript providers")));
             }
-            return results;
+            return withDiagnostics(results, diagnostics);
         } catch (Exception e) {
             log.error("Failed to load module {}: {}", name, e.getMessage());
             return List.of(ManagementLoadResult.failure(jar, e));
         }
+    }
+
+    /**
+     * Adds {@code diagnostics} to every result. This is the single exit of
+     * {@link #loadModuleScripts} once the layer has resolved, so neither the
+     * success nor the no-provider outcome can drop them.
+     */
+    private static List<ManagementLoadResult> withDiagnostics(List<ManagementLoadResult> results,
+                                                              List<String> diagnostics) {
+        return results.stream()
+                .map(result -> new ManagementLoadResult(result.jar(), result.script(), result.error(),
+                        Stream.concat(result.diagnostics().stream(), diagnostics.stream()).toList(),
+                        result.lastModified()))
+                .toList();
     }
 }

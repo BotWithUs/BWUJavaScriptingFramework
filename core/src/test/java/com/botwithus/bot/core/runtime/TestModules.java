@@ -32,7 +32,11 @@ final class TestModules {
     /** A module that depends on nothing of ours. */
     static final String BYSTANDER = "probe.bystander";
 
+    /** A module that reaches into the host and declares a script provider. */
+    static final String PROVIDER = "probe.provider";
+
     private static final String HOST_PACKAGE = "hoststandin";
+    private static final String API_PACKAGE = "com.botwithus.bot.api";
 
     private TestModules() {}
 
@@ -50,6 +54,27 @@ final class TestModules {
     static Path reacher(Path dir, Path work, Path host) throws IOException {
         return moduleInfoOnly(dir.resolve("reacher.jar"), work.resolve("reacher-src"),
                 "module " + REACHER + " { requires " + HostInternalsCheck.HOST_MODULE + "; }", List.of(host));
+    }
+
+    /** A module named like the api, holding a {@code BotScript} that is not the host's. */
+    static Path apiStandIn(Path dir, Path work) throws IOException {
+        Path src = Files.createDirectories(work.resolve("api-src").resolve(API_PACKAGE.replace('.', '/')));
+        Files.writeString(work.resolve("api-src").resolve("module-info.java"),
+                "module " + API_PACKAGE + " { exports " + API_PACKAGE + "; }");
+        Files.writeString(src.resolve("BotScript.java"), "package " + API_PACKAGE + "; public interface BotScript {}");
+        return jar(dir.resolve("api-stand-in.jar"), compile(work.resolve("api-src"), List.of()));
+    }
+
+    /** {@value #PROVIDER}: reaches into the host and declares a {@code BotScript} provider. */
+    static Path provider(Path dir, Path work, Path host, Path api) throws IOException {
+        Path root = work.resolve("provider-src");
+        Path src = Files.createDirectories(root.resolve("probeprovider"));
+        Files.writeString(root.resolve("module-info.java"), "module " + PROVIDER + " { requires "
+                + HostInternalsCheck.HOST_MODULE + "; requires " + API_PACKAGE + "; provides "
+                + API_PACKAGE + ".BotScript with probeprovider.Impl; }");
+        Files.writeString(src.resolve("Impl.java"),
+                "package probeprovider; public class Impl implements " + API_PACKAGE + ".BotScript {}");
+        return jar(dir.resolve("provider.jar"), compile(root, List.of(host, api)));
     }
 
     /** {@value #BYSTANDER}, which requires only a platform module. */

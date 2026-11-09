@@ -37,23 +37,13 @@ public record ManagementLoadResult(Path jar,
 
     /** A loaded management script; reads {@code jar}'s last-modified time now. */
     public static ManagementLoadResult success(Path jar, ManagementScript script) {
-        return success(jar, script, List.of());
-    }
-
-    /** A loaded management script with diagnostics; reads {@code jar}'s last-modified time now. */
-    public static ManagementLoadResult success(Path jar, ManagementScript script, List<String> diagnostics) {
-        return new ManagementLoadResult(jar, Optional.of(script), Optional.empty(), diagnostics,
+        return new ManagementLoadResult(jar, Optional.of(script), Optional.empty(), List.of(),
                 JarLoadOutcome.readLastModified(jar));
     }
 
     /** A management JAR that did not load; reads {@code jar}'s last-modified time now. */
     public static ManagementLoadResult failure(Path jar, Throwable cause) {
-        return failure(jar, cause, List.of());
-    }
-
-    /** A management JAR that did not load, with diagnostics; reads {@code jar}'s last-modified time now. */
-    public static ManagementLoadResult failure(Path jar, Throwable cause, List<String> diagnostics) {
-        return new ManagementLoadResult(jar, Optional.empty(), Optional.of(cause), diagnostics,
+        return new ManagementLoadResult(jar, Optional.empty(), Optional.of(cause), List.of(),
                 JarLoadOutcome.readLastModified(jar));
     }
 }
