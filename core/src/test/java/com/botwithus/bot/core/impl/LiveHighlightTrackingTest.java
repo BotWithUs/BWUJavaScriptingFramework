@@ -13,6 +13,8 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcException;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -159,17 +161,13 @@ class LiveHighlightTrackingTest {
 
     @BeforeAll
     void connect() {
-        List<String> pipes = PipeClient.scanPipes(PipeClient.NAME_PREFIX);
-        Assumptions.assumeFalse(pipes.isEmpty(),
-                "SKIPPED, not passed: no BotWithUs_<pid> pipe visible — nothing was measured. "
-                        + "Inject the agent into a running client.");
-
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
         // The snapshot and the pipe must be the SAME client: this test compares what
         // the snapshot says an NPC did against what the overlay drew for it, and two
         // clients would make that comparison meaningless rather than merely noisy.
-        long pid = SharedRegion.parsePid(pipes.getFirst()).orElseThrow();
+        long pid = agent.pid();
         region = SharedRegion.open(pid);
-        rpc = new RpcClient(new PipeClient(pipes.getFirst()));
+        rpc = new RpcClient(new PipeClient(agent.pipeName()));
         GameAPI api = new GameAPIImpl(rpc);
         draw = api.draw();
 

@@ -12,6 +12,8 @@ import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -48,7 +50,6 @@ import static org.junit.jupiter.api.Assertions.fail;
 class LiveV24FieldsSmokeTest {
 
     private static final Logger log = LoggerFactory.getLogger(LiveV24FieldsSmokeTest.class);
-    private static final String PID_PROPERTY = "botwithus.harness.pid";
     private static final int RUN_ORB = 1465;
     private static final int RUN_ORB_TEXT = 20;
     private static final int MAX_RUN_ENERGY = 100;
@@ -60,9 +61,10 @@ class LiveV24FieldsSmokeTest {
 
     @BeforeAll
     void connect() throws IOException {
-        long pid = targetPid();
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrFail();
+        long pid = agent.pid();
         region = SharedRegion.open(pid);
-        rpc = new RpcClient(new PipeClient(PipeClient.NAME_PREFIX + pid));
+        rpc = new RpcClient(new PipeClient(agent.pipeName()));
         cache = NXTCache.tryOpenFromSystemProperty();
         api = new GameAPIImpl(rpc, cache, () -> new GameSnapshotImpl(region.snapshot()));
         GameSnapshot snap = api.snapshot();
@@ -142,17 +144,5 @@ class LiveV24FieldsSmokeTest {
                 c.parentGlobalRef(), c.text());
         assertTrue(c.isVisibleGlobal(), "the always-shown run-orb text is on screen");
         assertEquals(0, c.hidden(), "v23 read hidden=1 here; v24 must read 0");
-    }
-
-    private static long targetPid() {
-        String pid = System.getProperty(PID_PROPERTY);
-        if (pid != null && !pid.isBlank()) {
-            return Long.parseLong(pid.trim());
-        }
-        List<Long> pids = SharedRegion.discoverPids();
-        if (pids.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible; inject the agent into a running game first");
-        }
-        return pids.getFirst();
     }
 }

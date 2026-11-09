@@ -2,24 +2,23 @@ package com.botwithus.bot.core.rpc;
 
 import com.botwithus.bot.core.impl.MapHelper;
 import com.botwithus.bot.core.pipe.PipeClient;
+import com.botwithus.bot.core.test.LiveAgent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Live smoke test for the RPC handlers added in the stale-RPC fix.
  *
- * <p>Opens the first available {@code BotWithUs_<pid>} pipe and exercises
+ * <p>Opens the agent {@link LiveAgent} selects and exercises
  * the five handlers that were previously stale on the C++ side:
  * {@code get_account_info}, {@code get_current_world},
  * {@code take_screenshot}, {@code start_stream}, {@code stop_stream}.</p>
@@ -37,12 +36,7 @@ class LiveStaleRpcSmokeTest {
     @Test
     @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
     void exercisesNewlyRegisteredHandlers() {
-        List<String> pipes = PipeClient.scanPipes();
-        if (pipes.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible — inject the DLL into a running game first");
-        }
-
-        try (PipeClient pipe = new PipeClient(pipes.get(0))) {
+        try (PipeClient pipe = new PipeClient(LiveAgent.attachOrFail().pipeName())) {
             RpcClient rpc = new RpcClient(pipe);
 
             Map<String, Object> methods = rpc.callSync("rpc.list_methods", Map.of());
