@@ -191,12 +191,21 @@ public final class ShellPreview extends Application {
         /** Advanced mode on the Connections page over {@code model}, then {@code onFrame}. */
         static Scenario connections(String name, Supplier<FixtureConnectionsModel> model,
                                     BiConsumer<Stage, Integer> onFrame) {
+            return connections(name, FixtureBoard::everyState, model, onFrame);
+        }
+
+        /**
+         * As above, over {@code board}, which drives the status bar. A scene whose
+         * page shows nothing connected needs a board that agrees, or the status bar
+         * claims a fleet the page does not have.
+         */
+        static Scenario connections(String name, Supplier<FixtureBoard> board, Supplier<FixtureConnectionsModel> model,
+                                    BiConsumer<Stage, Integer> onFrame) {
             BiConsumer<Stage, Integer> onPage = (s, f) -> {
                 s.pages().registry().select(PageId.CONNECTIONS);
                 onFrame.accept(s, f);
             };
-            return new Scenario(name, AppMode.ADVANCED, FixtureBoard::everyState, FixtureStoreModel::signedIn, model,
-                    onPage);
+            return new Scenario(name, AppMode.ADVANCED, board, FixtureStoreModel::signedIn, model, onPage);
         }
     }
 
@@ -431,6 +440,7 @@ public final class ShellPreview extends Application {
                 new Scenario("03b-clients-13-running", FixtureBoard::thirteenClients,
                         (s, f) -> PreviewSeams.showRunning(s.page())),
                 new Scenario("04-no-clients-yet", FixtureBoard::waiting, nothing),
+                new Scenario("04b-no-clients-yet-dev-run", FixtureBoard::waitingDevRun, nothing),
                 new Scenario("05a-restart-not-responding", () -> FixtureBoard.restart(RestartStep.NOT_RESPONDING),
                         nothing),
                 new Scenario("05b-restart-closed-new-pipe-identifying",
@@ -693,7 +703,9 @@ public final class ShellPreview extends Application {
                         selectConnection(FixtureConnectionsModel.QUILL_PIPE)),
                 Scenario.connections("87-connections-problems-output-filtered",
                         () -> FixtureConnectionsModel.busy().filteredToFernmoss(),
-                        (s, f) -> ConnectionsPreviewSeams.showFilter(s.pages().connections(), RowFilter.PROBLEMS)));
+                        (s, f) -> ConnectionsPreviewSeams.showFilter(s.pages().connections(), RowFilter.PROBLEMS)),
+                Scenario.connections("88-connections-dev-run-auto-connect-off", FixtureBoard::waitingDevRun,
+                        FixtureConnectionsModel::devRunAutoConnectOff, nothing));
     }
 
     /** Selects the Connections row with {@code id}, opening its detail pane. */
@@ -866,6 +878,12 @@ public final class ShellPreview extends Application {
                         ShellPreview::settingsSaving),
                 Scenario.advanced("51-settings-save-failed", FixtureBoard::everyState,
                         ShellPreview::settingsSaveFailed),
+                Scenario.advanced("54-settings-connecting-dev-run", FixtureBoard::waitingDevRun, (s, f) -> {
+                    if (f == 0) {
+                        s.pages().settingsModel().showDevRun();
+                    }
+                    settingsAt(SettingsSection.CONNECTING).accept(s, f);
+                }),
                 Scenario.advanced("53-settings-text-size-125", FixtureBoard::everyState, (s, f) -> {
                     s.pages().registry().select(PageId.SETTINGS);
                     if (f == 0) {

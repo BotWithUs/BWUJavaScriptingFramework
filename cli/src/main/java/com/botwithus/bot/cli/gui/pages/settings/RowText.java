@@ -12,7 +12,8 @@ import java.util.Optional;
 
 /**
  * The left half of a settings row: the label, the one-line description wrapped
- * to fit with the config key after it in mono, and a refused value's reason in
+ * to fit with the config key after it in mono, a run note in the info colour
+ * when this run does not use the saved value, and a refused value's reason in
  * the danger colour. Measured before it is drawn so the row can be sized and
  * its control centred beside it.
  */
@@ -28,6 +29,7 @@ final class RowText {
     private final Controls ui;
     private final String label;
     private final List<Line> lines;
+    private final List<String> noteLines;
     private final List<String> errorLines;
 
     /**
@@ -35,14 +37,24 @@ final class RowText {
      * @param error the reason a value was refused, if one was
      */
     RowText(Controls ui, String label, String description, String key, Optional<String> error, float width) {
+        this(ui, label, description, key, Optional.empty(), error, width);
+    }
+
+    /**
+     * @param note how the setting applies in this run, when that differs from
+     *             what is saved; worded to stand on its own without the colour
+     */
+    RowText(Controls ui, String label, String description, String key, Optional<String> note,
+            Optional<String> error, float width) {
         this.ui = ui;
         this.label = label;
         this.lines = layout(ui, description, key, width);
+        this.noteLines = note.map(n -> ui.wrap(ui.fonts().caption(), n, width)).orElse(List.of());
         this.errorLines = error.map(e -> ui.wrap(ui.fonts().caption(), e, width)).orElse(List.of());
     }
 
     float height() {
-        return labelLine() + captionLine() * (lines.size() + errorLines.size());
+        return labelLine() + captionLine() * (lines.size() + noteLines.size() + errorLines.size());
     }
 
     /** Draws the block with its top-left at (x, y). */
@@ -56,6 +68,10 @@ final class RowText {
                 float kx = line.text().isEmpty() ? x : x + ui.width(caption, line.text() + SPACE);
                 ui.text(draw, ui.fonts().monoCaption(), kx, cy, ImGuiTheme.COL_FG3, line.key());
             }
+            cy += captionLine();
+        }
+        for (String line : noteLines) {
+            ui.text(draw, caption, x, cy, ImGuiTheme.COL_INFO, line);
             cy += captionLine();
         }
         for (String line : errorLines) {

@@ -5,6 +5,7 @@ import com.botwithus.bot.cli.alerts.Integrations;
 import com.botwithus.bot.cli.alerts.SecretChange;
 import com.botwithus.bot.cli.gui.nav.SecondLine;
 import com.botwithus.bot.cli.settings.HostSettings;
+import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.alerts.AlertService;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.rpc.RpcClient;
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
 
@@ -66,10 +68,19 @@ public final class LiveSettingsModel implements SettingsModel {
      * @param connections  the open connections, read when metrics are reset
      * @param integrations the alert services, once the host has started its alerts
      * @param microphone   the remembered microphone decisions per script
+     * @param autoConnectForcedOff whether this process keeps auto-connect off
+     *                     whatever the setting says (a developer run)
      */
     public record Host(HostSettings settings, Optional<ScriptProfileStore> profiles,
                        Supplier<List<Connection>> connections, Supplier<Optional<Integrations>> integrations,
-                       MicrophoneDecisions microphone) {
+                       MicrophoneDecisions microphone, BooleanSupplier autoConnectForcedOff) {
+
+        /** A host that uses its saved auto-connect setting. */
+        public Host(HostSettings settings, Optional<ScriptProfileStore> profiles,
+                    Supplier<List<Connection>> connections, Supplier<Optional<Integrations>> integrations,
+                    MicrophoneDecisions microphone) {
+            this(settings, profiles, connections, integrations, microphone, () -> false);
+        }
 
         /** A host with no microphone decisions to list. */
         public Host(HostSettings settings, Optional<ScriptProfileStore> profiles,
@@ -86,6 +97,9 @@ public final class LiveSettingsModel implements SettingsModel {
 
     static final Duration ACCOUNTS_REFRESH = Duration.ofSeconds(2);
     static final String ALERTS_NOT_RUNNING = "Alerts are not running, so nothing was saved";
+    /** Under the Auto-connect row in a developer run, where the saved setting is not acted on. */
+    static final String DEV_RUN_AUTO_CONNECT = "In this run: off. This is a developer run (gradlew :cli:run), "
+            + "which never connects on its own. The switch is what a normal start will use.";
 
     private static final Logger log = LoggerFactory.getLogger(LiveSettingsModel.class);
     private static final DateTimeFormatter EXPORT_STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
@@ -123,8 +137,15 @@ public final class LiveSettingsModel implements SettingsModel {
     public SettingsView view() {
         SettingsSheet.Inputs inputs = new SettingsSheet.Inputs(accounts(), folder(places.dataFolder()),
                 folder(places.scriptsFolder()), file(settings.file()), windowsPercent.getAsInt(), note,
-                host.integrations().get(), host.microphone().rows());
+                host.integrations().get(), host.microphone().rows(), runNotes());
         return SettingsSheet.build(settings, settings.status(), inputs);
+    }
+
+    /** Settings this run does not apply as saved, with how it applies them instead. */
+    private Map<String, String> runNotes() {
+        return host.autoConnectForcedOff().getAsBoolean()
+                ? Map.of(SettingKeys.AUTO_CONNECT.name(), DEV_RUN_AUTO_CONNECT)
+                : Map.of();
     }
 
     @Override

@@ -40,12 +40,26 @@ public final class SettingsSheet {
      */
     public record Inputs(List<AccountRow> accounts, String dataFolder, String scriptsFolder, String configFile,
                          int windowsPercent, Optional<ActionNote> note, Optional<Integrations> integrations,
-                         List<MicrophoneRow> microphone) {
+                         List<MicrophoneRow> microphone, Map<String, String> runNotes) {
 
+        /**
+         * @param runNotes by setting name, how a setting applies in this run when
+         *                 that differs from what is saved (a developer run keeping
+         *                 auto-connect off, for one)
+         */
         public Inputs {
             accounts = List.copyOf(accounts);
             Objects.requireNonNull(integrations, "integrations");
             microphone = List.copyOf(microphone);
+            runNotes = Map.copyOf(runNotes);
+        }
+
+        /** Inputs whose every setting applies as saved. */
+        public Inputs(List<AccountRow> accounts, String dataFolder, String scriptsFolder, String configFile,
+                      int windowsPercent, Optional<ActionNote> note, Optional<Integrations> integrations,
+                      List<MicrophoneRow> microphone) {
+            this(accounts, dataFolder, scriptsFolder, configFile, windowsPercent, note, integrations, microphone,
+                    Map.of());
         }
 
         /** Inputs for a host with no microphone decisions to list. */
@@ -77,9 +91,9 @@ public final class SettingsSheet {
         if (section == SettingsSection.INTEGRATIONS) {
             // Its plain rows sit among its cards, grid and quiet hours, so it places them itself.
             return IntegrationsSheet.items(settings, in.integrations(),
-                    placement -> keyRow(placement, settings, in.windowsPercent()));
+                    placement -> keyRow(placement, settings, in));
         }
-        List<SettingsItem> items = new ArrayList<>(keyRows(section, settings, in.windowsPercent()));
+        List<SettingsItem> items = new ArrayList<>(keyRows(section, settings, in));
         switch (section) {
             case RECONNECTING -> items.add(new SettingsItem.WaitPreview(
                     ReconnectPreview.of(ReconnectPolicySettings.read(settings))));
@@ -103,18 +117,19 @@ public final class SettingsSheet {
         return items;
     }
 
-    private static List<SettingsItem> keyRows(SettingsSection section, HostSettings settings, int windowsPercent) {
+    private static List<SettingsItem> keyRows(SettingsSection section, HostSettings settings, Inputs in) {
         List<SettingsItem> rows = new ArrayList<>();
         for (Placement placement : SettingsLayout.in(section)) {
-            rows.add(keyRow(placement, settings, windowsPercent));
+            rows.add(keyRow(placement, settings, in));
         }
         return rows;
     }
 
-    private static SettingsItem keyRow(Placement placement, HostSettings settings, int windowsPercent) {
+    private static SettingsItem keyRow(Placement placement, HostSettings settings, Inputs in) {
         SettingKey<?> key = placement.key();
         return new SettingsItem.KeyRow(key.name(), key.label(), placement.description(),
-                controlFor(key, settings.text(key), placement.unit(), windowsPercent), settings.isExplicit(key));
+                controlFor(key, settings.text(key), placement.unit(), in.windowsPercent()), settings.isExplicit(key),
+                Optional.ofNullable(in.runNotes().get(key.name())));
     }
 
     /**

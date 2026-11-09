@@ -73,6 +73,10 @@ public class ConnectCommand implements Command {
                 }
                 case "reconnect", "rc" -> {
                     String name = ctx.getActiveConnectionName();
+                    if (name == null) {
+                        yield CommandResult.error("No active connection to reconnect. "
+                                + "Use 'connect <pipe>' to choose one, or 'connect list' to see them.");
+                    }
                     ctx.disconnect(null);
                     ctx.connect(name);
                     yield CommandResult.ok();

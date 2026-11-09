@@ -84,6 +84,7 @@ public final class FixtureConnectionsModel implements ConnectionsModel {
     private final Map<String, List<ScriptChip>> scripts = new HashMap<>();
     private final Map<String, List<String>> groups = new HashMap<>();
     private boolean isAutoConnect = true;
+    private boolean isAutoConnectForcedOff;
     private boolean isScanning;
     private Optional<String> consoleTarget = Optional.of(OAK_PIPE);
     private Optional<String> outputFilter = Optional.empty();
@@ -125,6 +126,26 @@ public final class FixtureConnectionsModel implements ConnectionsModel {
         model.clients.removeIf(c -> c.pipe().equals(Optional.of(QUILL_PIPE)) || c.pipe().equals(Optional.of(ASH_PIPE)));
         model.found.add(0, new FoundPipe(QUILL_PIPE, Optional.of("Quillon"), inGame(117, false)));
         model.found.add(1, new FoundPipe(ASH_PIPE, Optional.of("Ashgrove"), inGame(84, true)));
+        return model;
+    }
+
+    /**
+     * A developer run ({@code gradlew :cli:run}) as it actually stands: the
+     * saved setting says auto-connect is on, but the process keeps it off, so
+     * every client on the machine is only <em>found</em> and none is connected.
+     * The header reads "Auto-connect: off (dev run)" with the switch disabled.
+     * No connected or reconnecting rows, because a dev run reaches those only if
+     * the developer connects by hand, and the scene would otherwise read as the
+     * dev run having attached them.
+     */
+    public static FixtureConnectionsModel devRunAutoConnectOff() {
+        FixtureConnectionsModel model = new FixtureConnectionsModel();
+        model.isAutoConnectForcedOff = true;
+        model.found.add(new FoundPipe(OAK_PIPE, Optional.of("Oakheart"), inGame(84, true)));
+        model.found.add(new FoundPipe(FERN_PIPE, Optional.of("Fernmoss"), inGame(2, true)));
+        model.found.add(new FoundPipe(QUILL_PIPE, Optional.of("Quillon"), inGame(117, false)));
+        model.found.add(new FoundPipe(ASH_PIPE, Optional.of("Ashgrove"), inGame(84, true)));
+        model.found.add(new FoundPipe(UNKNOWN_PIPE, Optional.empty(), GameStatus.UNKNOWN));
         return model;
     }
 
@@ -211,7 +232,8 @@ public final class FixtureConnectionsModel implements ConnectionsModel {
         clients.forEach(c -> c.pipe().ifPresent(held::add));
         ConnectionRows.Reading reading = new ConnectionRows.Reading(clients, found, held, stats, consoleTarget,
                 outputFilter, droppedAt, now);
-        return new ConnectionsView(ConnectionRows.build(reading), isAutoConnect, false, "BotWithUs",
+        return new ConnectionsView(ConnectionRows.build(reading), isAutoConnect && !isAutoConnectForcedOff,
+                isAutoConnectForcedOff, "BotWithUs",
                 Duration.ofMillis(SCAN_EVERY_MS), isScanning, Optional.empty());
     }
 

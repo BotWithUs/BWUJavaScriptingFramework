@@ -98,7 +98,7 @@ final class SettingsRows {
 
     private float keyRow(SettingsItem.KeyRow row, float x, float y, float width, SettingsModel model) {
         String id = ROW_ID + row.name();
-        RowText text = new RowText(ui, row.label(), row.description(), row.name(), edits.error(id),
+        RowText text = new RowText(ui, row.label(), row.description(), row.name(), row.runNote(), edits.error(id),
                 textWidth(width));
         Slot slot = layOut(text, x, y, width, ui.m().controlHeight());
         control(row, id, slot, model);

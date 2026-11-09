@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.alerts.SecretChange;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.PreviewSettings;
 import com.botwithus.bot.cli.settings.SaveStatus;
+import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.alerts.AlertService;
 import com.botwithus.bot.core.secrets.Secret;
 
@@ -46,10 +47,20 @@ public final class FixtureSettingsModel implements SettingsModel {
             new MicrophoneRow("com.example.probe/com.example.probe.LocationProbe", "Location Probe", false)));
     private SaveStatus status = new SaveStatus.Saved(Instant.now());
     private Optional<ActionNote> note = Optional.empty();
+    private Map<String, String> runNotes = Map.of();
 
     /** The alert services behind the Integrations section, for a scenario to set up. */
     public FixtureIntegrations integrations() {
         return integrations;
+    }
+
+    /**
+     * Shows the page as a developer run ({@code gradlew :cli:run}) sees it: the
+     * Auto-connect row carries the same run note the live host shows, because
+     * the process keeps auto-connect off whatever the switch says.
+     */
+    public void showDevRun() {
+        this.runNotes = Map.of(SettingKeys.AUTO_CONNECT.name(), LiveSettingsModel.DEV_RUN_AUTO_CONNECT);
     }
 
     /** What the header reports from now on. */
@@ -61,7 +72,7 @@ public final class FixtureSettingsModel implements SettingsModel {
     public SettingsView view() {
         SettingsSheet.Inputs inputs = new SettingsSheet.Inputs(accounts, "~/.botwithus/", "scripts/",
                 "~/.botwithus/config.properties", WINDOWS_PERCENT, note, Optional.of(integrations.live()),
-                microphone);
+                microphone, runNotes);
         return SettingsSheet.build(settings, status, inputs);
     }
 
