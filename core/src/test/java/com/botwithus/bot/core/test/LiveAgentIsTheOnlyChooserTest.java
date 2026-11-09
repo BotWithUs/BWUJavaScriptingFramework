@@ -60,6 +60,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       strings are stripped. Reflection is banned in this codebase anyway.</li>
  *   <li>The pure {@code AgentPin.keeping(predicate, scanner)} over a scanner the
  *       caller wrote itself: whatever that scanner lists is the caller's own.</li>
+ *   <li>The body of a predicate an allowed call names. The allowance pins
+ *       {@code AgentPin.scannerKeeping(this::isLaunchedHere)} by the method's
+ *       <em>name</em>; widening {@code isLaunchedHere} to {@code return true}
+ *       would make {@code LauncherLiveTest}'s auto-connect keep every agent, and
+ *       this guard would not see it. Review that method as part of any change
+ *       to it.</li>
  *   <li>A script module registered through {@code additionalScripts.txt} at a
  *       nested path: only top-level modules are walked. None exists today.</li>
  *   <li>Test code in the {@code main} set of a module not listed in
@@ -82,6 +88,8 @@ class LiveAgentIsTheOnlyChooserTest {
             "\\bconnectingToEveryAgent\\b"));
 
     private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    private static final Pattern NOT_NEWLINE = Pattern.compile("[^\\n]");
+    private static final int TEXT_BLOCK_QUOTES = 3;
 
     /** A unicode escape as javac reads it: a backslash, one or more {@code u}s, four hex digits. */
     private static final Pattern UNICODE_ESCAPE = Pattern.compile("\\\\u+([0-9a-fA-F]{4})");
@@ -103,12 +111,15 @@ class LiveAgentIsTheOnlyChooserTest {
             "core/src/test/java/com/botwithus/bot/core/test/LiveAgentIsTheOnlyChooserTest.java";
 
     /**
-     * One chooser call that a file may make, pinned to the exact line it is on,
-     * as this guard sees the line: trimmed, comments removed, string contents
-     * emptied to {@code ""}. Pinning to the line, not just the call's name, is
-     * what stops a spare allowance from covering a different call: removing an
-     * allowed call and adding another in the same edit leaves the count
-     * unchanged, but the new line matches no allowance.
+     * One chooser call that a file may make, pinned to the exact line it is on:
+     * trimmed, comments removed, <em>string contents kept</em>. Pinning to the
+     * line, not just the call's name, is what stops a spare allowance from
+     * covering a different call: removing an allowed call and adding another in
+     * the same edit leaves the count unchanged, but the new line matches no
+     * allowance. Keeping the strings matters because an allowance's reason can
+     * live in its argument: {@code LauncherScopeLiveTest} may scan the launcher's
+     * service pipes, and the same call with an agent prefix is the very call
+     * this guard bans.
      */
     record Allowance(String call, String line) {
 
@@ -144,7 +155,8 @@ class LiveAgentIsTheOnlyChooserTest {
             "cli/src/test/java/com/botwithus/bot/cli/LauncherLiveTest.java", List.of(
                     new Allowance("scannerKeeping", "AgentPin.scannerKeeping(this::isLaunchedHere));")),
             "core/src/test/java/com/botwithus/bot/core/launcher/LauncherScopeLiveTest.java", List.of(
-                    new Allowance("scanPipes", "List<String> real = PipeClient.scanPipes(\"\").stream()")));
+                    new Allowance("scanPipes",
+                            "List<String> real = PipeClient.scanPipes(\"bwu_svc_auto_\").stream()")));
 
     @Test
     void noTestSourceOutsideTheSelectorChoosesAClient() throws IOException {
@@ -266,6 +278,27 @@ class LiveAgentIsTheOnlyChooserTest {
     }
 
     /**
+     * The reviewer's plant P8: {@code LauncherScopeLiveTest}'s allowed scan keeps
+     * its shape but its prefix changes from the launcher's service pipes to the
+     * agent prefix, turning the allowed call into the exact call this guard
+     * bans. The allowance pins the string, so the changed call is disallowed and
+     * the allowance is left unspent.
+     */
+    @Test
+    void allowance_pinsStringArguments_soAChangedPrefixIsCaught() {
+        String scope = "core/src/test/java/com/botwithus/bot/core/launcher/LauncherScopeLiveTest.java";
+        String allowed = wrap("List<String> real = PipeClient.scanPipes(\"bwu_svc_auto_\").stream()");
+        String agentPrefix = wrap("List<String> real = PipeClient.scanPipes(\"BotWithUs_\").stream()");
+
+        assertEquals(List.of(), disallowedCalls(scope, allowed));
+        assertEquals(List.of(), unspentAllowances(scope, allowed));
+        assertEquals(List.of("scanPipes"), disallowedCalls(scope, agentPrefix), "the agent-prefix scan");
+        assertEquals(List.of(new Allowance("scanPipes",
+                        "List<String> real = PipeClient.scanPipes(\"bwu_svc_auto_\").stream()")),
+                unspentAllowances(scope, agentPrefix), "the service-pipe scan it replaced");
+    }
+
+    /**
      * The fourth-round hole, as the reviewer planted it: one of {@code
      * LiveAgent}'s entry points stops listing pipes and, in the same edit, a
      * new direct {@code AgentPin.visiblePipes()} appears. The count is unchanged
@@ -337,9 +370,13 @@ class LiveAgentIsTheOnlyChooserTest {
     /** Each chooser call in {@code source}: its leading identifier and its line, as the guard sees it. */
     private static List<Call> chooserCalls(String source) {
         String decoded = UNICODE_ESCAPE.matcher(source).replaceAll(LiveAgentIsTheOnlyChooserTest::decodeEscape);
-        String code = NOT_CODE.matcher(decoded).replaceAll(LiveAgentIsTheOnlyChooserTest::blankOut);
-        return CHOOSER.matcher(code).results()
-                .map(match -> new Call(callName(match), lineAround(code, match.start())))
+        // Two views with identical layout: matching runs where strings are blanked too, so a
+        // string can neither hide nor fake a call; the line an allowance pins comes from the
+        // view that keeps strings, so an allowed call's arguments are part of what is pinned.
+        String matchable = NOT_CODE.matcher(decoded).replaceAll(match -> blankOut(match, false));
+        String pinnable = NOT_CODE.matcher(decoded).replaceAll(match -> blankOut(match, true));
+        return CHOOSER.matcher(matchable).results()
+                .map(match -> new Call(callName(match), lineAround(pinnable, match.start())))
                 .toList();
     }
 
@@ -359,9 +396,28 @@ class LiveAgentIsTheOnlyChooserTest {
         return Matcher.quoteReplacement(Character.toString(Integer.parseInt(match.group(1), HEX)));
     }
 
-    /** Keeps an emptied string a string, so the code around it still parses as code. */
-    private static String blankOut(MatchResult match) {
-        return match.group().startsWith("\"") ? "\"\"" : " ";
+    /**
+     * Blanks a comment or literal without moving anything: every character but a
+     * newline becomes a space, so an offset in one view is the same place in the
+     * other. Comments always go. A literal keeps its quotes, so the code around it
+     * still reads as code ({@code new PipeClient("x")} must not become an empty
+     * argument list), and keeps its contents too when {@code keepStrings}.
+     */
+    private static String blankOut(MatchResult match, boolean keepStrings) {
+        String text = match.group();
+        if (text.startsWith("/")) {
+            return blank(text);
+        }
+        if (keepStrings) {
+            return Matcher.quoteReplacement(text);
+        }
+        int quote = text.startsWith("\"\"\"") ? TEXT_BLOCK_QUOTES : 1;
+        String inner = text.substring(quote, text.length() - quote);
+        return Matcher.quoteReplacement(text.substring(0, quote) + blank(inner) + text.substring(text.length() - quote));
+    }
+
+    private static String blank(String text) {
+        return NOT_NEWLINE.matcher(text).replaceAll(" ");
     }
 
     private static String wrap(String statement) {

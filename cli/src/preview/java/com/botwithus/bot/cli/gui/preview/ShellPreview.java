@@ -191,12 +191,21 @@ public final class ShellPreview extends Application {
         /** Advanced mode on the Connections page over {@code model}, then {@code onFrame}. */
         static Scenario connections(String name, Supplier<FixtureConnectionsModel> model,
                                     BiConsumer<Stage, Integer> onFrame) {
+            return connections(name, FixtureBoard::everyState, model, onFrame);
+        }
+
+        /**
+         * As above, over {@code board}, which drives the status bar. A scene whose
+         * page shows nothing connected needs a board that agrees, or the status bar
+         * claims a fleet the page does not have.
+         */
+        static Scenario connections(String name, Supplier<FixtureBoard> board, Supplier<FixtureConnectionsModel> model,
+                                    BiConsumer<Stage, Integer> onFrame) {
             BiConsumer<Stage, Integer> onPage = (s, f) -> {
                 s.pages().registry().select(PageId.CONNECTIONS);
                 onFrame.accept(s, f);
             };
-            return new Scenario(name, AppMode.ADVANCED, FixtureBoard::everyState, FixtureStoreModel::signedIn, model,
-                    onPage);
+            return new Scenario(name, AppMode.ADVANCED, board, FixtureStoreModel::signedIn, model, onPage);
         }
     }
 
@@ -695,7 +704,7 @@ public final class ShellPreview extends Application {
                 Scenario.connections("87-connections-problems-output-filtered",
                         () -> FixtureConnectionsModel.busy().filteredToFernmoss(),
                         (s, f) -> ConnectionsPreviewSeams.showFilter(s.pages().connections(), RowFilter.PROBLEMS)),
-                Scenario.connections("88-connections-dev-run-auto-connect-off",
+                Scenario.connections("88-connections-dev-run-auto-connect-off", FixtureBoard::waitingDevRun,
                         FixtureConnectionsModel::devRunAutoConnectOff, nothing));
     }
 
@@ -869,7 +878,7 @@ public final class ShellPreview extends Application {
                         ShellPreview::settingsSaving),
                 Scenario.advanced("51-settings-save-failed", FixtureBoard::everyState,
                         ShellPreview::settingsSaveFailed),
-                Scenario.advanced("54-settings-connecting-dev-run", FixtureBoard::everyState, (s, f) -> {
+                Scenario.advanced("54-settings-connecting-dev-run", FixtureBoard::waitingDevRun, (s, f) -> {
                     if (f == 0) {
                         s.pages().settingsModel().showDevRun();
                     }
