@@ -246,24 +246,25 @@ public final class LocalScriptLoader {
                     List.of()));
         }
 
+        List<String> diagnostics = List.of();
         try {
             Configuration cfg = bootLayer.configuration().resolve(
                     finder, ModuleFinder.of(), Collections.singleton(name));
-            List<String> diagnostics = HostInternalsCheck.inspect(cfg,
-                    HostInternalsCheck.stagedJarOf(staged), log::warn).stream()
+            diagnostics = HostInternalsCheck.inspect(cfg, name, HostInternalsCheck.stagedJarOf(staged), log::warn)
                     .map(HostInternalsCheck.Reach::message)
+                    .stream()
                     .toList();
             return withDiagnostics(defineAndLoad(ref, cfg, bootLayer, jar), diagnostics);
         } catch (Exception e) {
             log.error("Failed to load module {}: {}", name, e.getMessage(), e);
-            return List.of(ScriptLoadResult.failure(jar, e, List.of()));
+            return withDiagnostics(List.of(ScriptLoadResult.failure(jar, e, List.of())), diagnostics);
         }
     }
 
     /**
-     * Adds {@code diagnostics} to every result. This is the single exit of
-     * {@link #loadOneModule} once the layer has resolved, so no return path
-     * inside {@link #defineAndLoad} can drop them.
+     * Adds {@code diagnostics} to every result. Every outcome of
+     * {@link #loadOneModule} after resolution passes through here, whether
+     * {@link #defineAndLoad} returns or throws, so none of them can drop them.
      */
     private static List<ScriptLoadResult> withDiagnostics(List<ScriptLoadResult> results,
                                                           List<String> diagnostics) {

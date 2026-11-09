@@ -3,6 +3,7 @@ package com.botwithus.bot.core.runtime;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.LayerInstantiationException;
 import java.lang.module.FindException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -126,6 +127,47 @@ class LocalScriptLoaderTest {
                         results.get("bystander.jar").diagnostics().toString()),
                 () -> assertTrue(results.get("host-stand-in.jar").diagnostics().isEmpty(),
                         results.get("host-stand-in.jar").diagnostics().toString()));
+    }
+
+    /**
+     * Each JAR is resolved against every staged JAR, and resolving one automatic
+     * module pulls in all of them. Only the JAR being loaded may be reported
+     * against itself: one finding per reaching JAR, never one per pair.
+     */
+    @Test
+    void severalPlainJars_eachIsReportedOnce_andOnlyAgainstItself() throws Exception {
+        Path dir = scriptsDir();
+        Path a = TestJars.plain(dir, "plain-a.jar", OLDER);
+        Path b = TestJars.plain(dir, "plain-b.jar", OLDER);
+        TestJars.plain(dir, HostInternalsCheck.HOST_MODULE + ".jar", OLDER);
+
+        Map<String, ScriptLoadResult> results = byFileName(load(dir));
+
+        List<String> ofA = results.get("plain-a.jar").diagnostics();
+        List<String> ofB = results.get("plain-b.jar").diagnostics();
+        assertAll(
+                () -> assertEquals(1, ofA.size(), ofA.toString()),
+                () -> assertTrue(ofA.getFirst().contains(a.toString()), ofA.toString()),
+                () -> assertEquals(1, ofB.size(), ofB.toString()),
+                () -> assertTrue(ofB.getFirst().contains(b.toString()), ofB.toString()),
+                () -> assertEquals(2, results.values().stream().mapToInt(r -> r.diagnostics().size()).sum(),
+                        "one finding per reaching JAR"));
+    }
+
+    /** A layer that resolves but then fails to define still reports what the check found. */
+    @Test
+    void aLayerThatFailsToDefineAfterResolving_stillCarriesItsDiagnostic() throws Exception {
+        Path dir = scriptsDir();
+        Path work = tmp.resolve("work");
+        TestModules.splitPackage(dir, work, TestModules.hostStandIn(dir, work));
+
+        ScriptLoadResult result = byFileName(load(dir)).get("split.jar");
+
+        assertAll(
+                () -> assertInstanceOf(LayerInstantiationException.class, result.error().orElseThrow()),
+                () -> assertEquals(1, result.diagnostics().size(), result.diagnostics().toString()),
+                () -> assertTrue(result.diagnostics().getFirst().contains("'" + TestModules.SPLIT + "'"),
+                        result.diagnostics().toString()));
     }
 
     @Test

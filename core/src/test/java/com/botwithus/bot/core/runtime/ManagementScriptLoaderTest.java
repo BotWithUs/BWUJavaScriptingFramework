@@ -3,6 +3,7 @@ package com.botwithus.bot.core.runtime;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.LayerInstantiationException;
 import java.lang.module.FindException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -81,5 +82,42 @@ class ManagementScriptLoaderTest {
                 () -> assertTrue(message.contains(reacher.toString()), message),
                 () -> assertTrue(byName.get("bystander.jar").diagnostics().isEmpty(),
                         byName.get("bystander.jar").diagnostics().toString()));
+    }
+
+    /** One finding per reaching JAR, reported only against that JAR. */
+    @Test
+    void severalPlainJars_eachIsReportedOnce_andOnlyAgainstItself() throws Exception {
+        Path dir = Files.createDirectories(ManagementScriptLoader.managementDirIn(tmp.resolve("scripts")));
+        Path a = TestJars.plain(dir, "plain-a.jar", MODIFIED);
+        TestJars.plain(dir, "plain-b.jar", MODIFIED);
+        TestJars.plain(dir, HostInternalsCheck.HOST_MODULE + ".jar", MODIFIED);
+
+        Map<String, ManagementLoadResult> byName = byFileName(load(dir));
+
+        List<String> ofA = byName.get("plain-a.jar").diagnostics();
+        assertAll(
+                () -> assertEquals(1, ofA.size(), ofA.toString()),
+                () -> assertTrue(ofA.getFirst().contains(a.toString()), ofA.toString()),
+                () -> assertEquals(2, byName.values().stream().mapToInt(r -> r.diagnostics().size()).sum(),
+                        "one finding per reaching JAR"));
+    }
+
+    /** A layer that resolves but then fails to define still reports what the check found. */
+    @Test
+    void aLayerThatFailsToDefineAfterResolving_stillCarriesItsDiagnostic() throws Exception {
+        Path dir = Files.createDirectories(ManagementScriptLoader.managementDirIn(tmp.resolve("scripts")));
+        Path work = tmp.resolve("work");
+        TestModules.splitPackage(dir, work, TestModules.hostStandIn(dir, work));
+
+        ManagementLoadResult result = byFileName(load(dir)).get("split.jar");
+
+        assertAll(
+                () -> assertInstanceOf(LayerInstantiationException.class, result.error().orElseThrow()),
+                () -> assertEquals(1, result.diagnostics().size(), result.diagnostics().toString()));
+    }
+
+    private static Map<String, ManagementLoadResult> byFileName(ManagementLoadReport report) {
+        return report.results().stream().collect(Collectors.toMap(
+                r -> r.jar().getFileName().toString(), Function.identity()));
     }
 }

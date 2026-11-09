@@ -92,7 +92,7 @@ final class SdnBundleProviders {
                                                                   Consumer<String> warn) {
         Configuration cf = parent.configuration()
                 .resolveAndBind(module.finder(), ModuleFinder.of(), Set.of(module.name()));
-        HostInternalsCheck.inspect(cf, resolved -> resolved.reference().location()
+        HostInternalsCheck.inspect(cf, module.name(), resolved -> resolved.reference().location()
                 .map(location -> DELIVERED_JAR + " (" + location + ")")
                 .orElse(DELIVERED_JAR), warn);
         ModuleLayer layer = ModuleLayer.defineModules(cf, List.of(parent), name -> loader).layer();

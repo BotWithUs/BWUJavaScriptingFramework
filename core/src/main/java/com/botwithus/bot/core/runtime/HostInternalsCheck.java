@@ -2,29 +2,37 @@ package com.botwithus.bot.core.runtime;
 
 import java.lang.module.Configuration;
 import java.lang.module.ModuleDescriptor;
+import java.lang.module.ModuleDescriptor.Requires;
 import java.lang.module.ResolvedModule;
 import java.nio.file.Path;
-import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
 /**
- * Finds the script modules that can reach into the host's internals, and says so.
+ * Finds a script module that can reach into the host's internals, and says so.
  *
  * <p>Every script layer resolves against the boot layer, which is how a script
  * sees {@code api}, {@code quest} and {@code skilling}. The host module,
  * {@value #HOST_MODULE}, is in that layer too, and most of its packages are
  * exported to everyone, so a script that reads it can use the host's own
- * transports and runtime. A future release will narrow those exports, and a
- * script that uses them will then fail to load. This check is how the host
- * learns which scripts that will be before it happens.</p>
+ * transports and runtime. A future release will narrow what the host module
+ * exposes, and a script that depends on it will then fail to load. This check
+ * is how the host learns which scripts that will be before it happens. It is
+ * advisory: it reports, it does not refuse.</p>
  *
  * <p>It works from the resolved {@link Configuration} alone: descriptors and the
  * readability graph, before any class is loaded. That is what lets it see a
  * script that reads the host module without naming it, through a module that
  * re-exports it. What it cannot see is which of the host's packages a script
  * actually uses; a descriptor does not record that.</p>
+ *
+ * <p>Only the module being loaded is inspected. A loader resolves each JAR
+ * against every staged JAR, so the configuration also holds that module's
+ * dependencies, and resolving one automatic module pulls in every other one.
+ * Reporting those too would repeat each finding once per JAR and attach it to
+ * a JAR its author did not build.</p>
  *
  * <p>Every loader that defines a script layer calls {@link #inspect} on the
  * configuration it is about to define, so the check lives here once.</p>
@@ -35,8 +43,9 @@ final class HostInternalsCheck {
     static final String HOST_MODULE = "com.botwithus.bot.core";
 
     private static final String CONSEQUENCE = " This script reaches into host internals;"
-            + " a future release will refuse to load it. Scripts should depend only on"
-            + " com.botwithus.bot.api, com.botwithus.bot.quest and com.botwithus.bot.skilling.";
+            + " a future release will refuse to load it. Scripts should depend on"
+            + " com.botwithus.bot.api, com.botwithus.bot.quest and com.botwithus.bot.skilling"
+            + " (and libraries such as imgui.binding), never on " + HOST_MODULE + ".";
 
     private HostInternalsCheck() {}
 
@@ -44,19 +53,20 @@ final class HostInternalsCheck {
     enum Route {
         /** Its descriptor says {@code requires com.botwithus.bot.core}. */
         DIRECT,
-        /** It requires a module that re-exports the host module ({@code requires transitive}). */
+        /** It requires a module that passes the host module on ({@code requires transitive}). */
         REEXPORTED,
         /** It has no module descriptor, so it reads every module, the host's included. */
         AUTOMATIC
     }
 
     /**
-     * One script module that reads the host module.
+     * The script module being loaded, which reads the host module.
      *
      * @param module the script module's name
      * @param jar    where it came from, as the user knows it
      * @param route  how it reads the host module
-     * @param via    for {@link Route#REEXPORTED}, the modules that re-export it; else empty
+     * @param via    for {@link Route#REEXPORTED}, the modules the script itself requires
+     *               that pass the host module on to it; else empty
      */
     record Reach(String module, String jar, Route route, List<String> via) {
 
@@ -68,7 +78,8 @@ final class HostInternalsCheck {
         String message() {
             String how = switch (route) {
                 case DIRECT -> "requires " + HOST_MODULE;
-                case REEXPORTED -> "reads " + HOST_MODULE + " through " + String.join(", ", via);
+                case REEXPORTED -> "reads " + HOST_MODULE + " through its dependency on "
+                        + String.join(", ", via);
                 case AUTOMATIC -> "has no module-info, so it reads every module including "
                         + HOST_MODULE + " (whether it uses it cannot be told from here)";
             };
@@ -77,24 +88,20 @@ final class HostInternalsCheck {
     }
 
     /**
-     * Reports every module {@code configuration} defines that reads the host module.
-     *
-     * <p>Only the configuration's own modules are inspected, never its parents',
-     * so the host's own modules are never reported.</p>
+     * Reports {@code root} if it reads the host module.
      *
      * @param configuration the configuration a script layer is about to be defined from
+     * @param root          the module being loaded; its dependencies are not reported
      * @param jarOf         names the jar a resolved module came from, for the message
-     * @param warn          receives one message per module found
-     * @return what was found, in the order it was reported
+     * @param warn          receives the message when {@code root} is reported
+     * @return the finding, or empty when {@code root} does not read the host module
      */
-    static List<Reach> inspect(Configuration configuration, Function<ResolvedModule, String> jarOf,
-                               Consumer<String> warn) {
-        List<Reach> found = configuration.modules().stream()
+    static Optional<Reach> inspect(Configuration configuration, String root,
+                                   Function<ResolvedModule, String> jarOf, Consumer<String> warn) {
+        Optional<Reach> found = configuration.findModule(root)
                 .filter(HostInternalsCheck::readsHost)
-                .map(module -> reachOf(module, jarOf.apply(module)))
-                .sorted(Comparator.comparing(Reach::module))
-                .toList();
-        found.forEach(reach -> warn.accept(reach.message()));
+                .map(module -> reachOf(module, jarOf.apply(module)));
+        found.ifPresent(reach -> warn.accept(reach.message()));
         return found;
     }
 
@@ -119,21 +126,33 @@ final class HostInternalsCheck {
         if (descriptor.isAutomatic()) {
             return new Reach(module.name(), jar, Route.AUTOMATIC, List.of());
         }
-        if (requiresHost(descriptor, false)) {
+        if (descriptor.requires().stream().anyMatch(requires -> requires.name().equals(HOST_MODULE))) {
             return new Reach(module.name(), jar, Route.DIRECT, List.of());
         }
-        List<String> via = module.reads().stream()
-                .filter(read -> requiresHost(read.reference().descriptor(), true))
-                .map(ResolvedModule::name)
+        List<String> via = descriptor.requires().stream()
+                .map(Requires::name)
+                .filter(name -> readsOneThatPassesHostOn(module, name))
                 .sorted()
                 .toList();
         return new Reach(module.name(), jar, Route.REEXPORTED, via);
     }
 
-    private static boolean requiresHost(ModuleDescriptor descriptor, boolean isTransitiveOnly) {
-        return descriptor.requires().stream()
-                .filter(requires -> requires.name().equals(HOST_MODULE))
-                .anyMatch(requires -> !isTransitiveOnly
-                        || requires.modifiers().contains(ModuleDescriptor.Requires.Modifier.TRANSITIVE));
+    /**
+     * Whether a module that reads {@code module} reads the host module because
+     * of it: {@code module} requires the host transitively, directly or through
+     * a chain of transitive requires. The resolver refuses cycles, so this ends.
+     */
+    private static boolean passesHostOn(ResolvedModule module) {
+        return module.reference().descriptor().requires().stream()
+                .filter(requires -> requires.modifiers().contains(Requires.Modifier.TRANSITIVE))
+                .anyMatch(requires -> requires.name().equals(HOST_MODULE)
+                        || readsOneThatPassesHostOn(module, requires.name()));
+    }
+
+    /** Whether {@code module} reads a module called {@code name} that passes the host module on. */
+    private static boolean readsOneThatPassesHostOn(ResolvedModule module, String name) {
+        return module.reads().stream()
+                .filter(read -> read.name().equals(name))
+                .anyMatch(HostInternalsCheck::passesHostOn);
     }
 }

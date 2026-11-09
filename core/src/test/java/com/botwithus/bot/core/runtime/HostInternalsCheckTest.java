@@ -34,6 +34,10 @@ class HostInternalsCheckTest {
     private static final String SKILLING = "com.botwithus.bot.skilling";
     private static final String CLI = "com.botwithus.bot.cli";
     private static final String SCRIPT = "probe.script";
+    private static final String HOP1 = "probe.hop1";
+    private static final String HOP2 = "probe.hop2";
+    private static final Set<ModuleDescriptor.Requires.Modifier> TRANSITIVE =
+            Set.of(ModuleDescriptor.Requires.Modifier.TRANSITIVE);
     private static final Function<ResolvedModule, String> JAR_OF = module -> module.name() + ".jar";
 
     /** The host's own modules: api, quest and skilling re-export api; cli re-exports the host. */
@@ -87,8 +91,40 @@ class HostInternalsCheckTest {
         assertAll(
                 () -> assertEquals(HostInternalsCheck.Route.REEXPORTED, found.getFirst().route()),
                 () -> assertEquals(List.of(CLI), found.getFirst().via()),
-                () -> assertTrue(found.getFirst().message().contains("through " + CLI),
+                () -> assertTrue(found.getFirst().message().contains("through its dependency on " + CLI),
                         found.getFirst().message()));
+    }
+
+    /** Two hops: the message names the module the script required, not the one deep in the chain. */
+    @Test
+    void inspect_aReexportTwoHopsDeep_namesTheModuleTheScriptItselfRequired() {
+        ModuleDescriptor hop1 = ModuleDescriptor.newModule(HOP1).requires(TRANSITIVE, HOST).build();
+        ModuleDescriptor hop2 = ModuleDescriptor.newModule(HOP2).requires(TRANSITIVE, HOP1).build();
+        Configuration child = resolve(hostConfiguration(), List.of(script(HOP2), hop1, hop2), SCRIPT);
+
+        Optional<HostInternalsCheck.Reach> found = HostInternalsCheck.inspect(child, SCRIPT, JAR_OF, message -> { });
+
+        assertEquals(Optional.of(List.of(HOP2)), found.map(HostInternalsCheck.Reach::via));
+    }
+
+    /**
+     * The configuration also holds the module's dependencies. One that reads the
+     * host is reported when it is loaded itself, never against a module that
+     * merely depends on it.
+     */
+    @Test
+    void inspect_aDependencyThatReadsTheHost_isNotReportedAgainstTheModuleBeingLoaded() {
+        ModuleDescriptor library = ModuleDescriptor.newModule(HOP1).requires(HOST).build();
+        Configuration child = resolve(hostConfiguration(), List.of(script(HOP1), library), SCRIPT);
+        List<String> warned = new ArrayList<>();
+
+        Optional<HostInternalsCheck.Reach> found = HostInternalsCheck.inspect(child, SCRIPT, JAR_OF, warned::add);
+
+        assertAll(
+                () -> assertTrue(found.isEmpty(), found.toString()),
+                () -> assertTrue(warned.isEmpty(), warned.toString()),
+                () -> assertTrue(HostInternalsCheck.inspect(child, HOP1, JAR_OF, message -> { }).isPresent(),
+                        "the library itself is reported when it is the module being loaded"));
     }
 
     /** An automatic module reads everything, the host included, without saying so. */
@@ -108,7 +144,7 @@ class HostInternalsCheckTest {
         Configuration parent = hostConfiguration();
         Configuration child = resolve(parent, List.of(script(API)), SCRIPT);
 
-        List<HostInternalsCheck.Reach> found = HostInternalsCheck.inspect(child, JAR_OF, message -> { });
+        Optional<HostInternalsCheck.Reach> found = HostInternalsCheck.inspect(child, SCRIPT, JAR_OF, message -> { });
 
         assertTrue(found.isEmpty(), found.toString());
     }
@@ -126,7 +162,7 @@ class HostInternalsCheckTest {
     /** Resolves {@code script} against the host's modules, as a script layer resolves against the boot layer. */
     private static List<HostInternalsCheck.Reach> inspect(ModuleDescriptor script, List<String> warned) {
         Configuration child = resolve(hostConfiguration(), List.of(script), SCRIPT);
-        return HostInternalsCheck.inspect(child, JAR_OF, warned::add);
+        return HostInternalsCheck.inspect(child, SCRIPT, JAR_OF, warned::add).stream().toList();
     }
 
     private static Configuration hostConfiguration() {

@@ -35,7 +35,11 @@ final class TestModules {
     /** A module that reaches into the host and declares a script provider. */
     static final String PROVIDER = "probe.provider";
 
+    /** A module that reaches into the host and resolves, but whose layer cannot be defined. */
+    static final String SPLIT = "probe.split";
+
     private static final String HOST_PACKAGE = "hoststandin";
+    private static final String SPLIT_PACKAGE = "dup";
     private static final String API_PACKAGE = "com.botwithus.bot.api";
 
     private TestModules() {}
@@ -52,7 +56,7 @@ final class TestModules {
 
     /** {@value #REACHER}, compiled against {@code host}. */
     static Path reacher(Path dir, Path work, Path host) throws IOException {
-        return moduleInfoOnly(dir.resolve("reacher.jar"), work.resolve("reacher-src"),
+        return buildModule(dir.resolve("reacher.jar"), work.resolve("reacher-src"),
                 "module " + REACHER + " { requires " + HostInternalsCheck.HOST_MODULE + "; }", List.of(host));
     }
 
@@ -79,11 +83,35 @@ final class TestModules {
 
     /** {@value #BYSTANDER}, which requires only a platform module. */
     static Path bystander(Path dir, Path work) throws IOException {
-        return moduleInfoOnly(dir.resolve("bystander.jar"), work.resolve("bystander-src"),
+        return buildModule(dir.resolve("bystander.jar"), work.resolve("bystander-src"),
                 "module " + BYSTANDER + " { requires java.sql; }", List.of());
     }
 
-    private static Path moduleInfoOnly(Path jar, Path src, String moduleInfo, List<Path> modulePath)
+    /**
+     * {@value #SPLIT}, which reaches into the host and resolves, but whose layer
+     * cannot be defined: it and a module it reaches only indirectly both contain
+     * package {@code dup}, and one class loader cannot define a package twice.
+     * The other two JARs are written beside it.
+     */
+    static Path splitPackage(Path dir, Path work, Path host) throws IOException {
+        Path other = withClass(dir.resolve("other.jar"), work.resolve("other-src"),
+                "module probe.other { }", "Other", List.of());
+        Path middle = buildModule(dir.resolve("middle.jar"), work.resolve("middle-src"),
+                "module probe.middle { requires probe.other; }", List.of(other));
+        return withClass(dir.resolve("split.jar"), work.resolve("split-src"),
+                "module " + SPLIT + " { requires " + HostInternalsCheck.HOST_MODULE + "; requires probe.middle; }",
+                "Split", List.of(host, middle, other));
+    }
+
+    private static Path withClass(Path jar, Path src, String moduleInfo, String className, List<Path> modulePath)
+            throws IOException {
+        Path pkg = Files.createDirectories(src.resolve(SPLIT_PACKAGE));
+        Files.writeString(pkg.resolve(className + ".java"),
+                "package " + SPLIT_PACKAGE + "; public class " + className + " {}");
+        return buildModule(jar, src, moduleInfo, modulePath);
+    }
+
+    private static Path buildModule(Path jar, Path src, String moduleInfo, List<Path> modulePath)
             throws IOException {
         Files.createDirectories(src);
         Files.writeString(src.resolve("module-info.java"), moduleInfo);
