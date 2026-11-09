@@ -39,7 +39,7 @@ import java.util.function.IntFunction;
  * negative.</p>
  *
  * <p>Threading: event handlers run on the bus thread; {@link #current()} can
- * be called from any thread (the router task runs on the script's virtual
+ * be called from any thread (the router task runs on the script's runner
  * thread). The cache is a {@link ConcurrentHashMap} and the snapshot
  * exposed through {@link QuestState} is an immutable copy, so reads never
  * see a partial update.</p>
