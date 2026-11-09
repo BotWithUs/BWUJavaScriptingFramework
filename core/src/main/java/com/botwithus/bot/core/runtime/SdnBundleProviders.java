@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * Finds the providers of a service in one delivered SDN jar.
@@ -32,10 +33,17 @@ import java.util.Set;
  * modes. A service lookup also walks the parent layers and loaders, and a
  * provider found there is not this jar's, so crediting it to the jar would pair
  * the wrong script with the jar's catalogue entry.
+ *
+ * <p>A module layer is checked with {@link HostInternalsCheck} before it is
+ * defined, as a local script's is. A jar with no descriptor cannot be: its
+ * unnamed module reads every module, so nothing short of reading its classes
+ * says whether it uses the host's internals.
  */
 final class SdnBundleProviders {
 
     private static final Logger log = LoggerFactory.getLogger(SdnBundleProviders.class);
+
+    private static final String DELIVERED_JAR = "an SDN delivery";
 
     private SdnBundleProviders() {
     }
@@ -63,16 +71,30 @@ final class SdnBundleProviders {
      */
     static <S> List<ServiceLoader.Provider<S>> providers(ClassLoader loader, Optional<SdnModule> module,
                                                          ModuleLayer parent, Class<S> service) {
+        return providers(loader, module, parent, service, message -> log.warn("SDN: {}", message));
+    }
+
+    /**
+     * As {@link #providers(ClassLoader, Optional, ModuleLayer, Class)}, with the
+     * {@link HostInternalsCheck} warnings sent to {@code warn}.
+     */
+    static <S> List<ServiceLoader.Provider<S>> providers(ClassLoader loader, Optional<SdnModule> module,
+                                                         ModuleLayer parent, Class<S> service,
+                                                         Consumer<String> warn) {
         if (module.isPresent()) {
-            return fromModule(loader, module.get(), parent, service);
+            return fromModule(loader, module.get(), parent, service, warn);
         }
         return fromUnnamed(loader, service);
     }
 
     private static <S> List<ServiceLoader.Provider<S>> fromModule(ClassLoader loader, SdnModule module,
-                                                                  ModuleLayer parent, Class<S> service) {
+                                                                  ModuleLayer parent, Class<S> service,
+                                                                  Consumer<String> warn) {
         Configuration cf = parent.configuration()
                 .resolveAndBind(module.finder(), ModuleFinder.of(), Set.of(module.name()));
+        HostInternalsCheck.inspect(cf, resolved -> resolved.reference().location()
+                .map(location -> DELIVERED_JAR + " (" + location + ")")
+                .orElse(DELIVERED_JAR), warn);
         ModuleLayer layer = ModuleLayer.defineModules(cf, List.of(parent), name -> loader).layer();
         List<ServiceLoader.Provider<S>> found = ServiceLoader.load(layer, service).stream()
                 .filter(provider -> provider.type().getModule().getLayer() == layer)

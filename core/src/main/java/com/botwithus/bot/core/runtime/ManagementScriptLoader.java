@@ -155,6 +155,10 @@ public final class ManagementScriptLoader {
             URL jarURL = location.get().toURL();
             Configuration cfg = bootLayer.configuration().resolve(
                     finder, ModuleFinder.of(), Collections.singleton(name));
+            List<String> diagnostics = HostInternalsCheck.inspect(cfg,
+                    HostInternalsCheck.stagedJarOf(staged), log::warn).stream()
+                    .map(HostInternalsCheck.Reach::message)
+                    .toList();
             URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
             previousLoaders.add(classLoader);
             ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
@@ -162,11 +166,11 @@ public final class ManagementScriptLoader {
             List<ManagementLoadResult> results = new ArrayList<>();
             for (ManagementScript script : ServiceLoader.load(layer, ManagementScript.class)) {
                 log.info("Loaded: {}", script.getClass().getName());
-                results.add(ManagementLoadResult.success(jar, script));
+                results.add(ManagementLoadResult.success(jar, script, diagnostics));
             }
             if (results.isEmpty()) {
                 return List.of(ManagementLoadResult.failure(jar, new IllegalStateException(
-                        "Module '" + name + "' contains no ManagementScript providers")));
+                        "Module '" + name + "' contains no ManagementScript providers"), diagnostics));
             }
             return results;
         } catch (Exception e) {

@@ -17,6 +17,7 @@ import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -126,6 +127,40 @@ class SdnBundleProvidersTest {
         try (ContractLoader loader = new ContractLoader(emptyJar())) {
             assertEquals(Optional.empty(), SdnLoader.moduleOf(loader));
         }
+    }
+
+    @Test
+    void modularJar_thatRequiresTheHost_isReportedToTheWarningSink() throws Exception {
+        Path jars = dir.resolve("reach-jars");
+        Path work = dir.resolve("reach-work");
+        Path host = TestModules.hostStandIn(jars, work);
+        Path reacher = TestModules.reacher(jars, work, host);
+        ModuleFinder finder = ModuleFinder.of(reacher, host);
+        SdnModule module = new SdnModule(finder.find(TestModules.REACHER).orElseThrow().descriptor(), finder);
+        List<String> warned = new ArrayList<>();
+
+        try (ContractLoader loader = new ContractLoader(reacher)) {
+            SdnBundleProviders.providers(loader, Optional.of(module), ModuleLayer.boot(), Runnable.class,
+                    warned::add);
+        }
+
+        assertEquals(1, warned.size(), warned.toString());
+        assertAll(
+                () -> assertTrue(warned.getFirst().contains("'" + TestModules.REACHER + "'"), warned.getFirst()),
+                () -> assertTrue(warned.getFirst().contains("an SDN delivery"), warned.getFirst()));
+    }
+
+    @Test
+    void modularJar_thatRequiresNothingOfTheHost_isNotReported() throws Exception {
+        Path jar = modularJar();
+        List<String> warned = new ArrayList<>();
+
+        try (ContractLoader loader = new ContractLoader(jar)) {
+            SdnBundleProviders.providers(loader, Optional.of(moduleOf(jar)), ModuleLayer.boot(), Runnable.class,
+                    warned::add);
+        }
+
+        assertTrue(warned.isEmpty(), warned.toString());
     }
 
     // Fixtures -------------------------------------------------------------

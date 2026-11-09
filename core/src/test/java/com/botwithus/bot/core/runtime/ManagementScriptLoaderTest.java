@@ -7,6 +7,7 @@ import java.lang.module.FindException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
@@ -59,5 +60,26 @@ class ManagementScriptLoaderTest {
                         .contains("no ManagementScript providers")),
                 () -> assertInstanceOf(FindException.class,
                         byName.get("half-written.jar").error().orElseThrow()));
+    }
+
+    @Test
+    void aModuleThatRequiresTheHost_carriesADiagnosticNamingItAndItsSourceJar() throws Exception {
+        Path dir = Files.createDirectories(ManagementScriptLoader.managementDirIn(tmp.resolve("scripts")));
+        Path work = tmp.resolve("work");
+        Path host = TestModules.hostStandIn(dir, work);
+        Path reacher = TestModules.reacher(dir, work, host);
+        TestModules.bystander(dir, work);
+
+        Map<String, ManagementLoadResult> byName = load(dir).results().stream().collect(Collectors.toMap(
+                r -> r.jar().getFileName().toString(), Function.identity()));
+
+        List<String> diagnostics = byName.get("reacher.jar").diagnostics();
+        assertEquals(1, diagnostics.size(), diagnostics.toString());
+        String message = diagnostics.getFirst();
+        assertAll(
+                () -> assertTrue(message.contains("'" + TestModules.REACHER + "'"), message),
+                () -> assertTrue(message.contains(reacher.toString()), message),
+                () -> assertTrue(byName.get("bystander.jar").diagnostics().isEmpty(),
+                        byName.get("bystander.jar").diagnostics().toString()));
     }
 }

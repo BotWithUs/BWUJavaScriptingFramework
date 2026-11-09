@@ -249,6 +249,10 @@ public final class LocalScriptLoader {
             URL jarURL = ref.location().get().toURL();
             Configuration cfg = bootLayer.configuration().resolve(
                     finder, ModuleFinder.of(), Collections.singleton(name));
+            List<String> diagnostics = HostInternalsCheck.inspect(cfg,
+                    HostInternalsCheck.stagedJarOf(staged), log::warn).stream()
+                    .map(HostInternalsCheck.Reach::message)
+                    .toList();
             URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
             previousLoaders.add(classLoader);
             ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
@@ -257,7 +261,7 @@ public final class LocalScriptLoader {
             if (module.isEmpty()) {
                 return List.of(ScriptLoadResult.failure(jar,
                         new IllegalStateException("Module " + name + " not found in defined layer"),
-                        List.of()));
+                        diagnostics));
             }
 
             boolean providesBotScript = module.get().getDescriptor().provides().stream()
@@ -267,19 +271,19 @@ public final class LocalScriptLoader {
             ServiceLoader<BotScript> loader = ServiceLoader.load(layer, BotScript.class);
             for (BotScript script : loader) {
                 log.info("Loaded: {}", script.getClass().getName());
-                results.add(ScriptLoadResult.success(jar, script, List.of()));
+                results.add(ScriptLoadResult.success(jar, script, diagnostics));
             }
 
             if (results.isEmpty() && providesBotScript) {
                 String msg = "Module '" + name
                         + "' declares 'provides BotScript' but ServiceLoader found 0 implementations";
                 log.warn(msg);
-                return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), List.of()));
+                return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), diagnostics));
             }
             if (results.isEmpty()) {
                 String msg = "Module '" + name + "' contains no BotScript providers";
                 log.info(msg);
-                return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), List.of()));
+                return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), diagnostics));
             }
             return results;
         } catch (Exception e) {
