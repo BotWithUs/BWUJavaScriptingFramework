@@ -4,6 +4,7 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.OpenInterface;
 import com.botwithus.bot.core.shm.Layout;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
@@ -15,7 +16,6 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -37,14 +37,13 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * Every open interface is logged as {@code id(type,cs2)} either way.</p>
  *
  * <p>Disabled by default; opt in with {@code -Dbotwithus.smoke.live=true}.
- * {@code -Dbotwithus.harness.pid=<pid>} pins the client; without it the first
- * visible agent is used.</p>
+ * The client is chosen by {@link LiveAgent}: {@code -Dbotwithus.harness.pid=<pid>} pins
+ * it, and without that only a lone visible agent is used.</p>
  */
 class LiveOpenInterfacesSmokeTest {
 
     private static final Logger log = LoggerFactory.getLogger(LiveOpenInterfacesSmokeTest.class);
 
-    private static final String PID_PROPERTY = "botwithus.harness.pid";
     private static final String EXPECT_PROPERTY = "botwithus.live.expectOpenIfaces";
     private static final String EXPECT_TYPES_PROPERTY = "botwithus.live.expectOpenIfaceTypes";
 
@@ -54,7 +53,7 @@ class LiveOpenInterfacesSmokeTest {
     @Test
     @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
     void openInterfaceListIsCompleteInGame() {
-        try (SharedRegion region = openTarget()) {
+        try (SharedRegion region = SharedRegion.open(LiveAgent.attachOrFail().pid())) {
             GameSnapshot snap = new GameSnapshotImpl(region.snapshot());
             int count = snap.openInterfaceCount();
             int total = snap.openInterfaceTotal();
@@ -115,17 +114,5 @@ class LiveOpenInterfacesSmokeTest {
             log.info("expected open interface {}: open={}", id, snap.isInterfaceOpen(id));
             assertTrue(snap.isInterfaceOpen(id), "interface " + id + " was expected to be open");
         }
-    }
-
-    private static SharedRegion openTarget() {
-        String pid = System.getProperty(PID_PROPERTY);
-        if (pid != null && !pid.isBlank()) {
-            return SharedRegion.open(Long.parseLong(pid.trim()));
-        }
-        Optional<SharedRegion> first = SharedRegion.openFirstAvailable();
-        if (first.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible; inject the agent into a running game first");
-        }
-        return first.orElseThrow();
     }
 }

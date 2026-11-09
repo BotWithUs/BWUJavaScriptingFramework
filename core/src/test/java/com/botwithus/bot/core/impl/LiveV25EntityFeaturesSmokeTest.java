@@ -16,6 +16,8 @@ import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -53,7 +55,6 @@ import static org.junit.jupiter.api.Assertions.fail;
 class LiveV25EntityFeaturesSmokeTest {
 
     private static final Logger log = LoggerFactory.getLogger(LiveV25EntityFeaturesSmokeTest.class);
-    private static final String PID_PROPERTY = "botwithus.harness.pid";
     private static final String WALKS_PROPERTY = "botwithus.live.walks";
 
     private static final int WALK_ACTION = 23;
@@ -85,9 +86,10 @@ class LiveV25EntityFeaturesSmokeTest {
 
     @BeforeAll
     void connect() throws IOException {
-        long pid = targetPid();
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrFail();
+        long pid = agent.pid();
         region = SharedRegion.open(pid);
-        rpc = new RpcClient(new PipeClient(PipeClient.NAME_PREFIX + pid));
+        rpc = new RpcClient(new PipeClient(agent.pipeName()));
         api = new GameAPIImpl(rpc, null, () -> new GameSnapshotImpl(region.snapshot()));
         assertEquals(GameSnapshot.GAME_STATE_IN_GAME, api.snapshot().gameState(), "must be in the world");
     }
@@ -318,17 +320,5 @@ class LiveV25EntityFeaturesSmokeTest {
             Thread.sleep(POLL_MS);
         }
         fail("did not " + what + " within " + timeout);
-    }
-
-    private static long targetPid() {
-        String pid = System.getProperty(PID_PROPERTY);
-        if (pid != null && !pid.isBlank()) {
-            return Long.parseLong(pid.trim());
-        }
-        List<Long> pids = SharedRegion.discoverPids();
-        if (pids.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible; inject the agent into a running game first");
-        }
-        return pids.getFirst();
     }
 }

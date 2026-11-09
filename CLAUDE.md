@@ -89,6 +89,20 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 ./gradlew test --tests "com.botwithus.SomeTest.methodName"  # Run a single test
 ```
 
+### Live tests choose their client through `LiveAgent`
+
+A `Live*` test drives a real character, and the integration harness runs beside a
+person's own game. Every live test therefore picks its agent with
+`core/src/test/.../test/LiveAgent` (`attachOrFail()` / `attachOrSkip()`), never by
+scanning pipes: with `-Dbotwithus.harness.pid=<pid>` it attaches to that pid's pipe
+or fails (no fallback), and without it it attaches only to a lone visible agent and
+fails when two or more are up. `core/build.gradle.kts` forwards the property to every
+`Test` task. `LiveAgentIsTheOnlyChooserTest` fails the build if any non-`main` source
+set in any module calls `scanPipes` / `openFirstAvailable` / `discoverPids` /
+`firstAvailableOrThrow` (method references included), `new PipeClient()`,
+`connect(null)` or `JBotApplication.main`. It cannot see a production class that scans
+behind an ordinary constructor (`AutoStartManager`); fix those at the source.
+
 ### Publishing `bot-api` and `bot-test-support`
 
 `api` and `test-support` are the published modules (`bot-api`, `bot-test-support`), always released together at one version: the test-support POM depends on `bot-api` at that same version. They go to **`BotWithUs/maven`** — a static Maven tree served over GitHub Pages at `https://botwithus.github.io/maven` — not to GitHub Packages, which demands a token even to *read* a public artifact and would put a PAT setup step in front of every third-party script author.

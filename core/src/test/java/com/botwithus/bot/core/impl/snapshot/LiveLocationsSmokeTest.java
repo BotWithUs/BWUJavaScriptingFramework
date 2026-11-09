@@ -6,19 +6,18 @@ import com.botwithus.bot.api.snapshot.Location;
 import com.botwithus.bot.api.snapshot.LocationFilter;
 import com.botwithus.bot.core.shm.Layout;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Phase B live smoke test: binds to a running NXTLibrary producer via the
@@ -27,9 +26,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <p>Disabled by default — opt in with
  * {@code -Dbotwithus.smoke.live=true}. Requires the NXTLibrary DLL to be
- * injected into a running game client; the test discovers the pid by
- * scanning for {@code BotWithUs_<pid>} pipes via
- * {@link SharedRegion#openFirstAvailable()}.</p>
+ * injected into a running game client, chosen by {@link LiveAgent}.</p>
  */
 class LiveLocationsSmokeTest {
 
@@ -46,12 +43,7 @@ class LiveLocationsSmokeTest {
     @Test
     @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
     void readsLocationsFromLiveProducer() {
-        Optional<SharedRegion> maybeRegion = SharedRegion.openFirstAvailable();
-        if (maybeRegion.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible — inject the DLL into a running game first");
-        }
-
-        try (SharedRegion region = maybeRegion.orElseThrow()) {
+        try (SharedRegion region = SharedRegion.open(LiveAgent.attachOrFail().pid())) {
             GameSnapshot snap = new GameSnapshotImpl(region.snapshot());
 
             int count = snap.locations().count();

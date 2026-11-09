@@ -8,6 +8,8 @@ import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -91,11 +93,10 @@ class LiveFreeToPlayWalkTest {
 
     @BeforeAll
     void connect() {
-        List<String> pipes = PipeClient.scanPipes(PipeClient.NAME_PREFIX);
-        Assumptions.assumeFalse(pipes.isEmpty(), "SKIPPED, not passed: no agent pipe visible");
-        long pid = SharedRegion.parsePid(pipes.getFirst()).orElseThrow();
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        long pid = agent.pid();
         region = SharedRegion.open(pid);
-        rpc = new RpcClient(new PipeClient(pipes.getFirst()));
+        rpc = new RpcClient(new PipeClient(agent.pipeName()));
         api = new RecordingApi(rpc, () -> new GameSnapshotImpl(region.snapshot()));
         GameSnapshot snap = api.snapshot();
         Assumptions.assumeTrue(snap != null && snap.gameState() == GAME_STATE_IN_GAME,

@@ -14,21 +14,20 @@ import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
-import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Live smoke test for ISC handler teardown: a stopped script must stop handling
@@ -115,12 +114,9 @@ class LiveIscTeardownSmokeTest {
     @Test
     @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
     void stoppedScriptStopsHandlingIscMessages() throws Exception {
-        List<String> pipes = PipeClient.scanPipes();
-        if (pipes.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible — inject the DLL into a running game first");
-        }
-        String pipeName = pipes.getFirst();
-        long pid = SharedRegion.parsePid(pipeName).orElseThrow();
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrFail();
+        String pipeName = agent.pipeName();
+        long pid = agent.pid();
         log.info("Connected to {} (pid={})", pipeName, pid);
 
         try (PipeClient pipe = new PipeClient(pipeName)) {

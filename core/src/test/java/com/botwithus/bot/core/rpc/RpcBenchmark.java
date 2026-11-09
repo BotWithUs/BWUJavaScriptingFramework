@@ -2,6 +2,8 @@ package com.botwithus.bot.core.rpc;
 
 import com.botwithus.bot.core.msgpack.MessagePackCodec;
 import com.botwithus.bot.core.pipe.PipeClient;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -267,14 +269,8 @@ public class RpcBenchmark {
             methods = new ArrayList<>(BENCHMARKS.keySet());
         }
 
-        // Auto-detect pipe
         if (pipeName == null) {
-            List<String> pipes = PipeClient.scanPipes();
-            if (pipes.isEmpty()) {
-                System.err.println("No BotWithUs pipe found. Is the game running?");
-                System.exit(1);
-            }
-            pipeName = pipes.getFirst();
+            pipeName = autoDetectPipe();
             System.out.println("Auto-detected pipe: " + pipeName);
         }
 
@@ -302,5 +298,20 @@ public class RpcBenchmark {
                 pipe.close();
             }
         }
+    }
+
+    /** The lone agent, or the one -Dbotwithus.harness.pid names; never a guess between several. */
+    private static String autoDetectPipe() {
+        return switch (LiveAgent.fromEnvironment()) {
+            case LiveAgentSelection.Attach attach -> attach.pipeName();
+            case LiveAgentSelection.NoAgent none -> exitWith(none.reason());
+            case LiveAgentSelection.Refused refused -> exitWith(refused.reason() + " Or pass --pipe NAME.");
+        };
+    }
+
+    private static String exitWith(String reason) {
+        System.err.println(reason);
+        System.exit(1);
+        return reason;
     }
 }

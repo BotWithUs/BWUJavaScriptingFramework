@@ -13,6 +13,8 @@ import com.botwithus.bot.core.shm.ActionRefusal;
 import com.botwithus.bot.core.shm.ActionRefusalFeed;
 import com.botwithus.bot.core.shm.EventRingReader;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -54,8 +56,6 @@ class LiveLongWalkLegsTest {
     private static final Logger log = LoggerFactory.getLogger(LiveLongWalkLegsTest.class);
 
     private static final int GAME_STATE_IN_GAME = 30;
-    /** Which client to attach to; harnessTest forwards it. Unset: the only visible agent. */
-    private static final String PID_PROPERTY = "botwithus.harness.pid";
     /** WorldWalker's leg cap (kLegMaxTiles), mirrored rather than derived. */
     private static final int MAX_LEG_TILES = 22;
     private static final String REFUSED_ANCHOR_TIMEOUT = "refused_anchor_timeout";
@@ -86,9 +86,10 @@ class LiveLongWalkLegsTest {
 
     @BeforeAll
     void connect() {
-        long pid = targetPid();
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        long pid = agent.pid();
         region = SharedRegion.open(pid);
-        rpc = new RpcClient(new PipeClient(PipeClient.NAME_PREFIX + pid));
+        rpc = new RpcClient(new PipeClient(agent.pipeName()));
         api = new RecordingApi(rpc, () -> new GameSnapshotImpl(region.snapshot()), feed);
         GameSnapshot snap = api.snapshot();
         Assumptions.assumeTrue(snap != null && snap.gameState() == GAME_STATE_IN_GAME,
@@ -139,18 +140,6 @@ class LiveLongWalkLegsTest {
         assertEquals(List.of(), overCap, "every walk click within " + MAX_LEG_TILES + " tiles");
         assertEquals(refusedBefore, refusedAfter, "no walk refused for want of a click");
         assertEquals(List.of(), refusals, "no action refused on the ring");
-    }
-
-    private static long targetPid() {
-        String pid = System.getProperty(PID_PROPERTY);
-        if (pid != null && !pid.isBlank()) {
-            return Long.parseLong(pid.trim());
-        }
-        List<Long> pids = SharedRegion.discoverPids();
-        Assumptions.assumeFalse(pids.isEmpty(), "SKIPPED, not passed: no agent pipe visible");
-        Assumptions.assumeTrue(pids.size() == 1,
-                "SKIPPED, not passed: several agents visible; set -D" + PID_PROPERTY);
-        return pids.getFirst();
     }
 
     private long refusedAnchorTimeouts() {

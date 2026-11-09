@@ -11,6 +11,8 @@ import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -21,7 +23,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
-import java.util.List;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -43,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code -Dbotwithus.smoke.input=true} (the {@code :core:liveInputDialogTest}
  * task). It needs the bank open, or {@code -Dbotwithus.input.openBank=a,loc,x,y}
  * to open it with that object action, and at least the amount of the item in
- * the backpack. It self-skips otherwise. Knobs: {@code botwithus.input.pid}
+ * the backpack. It self-skips otherwise. Knobs: {@code botwithus.harness.pid}
  * (required when more than one agent is running), {@code botwithus.input.item}
  * (default 436, copper ore), {@code botwithus.input.amount} (default 3).</p>
  */
@@ -73,10 +74,10 @@ class LiveInputDialogTest {
 
     @BeforeAll
     void connect() throws InterruptedException {
-        String pipe = choosePipe();
-        long pid = SharedRegion.parsePid(pipe).orElseThrow();
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        long pid = agent.pid();
         region = SharedRegion.open(pid);
-        rpc = new RpcClient(new PipeClient(pipe));
+        rpc = new RpcClient(new PipeClient(agent.pipeName()));
         api = new GameAPIImpl(rpc, null, () -> new GameSnapshotImpl(region.snapshot()));
         bank = api.bank();
         item = Integer.getInteger("botwithus.input.item", DEFAULT_ITEM);
@@ -154,20 +155,6 @@ class LiveInputDialogTest {
         assertTrue(await(() -> api.inputDialog().mode() == InputMode.CLOSED, DIALOG_TIMEOUT_MS),
                 what + ": the dialog is still open after submit");
         log.info("{}: backpack count now {}", what, expectedCount);
-    }
-
-    private static String choosePipe() {
-        List<String> pipes = PipeClient.scanPipes(PipeClient.NAME_PREFIX);
-        Assumptions.assumeFalse(pipes.isEmpty(),
-                "SKIPPED, not passed: no BotWithUs_<pid> pipe visible. Inject the agent into a running client.");
-        String wanted = System.getProperty("botwithus.input.pid");
-        if (wanted != null) {
-            return pipes.stream().filter(p -> p.endsWith("_" + wanted)).findFirst()
-                    .orElseThrow(() -> new AssertionError("no agent pipe for pid " + wanted + " in " + pipes));
-        }
-        Assumptions.assumeTrue(pipes.size() == 1,
-                "SKIPPED, not passed: several agents running " + pipes + "; pick one with -Dbotwithus.input.pid");
-        return pipes.getFirst();
     }
 
     private void openBankIfAsked() throws InterruptedException {
