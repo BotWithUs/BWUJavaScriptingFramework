@@ -65,6 +65,7 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
             List.of(WOODCUTTING, FLETCHER, DIVINATION, COOKS, GHOST, WITCH, FLAG, PROBE, EXAMPLE);
     /** DIVINATION's index in {@link #CATALOG}, which is its picker key. */
     private static final int DIVINATION_KEY = CATALOG.indexOf(DIVINATION);
+    private static final String PIPE_PATTERN = "\\\\.\\pipe\\BotWithUs_*";
     private static final int DIVINATION_INSTALLED_BUILD = 6;
     private static final int DIVINATION_STORE_BUILD = 7;
 
@@ -208,8 +209,17 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
         return new FixtureBoard(List.of(), status(null));
     }
 
+    /**
+     * The waiting board in a developer run ({@code gradlew :cli:run}), where
+     * auto-connect is forced off for the process: the chip reads "off (dev run)"
+     * although the saved setting is on.
+     */
+    static FixtureBoard waitingDevRun() {
+        return new FixtureBoard(List.of(), new BoardStatus(false, 0, null, false, true, PIPE_PATTERN, null, false));
+    }
+
     private static BoardStatus status(String active) {
-        return new BoardStatus(false, 0, active, true, false, "\\\\.\\pipe\\BotWithUs_*", null, false);
+        return new BoardStatus(false, 0, active, true, false, PIPE_PATTERN, null, false);
     }
 
 

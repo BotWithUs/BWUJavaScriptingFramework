@@ -84,6 +84,7 @@ public final class FixtureConnectionsModel implements ConnectionsModel {
     private final Map<String, List<ScriptChip>> scripts = new HashMap<>();
     private final Map<String, List<String>> groups = new HashMap<>();
     private boolean isAutoConnect = true;
+    private boolean isAutoConnectForcedOff;
     private boolean isScanning;
     private Optional<String> consoleTarget = Optional.of(OAK_PIPE);
     private Optional<String> outputFilter = Optional.empty();
@@ -125,6 +126,19 @@ public final class FixtureConnectionsModel implements ConnectionsModel {
         model.clients.removeIf(c -> c.pipe().equals(Optional.of(QUILL_PIPE)) || c.pipe().equals(Optional.of(ASH_PIPE)));
         model.found.add(0, new FoundPipe(QUILL_PIPE, Optional.of("Quillon"), inGame(117, false)));
         model.found.add(1, new FoundPipe(ASH_PIPE, Optional.of("Ashgrove"), inGame(84, true)));
+        return model;
+    }
+
+    /**
+     * A developer run ({@code gradlew :cli:run}): the saved setting says
+     * auto-connect is on, but the process keeps it off. The header reads
+     * "Auto-connect: off (dev run)" with the switch disabled, and the clients
+     * are found rather than connected.
+     */
+    public static FixtureConnectionsModel devRunAutoConnectOff() {
+        FixtureConnectionsModel model = autoConnectOff();
+        model.isAutoConnect = true;
+        model.isAutoConnectForcedOff = true;
         return model;
     }
 
@@ -211,7 +225,8 @@ public final class FixtureConnectionsModel implements ConnectionsModel {
         clients.forEach(c -> c.pipe().ifPresent(held::add));
         ConnectionRows.Reading reading = new ConnectionRows.Reading(clients, found, held, stats, consoleTarget,
                 outputFilter, droppedAt, now);
-        return new ConnectionsView(ConnectionRows.build(reading), isAutoConnect, false, "BotWithUs",
+        return new ConnectionsView(ConnectionRows.build(reading), isAutoConnect && !isAutoConnectForcedOff,
+                isAutoConnectForcedOff, "BotWithUs",
                 Duration.ofMillis(SCAN_EVERY_MS), isScanning, Optional.empty());
     }
 

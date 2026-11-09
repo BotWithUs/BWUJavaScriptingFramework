@@ -112,7 +112,7 @@ no pipe, `:cli:run` keeps auto-connect off). Only an absent property is unpinned
   (`-Dbotwithus.autoConnect=false`, `AutoConnectOverride`), because a dev run reads the
   real `~/.botwithus` settings and would otherwise attach to every client and resume
   scripts on it. The saved setting is never written; the Connections header and Normal
-  mode read "off (dev run)" (the Settings page still shows the saved setting). `-Pbotwithus.autoConnect=true` restores the saved
+  mode read "off (dev run)"; the Settings page keeps the switch on the saved setting and adds a "In this run: off" note under it. `-Pbotwithus.autoConnect=true` restores the saved
   setting, `-Dbotwithus.harness.pid=<pid>` connects to that client only. The installed
   host never passes the property and is unchanged.
 - **Developer entry points** (`JBotApplication.main`, `snapshotProbe`, `eventPumpProbe`)
@@ -122,7 +122,7 @@ no pipe, `:cli:run` keeps auto-connect off). Only an absent property is unpinned
 - `LiveAgentIsTheOnlyChooserTest` fails the build if test code (non-`main` sets, plus
   `test-support/src/main`) scans pipes, calls a developer `main` or one of the
   every-agent helpers (`scannerFromEnvironment`, `scannerKeeping`, `visiblePipes`,
-  `connectingToEveryAgent`; one call may be allowed per file by path), after decoding
+  `connectingToEveryAgent`; a file may be allowed specific calls by path, each counted, so a repeat fails), after decoding
   unicode escapes and stripping comments and strings. It cannot see a production class
   that scans behind an ordinary constructor, a nested `additionalScripts.txt` module, or
   test code in another module's `main`; the rule is enforced at the source for those.

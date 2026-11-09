@@ -7,6 +7,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code AgentPin.scannerKeeping} (whatever its predicate allows),
  * {@code AgentPin.visiblePipes} (every agent pipe name) and
  * {@code AutoStartManager.connectingToEveryAgent}. Each is flagged in test code,
- * and a file may be allowed one specific call by path ({@link #ALLOWED_CALLS}),
+ * and a file may be allowed specific, counted calls by path ({@link #ALLOWED_CALLS}),
  * never a blanket exemption.</p>
  *
  * <p>What it cannot see, and why that is acceptable:</p>
@@ -101,20 +102,23 @@ class LiveAgentIsTheOnlyChooserTest {
             "core/src/test/java/com/botwithus/bot/core/test/LiveAgentIsTheOnlyChooserTest.java";
 
     /**
-     * One specific call each, by repository-relative path, each for a reason
-     * that is not picking an agent by itself:
+     * The exact chooser calls each file may make, by repository-relative path,
+     * <em>counted</em>: a token listed once allows one call, and a second use of
+     * it in the same file fails like any other. Each is for a reason that is not
+     * picking an agent by itself:
      * <ul>
-     *   <li>{@code LiveAgent} lists pipe names to hand to {@code AgentPin}'s rule;</li>
+     *   <li>{@code LiveAgent} lists pipe names to hand to {@code AgentPin}'s rule,
+     *       once in each of its two no-arg entry points;</li>
      *   <li>{@code LauncherLiveTest} keeps only the clients it launched;</li>
      *   <li>{@code LauncherScopeLiveTest} scans the launcher's service pipes,
      *       which are not agents and are never driven.</li>
      * </ul>
      * Any other chooser call in those files still fails.
      */
-    private static final Map<String, Set<String>> ALLOWED_CALLS = Map.of(
-            "core/src/test/java/com/botwithus/bot/core/test/LiveAgent.java", Set.of("visiblePipes"),
-            "cli/src/test/java/com/botwithus/bot/cli/LauncherLiveTest.java", Set.of("scannerKeeping"),
-            "core/src/test/java/com/botwithus/bot/core/launcher/LauncherScopeLiveTest.java", Set.of("scanPipes"));
+    private static final Map<String, List<String>> ALLOWED_CALLS = Map.of(
+            "core/src/test/java/com/botwithus/bot/core/test/LiveAgent.java", List.of("visiblePipes", "visiblePipes"),
+            "cli/src/test/java/com/botwithus/bot/cli/LauncherLiveTest.java", List.of("scannerKeeping"),
+            "core/src/test/java/com/botwithus/bot/core/launcher/LauncherScopeLiveTest.java", List.of("scanPipes"));
 
     @Test
     void noTestSourceOutsideTheSelectorChoosesAClient() throws IOException {
@@ -199,6 +203,10 @@ class LiveAgentIsTheOnlyChooserTest {
         String scans = wrap("Object s = PipeClient.scanPipes(\"BotWithUs\");");
 
         assertEquals(List.of(), disallowedCalls(launcherLive, keeps), "its one allowed call");
+        String keepsTwice = wrap("Object a = AgentPin.scannerKeeping(this::isLaunchedHere);\n"
+                + "        Object b = AgentPin.scannerKeeping(pid -> true);");
+        assertEquals(List.of("scannerKeeping"), disallowedCalls(launcherLive, keepsTwice),
+                "a second use of an allowed call is counted against it, not waved through");
         assertEquals(List.of("scanPipes"), disallowedCalls(launcherLive, scans), "any other call still fails");
         assertEquals(List.of("scannerKeeping"),
                 disallowedCalls("cli/src/test/java/com/botwithus/bot/cli/Elsewhere.java", keeps),
@@ -227,10 +235,20 @@ class LiveAgentIsTheOnlyChooserTest {
         return !chooserCalls(source).isEmpty();
     }
 
-    /** The chooser calls in {@code source} that {@link #ALLOWED_CALLS} does not allow at {@code path}. */
+    /**
+     * The chooser calls in {@code source} that {@link #ALLOWED_CALLS} does not
+     * allow at {@code path}. Each allowance is spent by the first call it
+     * matches, so a repeat of an allowed call is reported.
+     */
     static List<String> disallowedCalls(String path, String source) {
-        Set<String> allowed = ALLOWED_CALLS.getOrDefault(path, Set.of());
-        return chooserCalls(source).stream().filter(call -> !allowed.contains(call)).toList();
+        List<String> unspent = new ArrayList<>(ALLOWED_CALLS.getOrDefault(path, List.of()));
+        List<String> disallowed = new ArrayList<>();
+        for (String call : chooserCalls(source)) {
+            if (!unspent.remove(call)) {
+                disallowed.add(call);
+            }
+        }
+        return List.copyOf(disallowed);
     }
 
     /** Each chooser call in {@code source}, named by its leading identifier. */

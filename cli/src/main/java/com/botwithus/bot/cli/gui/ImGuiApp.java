@@ -540,6 +540,15 @@ public class ImGuiApp extends Application {
     }
 
     /**
+     * Whether this process keeps auto-connect off (a developer run). Read each
+     * time, not captured, because the manager is set after some pages are built.
+     */
+    private boolean isAutoConnectForcedOff() {
+        AutoStartManager manager = ctx.getAutoStartManager();
+        return manager != null && manager.isAutoConnectForcedOff();
+    }
+
+    /**
      * Connections over the live host. Scans run on their own virtual thread, as
      * they probe every pipe; connects and disconnects share the console's queue.
      */
@@ -610,7 +619,7 @@ public class ImGuiApp extends Application {
                 LocalScriptLoader.scriptsDir(), LiveSettingsModel.exportFolderIn(home), home, Path.of(""));
         LiveSettingsModel.Host host = new LiveSettingsModel.Host(settings,
                 Optional.ofNullable(ctx.getProfileStore()), ctx::getConnections, ctx::getIntegrations,
-                MicrophoneDecisions.of(ctx.getVoiceConsent()));
+                MicrophoneDecisions.of(ctx.getVoiceConsent()), this::isAutoConnectForcedOff);
         return new SettingsPage(ui, new LiveSettingsModel(host, places, LiveSettingsModel::openOnDesktop,
                 task -> Thread.ofVirtual().name("settings-io").start(task), Clock.systemDefaultZone(),
                 fontRebuild::monitorPercent));

@@ -24,9 +24,20 @@ public sealed interface SettingsItem {
      *
      * @param name       the property name, shown in mono after the description
      * @param isExplicit the file sets it; otherwise it is at its default
+     * @param runNote    how the setting applies in this run, when that differs
+     *                   from what is saved; drawn under the description
      */
-    record KeyRow(String name, String label, String description, RowControl control, boolean isExplicit)
-            implements SettingsItem {
+    record KeyRow(String name, String label, String description, RowControl control, boolean isExplicit,
+                  Optional<String> runNote) implements SettingsItem {
+
+        public KeyRow {
+            Objects.requireNonNull(runNote, "runNote");
+        }
+
+        /** A row whose saved value is what this run uses. */
+        public KeyRow(String name, String label, String description, RowControl control, boolean isExplicit) {
+            this(name, label, description, control, isExplicit, Optional.empty());
+        }
 
         @Override
         public String findText() {

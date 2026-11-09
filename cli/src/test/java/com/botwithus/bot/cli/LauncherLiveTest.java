@@ -100,6 +100,8 @@ class LauncherLiveTest {
     private volatile ClientLauncher ownLauncher;
     /** Lookups the pinned scanner could not make; any at all means the race went untested. */
     private final AtomicInteger scannerFailures = new AtomicInteger();
+    /** Times the pinned scanner reported a client this test launched; must grow during every launch. */
+    private final AtomicInteger scannerSawLaunched = new AtomicInteger();
     private final List<CloseRequest> closeRequests = new CopyOnWriteArrayList<>();
 
     @BeforeEach
@@ -143,7 +145,11 @@ class LauncherLiveTest {
         String account = liveAccount(launcher);
         stopExistingClients(launcher, account);
         for (StopMode mode : StopMode.values()) {
+            int seenBefore = scannerSawLaunched.get();
             LaunchedClient client = launchAndReachLobby(launcher, account);
+            assertTrue(scannerSawLaunched.get() > seenBefore, "auto-connect's scanner never reported launched client "
+                    + client.clientId() + " (" + mode + "), so it did not race the attach and the "
+                    + "no-two-pipe-clients check below would prove nothing");
             launcher.stop(client.clientId(), mode);
             awaitTrue("client.exited for " + client.clientId(), EXIT_WITHIN,
                     () -> script.exited(client.clientId()).isPresent());
@@ -269,23 +275,34 @@ class LauncherLiveTest {
 
     /**
      * Whether {@code pid} belongs to a client this test launched, as the launcher
-     * reports it now. A failed lookup answers "no" and is counted: the scanner
-     * then reports nothing, and the attach race this test is about would go
-     * unexercised, so the test fails on a non-zero count rather than passing.
+     * reports it now. Both outcomes that matter are counted:
+     * <ul>
+     *   <li>a "yes" goes into {@link #scannerSawLaunched}, the positive evidence
+     *       that auto-connect's scanner reported the launched client at all;</li>
+     *   <li>a failed lookup, of any kind, answers "no" and goes into
+     *       {@link #scannerFailures}.</li>
+     * </ul>
+     * Zero failures alone would not prove the race ran: the scanner might simply
+     * never have reported the launched pid.
      */
     private boolean isLaunchedHere(long pid) {
         ClientLauncher launcher = ownLauncher;
         if (launcher == null) {
             return false;
         }
+        boolean isOurs;
         try {
-            return launcher.clients().stream()
+            isOurs = launcher.clients().stream()
                     .anyMatch(c -> launchedHere.contains(c.clientId()) && c.pid() == pid);
-        } catch (LauncherException e) {
+        } catch (RuntimeException e) {
             scannerFailures.incrementAndGet();
-            System.out.printf("LIVE: pinned scanner lookup failed: %s%n", e.getMessage());
+            System.out.printf("LIVE: pinned scanner lookup failed: %s%n", e);
             return false;
         }
+        if (isOurs) {
+            scannerSawLaunched.incrementAndGet();
+        }
+        return isOurs;
     }
 
     private LaunchedClient launchAndReachLobby(ClientLauncher launcher, String account) throws Exception {
