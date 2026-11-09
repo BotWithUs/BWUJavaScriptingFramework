@@ -97,8 +97,11 @@ person's own game. Every live test therefore picks its agent with
 scanning pipes: with `-Dbotwithus.harness.pid=<pid>` it attaches to that pid's pipe
 or fails (no fallback), and without it it attaches only to a lone visible agent and
 fails when two or more are up. `core/build.gradle.kts` forwards the property to every
-`Test` task. `LiveAgentIsTheOnlyChooserTest` fails the build if a test calls
-`scanPipes` / `openFirstAvailable` / `discoverPids` / `firstAvailableOrThrow` itself.
+`Test` task. `LiveAgentIsTheOnlyChooserTest` fails the build if any non-`main` source
+set in any module calls `scanPipes` / `openFirstAvailable` / `discoverPids` /
+`firstAvailableOrThrow` (method references included), `new PipeClient()`,
+`connect(null)` or `JBotApplication.main`. It cannot see a production class that scans
+behind an ordinary constructor (`AutoStartManager`); fix those at the source.
 
 ### Publishing `bot-api`
 
