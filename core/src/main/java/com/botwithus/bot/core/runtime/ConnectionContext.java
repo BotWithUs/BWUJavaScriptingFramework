@@ -2,7 +2,7 @@ package com.botwithus.bot.core.runtime;
 
 /**
  * Thread-local holder for the connection name associated with the current thread.
- * Uses {@link InheritableThreadLocal} so virtual threads spawned from a tagged
+ * Uses {@link InheritableThreadLocal} so any thread spawned from a tagged
  * parent automatically inherit the connection name.
  *
  * <p>This is a <em>request-context</em> seam, not a singleton service: the value

@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Runs a single {@link ManagementScript} on its own virtual thread.
+ * Runs a single {@link ManagementScript} on its own platform thread.
  * Mirrors {@link ScriptRunner} but uses {@link ManagementContext} instead of
  * {@link com.botwithus.bot.api.ScriptContext}.
  */
