@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -62,11 +63,13 @@ public final class LiveInspectorSource implements InspectorSource {
     private final Supplier<ManagementScriptRuntime> management;
     private final ManagementAccess access;
     private final ItemNames itemNames;
+    private final Function<String, Optional<String>> accounts;
 
     public LiveInspectorSource(CliContext ctx) {
         this(() -> new ArrayList<>(ctx.getConnections()), ctx::getManagementRuntime,
                 new ManagementAccess(ctx.getManagementTargets(), ctx.getManagementSettings(),
-                        new TargetLabels(ctx.getGroupStore(), ctx::accountNameOf)));
+                        new TargetLabels(ctx.getGroupStore(), ctx::accountNameOf)),
+                pipe -> ctx.clientKeyOf(pipe).accountUuid());
     }
 
     /**
@@ -88,10 +91,21 @@ public final class LiveInspectorSource implements InspectorSource {
     /** Package-private: the tests' seam, which needs no live connection. */
     LiveInspectorSource(Supplier<List<Connection>> connections, Supplier<ManagementScriptRuntime> management,
                         ManagementAccess access) {
+        this(connections, management, access, pipe -> Optional.empty());
+    }
+
+    private LiveInspectorSource(Supplier<List<Connection>> connections, Supplier<ManagementScriptRuntime> management,
+                                ManagementAccess access, Function<String, Optional<String>> accounts) {
         this.connections = connections;
         this.management = management;
         this.access = Objects.requireNonNull(access, "access");
+        this.accounts = Objects.requireNonNull(accounts, "accounts");
         this.itemNames = new ItemNames(this::anyClient);
+    }
+
+    @Override
+    public Optional<String> accountOf(String clientId) {
+        return accounts.apply(clientId);
     }
 
     @Override
