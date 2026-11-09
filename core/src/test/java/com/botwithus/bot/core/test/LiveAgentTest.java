@@ -128,17 +128,32 @@ class LiveAgentTest {
     }
 
     /**
-     * Pins that both entry points fail a refusal through the real environment.
-     * It decides whenever the environment refuses, which the {@code
-     * liveAgentPinTest} task arranges on every build by pinning a pid no
-     * process has.
+     * Pins that both no-arg entry points fail a refusal through the real
+     * environment, <em>with that refusal</em>: the failure message must be the
+     * reason {@code AgentPin} gave for the system property. That proves each
+     * no-arg form passes the system property to the rule. A form that dropped
+     * it would see no pin and fail with a different reason, or attach and not
+     * fail at all. It decides whenever the environment refuses, which the {@code
+     * liveAgentPinTest} task arranges on every build by pinning a pid no process
+     * has.
+     *
+     * <p>What no test here can pin: the no-arg forms swapping verdicts
+     * ({@code attachOrFail()} delegating to the skipping form). The verdicts
+     * differ only on {@link AgentSelection.NoAgent}, which needs no pin and an
+     * empty real pipe listing. A pin always refuses, and the real listing is
+     * not the test's to control. The injected forms carry that coverage; the
+     * no-arg wiring is checked by {@link #entryPoints_withNoAgentAndNoPin_failAndSkipRespectively}
+     * only where no agent is up, as on CI.</p>
      */
     @Test
     void entryPoints_withARefusal_bothFail() {
         switch (LiveAgent.fromEnvironment()) {
             case AgentSelection.Refused refused -> {
-                assertThrows(AssertionFailedError.class, LiveAgent::attachOrFail);
-                assertThrows(AssertionFailedError.class, LiveAgent::attachOrSkip, "a refusal must never skip");
+                AssertionFailedError viaFail = assertThrows(AssertionFailedError.class, LiveAgent::attachOrFail);
+                AssertionFailedError viaSkip = assertThrows(AssertionFailedError.class, LiveAgent::attachOrSkip,
+                        "a refusal must never skip");
+                assertEquals(refused.reason(), viaFail.getMessage(), "attachOrFail() did not use the system property");
+                assertEquals(refused.reason(), viaSkip.getMessage(), "attachOrSkip() did not use the system property");
             }
             case AgentSelection.NoAgent none -> abort("nothing refused here: " + none.reason());
             case AgentSelection.Attach attach -> abort("an agent was chosen here: " + attach.pipeName());
