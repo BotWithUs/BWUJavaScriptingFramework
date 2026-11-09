@@ -130,15 +130,22 @@ public final class FixtureConnectionsModel implements ConnectionsModel {
     }
 
     /**
-     * A developer run ({@code gradlew :cli:run}): the saved setting says
-     * auto-connect is on, but the process keeps it off. The header reads
-     * "Auto-connect: off (dev run)" with the switch disabled, and the clients
-     * are found rather than connected.
+     * A developer run ({@code gradlew :cli:run}) as it actually stands: the
+     * saved setting says auto-connect is on, but the process keeps it off, so
+     * every client on the machine is only <em>found</em> and none is connected.
+     * The header reads "Auto-connect: off (dev run)" with the switch disabled.
+     * No connected or reconnecting rows, because a dev run reaches those only if
+     * the developer connects by hand, and the scene would otherwise read as the
+     * dev run having attached them.
      */
     public static FixtureConnectionsModel devRunAutoConnectOff() {
-        FixtureConnectionsModel model = autoConnectOff();
-        model.isAutoConnect = true;
+        FixtureConnectionsModel model = new FixtureConnectionsModel();
         model.isAutoConnectForcedOff = true;
+        model.found.add(new FoundPipe(OAK_PIPE, Optional.of("Oakheart"), inGame(84, true)));
+        model.found.add(new FoundPipe(FERN_PIPE, Optional.of("Fernmoss"), inGame(2, true)));
+        model.found.add(new FoundPipe(QUILL_PIPE, Optional.of("Quillon"), inGame(117, false)));
+        model.found.add(new FoundPipe(ASH_PIPE, Optional.of("Ashgrove"), inGame(84, true)));
+        model.found.add(new FoundPipe(UNKNOWN_PIPE, Optional.empty(), GameStatus.UNKNOWN));
         return model;
     }
 

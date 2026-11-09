@@ -122,7 +122,7 @@ no pipe, `:cli:run` keeps auto-connect off). Only an absent property is unpinned
 - `LiveAgentIsTheOnlyChooserTest` fails the build if test code (non-`main` sets, plus
   `test-support/src/main`) scans pipes, calls a developer `main` or one of the
   every-agent helpers (`scannerFromEnvironment`, `scannerKeeping`, `visiblePipes`,
-  `connectingToEveryAgent`; a file may be allowed specific calls by path, each counted, so a repeat fails), after decoding
+  `connectingToEveryAgent`; a file may be allowed specific calls by path, each pinned to its exact line, so a repeat, a call on another line, or an allowed line that disappears all fail), after decoding
   unicode escapes and stripping comments and strings. It cannot see a production class
   that scans behind an ordinary constructor, a nested `additionalScripts.txt` module, or
   test code in another module's `main`; the rule is enforced at the source for those.

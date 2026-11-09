@@ -100,8 +100,14 @@ class LauncherLiveTest {
     private volatile ClientLauncher ownLauncher;
     /** Lookups the pinned scanner could not make; any at all means the race went untested. */
     private final AtomicInteger scannerFailures = new AtomicInteger();
-    /** Times the pinned scanner reported a client this test launched; must grow during every launch. */
-    private final AtomicInteger scannerSawLaunched = new AtomicInteger();
+    /**
+     * Times the pinned scanner offered a client this test launched while that
+     * client was still unattached (its pipe not yet among the host's
+     * connections). Must grow during every launch. It proves a scan offered the
+     * pid inside the window before the attach, not that auto-connect then tried
+     * to connect: the manager also stands aside while the launcher is mid-attach.
+     */
+    private final AtomicInteger scannerOfferedUnattached = new AtomicInteger();
     private final List<CloseRequest> closeRequests = new CopyOnWriteArrayList<>();
 
     @BeforeEach
@@ -145,11 +151,11 @@ class LauncherLiveTest {
         String account = liveAccount(launcher);
         stopExistingClients(launcher, account);
         for (StopMode mode : StopMode.values()) {
-            int seenBefore = scannerSawLaunched.get();
+            int offeredBefore = scannerOfferedUnattached.get();
             LaunchedClient client = launchAndReachLobby(launcher, account);
-            assertTrue(scannerSawLaunched.get() > seenBefore, "auto-connect's scanner never reported launched client "
-                    + client.clientId() + " (" + mode + "), so it did not race the attach and the "
-                    + "no-two-pipe-clients check below would prove nothing");
+            assertTrue(scannerOfferedUnattached.get() > offeredBefore, "auto-connect's scanner never offered launched "
+                    + "client " + client.clientId() + " (" + mode + ") while it was still unattached, so auto-connect "
+                    + "had no window to race the attach and the no-two-pipe-clients check below would prove nothing");
             launcher.stop(client.clientId(), mode);
             awaitTrue("client.exited for " + client.clientId(), EXIT_WITHIN,
                     () -> script.exited(client.clientId()).isPresent());
@@ -277,8 +283,11 @@ class LauncherLiveTest {
      * Whether {@code pid} belongs to a client this test launched, as the launcher
      * reports it now. Both outcomes that matter are counted:
      * <ul>
-     *   <li>a "yes" goes into {@link #scannerSawLaunched}, the positive evidence
-     *       that auto-connect's scanner reported the launched client at all;</li>
+     *   <li>a "yes" while the client is not yet attached goes into
+     *       {@link #scannerOfferedUnattached}, the evidence that a scan offered
+     *       it inside the window before the attach. A "yes" after the attach is
+     *       not counted: every scan through the lobby wait reports the pid, so
+     *       counting those would grow without any race having been possible;</li>
      *   <li>a failed lookup, of any kind, answers "no" and goes into
      *       {@link #scannerFailures}.</li>
      * </ul>
@@ -300,9 +309,17 @@ class LauncherLiveTest {
             return false;
         }
         if (isOurs) {
-            scannerSawLaunched.incrementAndGet();
+            if (isUnattached(pid)) {
+                scannerOfferedUnattached.incrementAndGet();
+            }
         }
         return isOurs;
+    }
+
+    /** Whether the host holds no connection to {@code pid}'s agent pipe yet. */
+    private boolean isUnattached(long pid) {
+        String pipe = PipeClient.NAME_PREFIX + pid;
+        return ctx.getConnections().stream().noneMatch(c -> c.getName().equals(pipe));
     }
 
     private LaunchedClient launchAndReachLobby(ClientLauncher launcher, String account) throws Exception {

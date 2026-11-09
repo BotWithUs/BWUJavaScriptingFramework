@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.regex.MatchResult;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -102,10 +103,31 @@ class LiveAgentIsTheOnlyChooserTest {
             "core/src/test/java/com/botwithus/bot/core/test/LiveAgentIsTheOnlyChooserTest.java";
 
     /**
-     * The exact chooser calls each file may make, by repository-relative path,
-     * <em>counted</em>: a token listed once allows one call, and a second use of
-     * it in the same file fails like any other. Each is for a reason that is not
-     * picking an agent by itself:
+     * One chooser call that a file may make, pinned to the exact line it is on,
+     * as this guard sees the line: trimmed, comments removed, string contents
+     * emptied to {@code ""}. Pinning to the line, not just the call's name, is
+     * what stops a spare allowance from covering a different call: removing an
+     * allowed call and adding another in the same edit leaves the count
+     * unchanged, but the new line matches no allowance.
+     */
+    record Allowance(String call, String line) {
+
+        @Override
+        public String toString() {
+            return call + " @ " + line;
+        }
+    }
+
+    /** One chooser call found in a file: its name and the line it is on, as above. */
+    private record Call(String name, String line) {
+    }
+
+    /**
+     * The exact chooser calls each file may make, by repository-relative path.
+     * Each allowance is spent by one call on its line; any other chooser call in
+     * the file fails, and so does an allowance no call spends
+     * ({@link #everyAllowanceIsSpent_soAStaleOneCannotCoverANewCall}). Each is for
+     * a reason that is not picking an agent by itself:
      * <ul>
      *   <li>{@code LiveAgent} lists pipe names to hand to {@code AgentPin}'s rule,
      *       once in each of its two no-arg entry points;</li>
@@ -113,12 +135,16 @@ class LiveAgentIsTheOnlyChooserTest {
      *   <li>{@code LauncherScopeLiveTest} scans the launcher's service pipes,
      *       which are not agents and are never driven.</li>
      * </ul>
-     * Any other chooser call in those files still fails.
+     * Changing one of these lines means changing its allowance in the same edit.
      */
-    private static final Map<String, List<String>> ALLOWED_CALLS = Map.of(
-            "core/src/test/java/com/botwithus/bot/core/test/LiveAgent.java", List.of("visiblePipes", "visiblePipes"),
-            "cli/src/test/java/com/botwithus/bot/cli/LauncherLiveTest.java", List.of("scannerKeeping"),
-            "core/src/test/java/com/botwithus/bot/core/launcher/LauncherScopeLiveTest.java", List.of("scanPipes"));
+    private static final Map<String, List<Allowance>> ALLOWED_CALLS = Map.of(
+            "core/src/test/java/com/botwithus/bot/core/test/LiveAgent.java", List.of(
+                    new Allowance("visiblePipes", "return attachOrFail(System::getProperty, AgentPin::visiblePipes);"),
+                    new Allowance("visiblePipes", "return attachOrSkip(System::getProperty, AgentPin::visiblePipes);")),
+            "cli/src/test/java/com/botwithus/bot/cli/LauncherLiveTest.java", List.of(
+                    new Allowance("scannerKeeping", "AgentPin.scannerKeeping(this::isLaunchedHere));")),
+            "core/src/test/java/com/botwithus/bot/core/launcher/LauncherScopeLiveTest.java", List.of(
+                    new Allowance("scanPipes", "List<String> real = PipeClient.scanPipes(\"\").stream()")));
 
     @Test
     void noTestSourceOutsideTheSelectorChoosesAClient() throws IOException {
@@ -136,6 +162,26 @@ class LiveAgentIsTheOnlyChooserTest {
 
         assertEquals(List.of(), offenders, "choose the client with LiveAgent.attachOrFail() or "
                 + "attachOrSkip(), never by scanning pipes: the first pipe can be someone's own game");
+    }
+
+    /**
+     * Every allowance is spent exactly. An allowance left over is not harmless:
+     * if one of the allowed calls is removed, the spare would silently cover a
+     * new, different call added later. So the table must match the files, and
+     * removing an allowed call means removing its allowance in the same change.
+     */
+    @Test
+    void everyAllowanceIsSpent_soAStaleOneCannotCoverANewCall() {
+        Path root = repositoryRoot();
+        Map<String, List<Allowance>> stale = new TreeMap<>();
+        ALLOWED_CALLS.keySet().forEach(path -> {
+            List<Allowance> unspent = unspentAllowances(path, read(root.resolve(path)));
+            if (!unspent.isEmpty()) {
+                stale.put(path, unspent);
+            }
+        });
+
+        assertEquals(Map.of(), stale, "allowances whose line no call is on any more: update or remove them");
     }
 
     // ------------------------------------------------- the matcher, without a repository
@@ -199,14 +245,17 @@ class LiveAgentIsTheOnlyChooserTest {
     @Test
     void allowance_isOneCallByPath_notAFileExemption() {
         String launcherLive = "cli/src/test/java/com/botwithus/bot/cli/LauncherLiveTest.java";
-        String keeps = wrap("Object s = AgentPin.scannerKeeping(this::isLaunchedHere);");
+        String keepsLine = "AgentPin.scannerKeeping(this::isLaunchedHere));";
+        String keeps = wrap(keepsLine);
         String scans = wrap("Object s = PipeClient.scanPipes(\"BotWithUs\");");
 
-        assertEquals(List.of(), disallowedCalls(launcherLive, keeps), "its one allowed call");
-        String keepsTwice = wrap("Object a = AgentPin.scannerKeeping(this::isLaunchedHere);\n"
-                + "        Object b = AgentPin.scannerKeeping(pid -> true);");
+        assertEquals(List.of(), disallowedCalls(launcherLive, keeps), "its one allowed call, on its line");
+        String keepsTwice = wrap(keepsLine + "\n        Object b = AgentPin.scannerKeeping(pid -> true);");
         assertEquals(List.of("scannerKeeping"), disallowedCalls(launcherLive, keepsTwice),
                 "a second use of an allowed call is counted against it, not waved through");
+        assertEquals(List.of("scannerKeeping"),
+                disallowedCalls(launcherLive, wrap("Object s = AgentPin.scannerKeeping(pid -> true);")),
+                "the allowed call on a different line is a different call");
         assertEquals(List.of("scanPipes"), disallowedCalls(launcherLive, scans), "any other call still fails");
         assertEquals(List.of("scannerKeeping"),
                 disallowedCalls("cli/src/test/java/com/botwithus/bot/cli/Elsewhere.java", keeps),
@@ -214,6 +263,30 @@ class LiveAgentIsTheOnlyChooserTest {
         assertEquals(List.of("scanPipes"), disallowedCalls(
                 "core/src/test/java/com/botwithus/bot/core/impl/LauncherScopeLiveTest.java", scans),
                 "a same-named file at another path is not allowed");
+    }
+
+    /**
+     * The fourth-round hole, as the reviewer planted it: one of {@code
+     * LiveAgent}'s entry points stops listing pipes and, in the same edit, a
+     * new direct {@code AgentPin.visiblePipes()} appears. The count is unchanged
+     * (two calls, two allowances), so only line pinning can see it: the new call
+     * is disallowed, and the dropped line's allowance is reported unspent.
+     */
+    @Test
+    void allowance_swapInOneEdit_isCaughtTwice() {
+        String liveAgent = "core/src/test/java/com/botwithus/bot/core/test/LiveAgent.java";
+        String intact = wrap("return attachOrFail(System::getProperty, AgentPin::visiblePipes);\n"
+                + "        return attachOrSkip(System::getProperty, AgentPin::visiblePipes);");
+        String swapped = wrap("return attachOrFail(System::getProperty, AgentPin::visiblePipes);\n"
+                + "        return attachOrSkip(System::getProperty, () -> List.of());\n"
+                + "        Object planted = AgentPin.visiblePipes();");
+
+        assertEquals(List.of(), disallowedCalls(liveAgent, intact));
+        assertEquals(List.of(), unspentAllowances(liveAgent, intact));
+        assertEquals(List.of("visiblePipes"), disallowedCalls(liveAgent, swapped), "the planted call");
+        assertEquals(List.of(new Allowance("visiblePipes",
+                        "return attachOrSkip(System::getProperty, AgentPin::visiblePipes);")),
+                unspentAllowances(liveAgent, swapped), "the entry point that stopped listing pipes");
     }
 
     @Test
@@ -237,25 +310,43 @@ class LiveAgentIsTheOnlyChooserTest {
 
     /**
      * The chooser calls in {@code source} that {@link #ALLOWED_CALLS} does not
-     * allow at {@code path}. Each allowance is spent by the first call it
-     * matches, so a repeat of an allowed call is reported.
+     * allow at {@code path}, by name. A call is allowed only by an unspent
+     * allowance with its name and its exact line, so a repeat, or the same call
+     * on another line, is reported.
      */
     static List<String> disallowedCalls(String path, String source) {
-        List<String> unspent = new ArrayList<>(ALLOWED_CALLS.getOrDefault(path, List.of()));
+        List<Allowance> unspent = new ArrayList<>(ALLOWED_CALLS.getOrDefault(path, List.of()));
         List<String> disallowed = new ArrayList<>();
-        for (String call : chooserCalls(source)) {
-            if (!unspent.remove(call)) {
-                disallowed.add(call);
+        for (Call call : chooserCalls(source)) {
+            if (!unspent.remove(new Allowance(call.name(), call.line()))) {
+                disallowed.add(call.name());
             }
         }
         return List.copyOf(disallowed);
     }
 
-    /** Each chooser call in {@code source}, named by its leading identifier. */
-    private static List<String> chooserCalls(String source) {
+    /** The allowances for {@code path} that no chooser call in {@code source} spends. */
+    static List<Allowance> unspentAllowances(String path, String source) {
+        List<Allowance> unspent = new ArrayList<>(ALLOWED_CALLS.getOrDefault(path, List.of()));
+        for (Call call : chooserCalls(source)) {
+            unspent.remove(new Allowance(call.name(), call.line()));
+        }
+        return List.copyOf(unspent);
+    }
+
+    /** Each chooser call in {@code source}: its leading identifier and its line, as the guard sees it. */
+    private static List<Call> chooserCalls(String source) {
         String decoded = UNICODE_ESCAPE.matcher(source).replaceAll(LiveAgentIsTheOnlyChooserTest::decodeEscape);
         String code = NOT_CODE.matcher(decoded).replaceAll(LiveAgentIsTheOnlyChooserTest::blankOut);
-        return CHOOSER.matcher(code).results().map(LiveAgentIsTheOnlyChooserTest::callName).toList();
+        return CHOOSER.matcher(code).results()
+                .map(match -> new Call(callName(match), lineAround(code, match.start())))
+                .toList();
+    }
+
+    private static String lineAround(String code, int at) {
+        int from = code.lastIndexOf('\n', at) + 1;
+        int to = code.indexOf('\n', at);
+        return code.substring(from, to < 0 ? code.length() : to).strip();
     }
 
     /** {@code scanPipes}, {@code new PipeClient()}, {@code JBotApplication.main}: the match's first word. */
