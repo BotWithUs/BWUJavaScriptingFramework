@@ -135,7 +135,7 @@ Reference implementations: `ExampleScript` (Script UI demo with status display, 
 
 ### test-support
 
-Published as `bot-test-support`. Mocks for downstream script projects to unit-test against the API: `MockGameAPI`, `MockScriptContext`, `CannedSnapshot`, `InMemoryEventBus`.
+Published as `com.botwithus:bot-test-support`, at the same version as `bot-api`, from the first release after 1.4.0 (1.4.0 and earlier shipped `bot-api` only). Mocks for downstream script projects to unit-test against the API: `MockGameAPI`, `MockScriptContext`, `CannedSnapshot`, `InMemoryEventBus`.
 
 ## Writing a Script
 
@@ -491,6 +491,10 @@ dependencies {
 }
 ```
 
+To unit-test a script without a game client, add `com.botwithus:bot-test-support`
+at the same version as `bot-api` (`testImplementation(...)`). It is published from
+the first release after 1.4.0.
+
 Sources and Javadoc jars are published alongside each release, so IDEs pick up
 documentation and step-through sources automatically.
 
@@ -503,7 +507,7 @@ git tag v1.2.0
 git push origin v1.2.0
 ```
 
-That tag does three things: publishes `bot-api` to the Maven repository,
+That tag does three things: publishes `bot-api` and `bot-test-support` to the Maven repository,
 redeploys the Javadoc so the docs match the version just published, and cuts a
 [GitHub release](https://github.com/BotWithUs/BWUJavaScriptingFramework/releases)
 carrying the jar, sources, and javadoc. Builds without `-PreleaseVersion` stay on

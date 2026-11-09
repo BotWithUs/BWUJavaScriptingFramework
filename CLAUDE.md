@@ -89,11 +89,11 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 ./gradlew test --tests "com.botwithus.SomeTest.methodName"  # Run a single test
 ```
 
-### Publishing `bot-api`
+### Publishing `bot-api` and `bot-test-support`
 
-`api` is the only published module. It goes to **`BotWithUs/maven`** — a static Maven tree served over GitHub Pages at `https://botwithus.github.io/maven` — not to GitHub Packages, which demands a token even to *read* a public artifact and would put a PAT setup step in front of every third-party script author.
+`api` and `test-support` are the published modules (`bot-api`, `bot-test-support`), always released together at one version: the test-support POM depends on `bot-api` at that same version. They go to **`BotWithUs/maven`** — a static Maven tree served over GitHub Pages at `https://botwithus.github.io/maven` — not to GitHub Packages, which demands a token even to *read* a public artifact and would put a PAT setup step in front of every third-party script author.
 
-Tagging `vX.Y.Z` fans out to three jobs: `publish-api.yml` writes the artifact to the Maven repo, `javadoc.yml` redeploys the docs so they match the tag, and `publish-api.yml` cuts a GitHub release carrying the jar, sources and javadoc.
+Tagging `vX.Y.Z` fans out to three jobs: `publish-api.yml` writes both artifacts to the Maven repo (refusing if either version directory already exists), `javadoc.yml` redeploys the docs so they match the tag, and `publish-api.yml` cuts a GitHub release carrying the jar, sources and javadoc.
 
 Three things that will bite if changed carelessly:
 - **The workflow checks out `BotWithUs/maven` *before* running Gradle and publishes into that working copy.** Gradle merges `maven-metadata.xml` against the versions already on disk; publish to a fresh staging dir and copy afterwards and the metadata collapses to a single version, making every prior release unresolvable by version range.
