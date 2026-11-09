@@ -1,6 +1,7 @@
-# Publishes the `api` module into BotWithUs/maven, a static Maven repository
-# served over GitHub Pages at https://botwithus.github.io/maven/. Static means
-# the tree is exactly what Gradle wrote — no server-side logic — so it resolves
+# Publishes the `api` module (bot-api) and the `test-support` module
+# (bot-test-support), at one shared version, into BotWithUs/maven, a static
+# Maven repository served over GitHub Pages at https://botwithus.github.io/maven/.
+# Static means the tree is exactly what Gradle wrote — no server-side logic — so it resolves
 # anonymously, unlike GitHub Packages, which requires a token even to read a
 # public artifact.
 #
@@ -65,13 +66,19 @@ jobs:
           ssh-key: ${{ secrets.MAVEN_DEPLOY_KEY }}
           path: maven
 
+      # Both artifacts are checked before anything is written: bot-test-support
+      # depends on bot-api at the same version, so a release adds both or
+      # neither.
       - name: Refuse to overwrite a published version
         run: |
-          dest="maven/com/botwithus/bot-api/${{ steps.release.outputs.version }}"
-          if [ -d "$dest" ]; then
-            echo "::error::bot-api ${{ steps.release.outputs.version }} is already published. Published versions are immutable — cut a new one."
-            exit 1
-          fi
+          version="${{ steps.release.outputs.version }}"
+          for artifact in bot-api bot-test-support; do
+            dest="maven/com/botwithus/$artifact/$version"
+            if [ -d "$dest" ]; then
+              echo "::error::$artifact $version is already published. Published versions are immutable — cut a new one."
+              exit 1
+            fi
+          done
 
       - uses: actions/setup-java@v4
         with:
@@ -85,6 +92,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew :api:publishMavenJavaPublicationToStaticTreeRepository \
+            :test-support:publishMavenJavaPublicationToStaticTreeRepository \
             "-PreleaseVersion=${{ steps.release.outputs.version }}" \
             "-PmavenRepoDir=${{ github.workspace }}/maven"
 
@@ -98,7 +106,7 @@ jobs:
             echo "::error::The publish produced no new files."
             exit 1
           fi
-          git commit -m "bot-api ${{ steps.release.outputs.version }}"
+          git commit -m "bot-api and bot-test-support ${{ steps.release.outputs.version }}"
           git push
 
       # Only on a tag. A workflow_dispatch run has no tag to hang a release off,
@@ -121,6 +129,7 @@ jobs:
 
           dependencies {
               implementation("com.botwithus:bot-api:$version")
+              testImplementation("com.botwithus:bot-test-support:$version")
           }
           \`\`\`
 
@@ -143,13 +152,14 @@ jobs:
             --notes-file notes.md \
             --generate-notes \
             --verify-tag \
-            maven/com/botwithus/bot-api/"$version"/*.jar
+            maven/com/botwithus/bot-api/"$version"/*.jar \
+            maven/com/botwithus/bot-test-support/"$version"/*.jar
 
       - name: Summarise
         run: |
           version="${{ steps.release.outputs.version }}"
           {
-            echo "### bot-api $version published"
+            echo "### bot-api and bot-test-support $version published"
             echo
             echo '```kotlin'
             echo 'repositories {'
@@ -159,6 +169,7 @@ jobs:
             echo
             echo 'dependencies {'
             echo "    implementation(\"com.botwithus:bot-api:$version\")"
+            echo "    testImplementation(\"com.botwithus:bot-test-support:$version\")"
             echo '}'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
