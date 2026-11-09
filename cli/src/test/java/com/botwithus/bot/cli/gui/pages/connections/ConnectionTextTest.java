@@ -148,11 +148,13 @@ class ConnectionTextTest {
                 () -> assertEquals("—", ConnectionText.world(OptionalInt.empty())),
                 () -> assertEquals("BotWithUs*", ConnectionText.pipeGlob("BotWithUs")),
                 () -> assertEquals("Auto-connect · scanning every 5 s",
-                        ConnectionText.autoConnectLine(true, Duration.ofMillis(FIVE_S))),
+                        ConnectionText.autoConnectLine(true, false, Duration.ofMillis(FIVE_S))),
                 () -> assertEquals("Auto-connect · scanning every 0.5 s",
-                        ConnectionText.autoConnectLine(true, Duration.ofMillis(HALF_S))),
+                        ConnectionText.autoConnectLine(true, false, Duration.ofMillis(HALF_S))),
                 () -> assertEquals("Auto-connect off · scan by hand",
-                        ConnectionText.autoConnectLine(false, Duration.ofMillis(FIFTEEN_S))));
+                        ConnectionText.autoConnectLine(false, false, Duration.ofMillis(FIFTEEN_S))),
+                () -> assertEquals("Auto-connect off (dev run) · scan by hand",
+                        ConnectionText.autoConnectLine(false, true, Duration.ofMillis(FIVE_S))));
     }
 
     private static GameStatus inGame(boolean isMember) {

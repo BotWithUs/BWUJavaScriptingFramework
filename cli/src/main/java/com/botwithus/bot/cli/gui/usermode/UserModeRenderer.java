@@ -410,11 +410,19 @@ public class UserModeRenderer {
                 + ui.fonts().bodyMedium().getFontSize() * PARAGRAPH_LINE;
     }
 
+    /** The effective state: a dev run with auto-connect forced off says so rather than repeating the setting. */
+    private static String autoConnectChip(BoardStatus status) {
+        if (status.autoConnectForcedOff()) {
+            return "off (dev run)";
+        }
+        return status.autoConnect() ? "on" : "off";
+    }
+
     /** The two "what the host is doing" chips under the waiting message. */
     private void steps(ImDrawList draw, float cx, float y, BoardStatus status) {
         String[][] steps = {
                 {"Scanning", status.pipePattern()},
-                {"Auto-connect", status.autoConnect() ? "on" : "off"}};
+                {"Auto-connect", autoConnectChip(status)}};
         float gap = ui.m().u(2);
         float total = -gap;
         for (String[] s : steps) {

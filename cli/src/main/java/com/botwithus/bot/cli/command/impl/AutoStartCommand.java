@@ -298,7 +298,10 @@ public class AutoStartCommand implements Command {
     private void setAutoConnect(boolean enabled, CliContext ctx) {
         settings.set(SettingKeys.AUTO_CONNECT, enabled);
         settings.flush();
-        if (enabled) {
+        if (enabled && autoStartManager.isAutoConnectForcedOff()) {
+            ctx.out().println("Auto-connect enabled in your settings, but this is a developer run started with "
+                    + "auto-connect off, so it will not scan. Pass -Pbotwithus.autoConnect=true to let it.");
+        } else if (enabled) {
             autoStartManager.start();
             ctx.out().println("Auto-connect enabled. Background scanning started.");
         } else {

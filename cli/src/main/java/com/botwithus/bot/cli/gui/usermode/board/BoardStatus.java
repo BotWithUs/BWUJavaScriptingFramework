@@ -16,6 +16,7 @@ public record BoardStatus(
         int gaveUpAttempts,
         String activeClient,
         boolean autoConnect,
+        boolean autoConnectForcedOff,
         String pipePattern,
         String mountedClient,
         boolean watchingScripts) {

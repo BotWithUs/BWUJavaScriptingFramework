@@ -7,6 +7,7 @@ import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.ActionRefusal;
@@ -14,7 +15,6 @@ import com.botwithus.bot.core.shm.ActionRefusalFeed;
 import com.botwithus.bot.core.shm.EventRingReader;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.test.LiveAgent;
-import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -86,7 +86,7 @@ class LiveLongWalkLegsTest {
 
     @BeforeAll
     void connect() {
-        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        AgentSelection.Attach agent = LiveAgent.attachOrSkip();
         long pid = agent.pid();
         region = SharedRegion.open(pid);
         rpc = new RpcClient(new PipeClient(agent.pipeName()));

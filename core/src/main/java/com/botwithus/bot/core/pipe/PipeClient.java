@@ -55,18 +55,6 @@ public class PipeClient implements AutoCloseable {
     private volatile Transport transport;
     private volatile boolean open = true;
 
-    /**
-     * Auto-discover: scans for an available {@code BotWithUs_<pid>} pipe and
-     * connects to the first match. Throws {@link PipeException} if none is
-     * visible — i.e. the DLL isn't injected into any running game.
-     *
-     * <p>For multi-game setups, prefer the explicit-name constructor with a
-     * pid you've selected via {@link #scanPipes()}.</p>
-     */
-    public PipeClient() {
-        this(firstAvailableOrThrow());
-    }
-
     public PipeClient(String pipeName) {
         this(pipeName, DEFAULT_MAX_MESSAGE_BYTES);
     }
@@ -90,19 +78,6 @@ public class PipeClient implements AutoCloseable {
         this.transport = openTransport(pipePath);
         // Read by the launcher live test to show no two clients hold one agent's pipe at once.
         log.debug("Pipe client opened: {}", pipePath);
-    }
-
-    /**
-     * Returns the first pipe name matching {@link #NAME_PREFIX}, or throws
-     * {@link PipeException} if none is visible.
-     */
-    public static String firstAvailableOrThrow() {
-        List<String> candidates = scanPipes(NAME_PREFIX);
-        if (candidates.isEmpty()) {
-            throw new PipeException(
-                    "No " + NAME_PREFIX + "<pid> pipes visible — is the BotWithUs DLL injected?");
-        }
-        return candidates.getFirst();
     }
 
     static Transport openTransport(String pipePath) {

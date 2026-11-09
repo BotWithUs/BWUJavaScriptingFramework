@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.connections;
 
+import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.Connection;
 import com.botwithus.bot.cli.clients.ClientLifecycle;
@@ -118,12 +119,20 @@ public final class LiveConnectionsModel implements ConnectionsModel {
                 stats.read(connections, now), Optional.ofNullable(ctx.getActiveConnectionName()),
                 Optional.ofNullable(ctx.getMountedConnectionName()), droppedAt(clients, registry), now);
         HostSettings settings = ctx.getSettings();
+        boolean isForcedOff = isAutoConnectForcedOff();
         return new ConnectionsView(ConnectionRows.build(reading),
-                setting(settings, SettingKeys.AUTO_CONNECT.defaultValue(), s -> s.get(SettingKeys.AUTO_CONNECT)),
+                !isForcedOff && setting(settings, SettingKeys.AUTO_CONNECT.defaultValue(),
+                        s -> s.get(SettingKeys.AUTO_CONNECT)),
+                isForcedOff,
                 pipePrefix(),
                 Duration.ofMillis(setting(settings, SettingKeys.SCAN_INTERVAL_MS.defaultValue(),
                         s -> s.get(SettingKeys.SCAN_INTERVAL_MS))),
                 isScanning.get(), scanMessage);
+    }
+
+    private boolean isAutoConnectForcedOff() {
+        AutoStartManager manager = ctx.getAutoStartManager();
+        return manager != null && manager.isAutoConnectForcedOff();
     }
 
     @Override

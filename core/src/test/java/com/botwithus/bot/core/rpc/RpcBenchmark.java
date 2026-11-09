@@ -1,9 +1,9 @@
 package com.botwithus.bot.core.rpc;
 
 import com.botwithus.bot.core.msgpack.MessagePackCodec;
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.test.LiveAgent;
-import com.botwithus.bot.core.test.LiveAgentSelection;
 
 import java.io.PrintStream;
 import java.util.ArrayList;
@@ -303,9 +303,9 @@ public class RpcBenchmark {
     /** The lone agent, or the one -Dbotwithus.harness.pid names; never a guess between several. */
     private static String autoDetectPipe() {
         return switch (LiveAgent.fromEnvironment()) {
-            case LiveAgentSelection.Attach attach -> attach.pipeName();
-            case LiveAgentSelection.NoAgent none -> exitWith(none.reason());
-            case LiveAgentSelection.Refused refused -> exitWith(refused.reason() + " Or pass --pipe NAME.");
+            case AgentSelection.Attach attach -> attach.pipeName();
+            case AgentSelection.NoAgent none -> exitWith(none.reason());
+            case AgentSelection.Refused refused -> exitWith(refused.reason() + " Or pass --pipe NAME.");
         };
     }
 

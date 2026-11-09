@@ -59,22 +59,7 @@ public final class SnapshotProbe {
     }
 
     private static long resolvePid(String[] args) {
-        if (args.length >= 1) {
-            return Long.parseLong(args[0]);
-        }
-        // Pipe + snapshot are created together by the DLL, so any visible pipe
-        // pairs with a bindable snapshot mapping.
-        var discovered = SharedRegion.discoverPids();
-        if (discovered.isEmpty()) {
-            System.err.println("No BotWithUs_<pid> pipes found. Is the DLL injected?");
-            System.err.println("usage: SnapshotProbe [<pid>]");
-            System.exit(2);
-            throw new AssertionError("System.exit returned");
-        }
-        if (discovered.size() > 1) {
-            System.err.println("Multiple games detected: " + discovered + " — picking first.");
-        }
-        return discovered.getFirst();
+        return ProbeTarget.resolvePid(args, "usage: SnapshotProbe [<pid>]");
     }
 
     private static void pollLoop(SharedRegion region, EventRingReader events) throws InterruptedException {

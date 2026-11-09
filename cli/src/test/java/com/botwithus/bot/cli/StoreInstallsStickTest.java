@@ -341,6 +341,6 @@ class StoreInstallsStickTest {
         ScriptProfileStore profiles = new ScriptProfileStore(tmp.resolve("profiles" + hosts));
         profiles.setAutoStart(ACCOUNT, true);
         profiles.setAccountScripts(ACCOUNT, List.of(SCRIPT_NAME));
-        return new AutoStartManager(host.ctx(), profiles, settings.getLast());
+        return new AutoStartManager(host.ctx(), profiles, settings.getLast(), prefix -> List.of());
     }
 }

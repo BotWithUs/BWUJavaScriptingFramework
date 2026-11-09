@@ -15,6 +15,7 @@ import com.botwithus.bot.core.impl.GameAPIImpl;
 import com.botwithus.bot.core.impl.MessageBusImpl;
 import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
@@ -22,7 +23,6 @@ import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.shm.Layout;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
 import com.botwithus.bot.core.test.LiveAgent;
-import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -290,7 +290,7 @@ class LiveScriptRunLogSmokeTest {
             implements AutoCloseable {
 
         static Live connect() throws IOException {
-            LiveAgentSelection.Attach target = LiveAgent.attachOrFail();
+            AgentSelection.Attach target = LiveAgent.attachOrFail();
             String pipeName = target.pipeName();
             long pid = target.pid();
             PipeClient pipe = new PipeClient(pipeName);

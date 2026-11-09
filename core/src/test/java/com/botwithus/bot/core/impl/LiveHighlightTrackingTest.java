@@ -9,12 +9,12 @@ import com.botwithus.bot.api.draw.DrawLimits;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Npc;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcException;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.test.LiveAgent;
-import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -161,7 +161,7 @@ class LiveHighlightTrackingTest {
 
     @BeforeAll
     void connect() {
-        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        AgentSelection.Attach agent = LiveAgent.attachOrSkip();
         // The snapshot and the pipe must be the SAME client: this test compares what
         // the snapshot says an NPC did against what the overlay drew for it, and two
         // clients would make that comparison meaningless rather than merely noisy.

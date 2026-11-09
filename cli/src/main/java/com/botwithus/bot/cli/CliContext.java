@@ -694,8 +694,15 @@ public class CliContext {
         return report.scripts();
     }
 
+    /**
+     * Connects to the named agent pipe. There is no "any pipe" form: the host
+     * never picks a client on its own here, because the first pipe found can be
+     * someone's own game. Scanning and choosing belong to the caller.
+     *
+     * @param pipeName the agent pipe's name, never {@code null}
+     */
     public void connect(String pipeName) {
-        String resolvedName = pipeName != null ? pipeName : PipeClient.firstAvailableOrThrow();
+        String resolvedName = Objects.requireNonNull(pipeName, "pipeName: name the pipe to connect to");
         if (connections.containsKey(resolvedName)) {
             out().println("Already connected to '" + resolvedName + "'. Use 'use " + resolvedName + "' to switch.");
             return;

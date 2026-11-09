@@ -193,7 +193,10 @@ public final class ConnectionText {
     }
 
     /** The line beside the title when no scan from the page is running. */
-    public static String autoConnectLine(boolean isOn, Duration every) {
+    public static String autoConnectLine(boolean isOn, boolean isForcedOff, Duration every) {
+        if (isForcedOff) {
+            return "Auto-connect off (dev run) · scan by hand";
+        }
         if (!isOn) {
             return "Auto-connect off · scan by hand";
         }

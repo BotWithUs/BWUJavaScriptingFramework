@@ -6,8 +6,6 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.List;
-import java.util.Optional;
 import java.util.OptionalLong;
 
 /**
@@ -54,28 +52,6 @@ public final class SharedRegion implements AutoCloseable {
      * if the DLL is up, both the pipe and the snapshot mapping exist.
      */
     public static final String PIPE_PREFIX = "BotWithUs_";
-
-    /**
-     * Scan running pipes whose names match the producer's prefix and return
-     * the embedded pids in scan order. Empty list if no game has the DLL
-     * injected. Each returned pid is plumbable into {@link #open(long)}.
-     */
-    public static List<Long> discoverPids() {
-        return PipeClient.scanPipes(PIPE_PREFIX).stream()
-                .map(SharedRegion::parsePid)
-                .filter(OptionalLong::isPresent)
-                .map(OptionalLong::getAsLong)
-                .toList();
-    }
-
-    /**
-     * Convenience for the single-game case: returns the first discovered
-     * pid wrapped in a region, or empty if none. Throws if the discovered
-     * pid exists but the mapping fails to bind.
-     */
-    public static Optional<SharedRegion> openFirstAvailable() {
-        return discoverPids().stream().findFirst().map(SharedRegion::open);
-    }
 
     /**
      * Parse the embedded pid out of a {@code BotWithUs_<pid>} pipe name as

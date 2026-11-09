@@ -86,6 +86,28 @@ val extractNatives by tasks.registering(Copy::class) {
 tasks.named<JavaExec>("run") {
     dependsOn(extractNatives)
     workingDir = rootProject.projectDir
+    // A dev run reads the developer's real ~/.botwithus settings, where
+    // auto-connect is on by default, and auto-connect attaches to every agent
+    // on the machine and resumes scripts on it. Beside someone's own game that
+    // drives their character. So `run` keeps auto-connect off for this process
+    // (the saved setting is not touched; the Connections header says
+    // "off (dev run)"), unless asked:
+    //   -Dbotwithus.harness.pid=<pid>   auto-connect on, but only to that client
+    //   -Pbotwithus.autoConnect=true    the saved setting decides, as installed
+    // The installed host never passes botwithus.autoConnect and is unchanged.
+    // A blank pin (`-Dbotwithus.harness.pid=$PID` with $PID unset) is not a
+    // harness run: it must not lift the guard. It falls through to "off".
+    val harnessPid = System.getProperty("botwithus.harness.pid")
+    if (!harnessPid.isNullOrBlank()) {
+        jvmArgs("-Dbotwithus.harness.pid=$harnessPid")
+    } else {
+        if (harnessPid != null) {
+            logger.warn("botwithus.harness.pid is set but empty; ignoring it, auto-connect stays off")
+        }
+        if (project.findProperty("botwithus.autoConnect")?.toString() != "true") {
+            jvmArgs("-Dbotwithus.autoConnect=false")
+        }
+    }
     jvmArgs(
         "-Dorg.lwjgl.librarypath=${layout.buildDirectory.dir("natives").get().asFile.absolutePath}",
         // FFM downcalls in com.botwithus.bot.core.cache.NXTCache hit the

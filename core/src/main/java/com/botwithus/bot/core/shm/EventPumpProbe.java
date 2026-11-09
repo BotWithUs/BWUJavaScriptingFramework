@@ -19,18 +19,7 @@ public final class EventPumpProbe {
     private EventPumpProbe() {}
 
     public static void main(String[] args) throws InterruptedException {
-        long pid;
-        if (args.length >= 1) {
-            pid = Long.parseLong(args[0]);
-        } else {
-            var pids = SharedRegion.discoverPids();
-            if (pids.isEmpty()) {
-                System.err.println("No BotWithUs_<pid> pipes found. Is the DLL injected?");
-                System.exit(2);
-                return;
-            }
-            pid = pids.getFirst();
-        }
+        long pid = ProbeTarget.resolvePid(args, "usage: EventPumpProbe [<pid>]");
 
         EventBusImpl bus = new EventBusImpl();
         bus.subscribe(TickEvent.class,             e -> System.out.println("Tick:  " + e.tick()));
