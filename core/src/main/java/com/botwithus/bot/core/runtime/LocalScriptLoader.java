@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.ServiceLoader;
+import java.util.stream.Stream;
 
 /**
  * Discovers BotScript implementations from local JAR files in a scripts directory.
@@ -245,46 +246,71 @@ public final class LocalScriptLoader {
                     List.of()));
         }
 
+        List<String> diagnostics = List.of();
         try {
-            URL jarURL = ref.location().get().toURL();
             Configuration cfg = bootLayer.configuration().resolve(
                     finder, ModuleFinder.of(), Collections.singleton(name));
-            URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
-            previousLoaders.add(classLoader);
-            ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
-
-            Optional<Module> module = layer.findModule(name);
-            if (module.isEmpty()) {
-                return List.of(ScriptLoadResult.failure(jar,
-                        new IllegalStateException("Module " + name + " not found in defined layer"),
-                        List.of()));
-            }
-
-            boolean providesBotScript = module.get().getDescriptor().provides().stream()
-                    .anyMatch(p -> p.service().equals(BotScript.class.getName()));
-
-            List<ScriptLoadResult> results = new ArrayList<>();
-            ServiceLoader<BotScript> loader = ServiceLoader.load(layer, BotScript.class);
-            for (BotScript script : loader) {
-                log.info("Loaded: {}", script.getClass().getName());
-                results.add(ScriptLoadResult.success(jar, script, List.of()));
-            }
-
-            if (results.isEmpty() && providesBotScript) {
-                String msg = "Module '" + name
-                        + "' declares 'provides BotScript' but ServiceLoader found 0 implementations";
-                log.warn(msg);
-                return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), List.of()));
-            }
-            if (results.isEmpty()) {
-                String msg = "Module '" + name + "' contains no BotScript providers";
-                log.info(msg);
-                return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), List.of()));
-            }
-            return results;
+            diagnostics = HostInternalsCheck.inspect(cfg, name, HostInternalsCheck.stagedJarOf(staged), log::warn)
+                    .map(HostInternalsCheck.Reach::message)
+                    .stream()
+                    .toList();
+            return withDiagnostics(defineAndLoad(ref, cfg, bootLayer, jar), diagnostics);
         } catch (Exception e) {
             log.error("Failed to load module {}: {}", name, e.getMessage(), e);
-            return List.of(ScriptLoadResult.failure(jar, e, List.of()));
+            return withDiagnostics(List.of(ScriptLoadResult.failure(jar, e, List.of())), diagnostics);
         }
+    }
+
+    /**
+     * Adds {@code diagnostics} to every result. Every outcome of
+     * {@link #loadOneModule} after resolution passes through here, whether
+     * {@link #defineAndLoad} returns or throws, so none of them can drop them.
+     */
+    private static List<ScriptLoadResult> withDiagnostics(List<ScriptLoadResult> results,
+                                                          List<String> diagnostics) {
+        return results.stream()
+                .map(result -> new ScriptLoadResult(result.jar(), result.script(), result.error(),
+                        Stream.concat(result.diagnostics().stream(), diagnostics.stream()).toList(),
+                        result.lastModified()))
+                .toList();
+    }
+
+    /** Defines the layer for {@code cfg} and collects its scripts. The caller adds diagnostics. */
+    private static List<ScriptLoadResult> defineAndLoad(ModuleReference ref, Configuration cfg,
+                                                        ModuleLayer bootLayer, Path jar) throws IOException {
+        String name = ref.descriptor().name();
+        URL jarURL = ref.location().orElseThrow().toURL();
+        URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
+        previousLoaders.add(classLoader);
+        ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
+
+        Optional<Module> module = layer.findModule(name);
+        if (module.isEmpty()) {
+            return List.of(ScriptLoadResult.failure(jar,
+                    new IllegalStateException("Module " + name + " not found in defined layer"), List.of()));
+        }
+
+        boolean providesBotScript = module.get().getDescriptor().provides().stream()
+                .anyMatch(p -> p.service().equals(BotScript.class.getName()));
+
+        List<ScriptLoadResult> results = new ArrayList<>();
+        ServiceLoader<BotScript> loader = ServiceLoader.load(layer, BotScript.class);
+        for (BotScript script : loader) {
+            log.info("Loaded: {}", script.getClass().getName());
+            results.add(ScriptLoadResult.success(jar, script, List.of()));
+        }
+
+        if (results.isEmpty() && providesBotScript) {
+            String msg = "Module '" + name
+                    + "' declares 'provides BotScript' but ServiceLoader found 0 implementations";
+            log.warn(msg);
+            return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), List.of()));
+        }
+        if (results.isEmpty()) {
+            String msg = "Module '" + name + "' contains no BotScript providers";
+            log.info(msg);
+            return List.of(ScriptLoadResult.failure(jar, new IllegalStateException(msg), List.of()));
+        }
+        return results;
     }
 }

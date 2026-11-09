@@ -18,6 +18,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.ServiceLoader;
+import java.util.stream.Stream;
 
 /**
  * Discovers {@link ManagementScript} implementations from JAR files
@@ -151,27 +152,51 @@ public final class ManagementScriptLoader {
                     new IllegalStateException("Module " + name + " has no resolvable location")));
         }
         Path jar = staged.sourceOf(Path.of(location.get()));
+        List<String> diagnostics = List.of();
         try {
-            URL jarURL = location.get().toURL();
             Configuration cfg = bootLayer.configuration().resolve(
                     finder, ModuleFinder.of(), Collections.singleton(name));
-            URLClassLoader classLoader = new URLClassLoader(new URL[]{jarURL});
-            previousLoaders.add(classLoader);
-            ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
-
-            List<ManagementLoadResult> results = new ArrayList<>();
-            for (ManagementScript script : ServiceLoader.load(layer, ManagementScript.class)) {
-                log.info("Loaded: {}", script.getClass().getName());
-                results.add(ManagementLoadResult.success(jar, script));
-            }
-            if (results.isEmpty()) {
-                return List.of(ManagementLoadResult.failure(jar, new IllegalStateException(
-                        "Module '" + name + "' contains no ManagementScript providers")));
-            }
-            return results;
+            diagnostics = HostInternalsCheck.inspect(cfg, name, HostInternalsCheck.stagedJarOf(staged), log::warn)
+                    .map(HostInternalsCheck.Reach::message)
+                    .stream()
+                    .toList();
+            return withDiagnostics(defineAndLoad(location.get(), name, cfg, bootLayer, jar), diagnostics);
         } catch (Exception e) {
             log.error("Failed to load module {}: {}", name, e.getMessage());
-            return List.of(ManagementLoadResult.failure(jar, e));
+            return withDiagnostics(List.of(ManagementLoadResult.failure(jar, e)), diagnostics);
         }
+    }
+
+    /** Defines the layer for {@code cfg} and collects its management scripts. The caller adds diagnostics. */
+    private static List<ManagementLoadResult> defineAndLoad(URI location, String name, Configuration cfg,
+                                                            ModuleLayer bootLayer, Path jar) throws IOException {
+        URLClassLoader classLoader = new URLClassLoader(new URL[]{location.toURL()});
+        previousLoaders.add(classLoader);
+        ModuleLayer layer = bootLayer.defineModulesWithOneLoader(cfg, classLoader);
+
+        List<ManagementLoadResult> results = new ArrayList<>();
+        for (ManagementScript script : ServiceLoader.load(layer, ManagementScript.class)) {
+            log.info("Loaded: {}", script.getClass().getName());
+            results.add(ManagementLoadResult.success(jar, script));
+        }
+        if (results.isEmpty()) {
+            results.add(ManagementLoadResult.failure(jar, new IllegalStateException(
+                    "Module '" + name + "' contains no ManagementScript providers")));
+        }
+        return results;
+    }
+
+    /**
+     * Adds {@code diagnostics} to every result. Every outcome of
+     * {@link #loadModuleScripts} after resolution passes through here, whether
+     * {@link #defineAndLoad} returns or throws, so none of them can drop them.
+     */
+    private static List<ManagementLoadResult> withDiagnostics(List<ManagementLoadResult> results,
+                                                              List<String> diagnostics) {
+        return results.stream()
+                .map(result -> new ManagementLoadResult(result.jar(), result.script(), result.error(),
+                        Stream.concat(result.diagnostics().stream(), diagnostics.stream()).toList(),
+                        result.lastModified()))
+                .toList();
     }
 }
