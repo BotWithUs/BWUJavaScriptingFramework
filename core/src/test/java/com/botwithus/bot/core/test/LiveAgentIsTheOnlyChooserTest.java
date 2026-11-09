@@ -97,9 +97,20 @@ class LiveAgentIsTheOnlyChooserTest {
     /** Modules whose {@code main} source set is test code, so it is walked too. */
     private static final Set<String> TEST_ONLY_MODULES = Set.of("test-support");
 
-    /** Text block, string, char literal, block comment, line comment: in that order, so none hides another. */
+    /**
+     * Text block, string, char literal, block comment, line comment: in that
+     * order, so none hides another. Each literal consumes escapes, so an escaped
+     * delimiter ({@code \"}, {@code \'}, a text block's {@code \"""}) cannot close
+     * it early and open a phantom literal over real code. Strings, char literals
+     * and line comments end at either line terminator, {@code \r} or {@code \n},
+     * as Java's do. Comments have no escapes and end at the first terminator.
+     */
     private static final Pattern NOT_CODE = Pattern.compile(
-            "\"\"\"(?s:.*?)\"\"\"|\"(?:\\\\.|[^\"\\\\\\n])*\"|'(?:\\\\.|[^'\\\\\\n])+'|/\\*(?s:.*?)\\*/|//[^\\n]*");
+            "\"\"\"(?s:(?:\\\\.|[^\\\\])*?)\"\"\""
+                    + "|\"(?:\\\\.|[^\"\\\\\\r\\n])*\""
+                    + "|'(?:\\\\.|[^'\\\\\\r\\n])+'"
+                    + "|/\\*(?s:.*?)\\*/"
+                    + "|//[^\\r\\n]*");
 
     private static final String SETTINGS_FILE = "settings.gradle.kts";
     private static final String MAIN_SOURCE_SET = "main";
@@ -252,6 +263,39 @@ class LiveAgentIsTheOnlyChooserTest {
         assertFalse(choosesAClient(source));
         assertTrue(choosesAClient(source + "\nPipeClient.scanPipes();"),
                 "stripping must not swallow code that follows a string or comment");
+    }
+
+    /**
+     * The reviewer's plant Q9: a text block holding an escaped {@code \"""}. A
+     * stripper that ignored the escape would close the block there, then read
+     * the real closing delimiter as the start of a phantom block running to the
+     * next one, blanking the call between them. Q10 is the same code without the
+     * escape, so the case cannot pass by flagging nothing.
+     */
+    @Test
+    void matcher_textBlockEscapedQuotes_doNotHideTheCallAfterThem() {
+        String q9 = String.join("\n",
+                "String a = \"\"\"",
+                "    \\\"\"\"",
+                "    \"\"\";",
+                "List<String> b = PipeClient.scanPipes(\"BotWithUs_\");",
+                "String c = \"\"\"",
+                "    x",
+                "    \"\"\";");
+        String q10 = q9.replace("    \\\"\"\"\n", "    y\n");
+
+        assertTrue(q9.contains("\\\"\"\""), "the plant really holds the escaped quotes");
+        assertTrue(choosesAClient(wrap(q10)), "control: the call is found without the escape");
+        assertTrue(choosesAClient(wrap(q9)), "Q9: the escaped quotes must not hide the call after the block");
+    }
+
+    /** Old Mac line endings: a line comment ends at a lone CR, so code on the next line is still code. */
+    @Test
+    void matcher_lineCommentEndsAtALoneCarriageReturn() {
+        String crOnly = "// a comment\rList<String> b = PipeClient.scanPipes(\"BotWithUs_\");\r";
+
+        assertTrue(choosesAClient(wrap(crOnly)));
+        assertFalse(choosesAClient(wrap("// a comment then PipeClient.scanPipes()\r")));
     }
 
     @Test
