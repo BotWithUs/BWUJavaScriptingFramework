@@ -31,6 +31,17 @@ extraJavaModuleInfo {
     // must be explicitly enabled".
 }
 
+// Every live test picks its client through the test helper core.test.LiveAgent,
+// which reads botwithus.harness.pid. Forward it to every Test task, not just
+// harnessTest: a pid that never reaches the test JVM silently turns a pinned
+// run into "whichever single agent is visible", which is the bug the pin
+// exists to prevent. LiveAgentTest.harnessPid_reachesTheTestJvm runs only
+// when it arrives, so seeing that test pass rather than skip is the proof.
+val HARNESS_PID_PROPERTY = "botwithus.harness.pid"
+tasks.withType<Test>().configureEach {
+    System.getProperty(HARNESS_PID_PROPERTY)?.let { systemProperty(HARNESS_PID_PROPERTY, it) }
+}
+
 tasks.named<Test>("test") {
     // GamevalIndexLiveTest skips cleanly (JUnit Assumptions) when no
     // gameval.sqlite is present, and otherwise picks up the one in
@@ -211,9 +222,9 @@ tasks.register<Test>("liveInputDialogTest") {
     group = "verification"
     useJUnitPlatform()
     systemProperty("botwithus.smoke.input", "true")
-    // -Dbotwithus.input.pid=<pid> -Dbotwithus.input.item=<id> -Dbotwithus.input.amount=<n>
+    // -Dbotwithus.harness.pid=<pid> -Dbotwithus.input.item=<id> -Dbotwithus.input.amount=<n>
     // -Dbotwithus.input.openBank=<actionId>,<locId>,<x>,<y>
-    listOf("pid", "item", "amount", "openBank").forEach { key ->
+    listOf("item", "amount", "openBank").forEach { key ->
         System.getProperty("botwithus.input.$key")?.let { systemProperty("botwithus.input.$key", it) }
     }
     jvmArgs("--enable-native-access=ALL-UNNAMED")
@@ -284,10 +295,9 @@ tasks.register<Test>("harnessTest") {
     // Same native-access and cache-locator forwarding as liveSmokeTest: the
     // harness may point these at a dev build rather than ~/.botwithus/native.
     jvmArgs("--enable-native-access=ALL-UNNAMED")
-    // botwithus.harness.pid scopes LiveProtocolLockstepTest to the one client
-    // the rest of the run is testing. Without it that gate would attach to
-    // whichever agent it found first, and could certify a different process
-    // than the run then exercises. botwithus.live.expectOpenIfaces names the
+    // botwithus.harness.pid is forwarded to every Test task above, and scopes
+    // every live test to the one client the rest of the run is testing.
+    // botwithus.live.expectOpenIfaces names the
     // interfaces the caller opened first, for LiveOpenInterfacesSmokeTest, and
     // botwithus.live.expectOpenIfaceTypes the open type each must have (<id>:<type>).
     listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live",
@@ -295,7 +305,7 @@ tasks.register<Test>("harnessTest") {
            "botwithus.live.groundItems", "botwithus.live.groundItemId",
            "botwithus.live.expectOpenIfaces",
            "botwithus.live.expectOpenIfaceTypes", "botwithus.live.inventoryOps",
-           "botwithus.live.dropItemId", "botwithus.harness.pid").forEach { key ->
+           "botwithus.live.dropItemId").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {

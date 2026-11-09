@@ -20,8 +20,9 @@ import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.shm.Layout;
-import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -65,13 +66,11 @@ import static org.junit.jupiter.api.Assertions.fail;
  */
 class LiveScriptRunLogSmokeTest {
 
-    private static final String PID_PROPERTY = "botwithus.harness.pid";
     /**
      * Set to keep the control file for an outside grep to be checked against. It
      * holds real names; whoever sets this deletes it afterwards.
      */
     private static final String KEEP_CONTROL_ENV = "BWU_RUNLOG_KEEP_CONTROL";
-    private static final String PIPE_PREFIX = "BotWithUs_";
     private static final int IN_WORLD = 30;
     private static final long STOP_WAIT_MS = 15_000;
     private static final int WALK_ACTION = 23;
@@ -291,8 +290,9 @@ class LiveScriptRunLogSmokeTest {
             implements AutoCloseable {
 
         static Live connect() throws IOException {
-            String pipeName = resolvePipeName();
-            long pid = SharedRegion.parsePid(pipeName).orElseThrow();
+            LiveAgentSelection.Attach target = LiveAgent.attachOrFail();
+            String pipeName = target.pipeName();
+            long pid = target.pid();
             PipeClient pipe = new PipeClient(pipeName);
             RpcClient rpc = new RpcClient(pipe);
             EventBusImpl bus = new EventBusImpl();
@@ -341,18 +341,6 @@ class LiveScriptRunLogSmokeTest {
             runtime.stopAll();
             Path file = logs.currentOrLastLog(pipeName, runner.getScriptName()).orElseThrow();
             return Files.readString(file, StandardCharsets.UTF_8);
-        }
-
-        private static String resolvePipeName() {
-            String pid = System.getProperty(PID_PROPERTY);
-            if (pid != null && !pid.isBlank()) {
-                return PIPE_PREFIX + pid.strip();
-            }
-            List<String> pipes = PipeClient.scanPipes();
-            if (pipes.isEmpty()) {
-                fail("No BotWithUs_<pid> pipe visible; inject the agent into a running client first");
-            }
-            return pipes.getFirst();
         }
 
         /** The connection name plus every name the agent reports for the account. */

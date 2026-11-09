@@ -8,6 +8,7 @@ import com.botwithus.bot.api.model.VarpState;
 import com.botwithus.bot.core.cache.NXTCache;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.test.LiveAgent;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -69,17 +70,13 @@ class LiveVarpStateTest {
 
     @BeforeAll
     void connect() throws IOException, InterruptedException {
-        List<String> pipes = PipeClient.scanPipes(PipeClient.NAME_PREFIX);
-        String pid = System.getProperty("botwithus.harness.pid");
-        List<String> chosen = pid == null ? pipes
-                : pipes.stream().filter(p -> p.endsWith("_" + pid)).toList();
-        Assumptions.assumeFalse(chosen.isEmpty(), "no agent pipe for pid " + pid);
-        rpc = new RpcClient(new PipeClient(chosen.getFirst()));
+        String pipeName = LiveAgent.attachOrSkip().pipeName();
+        rpc = new RpcClient(new PipeClient(pipeName));
         Assumptions.assumeTrue(NXTCache.supportsVarpInfo(), "NXTCache.dll lacks nxt_get_varp_info");
         cache = NXTCache.openForHost();
         awaitUntil(cache::isVarpInfoWarm, "the varp warm-up never finished");
         api = new GameAPIImpl(rpc, cache);
-        log.info("connected to {}, login state {}", chosen.getFirst(), api.getLoginState().state());
+        log.info("connected to {}, login state {}", pipeName, api.getLoginState().state());
     }
 
     private void assumeInWorld() {

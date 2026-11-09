@@ -16,6 +16,8 @@ import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -58,7 +60,6 @@ class LiveInventoryDropByNameTest {
 
     private static final Logger log = LoggerFactory.getLogger(LiveInventoryDropByNameTest.class);
 
-    private static final String PID_PROPERTY = "botwithus.harness.pid";
     private static final String ITEM_PROPERTY = "botwithus.live.dropItemId";
     private static final String DROP = "Drop";
     /** The ribbon's button grid; each ribbon slot is a sub of it. */
@@ -88,9 +89,10 @@ class LiveInventoryDropByNameTest {
 
     @BeforeAll
     void connect() throws IOException {
-        long pid = targetPid();
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrFail();
+        long pid = agent.pid();
         region = SharedRegion.open(pid);
-        rpc = new RpcClient(new PipeClient(PipeClient.NAME_PREFIX + pid));
+        rpc = new RpcClient(new PipeClient(agent.pipeName()));
         cache = NXTCache.openForHost();
         api = new GameAPIImpl(rpc, cache, () -> new GameSnapshotImpl(region.snapshot()));
         assertEquals(GameSnapshot.GAME_STATE_IN_GAME, api.snapshot().gameState(),
@@ -229,17 +231,5 @@ class LiveInventoryDropByNameTest {
             }
         }
         return condition.getAsBoolean();
-    }
-
-    private static long targetPid() {
-        String pid = System.getProperty(PID_PROPERTY);
-        if (pid != null && !pid.isBlank()) {
-            return Long.parseLong(pid.trim());
-        }
-        List<Long> pids = SharedRegion.discoverPids();
-        if (pids.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible; inject the agent into a running game first");
-        }
-        return pids.getFirst();
     }
 }

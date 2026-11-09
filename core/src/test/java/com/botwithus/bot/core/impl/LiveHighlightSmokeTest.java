@@ -14,6 +14,8 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcException;
 import com.botwithus.bot.core.rpc.RpcRemoteException;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -25,7 +27,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
@@ -83,12 +84,8 @@ class LiveHighlightSmokeTest {
 
     @BeforeAll
     void connect() {
-        List<String> pipes = PipeClient.scanPipes(PipeClient.NAME_PREFIX);
-        Assumptions.assumeFalse(pipes.isEmpty(),
-                "SKIPPED, not passed: no BotWithUs_<pid> pipe visible — nothing was checked. "
-                        + "Inject the agent into a running client.");
-
-        rpc = new RpcClient(new PipeClient(pipes.getFirst()));
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        rpc = new RpcClient(new PipeClient(agent.pipeName()));
         GameAPI api = new GameAPIImpl(rpc);
         draw = api.draw();
 
@@ -100,7 +97,7 @@ class LiveHighlightSmokeTest {
         if (!wasEnabled) {
             draw.setEnabled(true);
         }
-        log.info("connected to {} for highlight contract checks", pipes.getFirst());
+        log.info("connected to {} for highlight contract checks", agent.pipeName());
     }
 
     /**

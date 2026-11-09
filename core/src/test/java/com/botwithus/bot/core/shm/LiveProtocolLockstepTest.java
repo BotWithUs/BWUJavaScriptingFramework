@@ -1,5 +1,7 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
@@ -37,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  * not consult. Whenever the two copies diverge, the number-comparing check
  * reports agreement the running code will not honour.</p>
  *
- * <p>So this attaches instead. {@link SharedRegion#openFirstAvailable()} runs
+ * <p>So this attaches instead. {@link SharedRegion#open(long)} runs
  * {@code validateMagicAndVersion}, which throws {@link SharedMemoryException}
  * naming both sides on a mismatch. A successful attach is agreement <b>by
  * construction</b>: the bytes on the wire passed the exact comparison that
@@ -61,17 +63,14 @@ import static org.junit.jupiter.api.Assertions.fail;
  * <p>{@code -Dbotwithus.harness.pid=<pid>} pins it to one client, which is what
  * the harness passes: every other phase is scoped to {@code session.pid}, and a
  * gate that certified some other agent on the machine would be certifying
- * something the run does not then test. Without the property it falls back to
- * {@link SharedRegion#openFirstAvailable()} so the class is still usable by
- * hand.</p>
+ * something the run does not then test. {@link LiveAgent} makes the choice:
+ * without the property it takes a lone visible agent, so the class is still
+ * usable by hand, and refuses rather than guess when several are up.</p>
  */
 @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
 class LiveProtocolLockstepTest {
 
     private static final Logger log = LoggerFactory.getLogger(LiveProtocolLockstepTest.class);
-
-    /** Set by bwu-harness to the pid every other phase of the run is scoped to. */
-    private static final String PID_PROPERTY = "botwithus.harness.pid";
 
     private static final long V25_SNAPSHOT_OFF0 = 64;
     private static final long V25_SNAPSHOT_OFF1 = 469312;
@@ -140,10 +139,10 @@ class LiveProtocolLockstepTest {
     }
 
     private static Optional<SharedRegion> openTarget() {
-        String pid = System.getProperty(PID_PROPERTY);
-        if (pid == null || pid.isBlank()) {
-            return SharedRegion.openFirstAvailable();
-        }
-        return Optional.of(SharedRegion.open(Long.parseLong(pid.trim())));
+        return switch (LiveAgent.fromEnvironment()) {
+            case LiveAgentSelection.Attach attach -> Optional.of(SharedRegion.open(attach.pid()));
+            case LiveAgentSelection.NoAgent none -> Optional.empty();
+            case LiveAgentSelection.Refused refused -> fail(refused.reason());
+        };
     }
 }
