@@ -144,7 +144,9 @@ public final class SnapshotProbe {
                             + " from=" + e.message().playerName()
                             + " text='" + e.message().text() + "'";
             case KeyInputEvent e ->
-                    "key=" + e.key() + " alt=" + e.alt() + " ctrl=" + e.ctrl() + " shift=" + e.shift();
+                    "key=" + e.key() + " alt=" + e.alt() + " ctrl=" + e.ctrl() + " shift=" + e.shift()
+                            + " synthetic=" + e.synthetic() + " textInput=" + e.textInputFocused()
+                            + " repeat=" + e.repeat();
             case ActionExecutedEvent e ->
                     "action=" + e.actionId();
             case BreakStartedEvent e ->
