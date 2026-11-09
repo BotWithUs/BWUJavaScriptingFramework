@@ -10,6 +10,7 @@ import java.lang.module.ModuleReader;
 import java.lang.module.ModuleReference;
 import java.lang.module.ResolvedModule;
 import java.net.URI;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +21,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -36,6 +38,10 @@ class HostInternalsCheckTest {
     private static final String SCRIPT = "probe.script";
     private static final String HOP1 = "probe.hop1";
     private static final String HOP2 = "probe.hop2";
+    /** Deep enough that walking every path takes minutes; deciding each module once takes milliseconds. */
+    private static final int LADDER_RUNGS = 28;
+    /** Generous for a loaded machine, and still far below the cost of walking every path. */
+    private static final Duration LADDER_BUDGET = Duration.ofSeconds(2);
     private static final Set<ModuleDescriptor.Requires.Modifier> TRANSITIVE =
             Set.of(ModuleDescriptor.Requires.Modifier.TRANSITIVE);
     private static final Function<ResolvedModule, String> JAR_OF = module -> module.name() + ".jar";
@@ -149,7 +155,45 @@ class HostInternalsCheckTest {
         assertTrue(found.isEmpty(), found.toString());
     }
 
+    /**
+     * Each rung of the ladder requires both modules of the rung below
+     * transitively, so the number of paths doubles per rung while the number of
+     * modules grows by two. Deciding each module once keeps this in milliseconds;
+     * walking every path would take minutes at this depth.
+     */
+    @Test
+    void inspect_aDeepLadderOfSharedDependencies_isDecidedWellInsideTheBudget() {
+        List<ModuleDescriptor> modules = new ArrayList<>(diamondLadder(LADDER_RUNGS));
+        modules.add(script(CLI, rung(LADDER_RUNGS - 1, "a")));
+        Configuration child = resolve(hostConfiguration(), modules, SCRIPT);
+
+        Optional<HostInternalsCheck.Reach> found = assertTimeoutPreemptively(LADDER_BUDGET,
+                () -> HostInternalsCheck.inspect(child, SCRIPT, JAR_OF, message -> { }));
+
+        assertEquals(Optional.of(List.of(CLI)), found.map(HostInternalsCheck.Reach::via));
+    }
+
     // Fixtures -------------------------------------------------------------
+
+    /** Rungs {@code 0..rungs-1}, two modules each; none of them passes the host on. */
+    private static List<ModuleDescriptor> diamondLadder(int rungs) {
+        List<ModuleDescriptor> ladder = new ArrayList<>();
+        for (int level = 0; level < rungs; level++) {
+            for (String side : List.of("a", "b")) {
+                ModuleDescriptor.Builder builder = ModuleDescriptor.newModule(rung(level, side));
+                if (level > 0) {
+                    builder.requires(TRANSITIVE, rung(level - 1, "a"));
+                    builder.requires(TRANSITIVE, rung(level - 1, "b"));
+                }
+                ladder.add(builder.build());
+            }
+        }
+        return ladder;
+    }
+
+    private static String rung(int level, String side) {
+        return "probe.rung" + level + side;
+    }
 
     private static ModuleDescriptor script(String... requires) {
         ModuleDescriptor.Builder builder = ModuleDescriptor.newModule(SCRIPT);

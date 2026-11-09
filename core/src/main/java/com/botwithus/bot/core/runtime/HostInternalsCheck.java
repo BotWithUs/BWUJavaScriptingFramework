@@ -5,7 +5,9 @@ import java.lang.module.ModuleDescriptor;
 import java.lang.module.ModuleDescriptor.Requires;
 import java.lang.module.ResolvedModule;
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -129,9 +131,10 @@ final class HostInternalsCheck {
         if (descriptor.requires().stream().anyMatch(requires -> requires.name().equals(HOST_MODULE))) {
             return new Reach(module.name(), jar, Route.DIRECT, List.of());
         }
+        Map<ResolvedModule, Boolean> passesOn = new HashMap<>();
         List<String> via = descriptor.requires().stream()
                 .map(Requires::name)
-                .filter(name -> readsOneThatPassesHostOn(module, name))
+                .filter(name -> readsOneThatPassesHostOn(module, name, passesOn))
                 .sorted()
                 .toList();
         return new Reach(module.name(), jar, Route.REEXPORTED, via);
@@ -141,18 +144,30 @@ final class HostInternalsCheck {
      * Whether a module that reads {@code module} reads the host module because
      * of it: {@code module} requires the host transitively, directly or through
      * a chain of transitive requires. The resolver refuses cycles, so this ends.
+     *
+     * <p>{@code memo} holds the answer for every module already decided in this
+     * call. Without it a graph where modules share dependencies is walked once
+     * per path rather than once per module, which grows exponentially with its
+     * depth; with it each module is decided once.</p>
      */
-    private static boolean passesHostOn(ResolvedModule module) {
-        return module.reference().descriptor().requires().stream()
+    private static boolean passesHostOn(ResolvedModule module, Map<ResolvedModule, Boolean> memo) {
+        Boolean known = memo.get(module);
+        if (known != null) {
+            return known;
+        }
+        boolean passes = module.reference().descriptor().requires().stream()
                 .filter(requires -> requires.modifiers().contains(Requires.Modifier.TRANSITIVE))
                 .anyMatch(requires -> requires.name().equals(HOST_MODULE)
-                        || readsOneThatPassesHostOn(module, requires.name()));
+                        || readsOneThatPassesHostOn(module, requires.name(), memo));
+        memo.put(module, passes);
+        return passes;
     }
 
     /** Whether {@code module} reads a module called {@code name} that passes the host module on. */
-    private static boolean readsOneThatPassesHostOn(ResolvedModule module, String name) {
+    private static boolean readsOneThatPassesHostOn(ResolvedModule module, String name,
+                                                    Map<ResolvedModule, Boolean> memo) {
         return module.reads().stream()
                 .filter(read -> read.name().equals(name))
-                .anyMatch(HostInternalsCheck::passesHostOn);
+                .anyMatch(read -> passesHostOn(read, memo));
     }
 }
