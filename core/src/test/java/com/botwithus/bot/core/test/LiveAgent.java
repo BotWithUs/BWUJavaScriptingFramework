@@ -5,6 +5,8 @@ import com.botwithus.bot.core.shm.SharedRegion;
 
 import java.util.List;
 import java.util.OptionalLong;
+import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
 
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.abort;
@@ -51,11 +53,7 @@ public final class LiveAgent {
      * including when no agent is visible.
      */
     public static LiveAgentSelection.Attach attachOrFail() {
-        return switch (fromEnvironment()) {
-            case LiveAgentSelection.Attach attach -> attach;
-            case LiveAgentSelection.NoAgent none -> fail(none.reason());
-            case LiveAgentSelection.Refused refused -> fail(refused.reason());
-        };
+        return orFail(fromEnvironment());
     }
 
     /**
@@ -63,7 +61,25 @@ public final class LiveAgent {
      * was named, and failing it when attaching would be a guess.
      */
     public static LiveAgentSelection.Attach attachOrSkip() {
-        return switch (fromEnvironment()) {
+        return orSkip(fromEnvironment());
+    }
+
+    /** The attach, or a test failure for anything else. */
+    public static LiveAgentSelection.Attach orFail(LiveAgentSelection selection) {
+        return switch (selection) {
+            case LiveAgentSelection.Attach attach -> attach;
+            case LiveAgentSelection.NoAgent none -> fail(none.reason());
+            case LiveAgentSelection.Refused refused -> fail(refused.reason());
+        };
+    }
+
+    /**
+     * The attach; a skip when there is no agent; a failure when attaching would
+     * be a guess. A refusal must never become a skip: a skip would let a
+     * misconfigured harness run report green without testing its client.
+     */
+    public static LiveAgentSelection.Attach orSkip(LiveAgentSelection selection) {
+        return switch (selection) {
             case LiveAgentSelection.Attach attach -> attach;
             case LiveAgentSelection.NoAgent none -> abort("SKIPPED, not passed: " + none.reason());
             case LiveAgentSelection.Refused refused -> fail(refused.reason());
@@ -72,7 +88,19 @@ public final class LiveAgent {
 
     /** Applies the rules to this JVM's {@value #PID_PROPERTY} and the live pipe namespace. */
     public static LiveAgentSelection fromEnvironment() {
-        return select(System.getProperty(PID_PROPERTY), PipeClient.scanPipes(PipeClient.NAME_PREFIX));
+        return fromEnvironment(System::getProperty, () -> PipeClient.scanPipes(PipeClient.NAME_PREFIX));
+    }
+
+    /**
+     * Applies the rules to a property source and a pipe listing, so the
+     * property lookup itself is tested without a client.
+     *
+     * @param properties looks up a system property by name, {@code null} when unset
+     * @param pipeScan   lists visible pipe names; only names are read, nothing is opened
+     */
+    public static LiveAgentSelection fromEnvironment(UnaryOperator<String> properties,
+                                                     Supplier<List<String>> pipeScan) {
+        return select(properties.apply(PID_PROPERTY), pipeScan.get());
     }
 
     /**
