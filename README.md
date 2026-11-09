@@ -538,7 +538,7 @@ Javadoc is generated for the API module and published to GitHub Pages. Build loc
 
 ## Troubleshooting
 
-**Pipe not found.** Connect fails with "no pipe matching `\\.\pipe\BotWithUs_*` found". The agent DLL hasn't injected, or it injected into a different client PID. Confirm the game client is running, the agent loaded successfully, and the PID matches. `PipeClient.firstAvailableOrThrow` walks `\\.\pipe\` and picks the first match — if multiple game clients are running, pass an explicit pipe name to `connect`.
+**Pipe not found.** Connect fails with "no pipe matching `\\.\pipe\BotWithUs_*` found". The agent DLL hasn't injected, or it injected into a different client PID. Confirm the game client is running, the agent loaded successfully, and the PID matches. The host never picks one of several clients on its own: with more than one game client running, `connect` with no name lists them so you can choose, or pass an explicit pipe name. A developer tool started without a pid refuses rather than picking the first; pass `-Dbotwithus.harness.pid=<pid>` to name one.
 
 **Protocol-version mismatch.** Connect succeeds but reads fail immediately with "shared region protocol version X, expected Y" — the consumer (`Layout.PROTOCOL_VERSION`) and the producer (`kProtocolVersion` in `NXTLibrary/src/ipc/SharedLayout.h`) drifted. Rebuild both sides from matching commits; `SharedRegion.open()` refuses to map a region whose version byte doesn't match.
 

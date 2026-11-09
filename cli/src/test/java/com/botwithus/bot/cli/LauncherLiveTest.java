@@ -49,6 +49,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
 
@@ -97,6 +98,8 @@ class LauncherLiveTest {
     /** The clients this test launched; auto-connect may reach these and nothing else. */
     private final Set<String> launchedHere = ConcurrentHashMap.newKeySet();
     private volatile ClientLauncher ownLauncher;
+    /** Lookups the pinned scanner could not make; any at all means the race went untested. */
+    private final AtomicInteger scannerFailures = new AtomicInteger();
     private final List<CloseRequest> closeRequests = new CopyOnWriteArrayList<>();
 
     @BeforeEach
@@ -154,6 +157,8 @@ class LauncherLiveTest {
             assertTrue(opens.maxOpenAtOnce(client.pid()) <= 1, "two pipe clients at once for pid " + client.pid()
                     + ": " + opens.log(client.pid()));
             assertTrue(opens.opensFor(client.pid()) >= 1, "the attach opened the agent pipe");
+            assertEquals(0, scannerFailures.get(), "the pinned scanner failed a lookup, so auto-connect could not "
+                    + "race the attach and the no-two-pipe-clients check above proved nothing");
         }
         assertFalse(script.events.stream().anyMatch(LauncherLiveTest::isDropped),
                 "events were dropped: " + script.events);
@@ -262,11 +267,25 @@ class LauncherLiveTest {
         }
     }
 
-    /** Whether {@code pid} belongs to a client this test launched, as the launcher reports it now. */
+    /**
+     * Whether {@code pid} belongs to a client this test launched, as the launcher
+     * reports it now. A failed lookup answers "no" and is counted: the scanner
+     * then reports nothing, and the attach race this test is about would go
+     * unexercised, so the test fails on a non-zero count rather than passing.
+     */
     private boolean isLaunchedHere(long pid) {
         ClientLauncher launcher = ownLauncher;
-        return launcher != null && launcher.clients().stream()
-                .anyMatch(c -> launchedHere.contains(c.clientId()) && c.pid() == pid);
+        if (launcher == null) {
+            return false;
+        }
+        try {
+            return launcher.clients().stream()
+                    .anyMatch(c -> launchedHere.contains(c.clientId()) && c.pid() == pid);
+        } catch (LauncherException e) {
+            scannerFailures.incrementAndGet();
+            System.out.printf("LIVE: pinned scanner lookup failed: %s%n", e.getMessage());
+            return false;
+        }
     }
 
     private LaunchedClient launchAndReachLobby(ClientLauncher launcher, String account) throws Exception {

@@ -5,6 +5,7 @@ import com.botwithus.bot.api.ScriptManifest;
 import com.botwithus.bot.api.config.ConfigField;
 import com.botwithus.bot.api.runtime.ReconnectState;
 import com.botwithus.bot.api.ui.ScriptUI;
+import com.botwithus.bot.cli.AutoStartManager;
 import com.botwithus.bot.cli.CliContext;
 import com.botwithus.bot.cli.sdn.StoreRegistrar;
 import com.botwithus.bot.cli.Connection;
@@ -215,11 +216,14 @@ public final class LiveClientBoard implements ClientBoard {
                 .mapToInt(LiveClientBoard::attemptsIfGaveUp)
                 .max().orElse(0);
         var settings = ctx.getSettings();
+        AutoStartManager autoStart = ctx.getAutoStartManager();
+        boolean isForcedOff = autoStart != null && autoStart.isAutoConnectForcedOff();
         return new BoardStatus(
                 allGaveUp,
                 attempts,
                 ctx.getActiveConnectionName(),
-                settings != null && settings.get(SettingKeys.AUTO_CONNECT),
+                !isForcedOff && settings != null && settings.get(SettingKeys.AUTO_CONNECT),
+                isForcedOff,
                 "\\\\.\\pipe\\" + PipeClient.NAME_PREFIX + "*",
                 ctx.isMounted() ? ctx.getMountedConnectionName() : null,
                 ctx.isWatcherRunning());

@@ -8,6 +8,7 @@ import com.botwithus.bot.cli.gui.ImGuiTheme;
 import imgui.ImDrawList;
 import imgui.ImFont;
 import imgui.ImGui;
+import imgui.flag.ImGuiHoveredFlags;
 import imgui.type.ImString;
 
 import java.util.Optional;
@@ -151,7 +152,10 @@ final class ConnectionsHeader {
         if (w.switchToggle("##conn-auto", view.isAutoConnect(), !isDevRun, h)) {
             model.setAutoConnect(!view.isAutoConnect());
         }
-        if (ImGui.isItemHovered()) {
+        // AllowWhenDisabled: in a dev run the switch is disabled, and a disabled item
+        // reports no hover without it, which would hide the one tooltip that says how
+        // to turn auto-connect back on.
+        if (ImGui.isItemHovered(ImGuiHoveredFlags.AllowWhenDisabled)) {
             ImGui.setTooltip(isDevRun ? DEV_RUN_TIP : AUTO_CONNECT_TIP);
         }
         ui.textCentredY(draw, font, x + w.switchWidth() + m.u(2), y, h,

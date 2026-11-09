@@ -51,13 +51,15 @@ public class AutoStartManager {
     private volatile Thread scanThread;
 
     /**
-     * The host's manager. It scans with {@link AgentPin#scannerFromEnvironment()}:
-     * every agent pipe, as auto-connect always has, unless
-     * {@value AgentPin#PID_PROPERTY} pins it to one pid. It honours an
-     * {@link AutoConnectOverride} from the command line.
+     * The host's manager: auto-connect to every agent pipe on the machine, as
+     * the installed host always has, unless {@value AgentPin#PID_PROPERTY} pins
+     * it to one pid ({@link AgentPin#scannerFromEnvironment()}). It honours an
+     * {@link AutoConnectOverride} from the command line. Named for what it does,
+     * so no test reaches for it by accident: the chooser guard flags it.
      */
-    public AutoStartManager(CliContext ctx, ScriptProfileStore profileStore, HostSettings settings) {
-        this(ctx, profileStore, settings, AgentPin.scannerFromEnvironment(),
+    public static AutoStartManager connectingToEveryAgent(CliContext ctx, ScriptProfileStore profileStore,
+                                                          HostSettings settings) {
+        return new AutoStartManager(ctx, profileStore, settings, AgentPin.scannerFromEnvironment(),
                 AutoConnectOverride.fromSystemProperties(), INITIAL_SCAN_DELAY);
     }
 
@@ -347,7 +349,15 @@ public class AutoStartManager {
     }
 
     private void connectNewPipes(String prefix) {
-        List<String> pipes = pipeScanner.apply(prefix);
+        List<String> pipes;
+        try {
+            pipes = pipeScanner.apply(prefix);
+        } catch (RuntimeException e) {
+            // One failed listing must not end auto-connect: an uncaught throw here
+            // would kill the scan thread for the rest of the session.
+            log.warn("Pipe scan for prefix '{}' failed; trying again next pass", prefix, e);
+            return;
+        }
         for (String pipeName : pipes) {
             if (scanThread != Thread.currentThread()) {
                 return;

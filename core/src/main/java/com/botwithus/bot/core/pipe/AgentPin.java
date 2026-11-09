@@ -24,6 +24,13 @@ import java.util.function.UnaryOperator;
  *   <li>Without it and with none visible, {@link AgentSelection.NoAgent}.</li>
  * </ol>
  *
+ * <p><b>Set means present.</b> Only an absent property is "unpinned". A property
+ * that is present but blank or not a pid (for example
+ * {@code -Dbotwithus.harness.pid=$PID} with {@code $PID} unset) is a pin that
+ * names no client, so it fails closed: {@link #select} refuses and
+ * {@link #pinFilter} allows no pid. Treating blank as unset would turn a shell
+ * typo into "every client on the machine".</p>
+ *
  * <p>The host's own auto-connect deliberately connects to <em>every</em> agent,
  * which is the product feature. It honours only rule 1, through
  * {@link #scannerFromEnvironment()}: unpinned it scans everything as before,
@@ -43,7 +50,15 @@ public final class AgentPin {
 
     /** Applies the rule to this JVM's {@value #PID_PROPERTY} and the live pipe namespace. */
     public static AgentSelection fromEnvironment() {
-        return fromEnvironment(System::getProperty, () -> PipeClient.scanPipes(PipeClient.NAME_PREFIX));
+        return fromEnvironment(System::getProperty, AgentPin::visiblePipes);
+    }
+
+    /**
+     * The agent pipe names visible right now. Names only: nothing is opened, and
+     * this chooses nothing. Feed it to {@link #fromEnvironment(UnaryOperator, Supplier)}.
+     */
+    public static List<String> visiblePipes() {
+        return PipeClient.scanPipes(PipeClient.NAME_PREFIX);
     }
 
     /**
@@ -64,7 +79,7 @@ public final class AgentPin {
      */
     public static AgentSelection select(String pinnedPid, List<String> visiblePipes) {
         List<String> agents = visiblePipes.stream().filter(AgentPin::isAgentPipe).toList();
-        if (isSet(pinnedPid)) {
+        if (pinnedPid != null) {
             return selectPinned(pinnedPid.strip(), agents);
         }
         return selectUnpinned(agents);
@@ -72,8 +87,8 @@ public final class AgentPin {
 
     /**
      * The scanner the host's auto-connect uses: every pipe the prefix finds when
-     * {@value #PID_PROPERTY} is unset, exactly as before; only that pid's pipe
-     * when it is set; nothing when it is set to something that is not a pid.
+     * {@value #PID_PROPERTY} is absent, exactly as before; only that pid's pipe
+     * when it names one; nothing when it is present but blank or not a pid.
      */
     public static Function<String, List<String>> scannerFromEnvironment() {
         return keeping(pinFilter(System.getProperty(PID_PROPERTY)), PipeClient::scanPipes);
@@ -101,10 +116,11 @@ public final class AgentPin {
 
     /**
      * Which pids a scanner may report for a {@value #PID_PROPERTY} value: all of
-     * them when unset or blank, the one named, or none when it names no pid.
+     * them when it is absent ({@code null}), the one named, or none when it is
+     * present but blank or names no pid. Agrees with {@link #select}.
      */
     public static LongPredicate pinFilter(String pinnedPid) {
-        if (!isSet(pinnedPid)) {
+        if (pinnedPid == null) {
             return pid -> true;
         }
         OptionalLong pinned = parsePin(pinnedPid.strip());
@@ -112,6 +128,10 @@ public final class AgentPin {
     }
 
     private static AgentSelection selectPinned(String pinnedPid, List<String> agents) {
+        if (pinnedPid.isEmpty()) {
+            return new AgentSelection.Refused(PID_PROPERTY + " is set but empty (an unset shell variable?),"
+                    + " so it names no client. Pass the game client's decimal pid, or leave the property out.");
+        }
         OptionalLong pid = parsePin(pinnedPid);
         if (pid.isEmpty()) {
             return new AgentSelection.Refused(PID_PROPERTY + "=" + pinnedPid
@@ -144,10 +164,6 @@ public final class AgentPin {
 
     private static boolean isAgentPipe(String name) {
         return SharedRegion.parsePid(name).isPresent();
-    }
-
-    private static boolean isSet(String pinnedPid) {
-        return pinnedPid != null && !pinnedPid.isBlank();
     }
 
     /** A pin is valid exactly when it would form a parsable agent pipe name. */

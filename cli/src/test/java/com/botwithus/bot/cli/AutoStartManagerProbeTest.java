@@ -13,6 +13,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static com.botwithus.bot.cli.FakeAgent.GET_ACCOUNT_INFO;
@@ -49,7 +50,8 @@ class AutoStartManagerProbeTest {
         CliContext ctx = new CliContext(logBuffer, new LogCapture(logBuffer, discard, discard),
                 tempDir.resolve("groups.json"));
         settings = HostSettings.open(tempDir);
-        manager = new AutoStartManager(ctx, new ScriptProfileStore(tempDir.resolve(".botwithus")), settings);
+        manager = new AutoStartManager(ctx, new ScriptProfileStore(tempDir.resolve(".botwithus")), settings,
+                prefix -> List.of());
     }
 
     @AfterEach

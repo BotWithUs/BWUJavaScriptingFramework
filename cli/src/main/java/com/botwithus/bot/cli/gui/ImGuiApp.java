@@ -269,7 +269,7 @@ public class ImGuiApp extends Application {
         HostToasts.attach(ctx, notificationOverlay);
         ctx.startAlerts();
         currentMode = AppMode.openingIn(settings.get(SettingKeys.START_MODE));
-        AutoStartManager autoStartManager = new AutoStartManager(ctx, profileStore, ctx.getSettings());
+        AutoStartManager autoStartManager = AutoStartManager.connectingToEveryAgent(ctx, profileStore, ctx.getSettings());
         ctx.setAutoStartManager(autoStartManager);
 
         // Read at each install: the launcher registration happens further down.

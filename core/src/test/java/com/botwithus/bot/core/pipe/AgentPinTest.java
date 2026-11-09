@@ -76,8 +76,11 @@ class AgentPinTest {
     }
 
     @Test
-    void select_blankPropertyIsUnset() {
-        assertEquals(OTHER_PID, attached(AgentPin.select("  ", List.of(OTHER_CLIENT))).pid());
+    void select_blankPropertyFailsClosed_neverTakesTheLoneClient() {
+        for (String blank : new String[] {"", "  ", "\n"}) {
+            String reason = refused(AgentPin.select(blank, List.of(OTHER_CLIENT)));
+            assertTrue(reason.contains("set but empty"), reason);
+        }
     }
 
     @Test
@@ -137,9 +140,32 @@ class AgentPinTest {
     // ------------------------------------------------------- the auto-connect scanner
 
     @Test
-    void pinFilter_unsetOrBlank_allowsEveryPid() {
+    void pinFilter_absent_allowsEveryPid() {
         assertTrue(AgentPin.pinFilter(null).test(HARNESS_PID));
-        assertTrue(AgentPin.pinFilter("  ").test(OTHER_PID));
+        assertTrue(AgentPin.pinFilter(null).test(OTHER_PID));
+    }
+
+    @Test
+    void pinFilter_presentButBlank_allowsNothing_likeSelectRefusing() {
+        for (String blank : new String[] {"", "  ", "\n"}) {
+            assertFalse(AgentPin.pinFilter(blank).test(HARNESS_PID), "blank " + blank.length());
+            assertFalse(AgentPin.pinFilter(blank).test(OTHER_PID), "blank " + blank.length());
+        }
+    }
+
+    @Test
+    void keeping_withABlankPin_reportsNothing_soAutoConnectReachesNoClient() {
+        Function<String, List<String>> scanner = AgentPin.keeping(AgentPin.pinFilter(""),
+                prefix -> List.of(OTHER_CLIENT, HARNESS_CLIENT));
+
+        assertEquals(List.of(), scanner.apply("BotWithUs"));
+    }
+
+    @Test
+    void fromEnvironment_withAPresentButBlankProperty_refuses() {
+        Map<String, String> properties = Map.of(AgentPin.PID_PROPERTY, "");
+
+        refused(AgentPin.fromEnvironment(properties::get, () -> List.of(OTHER_CLIENT)));
     }
 
     @Test

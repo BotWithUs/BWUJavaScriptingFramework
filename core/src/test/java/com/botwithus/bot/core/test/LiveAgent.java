@@ -3,6 +3,10 @@ package com.botwithus.bot.core.test;
 import com.botwithus.bot.core.pipe.AgentPin;
 import com.botwithus.bot.core.pipe.AgentSelection;
 
+import java.util.List;
+import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
+
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.abort;
 
@@ -39,7 +43,7 @@ public final class LiveAgent {
      * including when no agent is visible.
      */
     public static AgentSelection.Attach attachOrFail() {
-        return orFail(fromEnvironment());
+        return attachOrFail(System::getProperty, AgentPin::visiblePipes);
     }
 
     /**
@@ -47,7 +51,21 @@ public final class LiveAgent {
      * was named, and failing it when attaching would be a guess.
      */
     public static AgentSelection.Attach attachOrSkip() {
-        return orSkip(fromEnvironment());
+        return attachOrSkip(System::getProperty, AgentPin::visiblePipes);
+    }
+
+    /**
+     * {@link #attachOrFail()} over an injected property lookup and pipe listing,
+     * so its verdict is tested without depending on what runs on the machine or
+     * which pin the test task passed.
+     */
+    static AgentSelection.Attach attachOrFail(UnaryOperator<String> properties, Supplier<List<String>> pipeScan) {
+        return orFail(AgentPin.fromEnvironment(properties, pipeScan));
+    }
+
+    /** {@link #attachOrSkip()} over an injected property lookup and pipe listing. */
+    static AgentSelection.Attach attachOrSkip(UnaryOperator<String> properties, Supplier<List<String>> pipeScan) {
+        return orSkip(AgentPin.fromEnvironment(properties, pipeScan));
     }
 
     /** {@link AgentPin#fromEnvironment()}, named here so live tests need only this class. */

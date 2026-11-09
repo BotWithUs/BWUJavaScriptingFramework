@@ -57,6 +57,9 @@ val liveAgentPinTest = tasks.register<Test>(LIVE_AGENT_PIN_TEST) {
     group = "verification"
     useJUnitPlatform()
     systemProperty(HARNESS_PID_PROPERTY, IMPOSSIBLE_PID)
+    // The marker LiveAgentTest.pinTask_receivesThePinItPromised checks the pin against,
+    // so a pin that stops arriving fails this task instead of quietly skipping.
+    systemProperty("botwithus.test.expectedPin", IMPOSSIBLE_PID)
     testClassesDirs = sourceSets["test"].output.classesDirs
     classpath = sourceSets["test"].runtimeClasspath
     filter {

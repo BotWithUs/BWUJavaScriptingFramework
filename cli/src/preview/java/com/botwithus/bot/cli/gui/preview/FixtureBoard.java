@@ -209,7 +209,7 @@ final class FixtureBoard implements ClientBoard, InspectorSource {
     }
 
     private static BoardStatus status(String active) {
-        return new BoardStatus(false, 0, active, true, "\\\\.\\pipe\\BotWithUs_*", null, false);
+        return new BoardStatus(false, 0, active, true, false, "\\\\.\\pipe\\BotWithUs_*", null, false);
     }
 
 

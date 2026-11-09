@@ -6,6 +6,10 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.opentest4j.AssertionFailedError;
 import org.opentest4j.TestAbortedException;
 
+import java.util.List;
+import java.util.function.Supplier;
+import java.util.function.UnaryOperator;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -20,6 +24,8 @@ import static org.junit.jupiter.api.Assumptions.abort;
  */
 class LiveAgentTest {
 
+    /** Set only by the {@code liveAgentPinTest} task, to the pin it passes. */
+    static final String EXPECTED_PIN_MARKER = "botwithus.test.expectedPin";
     private static final String HARNESS_CLIENT = "BotWithUs_4100";
     private static final long HARNESS_PID = 4100L;
 
@@ -59,14 +65,53 @@ class LiveAgentTest {
         assertSame(attach, LiveAgent.orFail(attach));
     }
 
-    // ------------------------------------------------------- the entry points, against this machine
+    // ------------------------------------------------------- the entry points, injected
+
+    /*
+     * The entry points over an injected property lookup and pipe listing. These
+     * decide on every machine and in every test task, whatever client happens to
+     * be running: the no-agent branch is driven by an empty stub, not by hoping
+     * the machine has no agent up. This is what makes the two delegate swaps
+     * (attachOrFail to orSkip, the masking one, and attachOrSkip to orFail)
+     * fail locally rather than only on CI.
+     */
+
+    private static final UnaryOperator<String> NO_PIN = name -> null;
+    private static final Supplier<List<String>> NO_PIPES = List::of;
+    private static final UnaryOperator<String> IMPOSSIBLE_PIN =
+            name -> LiveAgent.PID_PROPERTY.equals(name) ? "4294967291" : null;
+
+    @Test
+    void attachOrFail_noAgent_fails() {
+        assertThrows(AssertionFailedError.class, () -> LiveAgent.attachOrFail(NO_PIN, NO_PIPES));
+    }
+
+    @Test
+    void attachOrSkip_noAgent_skips() {
+        assertThrows(TestAbortedException.class, () -> LiveAgent.attachOrSkip(NO_PIN, NO_PIPES));
+    }
+
+    @Test
+    void bothEntryPoints_refusal_fail_neverSkip() {
+        assertThrows(AssertionFailedError.class, () -> LiveAgent.attachOrFail(IMPOSSIBLE_PIN, NO_PIPES));
+        assertThrows(AssertionFailedError.class, () -> LiveAgent.attachOrSkip(IMPOSSIBLE_PIN, NO_PIPES));
+    }
+
+    @Test
+    void bothEntryPoints_loneAgent_attach() {
+        Supplier<List<String>> lone = () -> List.of(HARNESS_CLIENT);
+
+        assertEquals(HARNESS_PID, LiveAgent.attachOrFail(NO_PIN, lone).pid());
+        assertEquals(HARNESS_PID, LiveAgent.attachOrSkip(NO_PIN, lone).pid());
+    }
+
+    // ------------------------------------------------------- the no-arg wiring, against this machine
 
     /**
-     * Pins which verdict each entry point gives, through the real environment.
-     * It decides on a machine with no agent and no pin, which is CI: there,
-     * {@code attachOrFail()} must fail and {@code attachOrSkip()} must skip, so
-     * swapping either one's delegate fails here. On a machine where an agent is
-     * up or a pin is set it has nothing to decide, and says so by aborting.
+     * Pins the no-arg entry points' wiring through the real environment. It
+     * decides only on a machine with no agent and no pin, which is CI; the
+     * injected tests above cover the same branch everywhere. On a machine where
+     * an agent is up or a pin is set it has nothing to decide and aborts.
      */
     @Test
     void entryPoints_withNoAgentAndNoPin_failAndSkipRespectively() {
@@ -98,6 +143,19 @@ class LiveAgentTest {
             case AgentSelection.NoAgent none -> abort("nothing refused here: " + none.reason());
             case AgentSelection.Attach attach -> abort("an agent was chosen here: " + attach.pipeName());
         }
+    }
+
+    /**
+     * Fails the {@code liveAgentPinTest} task if its pin stops arriving. That
+     * task sets {@value #EXPECTED_PIN_MARKER} to the pin it also passes; without
+     * this, a lost pin would disable the forwarding test and abort the refusal
+     * test, and the task would still pass.
+     */
+    @Test
+    @EnabledIfSystemProperty(named = EXPECTED_PIN_MARKER, matches = ".+")
+    void pinTask_receivesThePinItPromised() {
+        assertEquals(System.getProperty(EXPECTED_PIN_MARKER), System.getProperty(LiveAgent.PID_PROPERTY),
+                "the pin task did not pass " + LiveAgent.PID_PROPERTY + " through to the test JVM");
     }
 
     /**
