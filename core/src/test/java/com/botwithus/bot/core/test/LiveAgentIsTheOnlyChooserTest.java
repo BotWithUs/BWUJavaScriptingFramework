@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.MatchResult;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -27,17 +28,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * A test that reaches for one fails here, with its path named, instead of on
  * someone's account.</p>
  *
- * <p>Scope: every {@code .java} file under each module's non-{@code main}
- * source sets ({@code src/test}, {@code src/sdnLive}, {@code src/preview},
- * ...). Comments and string literals are stripped before matching, so a javadoc
- * that names {@code scanPipes} is not a call and a string cannot hide one.
- * Method references ({@code PipeClient::scanPipes}) are calls.</p>
+ * <p>Scope: every {@code .java} file under each top-level module's non-{@code
+ * main} source sets ({@code src/test}, {@code src/sdnLive}, {@code src/preview},
+ * ...), plus the {@code main} sets of the modules that are test code
+ * ({@link #TEST_ONLY_MODULES}). Unicode escapes are decoded first, as javac
+ * does. Comments and string literals are then stripped, so a javadoc that names
+ * {@code scanPipes} is not a call and a string cannot hide one. Method
+ * references ({@code PipeClient::scanPipes}, {@code JBotApplication::main}) are
+ * calls.</p>
  *
- * <p>What it cannot see: a production class that scans internally behind an
- * ordinary-looking constructor. {@code AutoStartManager}'s three-argument
- * constructor is the known one, and it connects to every pipe when started.
- * That is fixed where it lives, in production code, not guessed at here by
- * counting constructor arguments.</p>
+ * <p>What it cannot see, and why that is acceptable:</p>
+ * <ul>
+ *   <li>A production class that scans behind an ordinary constructor. The rule
+ *       is enforced at the source instead: auto-connect scans through
+ *       {@code AgentPin}, the developer entry points pin or refuse, and the
+ *       first-pipe APIs ({@code new PipeClient()}, {@code firstAvailableOrThrow},
+ *       {@code openFirstAvailable}, {@code discoverPids}) no longer exist.</li>
+ *   <li>A script module registered through {@code additionalScripts.txt} at a
+ *       nested path: only top-level modules are walked. None exists today.</li>
+ *   <li>Test code in the {@code main} set of a module not listed in
+ *       {@link #TEST_ONLY_MODULES}.</li>
+ * </ul>
  */
 class LiveAgentIsTheOnlyChooserTest {
 
@@ -48,7 +59,13 @@ class LiveAgentIsTheOnlyChooserTest {
             "\\bfirstAvailableOrThrow\\b",
             "\\bnew\\s+(?:[\\w.]+\\.)?PipeClient\\s*\\(\\s*\\)",
             "\\bconnect\\s*\\(\\s*null\\s*\\)",
-            "\\bJBotApplication\\s*\\.\\s*main\\s*\\("));
+            "\\b(?:JBotApplication|SnapshotProbe|EventPumpProbe)\\s*(?:\\.|::)\\s*main\\b"));
+
+    /** A unicode escape as javac reads it: a backslash, one or more {@code u}s, four hex digits. */
+    private static final Pattern UNICODE_ESCAPE = Pattern.compile("\\\\u+([0-9a-fA-F]{4})");
+
+    /** Modules whose {@code main} source set is test code, so it is walked too. */
+    private static final Set<String> TEST_ONLY_MODULES = Set.of("test-support");
 
     /** Text block, string, char literal, block comment, line comment: in that order, so none hides another. */
     private static final Pattern NOT_CODE = Pattern.compile(
@@ -57,16 +74,16 @@ class LiveAgentIsTheOnlyChooserTest {
     private static final String SETTINGS_FILE = "settings.gradle.kts";
     private static final String MAIN_SOURCE_SET = "main";
     private static final String SOURCE_DIR = "src";
+    private static final int HEX = 16;
 
     /**
      * Repository-relative paths allowed to call a chooser, each for a reason
-     * that is not picking an agent: the selector itself, this guard, and a check
-     * that scans the launcher's service pipes, which are not agents and are
-     * never driven. Paths, not file names: a second {@code LiveAgent.java}
-     * elsewhere is not the selector.
+     * that is not picking an agent: this guard, and a check that scans the
+     * launcher's service pipes, which are not agents and are never driven.
+     * Paths, not file names. {@link LiveAgent} is not listed: it chooses through
+     * {@code AgentPin} and calls none of these.
      */
     private static final Set<String> ALLOWED = Set.of(
-            "core/src/test/java/com/botwithus/bot/core/test/LiveAgent.java",
             "core/src/test/java/com/botwithus/bot/core/test/LiveAgentIsTheOnlyChooserTest.java",
             "core/src/test/java/com/botwithus/bot/core/launcher/LauncherScopeLiveTest.java");
 
@@ -104,7 +121,13 @@ class LiveAgentIsTheOnlyChooserTest {
                 "Object o = new com.botwithus.bot.core.pipe.PipeClient();",
                 "ctx.connect(null);",
                 "JBotApplication.main(new String[0]);",
-                "JBotApplication . main (args);");
+                "JBotApplication . main (args);",
+                "Consumer<String[]> m = JBotApplication::main;",
+                "SnapshotProbe.main(new String[0]);",
+                "EventPumpProbe.main(new String[0]);",
+                "Runnable r = () -> SnapshotProbe . main(args);",
+                "PipeClient.\\u0073canPipes(\"BotWithUs\");",
+                "PipeClient.\\uuu0073canPipes(\"BotWithUs\");");
         for (String call : calls) {
             assertTrue(choosesAClient(wrap(call)), "should flag: " + call);
         }
@@ -142,20 +165,26 @@ class LiveAgentIsTheOnlyChooserTest {
 
     @Test
     void allowlist_isByPathNotFileName() {
-        assertTrue(isAllowed("core/src/test/java/com/botwithus/bot/core/test/LiveAgent.java"));
-        assertFalse(isAllowed("cli/src/test/java/com/botwithus/bot/cli/LiveAgent.java"));
+        assertTrue(isAllowed("core/src/test/java/com/botwithus/bot/core/launcher/LauncherScopeLiveTest.java"));
         assertFalse(isAllowed("core/src/test/java/com/botwithus/bot/core/impl/LauncherScopeLiveTest.java"));
+        assertFalse(isAllowed("core/src/test/java/com/botwithus/bot/core/test/LiveAgent.java"),
+                "the selector chooses through AgentPin and needs no exemption");
     }
 
     // ------------------------------------------------------------------ helpers
 
     static boolean choosesAClient(String source) {
-        String code = NOT_CODE.matcher(source).replaceAll(LiveAgentIsTheOnlyChooserTest::blankOut);
+        String decoded = UNICODE_ESCAPE.matcher(source).replaceAll(LiveAgentIsTheOnlyChooserTest::decodeEscape);
+        String code = NOT_CODE.matcher(decoded).replaceAll(LiveAgentIsTheOnlyChooserTest::blankOut);
         return CHOOSER.matcher(code).find();
     }
 
     static boolean isAllowed(String repositoryRelativePath) {
         return ALLOWED.contains(repositoryRelativePath);
+    }
+
+    private static String decodeEscape(MatchResult match) {
+        return Matcher.quoteReplacement(Character.toString(Integer.parseInt(match.group(1), HEX)));
     }
 
     /** Keeps an emptied string a string, so the code around it still parses as code. */
@@ -176,16 +205,24 @@ class LiveAgentIsTheOnlyChooserTest {
         return dir;
     }
 
-    /** {@code <module>/src/<set>} for every top-level module and every set but {@code main}. */
+    /**
+     * {@code <module>/src/<set>} for every top-level module and every set but
+     * {@code main}, and {@code main} too for {@link #TEST_ONLY_MODULES}.
+     */
     private static List<Path> testSourceSets(Path root) throws IOException {
         try (Stream<Path> modules = Files.list(root)) {
             return modules
                     .map(module -> module.resolve(SOURCE_DIR))
                     .filter(Files::isDirectory)
                     .flatMap(LiveAgentIsTheOnlyChooserTest::listDirectories)
-                    .filter(set -> !set.getFileName().toString().equals(MAIN_SOURCE_SET))
+                    .filter(LiveAgentIsTheOnlyChooserTest::holdsTestCode)
                     .toList();
         }
+    }
+
+    private static boolean holdsTestCode(Path sourceSet) {
+        return !sourceSet.getFileName().toString().equals(MAIN_SOURCE_SET)
+                || TEST_ONLY_MODULES.contains(sourceSet.getParent().getParent().getFileName().toString());
     }
 
     private static Stream<Path> listDirectories(Path dir) {

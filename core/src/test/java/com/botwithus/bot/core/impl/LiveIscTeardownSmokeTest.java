@@ -8,6 +8,7 @@ import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.api.isc.ScriptMessage;
 import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ConnectionContext;
@@ -16,7 +17,6 @@ import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
 import com.botwithus.bot.core.test.LiveAgent;
-import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
@@ -114,7 +114,7 @@ class LiveIscTeardownSmokeTest {
     @Test
     @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
     void stoppedScriptStopsHandlingIscMessages() throws Exception {
-        LiveAgentSelection.Attach agent = LiveAgent.attachOrFail();
+        AgentSelection.Attach agent = LiveAgent.attachOrFail();
         String pipeName = agent.pipeName();
         long pid = agent.pid();
         log.info("Connected to {} (pid={})", pipeName, pid);

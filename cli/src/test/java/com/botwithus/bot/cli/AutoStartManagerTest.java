@@ -106,6 +106,33 @@ class AutoStartManagerTest {
     }
 
     @Test
+    void forcedOff_neverScans_evenWithTheSettingOnOrSwitchedOn() throws InterruptedException {
+        manager.stop();
+        PrintStream sink = new PrintStream(new ByteArrayOutputStream());
+        manager = new AutoStartManager(TestContexts.inDir(dir, sink), new ScriptProfileStore(dir), settings,
+                prefix -> {
+                    scannedPrefixes.add(prefix);
+                    return List.of();
+                },
+                AutoConnectOverride.of("false"), Duration.ZERO);
+        settings.set(SettingKeys.AUTO_CONNECT, true);
+
+        manager.start();
+        settings.set(SettingKeys.AUTO_CONNECT, false);
+        settings.set(SettingKeys.AUTO_CONNECT, true);
+
+        assertTrue(manager.isAutoConnectForcedOff());
+        assertFalse(manager.isScanning(), "a dev run with auto-connect forced off must not scan");
+        assertNull(scannedPrefixes.poll(FASTEST_SCAN_MS * 2, TimeUnit.MILLISECONDS));
+        assertTrue(settings.get(SettingKeys.AUTO_CONNECT), "the saved setting is left as the user set it");
+    }
+
+    @Test
+    void noOverride_isNotForcedOff() {
+        assertFalse(manager.isAutoConnectForcedOff());
+    }
+
+    @Test
     void stop_stopsFollowingTheSetting() throws InterruptedException {
         settings.set(SettingKeys.AUTO_CONNECT, false);
         manager.start();

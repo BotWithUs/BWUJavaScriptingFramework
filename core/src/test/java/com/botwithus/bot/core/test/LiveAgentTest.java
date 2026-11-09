@@ -1,123 +1,34 @@
 package com.botwithus.bot.core.test;
 
+import com.botwithus.bot.core.pipe.AgentSelection;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.opentest4j.AssertionFailedError;
 import org.opentest4j.TestAbortedException;
-
-import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assumptions.abort;
 
 /**
- * The live-test client selector, against made-up pipe lists. None of these
- * open a pipe, so they run on any machine, with or without a game client.
+ * {@link LiveAgent}'s JUnit verdicts and its wiring to the real environment.
+ * The rule itself is {@code AgentPinTest}'s. Nothing here opens a pipe; the
+ * environment tests read pipe <em>names</em> only.
  */
 class LiveAgentTest {
 
-    private static final String PIPE_PREFIX = "BotWithUs_";
     private static final String HARNESS_CLIENT = "BotWithUs_4100";
-    private static final String OTHER_CLIENT = "BotWithUs_5200";
-    private static final String TEST_SERVER = "BotWithUs_test_77_1";
     private static final long HARNESS_PID = 4100L;
-    private static final long OTHER_PID = 5200L;
-    private static final long MISSING_PID = 6300L;
-
-    @Test
-    void select_pinnedPidWithAPipe_attachesToThatPipeEvenBesideAnotherClient() {
-        LiveAgentSelection.Attach attach = attached(
-                LiveAgent.select("4100", List.of(OTHER_CLIENT, HARNESS_CLIENT)));
-
-        assertEquals(HARNESS_PID, attach.pid());
-        assertEquals(HARNESS_CLIENT, attach.pipeName());
-    }
-
-    @Test
-    void select_pinnedPidWithSurroundingWhitespace_isTrimmed() {
-        assertEquals(HARNESS_PID, attached(LiveAgent.select(" 4100\n", List.of(HARNESS_CLIENT))).pid());
-    }
-
-    @Test
-    void select_pinnedPidWithNoPipe_refusesRatherThanTakingTheOnlyOtherClient() {
-        String reason = refused(LiveAgent.select("6300", List.of(OTHER_CLIENT)));
-
-        assertTrue(reason.contains("No agent pipe BotWithUs_" + MISSING_PID), reason);
-        assertTrue(reason.contains(LiveAgent.PID_PROPERTY + "=" + MISSING_PID), reason);
-        assertTrue(reason.contains("Not falling back"), reason);
-        assertTrue(reason.contains(OTHER_CLIENT), "names what was visible: " + reason);
-    }
-
-    @Test
-    void select_pinnedPidWithNothingVisible_refusesRatherThanReportingNoAgent() {
-        refused(LiveAgent.select("6300", List.of()));
-    }
-
-    @Test
-    void select_pinnedPidThatIsNotANumber_refuses() {
-        String reason = refused(LiveAgent.select("abc", List.of(HARNESS_CLIENT)));
-
-        assertTrue(reason.contains("is not a process id"), reason);
-    }
-
-    @Test
-    void select_pinnedPidThatOnlySuffixMatches_doesNotAttach() {
-        refused(LiveAgent.select("100", List.of(HARNESS_CLIENT)));
-    }
-
-    @Test
-    void select_unpinnedWithOneClient_attaches() {
-        LiveAgentSelection.Attach attach = attached(LiveAgent.select(null, List.of(OTHER_CLIENT)));
-
-        assertEquals(OTHER_PID, attach.pid());
-        assertEquals(OTHER_CLIENT, attach.pipeName());
-    }
-
-    @Test
-    void select_blankPropertyIsUnset() {
-        assertEquals(OTHER_PID, attached(LiveAgent.select("  ", List.of(OTHER_CLIENT))).pid());
-    }
-
-    @Test
-    void select_unpinnedWithSeveralClients_refusesAndSaysHowToPin() {
-        String reason = refused(LiveAgent.select(null, List.of(HARNESS_CLIENT, OTHER_CLIENT)));
-
-        assertTrue(reason.contains("2 agent pipes"), reason);
-        assertTrue(reason.contains(HARNESS_CLIENT) && reason.contains(OTHER_CLIENT), reason);
-        assertTrue(reason.contains("-D" + LiveAgent.PID_PROPERTY + "=<pid>"), reason);
-    }
-
-    @Test
-    void select_unpinnedWithNothingVisible_reportsNoAgent() {
-        LiveAgentSelection selection = LiveAgent.select(null, List.of());
-
-        switch (selection) {
-            case LiveAgentSelection.NoAgent none -> assertTrue(none.reason().contains("no BotWithUs_<pid>"));
-            case LiveAgentSelection.Attach attach -> fail("attached to " + attach);
-            case LiveAgentSelection.Refused refused -> fail("refused: " + refused.reason());
-        }
-    }
-
-    @Test
-    void select_nonAgentPipesAreNeitherAttachedToNorCountedAsAClient() {
-        assertEquals(OTHER_PID, attached(LiveAgent.select(null, List.of(TEST_SERVER, OTHER_CLIENT))).pid());
-        switch (LiveAgent.select(null, List.of(TEST_SERVER))) {
-            case LiveAgentSelection.NoAgent none -> assertTrue(none.reason().contains("no "));
-            case LiveAgentSelection.Attach attach -> fail("attached to a test server: " + attach);
-            case LiveAgentSelection.Refused refused -> fail("refused: " + refused.reason());
-        }
-    }
 
     // ------------------------------------------------------- the JUnit verdicts
 
     @Test
     void orSkip_refusedFailsAndIsNeverMaskedAsASkip() {
         AssertionFailedError failure = assertThrows(AssertionFailedError.class,
-                () -> LiveAgent.orSkip(new LiveAgentSelection.Refused("two clients")));
+                () -> LiveAgent.orSkip(new AgentSelection.Refused("two clients")));
 
         assertEquals("two clients", failure.getMessage());
     }
@@ -125,90 +36,90 @@ class LiveAgentTest {
     @Test
     void orSkip_noAgentSkips() {
         TestAbortedException skip = assertThrows(TestAbortedException.class,
-                () -> LiveAgent.orSkip(new LiveAgentSelection.NoAgent("nothing up")));
+                () -> LiveAgent.orSkip(new AgentSelection.NoAgent("nothing up")));
 
         assertTrue(skip.getMessage().contains("nothing up"), skip.getMessage());
     }
 
     @Test
     void orFail_noAgentFailsRatherThanSkipping() {
-        assertThrows(AssertionFailedError.class, () -> LiveAgent.orFail(new LiveAgentSelection.NoAgent("nothing up")));
+        assertThrows(AssertionFailedError.class, () -> LiveAgent.orFail(new AgentSelection.NoAgent("nothing up")));
     }
 
     @Test
     void orFail_refusedFails() {
-        assertThrows(AssertionFailedError.class, () -> LiveAgent.orFail(new LiveAgentSelection.Refused("two clients")));
+        assertThrows(AssertionFailedError.class, () -> LiveAgent.orFail(new AgentSelection.Refused("two clients")));
     }
 
     @Test
     void orSkipAndOrFail_returnTheAttachUnchanged() {
-        LiveAgentSelection.Attach attach = new LiveAgentSelection.Attach(HARNESS_PID, HARNESS_CLIENT);
+        AgentSelection.Attach attach = new AgentSelection.Attach(HARNESS_PID, HARNESS_CLIENT);
 
         assertSame(attach, LiveAgent.orSkip(attach));
         assertSame(attach, LiveAgent.orFail(attach));
     }
 
-    // ------------------------------------------------------- the property lookup
+    // ------------------------------------------------------- the entry points, against this machine
 
+    /**
+     * Pins which verdict each entry point gives, through the real environment.
+     * It decides on a machine with no agent and no pin, which is CI: there,
+     * {@code attachOrFail()} must fail and {@code attachOrSkip()} must skip, so
+     * swapping either one's delegate fails here. On a machine where an agent is
+     * up or a pin is set it has nothing to decide, and says so by aborting.
+     */
     @Test
-    void fromEnvironment_readsTheHarnessPropertyAndRefusesAnImpossiblePid() {
-        Map<String, String> properties = Map.of(LiveAgent.PID_PROPERTY, Long.toString(MISSING_PID));
-
-        refused(LiveAgent.fromEnvironment(properties::get, () -> List.of(OTHER_CLIENT)));
+    void entryPoints_withNoAgentAndNoPin_failAndSkipRespectively() {
+        switch (LiveAgent.fromEnvironment()) {
+            case AgentSelection.NoAgent none -> {
+                assertThrows(AssertionFailedError.class, LiveAgent::attachOrFail);
+                assertThrows(TestAbortedException.class, LiveAgent::attachOrSkip);
+            }
+            case AgentSelection.Attach attach -> abort("an agent is visible here (" + attach.pipeName()
+                    + "), so the no-agent verdicts cannot be checked on this machine");
+            case AgentSelection.Refused refused -> abort("selection refused here, so the no-agent verdicts "
+                    + "cannot be checked on this machine: " + refused.reason());
+        }
     }
 
+    /**
+     * Pins that both entry points fail a refusal through the real environment.
+     * It decides whenever the environment refuses, which the {@code
+     * liveAgentPinTest} task arranges on every build by pinning a pid no
+     * process has.
+     */
     @Test
-    void fromEnvironment_pinnedPidSelectsItsPipeOverTheOtherClient() {
-        Map<String, String> properties = Map.of(LiveAgent.PID_PROPERTY, Long.toString(HARNESS_PID));
-
-        assertEquals(HARNESS_PID, attached(LiveAgent.fromEnvironment(properties::get,
-                () -> List.of(OTHER_CLIENT, HARNESS_CLIENT))).pid());
-    }
-
-    @Test
-    void fromEnvironment_withThePropertyUnsetTakesTheLoneClient() {
-        Map<String, String> properties = Map.of("botwithus.some.other.pid", Long.toString(MISSING_PID));
-
-        assertEquals(OTHER_PID, attached(LiveAgent.fromEnvironment(properties::get, () -> List.of(OTHER_CLIENT))).pid());
+    void entryPoints_withARefusal_bothFail() {
+        switch (LiveAgent.fromEnvironment()) {
+            case AgentSelection.Refused refused -> {
+                assertThrows(AssertionFailedError.class, LiveAgent::attachOrFail);
+                assertThrows(AssertionFailedError.class, LiveAgent::attachOrSkip, "a refusal must never skip");
+            }
+            case AgentSelection.NoAgent none -> abort("nothing refused here: " + none.reason());
+            case AgentSelection.Attach attach -> abort("an agent was chosen here: " + attach.pipeName());
+        }
     }
 
     /**
      * Proves the Gradle task forwarded {@value LiveAgent#PID_PROPERTY} into the
      * test JVM, and that the real {@link LiveAgent#fromEnvironment()} honours
-     * it. It only runs when the property arrived, so the proof is seeing it pass
-     * rather than skip. It lists pipe names and opens none: whatever is running,
-     * the only acceptable answers are the forwarded pid or a refusal. Run it with
-     * a pid no process has and it must refuse.
+     * it. It runs only when the property arrived, so the proof is seeing it pass
+     * rather than skip. Whatever is running, the only acceptable answers are the
+     * forwarded pid or a refusal naming it; never another client and never "no
+     * agent". The {@code liveAgentPinTest} task runs it on every build with a
+     * pid no process has, where the answer must be a refusal.
      */
     @Test
     @EnabledIfSystemProperty(named = LiveAgent.PID_PROPERTY, matches = ".+")
     void harnessPid_reachesTheTestJvm() {
         String forwarded = System.getProperty(LiveAgent.PID_PROPERTY).strip();
 
-        assertEquals(forwarded, Long.toString(attached(
-                LiveAgent.select(forwarded, List.of(OTHER_CLIENT, PIPE_PREFIX + forwarded))).pid()));
         switch (LiveAgent.fromEnvironment()) {
-            case LiveAgentSelection.Attach attach -> assertEquals(forwarded, Long.toString(attach.pid()),
+            case AgentSelection.Attach attach -> assertEquals(forwarded, Long.toString(attach.pid()),
                     "attached to a client other than the forwarded pid");
-            case LiveAgentSelection.Refused refused -> assertTrue(refused.reason().contains(forwarded),
+            case AgentSelection.Refused refused -> assertTrue(refused.reason().contains(forwarded),
                     refused.reason());
-            case LiveAgentSelection.NoAgent none -> fail("a forwarded pid must never read as unset: " + none.reason());
+            case AgentSelection.NoAgent none -> fail("a forwarded pid must never read as unset: " + none.reason());
         }
-    }
-
-    private static LiveAgentSelection.Attach attached(LiveAgentSelection selection) {
-        return switch (selection) {
-            case LiveAgentSelection.Attach attach -> attach;
-            case LiveAgentSelection.NoAgent none -> fail("expected an attach, got no agent: " + none.reason());
-            case LiveAgentSelection.Refused refused -> fail("expected an attach, got: " + refused.reason());
-        };
-    }
-
-    private static String refused(LiveAgentSelection selection) {
-        return switch (selection) {
-            case LiveAgentSelection.Refused refused -> refused.reason();
-            case LiveAgentSelection.NoAgent none -> fail("expected a refusal, got no agent: " + none.reason());
-            case LiveAgentSelection.Attach attach -> fail("expected a refusal, got an attach to " + attach);
-        };
     }
 }

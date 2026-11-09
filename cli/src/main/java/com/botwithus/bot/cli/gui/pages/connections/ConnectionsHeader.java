@@ -21,6 +21,11 @@ final class ConnectionsHeader {
 
     private static final String TITLE = "Connections";
     private static final String AUTO_CONNECT = "Auto-connect";
+    private static final String AUTO_CONNECT_DEV_RUN = "Auto-connect: off (dev run)";
+    private static final String AUTO_CONNECT_TIP = "Connect to new BotWithUs pipes automatically and resume their scripts";
+    private static final String DEV_RUN_TIP = "This run was started with auto-connect off (gradlew :cli:run), so it "
+            + "never attaches to a client on its own. Your saved setting is unchanged. "
+            + "Pass -Pbotwithus.autoConnect=true to let a dev run connect.";
     private static final String PREFIX = "Prefix";
     private static final String SCAN = "Scan now";
     private static final String SCANNING = "Scanning…";
@@ -138,16 +143,19 @@ final class ConnectionsHeader {
         float inset = (h - ui.fonts().body().getFontSize() * DIVIDER_EM) * 0.5f;
         draw.addLine(dividerX, y + inset, dividerX, y + h - inset, ImGuiTheme.COL_BORDER, m.hairline());
         ImFont font = ui.fonts().small();
-        float labelW = ui.width(font, AUTO_CONNECT);
+        boolean isDevRun = view.isAutoConnectForcedOff();
+        String label = isDevRun ? AUTO_CONNECT_DEV_RUN : AUTO_CONNECT;
+        float labelW = ui.width(font, label);
         float x = dividerX - m.u(3) - labelW - m.u(2) - w.switchWidth();
         ImGui.setCursorScreenPos(x, y);
-        if (w.switchToggle("##conn-auto", view.isAutoConnect(), true, h)) {
+        if (w.switchToggle("##conn-auto", view.isAutoConnect(), !isDevRun, h)) {
             model.setAutoConnect(!view.isAutoConnect());
         }
         if (ImGui.isItemHovered()) {
-            ImGui.setTooltip("Connect to new BotWithUs pipes automatically and resume their scripts");
+            ImGui.setTooltip(isDevRun ? DEV_RUN_TIP : AUTO_CONNECT_TIP);
         }
-        ui.textCentredY(draw, font, x + w.switchWidth() + m.u(2), y, h, ImGuiTheme.COL_FG, AUTO_CONNECT);
+        ui.textCentredY(draw, font, x + w.switchWidth() + m.u(2), y, h,
+                isDevRun ? ImGuiTheme.COL_FG2 : ImGuiTheme.COL_FG, label);
         return x;
     }
 
@@ -165,7 +173,8 @@ final class ConnectionsHeader {
             text = "Scanning " + ConnectionText.pipePath(view.pipePrefix()) + "…";
             w.spinner(draw, x + m.dot(), cy, m.dot(), ImGuiTheme.COL_INFO);
         } else {
-            text = ConnectionText.autoConnectLine(view.isAutoConnect(), view.scanInterval());
+            text = ConnectionText.autoConnectLine(view.isAutoConnect(), view.isAutoConnectForcedOff(),
+                    view.scanInterval());
             draw.addCircleFilled(x + m.dot() * 0.5f, cy, m.dot() * 0.5f,
                     view.isAutoConnect() ? ImGuiTheme.COL_ACCENT : ImGuiTheme.COL_FG3);
         }

@@ -14,19 +14,21 @@ import com.botwithus.bot.core.impl.ScriptContextImpl;
 import com.botwithus.bot.core.impl.ScriptManagerImpl;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.cache.NXTCache;
+import com.botwithus.bot.core.pipe.AgentPin;
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
-import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.shm.SharedRegionEventPump;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Entry point: connects the pipe, loads scripts, and starts the runtime.
@@ -38,13 +40,15 @@ public final class JBotApplication {
     private static final Logger log = LoggerFactory.getLogger(JBotApplication.class);
 
     public static void main(String[] args) {
-        // Producer publishes BotWithUs_<pid> per injected game — discover the
-        // first one rather than hard-coding the legacy single name. Failure
-        // here means no game has the DLL loaded, which we surface to the
-        // operator via the catch below.
-        String pipeName = PipeClient.firstAvailableOrThrow();
-        long pid = SharedRegion.parsePid(pipeName).orElseThrow(() ->
-                new IllegalStateException("Discovered pipe '" + pipeName + "' has no embedded pid"));
+        // The producer publishes BotWithUs_<pid> per injected game. This entry
+        // point starts scripts, so it attaches only to the pinned pid or a lone
+        // agent: with several up, "the first" could be someone's own game.
+        Optional<AgentSelection.Attach> chosen = chooseAgent();
+        if (chosen.isEmpty()) {
+            return;
+        }
+        String pipeName = chosen.get().pipeName();
+        long pid = chosen.get().pid();
         log.info("Connecting to pipe {} (pid={})", pipeName, pid);
         try (PipeClient pipe = new PipeClient(pipeName)) {
             RpcClient rpc = new RpcClient(pipe);
@@ -117,6 +121,20 @@ public final class JBotApplication {
         } catch (Exception e) {
             log.error("Fatal error: {}", e.getMessage(), e);
         }
+    }
+
+    /** The agent {@link AgentPin} allows, or empty after logging why there is none. */
+    private static Optional<AgentSelection.Attach> chooseAgent() {
+        return switch (AgentPin.fromEnvironment()) {
+            case AgentSelection.Attach attach -> Optional.of(attach);
+            case AgentSelection.NoAgent none -> notConnecting(none.reason());
+            case AgentSelection.Refused refused -> notConnecting(refused.reason());
+        };
+    }
+
+    private static Optional<AgentSelection.Attach> notConnecting(String reason) {
+        log.error("Not connecting: {}", reason);
+        return Optional.empty();
     }
 
     /**

@@ -1,7 +1,7 @@
 package com.botwithus.bot.core.shm;
 
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.test.LiveAgent;
-import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
@@ -140,9 +140,9 @@ class LiveProtocolLockstepTest {
 
     private static Optional<SharedRegion> openTarget() {
         return switch (LiveAgent.fromEnvironment()) {
-            case LiveAgentSelection.Attach attach -> Optional.of(SharedRegion.open(attach.pid()));
-            case LiveAgentSelection.NoAgent none -> Optional.empty();
-            case LiveAgentSelection.Refused refused -> fail(refused.reason());
+            case AgentSelection.Attach attach -> Optional.of(SharedRegion.open(attach.pid()));
+            case AgentSelection.NoAgent none -> Optional.empty();
+            case AgentSelection.Refused refused -> fail(refused.reason());
         };
     }
 }

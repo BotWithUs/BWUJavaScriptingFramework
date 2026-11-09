@@ -283,7 +283,7 @@ class ConnectionRowsTest {
         live(HOLLOW_UUID, HOLLOW_PIPE, retrying());
         found(FOUND_PIPE, Optional.empty(), GameStatus.UNKNOWN);
         closed(BRACKEN_UUID, Duration.ofMinutes(3));
-        ConnectionsView view = new ConnectionsView(build(), true, "BotWithUs", Duration.ofSeconds(5), false,
+        ConnectionsView view = new ConnectionsView(build(), true, false, "BotWithUs", Duration.ofSeconds(5), false,
                 Optional.empty());
 
         assertAll(
@@ -301,7 +301,7 @@ class ConnectionRowsTest {
     void theSearchMatchesAccountPipeOrUuid() {
         live(OAK_UUID, OAK_PIPE, new ClientLifecycle.Connected());
         live(HOLLOW_UUID, HOLLOW_PIPE, new ClientLifecycle.Connected());
-        ConnectionsView view = new ConnectionsView(build(), true, "BotWithUs", Duration.ofSeconds(5), false,
+        ConnectionsView view = new ConnectionsView(build(), true, false, "BotWithUs", Duration.ofSeconds(5), false,
                 Optional.empty());
 
         assertAll(

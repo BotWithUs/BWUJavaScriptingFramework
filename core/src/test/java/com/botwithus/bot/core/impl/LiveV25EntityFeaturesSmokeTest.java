@@ -13,11 +13,11 @@ import com.botwithus.bot.api.model.OverheadText;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.test.LiveAgent;
-import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -86,7 +86,7 @@ class LiveV25EntityFeaturesSmokeTest {
 
     @BeforeAll
     void connect() throws IOException {
-        LiveAgentSelection.Attach agent = LiveAgent.attachOrFail();
+        AgentSelection.Attach agent = LiveAgent.attachOrFail();
         long pid = agent.pid();
         region = SharedRegion.open(pid);
         rpc = new RpcClient(new PipeClient(agent.pipeName()));

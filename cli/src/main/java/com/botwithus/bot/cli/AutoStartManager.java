@@ -6,7 +6,7 @@ import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.settings.Subscription;
 import com.botwithus.bot.core.config.ScriptProfileStore;
-import com.botwithus.bot.core.pipe.PipeClient;
+import com.botwithus.bot.core.pipe.AgentPin;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.runtime.ScriptRunner;
@@ -42,6 +42,7 @@ public class AutoStartManager {
     private final ScriptProfileStore profileStore;
     private final HostSettings settings;
     private final Function<String, List<String>> pipeScanner;
+    private final AutoConnectOverride autoConnectOverride;
     private final Duration initialScanDelay;
     private final AtomicBoolean lobbyStubWarned = new AtomicBoolean(false);
     private final Object scanLock = new Object();
@@ -49,17 +50,42 @@ public class AutoStartManager {
     private Subscription autoConnectSubscription;
     private volatile Thread scanThread;
 
+    /**
+     * The host's manager. It scans with {@link AgentPin#scannerFromEnvironment()}:
+     * every agent pipe, as auto-connect always has, unless
+     * {@value AgentPin#PID_PROPERTY} pins it to one pid. It honours an
+     * {@link AutoConnectOverride} from the command line.
+     */
     public AutoStartManager(CliContext ctx, ScriptProfileStore profileStore, HostSettings settings) {
-        this(ctx, profileStore, settings, PipeClient::scanPipes, INITIAL_SCAN_DELAY);
+        this(ctx, profileStore, settings, AgentPin.scannerFromEnvironment(),
+                AutoConnectOverride.fromSystemProperties(), INITIAL_SCAN_DELAY);
+    }
+
+    /**
+     * A manager over a caller's pipe scanner, for a caller that knows which
+     * clients are its own: a live test passes {@link AgentPin#keeping} over the
+     * pids it launched, so auto-connect never reaches another client.
+     */
+    public AutoStartManager(CliContext ctx, ScriptProfileStore profileStore, HostSettings settings,
+                            Function<String, List<String>> pipeScanner) {
+        this(ctx, profileStore, settings, pipeScanner, AutoConnectOverride.none(), INITIAL_SCAN_DELAY);
     }
 
     /** Test seam: {@code AutoStartManagerTest} swaps the OS pipe listing and the start-up pause. */
     AutoStartManager(CliContext ctx, ScriptProfileStore profileStore, HostSettings settings,
                      Function<String, List<String>> pipeScanner, Duration initialScanDelay) {
+        this(ctx, profileStore, settings, pipeScanner, AutoConnectOverride.none(), initialScanDelay);
+    }
+
+    /** Test seam: as above, with an override. */
+    AutoStartManager(CliContext ctx, ScriptProfileStore profileStore, HostSettings settings,
+                     Function<String, List<String>> pipeScanner, AutoConnectOverride autoConnectOverride,
+                     Duration initialScanDelay) {
         this.ctx = ctx;
         this.profileStore = profileStore;
         this.settings = settings;
         this.pipeScanner = pipeScanner;
+        this.autoConnectOverride = autoConnectOverride;
         this.initialScanDelay = initialScanDelay;
     }
 
@@ -94,8 +120,18 @@ public class AutoStartManager {
         return scanThread != null;
     }
 
+    /** {@code true} when this process was started with auto-connect forced off (a developer run). */
+    public boolean isAutoConnectForcedOff() {
+        return autoConnectOverride.isForcedOff();
+    }
+
     private void applyAutoConnect(boolean enabled) {
-        if (enabled) {
+        if (enabled && autoConnectOverride.isForcedOff()) {
+            out().println("[AutoStart] Auto-connect is off for this run (-D" + AutoConnectOverride.PROPERTY
+                    + "=false, a developer run). The saved setting is unchanged.");
+            return;
+        }
+        if (autoConnectOverride.allows(enabled)) {
             startScanner();
         } else {
             stopScanner();

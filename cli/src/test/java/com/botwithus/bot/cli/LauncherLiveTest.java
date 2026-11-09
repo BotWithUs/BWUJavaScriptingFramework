@@ -26,6 +26,7 @@ import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.launcher.CloseRequest;
 import com.botwithus.bot.core.launcher.DevGate;
+import com.botwithus.bot.core.pipe.AgentPin;
 import com.botwithus.bot.core.pipe.PipeClient;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,7 +44,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
@@ -91,6 +94,9 @@ class LauncherLiveTest {
     private CliContext ctx;
     private LauncherHost host;
     private AutoStartManager autoStart;
+    /** The clients this test launched; auto-connect may reach these and nothing else. */
+    private final Set<String> launchedHere = ConcurrentHashMap.newKeySet();
+    private volatile ClientLauncher ownLauncher;
     private final List<CloseRequest> closeRequests = new CopyOnWriteArrayList<>();
 
     @BeforeEach
@@ -213,10 +219,18 @@ class LauncherLiveTest {
         assertTrue(took.compareTo(REGISTER_WITHIN) <= 0);
     }
 
+    /**
+     * Auto-connect over a scanner that sees only the clients this test launched.
+     * An unpinned scanner connects to every agent on the machine and runs
+     * probeAndAutoStart on it, which would reach someone's own game. The pid is
+     * looked up on every scan, so the scanner can still race the launcher's
+     * attach, which is what the no-two-pipe-clients check is about.
+     */
     private void startAutoConnect() {
         ctx.getSettings().set(SettingKeys.SCAN_INTERVAL_MS, FAST_SCAN_MS);
         ctx.getSettings().set(SettingKeys.AUTO_CONNECT, true);
-        autoStart = new AutoStartManager(ctx, new ScriptProfileStore(tempDir.resolve("profiles")), ctx.getSettings());
+        autoStart = new AutoStartManager(ctx, new ScriptProfileStore(tempDir.resolve("profiles")), ctx.getSettings(),
+                AgentPin.scannerKeeping(this::isLaunchedHere));
         ctx.setAutoStartManager(autoStart);
         autoStart.start();
     }
@@ -248,8 +262,17 @@ class LauncherLiveTest {
         }
     }
 
+    /** Whether {@code pid} belongs to a client this test launched, as the launcher reports it now. */
+    private boolean isLaunchedHere(long pid) {
+        ClientLauncher launcher = ownLauncher;
+        return launcher != null && launcher.clients().stream()
+                .anyMatch(c -> launchedHere.contains(c.clientId()) && c.pid() == pid);
+    }
+
     private LaunchedClient launchAndReachLobby(ClientLauncher launcher, String account) throws Exception {
+        ownLauncher = launcher;
         LaunchHandle handle = launcher.launch(account);
+        launchedHere.add(handle.clientId());
         LaunchOutcome outcome = handle.outcome().toCompletableFuture().get(LAUNCH_WITHIN.toSeconds(), TimeUnit.SECONDS);
         System.out.printf("LIVE launch %s: %s%n", handle.clientId(), outcome);
         String connection = switch (outcome) {

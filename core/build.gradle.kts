@@ -38,8 +38,33 @@ extraJavaModuleInfo {
 // exists to prevent. LiveAgentTest.harnessPid_reachesTheTestJvm runs only
 // when it arrives, so seeing that test pass rather than skip is the proof.
 val HARNESS_PID_PROPERTY = "botwithus.harness.pid"
+val LIVE_AGENT_PIN_TEST = "liveAgentPinTest"
 tasks.withType<Test>().configureEach {
-    System.getProperty(HARNESS_PID_PROPERTY)?.let { systemProperty(HARNESS_PID_PROPERTY, it) }
+    if (name != LIVE_AGENT_PIN_TEST) {
+        System.getProperty(HARNESS_PID_PROPERTY)?.let { systemProperty(HARNESS_PID_PROPERTY, it) }
+    }
+}
+
+// LiveAgentTest again, pinned to a pid no process can have: odd, so never a
+// Windows pid (those are multiples of 4). Under that pin the real environment
+// must refuse on any machine, which is the only way the gated
+// harnessPid_reachesTheTestJvm and the refusal entry-point test run in every
+// build rather than only in a harness run. It reads pipe names and opens none.
+// Part of `check`, so CI runs it.
+val IMPOSSIBLE_PID = "4294967291"
+val liveAgentPinTest = tasks.register<Test>(LIVE_AGENT_PIN_TEST) {
+    description = "LiveAgentTest with an impossible pinned pid (no client needed, opens no pipe)"
+    group = "verification"
+    useJUnitPlatform()
+    systemProperty(HARNESS_PID_PROPERTY, IMPOSSIBLE_PID)
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    filter {
+        includeTestsMatching("com.botwithus.bot.core.test.LiveAgentTest")
+    }
+}
+tasks.named("check") {
+    dependsOn(liveAgentPinTest)
 }
 
 tasks.named<Test>("test") {

@@ -59,7 +59,8 @@ class AutoStartCommandTest {
         settings = HostSettings.open(tempDir.resolve(".botwithus"));
         // "autostart on" starts the real scanner; make sure it can never match a live client.
         settings.set(SettingKeys.PIPE_PREFIX, "NoSuchPipeForAutoStartCommandTest");
-        autoStartManager = new AutoStartManager(ctx, profileStore, settings);
+        // An empty listing: this test exercises the switch, and must never scan real pipes.
+        autoStartManager = new AutoStartManager(ctx, profileStore, settings, prefix -> List.of());
         ctx.setProfileStore(profileStore);
         ctx.setSettings(settings);
         ctx.setAutoStartManager(autoStartManager);

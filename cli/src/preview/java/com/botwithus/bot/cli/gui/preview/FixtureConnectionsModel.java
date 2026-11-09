@@ -211,7 +211,7 @@ public final class FixtureConnectionsModel implements ConnectionsModel {
         clients.forEach(c -> c.pipe().ifPresent(held::add));
         ConnectionRows.Reading reading = new ConnectionRows.Reading(clients, found, held, stats, consoleTarget,
                 outputFilter, droppedAt, now);
-        return new ConnectionsView(ConnectionRows.build(reading), isAutoConnect, "BotWithUs",
+        return new ConnectionsView(ConnectionRows.build(reading), isAutoConnect, false, "BotWithUs",
                 Duration.ofMillis(SCAN_EVERY_MS), isScanning, Optional.empty());
     }
 

@@ -11,12 +11,15 @@ import java.util.Optional;
  *
  * @param rows          connected and reconnecting first, then found, then closed
  * @param isAutoConnect the host connects to new pipes on its own
+ * @param isAutoConnectForcedOff this run was started with auto-connect forced off
+ *                      ({@code gradlew :cli:run}); the saved setting is untouched
  * @param pipePrefix    the prefix scans look for, as stored (no glob)
  * @param scanInterval  how often auto-connect scans
  * @param isScanning    a scan started from this page is still running
  * @param scanMessage   what the last scan from this page said, if it said anything
  */
-public record ConnectionsView(List<ConnectionRow> rows, boolean isAutoConnect, String pipePrefix,
+public record ConnectionsView(List<ConnectionRow> rows, boolean isAutoConnect, boolean isAutoConnectForcedOff,
+                              String pipePrefix,
                               Duration scanInterval, boolean isScanning, Optional<String> scanMessage) {
 
     public ConnectionsView {

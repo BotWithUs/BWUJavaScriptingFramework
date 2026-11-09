@@ -8,10 +8,10 @@ import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.model.Component;
 import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.util.Interfaces;
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.test.LiveAgent;
-import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -60,7 +60,7 @@ class LiveComponentApiSmokeTest {
 
     @BeforeAll
     void connect() {
-        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        AgentSelection.Attach agent = LiveAgent.attachOrSkip();
         PipeClient pipe = new PipeClient(agent.pipeName());
         rpc = new RpcClient(pipe);
         api = new GameAPIImpl(rpc);

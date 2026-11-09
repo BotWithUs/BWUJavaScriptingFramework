@@ -89,19 +89,38 @@ This repo is the **consumer** half of a tightly-coupled pair. The producer-side 
 ./gradlew test --tests "com.botwithus.SomeTest.methodName"  # Run a single test
 ```
 
-### Live tests choose their client through `LiveAgent`
+### Choosing a client: `AgentPin`, never "the first pipe"
 
-A `Live*` test drives a real character, and the integration harness runs beside a
-person's own game. Every live test therefore picks its agent with
-`core/src/test/.../test/LiveAgent` (`attachOrFail()` / `attachOrSkip()`), never by
-scanning pipes: with `-Dbotwithus.harness.pid=<pid>` it attaches to that pid's pipe
-or fails (no fallback), and without it it attaches only to a lone visible agent and
-fails when two or more are up. `core/build.gradle.kts` forwards the property to every
-`Test` task. `LiveAgentIsTheOnlyChooserTest` fails the build if any non-`main` source
-set in any module calls `scanPipes` / `openFirstAvailable` / `discoverPids` /
-`firstAvailableOrThrow` (method references included), `new PipeClient()`,
-`connect(null)` or `JBotApplication.main`. It cannot see a production class that scans
-behind an ordinary constructor (`AutoStartManager`); fix those at the source.
+The host and its tests run beside a person's own game, so "the first
+`BotWithUs_<pid>` pipe" can be that person's client. `core/.../pipe/AgentPin` is the one
+rule: with `-Dbotwithus.harness.pid=<pid>` only that pid's pipe, or refuse (no
+fallback); without it a lone visible agent, refusing when two or more are up.
+
+- **Live tests** choose with `core/src/test/.../test/LiveAgent` (`attachOrFail()` /
+  `attachOrSkip()`), a JUnit layer over `AgentPin`. A refusal always fails, never skips.
+  `core/build.gradle.kts` forwards the pid to every `Test` task; `liveAgentPinTest`
+  (part of `check`) reruns `LiveAgentTest` with an impossible pid so the forwarding and
+  the refusal path are exercised on every build.
+- **Auto-connect** (`AutoStartManager`) still connects to *every* agent, which is the
+  product feature, but scans through `AgentPin.scannerFromEnvironment()`, so a pin
+  narrows it to one pid. A caller that knows its own clients passes
+  `AgentPin.scannerKeeping(...)` (`LauncherLiveTest` does).
+- **`gradlew :cli:run` starts with auto-connect off** for that process
+  (`-Dbotwithus.autoConnect=false`, `AutoConnectOverride`), because a dev run reads the
+  real `~/.botwithus` settings and would otherwise attach to every client and resume
+  scripts on it. The saved setting is never written; the Connections header reads
+  "Auto-connect: off (dev run)". `-Pbotwithus.autoConnect=true` restores the saved
+  setting, `-Dbotwithus.harness.pid=<pid>` connects to that client only. The installed
+  host never passes the property and is unchanged.
+- **Developer entry points** (`JBotApplication.main`, `snapshotProbe`, `eventPumpProbe`)
+  pin or refuse. There is no first-pipe API left: `new PipeClient()`,
+  `firstAvailableOrThrow`, `openFirstAvailable` and `discoverPids` are gone, and
+  `CliContext.connect` rejects `null`.
+- `LiveAgentIsTheOnlyChooserTest` fails the build if test code (non-`main` sets, plus
+  `test-support/src/main`) scans pipes or calls a developer `main`, after decoding
+  unicode escapes and stripping comments and strings. It cannot see a production class
+  that scans behind an ordinary constructor, a nested `additionalScripts.txt` module, or
+  test code in another module's `main`; the rule is enforced at the source for those.
 
 ### Publishing `bot-api`
 

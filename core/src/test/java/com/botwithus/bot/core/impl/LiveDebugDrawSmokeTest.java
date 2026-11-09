@@ -11,12 +11,12 @@ import com.botwithus.bot.api.draw.DrawFrame;
 import com.botwithus.bot.api.draw.DrawKind;
 import com.botwithus.bot.api.draw.DrawLimits;
 import com.botwithus.bot.api.draw.DrawStats;
+import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcException;
 import com.botwithus.bot.core.rpc.RpcMetrics;
 import com.botwithus.bot.core.test.LiveAgent;
-import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -100,7 +100,7 @@ class LiveDebugDrawSmokeTest {
 
     @BeforeAll
     void connect() {
-        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        AgentSelection.Attach agent = LiveAgent.attachOrSkip();
         PipeClient pipe = new PipeClient(agent.pipeName());
         rpc = new RpcClient(pipe);
         GameAPI api = new GameAPIImpl(rpc);

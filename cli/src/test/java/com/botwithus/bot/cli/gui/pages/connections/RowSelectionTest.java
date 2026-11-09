@@ -66,6 +66,6 @@ class RowSelectionTest {
     }
 
     private static ConnectionsView view(ConnectionRow... rows) {
-        return new ConnectionsView(List.of(rows), true, "BotWithUs", Duration.ofSeconds(5), false, Optional.empty());
+        return new ConnectionsView(List.of(rows), true, false, "BotWithUs", Duration.ofSeconds(5), false, Optional.empty());
     }
 }
