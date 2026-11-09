@@ -15,6 +15,8 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcException;
 import com.botwithus.bot.core.rpc.RpcMetrics;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assumptions;
@@ -98,11 +100,8 @@ class LiveDebugDrawSmokeTest {
 
     @BeforeAll
     void connect() {
-        List<String> pipes = PipeClient.scanPipes(PipeClient.NAME_PREFIX);
-        Assumptions.assumeFalse(pipes.isEmpty(),
-                "no BotWithUs_<pid> pipe visible — inject the DLL into a running client");
-
-        PipeClient pipe = new PipeClient(pipes.getFirst());
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        PipeClient pipe = new PipeClient(agent.pipeName());
         rpc = new RpcClient(pipe);
         GameAPI api = new GameAPIImpl(rpc);
         draw = api.draw();

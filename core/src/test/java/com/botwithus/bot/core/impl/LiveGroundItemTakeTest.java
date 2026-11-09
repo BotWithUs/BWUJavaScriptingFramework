@@ -9,6 +9,8 @@ import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.LiveAgentSelection;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -26,7 +28,6 @@ import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * <b>{@link GroundItem#interact(String) Take} against a live client.</b>
@@ -59,7 +60,6 @@ class LiveGroundItemTakeTest {
 
     private static final Logger log = LoggerFactory.getLogger(LiveGroundItemTakeTest.class);
 
-    private static final String PID_PROPERTY = "botwithus.harness.pid";
     private static final String ITEM_PROPERTY = "botwithus.live.groundItemId";
     private static final String TAKE = "Take";
     /** Furthest existing stack the test will walk to, in tiles (Chebyshev). */
@@ -77,9 +77,10 @@ class LiveGroundItemTakeTest {
 
     @BeforeAll
     void connect() throws IOException {
-        long pid = targetPid();
+        LiveAgentSelection.Attach agent = LiveAgent.attachOrFail();
+        long pid = agent.pid();
         region = SharedRegion.open(pid);
-        rpc = new RpcClient(new PipeClient(PipeClient.NAME_PREFIX + pid));
+        rpc = new RpcClient(new PipeClient(agent.pipeName()));
         cache = NXTCache.openForHost();
         api = new GameAPIImpl(rpc, cache, () -> new GameSnapshotImpl(region.snapshot()));
         assertEquals(GameSnapshot.GAME_STATE_IN_GAME, api.snapshot().gameState(),
@@ -159,17 +160,5 @@ class LiveGroundItemTakeTest {
             }
         }
         return condition.getAsBoolean();
-    }
-
-    private static long targetPid() {
-        String pid = System.getProperty(PID_PROPERTY);
-        if (pid != null && !pid.isBlank()) {
-            return Long.parseLong(pid.trim());
-        }
-        List<Long> pids = SharedRegion.discoverPids();
-        if (pids.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible; inject the agent into a running game first");
-        }
-        return pids.getFirst();
     }
 }

@@ -6,6 +6,7 @@ import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.snapshot.SourceTile;
 import com.botwithus.bot.core.shm.Layout;
 import com.botwithus.bot.core.shm.SharedRegion;
+import com.botwithus.bot.core.test.LiveAgent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
@@ -32,8 +33,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <p>Disabled by default — opt in with {@code -Dbotwithus.smoke.live=true}.
  * Requires the NXTLibrary DLL injected into a running client; the pid is
- * discovered by scanning for {@code BotWithUs_<pid>} pipes via
- * {@link SharedRegion#openFirstAvailable()}.</p>
+ * chosen by {@link LiveAgent}.</p>
  */
 class LiveDynamicRegionSmokeTest {
 
@@ -51,12 +51,7 @@ class LiveDynamicRegionSmokeTest {
     @Test
     @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
     void readsDynamicRegionFromLiveProducer() {
-        Optional<SharedRegion> maybeRegion = SharedRegion.openFirstAvailable();
-        if (maybeRegion.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible — inject the DLL into a running game first");
-        }
-
-        try (SharedRegion region = maybeRegion.orElseThrow()) {
+        try (SharedRegion region = SharedRegion.open(LiveAgent.attachOrFail().pid())) {
             GameSnapshot snap = new GameSnapshotImpl(region.snapshot());
             DynamicRegion dyn = snap.dynamicRegion();
 

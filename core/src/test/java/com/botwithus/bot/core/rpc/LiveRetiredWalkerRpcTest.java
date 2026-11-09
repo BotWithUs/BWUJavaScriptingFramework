@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.rpc;
 
 import com.botwithus.bot.core.pipe.PipeClient;
+import com.botwithus.bot.core.test.LiveAgent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
@@ -60,12 +61,7 @@ class LiveRetiredWalkerRpcTest {
     @Test
     @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
     void retiredWalkerMethodsAreAbsentFromTheCatalog() {
-        List<String> pipes = PipeClient.scanPipes();
-        if (pipes.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible — inject the agent into a running game first");
-        }
-
-        try (PipeClient pipe = new PipeClient(pipes.get(0))) {
+        try (PipeClient pipe = new PipeClient(LiveAgent.attachOrFail().pipeName())) {
             RpcClient rpc = new RpcClient(pipe);
 
             // rpc.list_methods answers with a top-level array of name strings.
@@ -96,12 +92,7 @@ class LiveRetiredWalkerRpcTest {
     @Test
     @EnabledIfSystemProperty(named = "botwithus.smoke.live", matches = "true")
     void retiredWalkerMethodsRaiseMethodNotFound() {
-        List<String> pipes = PipeClient.scanPipes();
-        if (pipes.isEmpty()) {
-            fail("No BotWithUs_<pid> pipe visible — inject the agent into a running game first");
-        }
-
-        try (PipeClient pipe = new PipeClient(pipes.get(0))) {
+        try (PipeClient pipe = new PipeClient(LiveAgent.attachOrFail().pipeName())) {
             RpcClient rpc = new RpcClient(pipe);
 
             for (String method : RETIRED_METHODS) {
