@@ -636,7 +636,7 @@ public final class Layout {
 
     /** {@code kKeyFlagSynthetic}: sent by the agent's own key input. */
     public static final int KEY_FLAG_SYNTHETIC          = 0x01;
-    /** {@code kKeyFlagTextInputFocused}: a text field had the keyboard. */
+    /** {@code kKeyFlagTextInputFocused}: a text field (chat, prompt, native input) had the keyboard. */
     public static final int KEY_FLAG_TEXT_INPUT_FOCUSED = 0x02;
     /** {@code kKeyFlagRepeat}: autorepeat of a key already held. */
     public static final int KEY_FLAG_REPEAT             = 0x04;

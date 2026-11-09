@@ -20,14 +20,14 @@ package com.botwithus.bot.api.event;
  * @param shift            whether SHIFT was held, including when {@code key} is SHIFT
  * @param synthetic        whether the key was sent by the bot itself rather than typed by a
  *                         person; a script reacting to human input should skip these
- * @param textInputFocused whether a text field had the keyboard when the key arrived, so a
- *                         script can ignore keys typed into chat. <strong>Coverage is
- *                         incomplete:</strong> today the agent sets this for native text
- *                         fields only, and it is <em>not</em> set while typing in chat. Until
- *                         the agent gains a chat source, {@code false} does not prove the key
- *                         was meant for the game
+ * @param textInputFocused whether a text field had the keyboard at the moment this key-down
+ *                         arrived: the chat line, bank search, a game prompt, the bug-report
+ *                         box, or a native input/list field. Scripts can use it to ignore
+ *                         keys typed into text. Known gap: the effect of the "always-on chat"
+ *                         setting is not established
  * @param repeat           whether this is the keyboard's autorepeat of a key that was already
- *                         held, rather than a fresh press
+ *                         held, rather than a fresh press. Not set on autorepeats while the
+ *                         developer console is open; normal play is unaffected
  * @param timestamp        event creation time in milliseconds since epoch
  */
 public record KeyInputEvent(int key, boolean alt, boolean ctrl, boolean shift,
