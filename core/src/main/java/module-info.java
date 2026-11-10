@@ -1,5 +1,5 @@
-// "module": the qualified export of core.voice names com.botwithus.bot.cli, which depends on
-// core and so is never observable while core compiles. javac warns "module not found" for
+// "module": every export is qualified to com.botwithus.bot.cli, which depends on core and
+// so is never observable while core compiles. javac warns "module not found" for
 // that, and -Werror makes it fatal. The suppression covers only this lint category, whose
 // other job is the same unknown-module check on `exports ... to` / `opens ... to`.
 @SuppressWarnings("module")
@@ -35,28 +35,30 @@ module com.botwithus.bot.core {
     // tested in CI, and sit beside the credential store holding their secrets.
     requires java.net.http;
 
-    exports com.botwithus.bot.core;
-    exports com.botwithus.bot.core.alerts;
-    exports com.botwithus.bot.core.cache;
-    exports com.botwithus.bot.core.config;
-    exports com.botwithus.bot.core.crypto;
-    exports com.botwithus.bot.core.gameval;
-    exports com.botwithus.bot.core.impl;
-    exports com.botwithus.bot.core.impl.snapshot;
-    exports com.botwithus.bot.core.launcher;
-    exports com.botwithus.bot.core.msgpack;
-    exports com.botwithus.bot.core.pipe;
-    exports com.botwithus.bot.core.report;
-    exports com.botwithus.bot.core.rpc;
-    exports com.botwithus.bot.core.runlog;
-    exports com.botwithus.bot.core.runtime;
-    exports com.botwithus.bot.core.sdn;
-    exports com.botwithus.bot.core.secrets;
-    exports com.botwithus.bot.core.shm;
-    // Qualified: the voice service and the consent store are host plumbing. Scripts are
-    // handed voice input only through ScriptContext.getVoiceInput(); only the host
-    // front-end builds the service and shows the consent prompt.
+    // Every export is qualified to the host front-end. Scripts load in child layers
+    // resolved against the boot layer this module lives in, so an unqualified export
+    // would make that package part of the script API. It is not: scripts are given
+    // com.botwithus.bot.api, quest and skilling, and nothing of this module.
+    // ModuleExportsTest pins this; a new export names its target here too.
+    //
+    // Not exported at all, because nothing outside this module uses them: the root
+    // package (JBotApplication, a main class), msgpack and worldwalker.
+    exports com.botwithus.bot.core.alerts to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.cache to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.config to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.crypto to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.gameval to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.impl to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.impl.snapshot to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.launcher to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.pipe to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.report to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.rpc to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.runlog to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.runtime to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.sdn to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.secrets to com.botwithus.bot.cli;
+    exports com.botwithus.bot.core.shm to com.botwithus.bot.cli;
     exports com.botwithus.bot.core.voice to com.botwithus.bot.cli;
-    exports com.botwithus.bot.core.window;
-    exports com.botwithus.bot.core.worldwalker;
+    exports com.botwithus.bot.core.window to com.botwithus.bot.cli;
 }

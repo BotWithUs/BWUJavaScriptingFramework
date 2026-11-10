@@ -73,7 +73,7 @@ class HostInternalsCheckTest {
                 () -> assertEquals(List.of(reach.message()), warned, "one warning, and it is the message"),
                 () -> assertTrue(reach.message().contains("'" + SCRIPT + "'"), reach.message()),
                 () -> assertTrue(reach.message().contains(SCRIPT + ".jar"), reach.message()),
-                () -> assertTrue(reach.message().contains("a future release will refuse to load it"),
+                () -> assertTrue(reach.message().contains("does not export its internals to scripts"),
                         reach.message()));
     }
 

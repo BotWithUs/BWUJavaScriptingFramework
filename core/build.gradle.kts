@@ -94,6 +94,26 @@ tasks.named<Test>("test") {
     }
 }
 
+// ScriptModuleBoundaryTest starts a host of its own: a JVM with this module's jar
+// and its runtime dependencies on the module path, as the shipped image has them,
+// with the test's driver patched into this module. The test JVM itself runs on
+// the class path, where no module boundary exists to check. These are inputs, so
+// a changed descriptor reruns the test; nothing here reaches a runtime launch path.
+tasks.named<Test>("test") {
+    val boundaryHostJar = tasks.jar.flatMap { it.archiveFile }
+    val boundaryHostDeps = configurations.runtimeClasspath
+    val boundaryHostPatch = sourceSets.test.get().output.classesDirs
+    inputs.files(boundaryHostJar).withPropertyName("boundaryHostJar")
+    inputs.files(boundaryHostDeps).withPropertyName("boundaryHostDeps")
+    jvmArgumentProviders.add(CommandLineArgumentProvider {
+        listOf(
+            "-Dbotwithus.test.hostJar=${boundaryHostJar.get().asFile.absolutePath}",
+            "-Dbotwithus.test.hostModulePath=${boundaryHostDeps.get().asPath}",
+            "-Dbotwithus.test.hostPatch=${boundaryHostPatch.asPath}",
+        )
+    })
+}
+
 // A real NXTCache.dll against the player's real game cache (read-only), building
 // into a temp directory. Needs a DLL with nxt_build_gameval_db:
 //   ./gradlew :core:gamevalLocalBuildLiveTest -Dnxtcache.dll=<path> [-Dbotwithus.gameval.cache=<dir>]

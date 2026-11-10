@@ -133,7 +133,7 @@ final class TestModules {
         return classes;
     }
 
-    private static Path jar(Path jar, Path classes) throws IOException {
+    static Path jar(Path jar, Path classes) throws IOException {
         Files.createDirectories(jar.getParent());
         try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(jar));
              Stream<Path> files = Files.walk(classes)) {
