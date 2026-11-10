@@ -83,6 +83,8 @@ final class ScriptUiWindows {
     private final ScriptUiRenderer scriptUis;
     /** The keys held over a pinned pop-out to make it take the mouse. */
     private final InteractKeysStore interactKeys;
+    /** Carries a script's "Report a problem" from its UI to the host's report dialog. */
+    private final ScriptReportRequests reports;
     /** The X button's flag, reset before each window; ImGui clears it when the X is clicked. */
     private final ImBoolean isOpen = new ImBoolean();
     /**
@@ -110,12 +112,13 @@ final class ScriptUiWindows {
     private boolean isTransparentRequested;
 
     ScriptUiWindows(Controls ui, InspectorState state, InspectorSource source, ScriptUiRenderer scriptUis,
-                    InteractKeysStore interactKeys) {
+                    InteractKeysStore interactKeys, ScriptReportRequests reports) {
         this.ui = ui;
         this.state = state;
         this.source = source;
         this.scriptUis = scriptUis;
         this.interactKeys = interactKeys;
+        this.reports = reports;
         ownViewport.setViewportFlagsOverrideSet(ImGuiViewportFlags.NoAutoMerge);
     }
 
@@ -144,7 +147,8 @@ final class ScriptUiWindows {
         InteractKeys keys = interactKeys.get();
         Pin pin = new Pin(isPinned, isPinned && overlays.isInteractive(title, keys));
         ScriptUiSlot slot = target.scriptUiSlot(new ScriptUiHandle(() -> state.bringBack(subject), true,
-                pinned -> state.setPinned(subject, pinned), pin.isPinned(), pin.isInteractive(), keys.label()));
+                pinned -> state.setPinned(subject, pinned), pin.isPinned(), pin.isInteractive(), keys.label(),
+                () -> reports.request(subject)));
         boolean isFrameless = scriptUis.drawsOwnChrome(slot);
         float fontSize = ui.m().fontSize();
         ImGuiViewport host = ImGui.getMainViewport();
