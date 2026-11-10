@@ -4,6 +4,7 @@ import com.botwithus.bot.cli.gui.Controls;
 import com.botwithus.bot.cli.gui.ImGuiTheme;
 import com.botwithus.bot.cli.gui.nav.PageId;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
+import com.botwithus.bot.cli.report.ReportSubject;
 import com.botwithus.bot.cli.settings.HostSettings;
 
 import imgui.ImDrawList;
@@ -17,6 +18,7 @@ import imgui.flag.ImGuiStyleVar;
 import imgui.flag.ImGuiWindowFlags;
 
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * The drawer the shell docks on the right of the page body, in both modes. It
@@ -36,6 +38,8 @@ public final class InspectorDock {
     private final Controls ui;
     private final InspectorState state;
     private final InspectorSource source;
+    /** Where a script's own "Report a problem" goes; connected by the app once its dialog exists. */
+    private final ScriptReportRequests reports = new ScriptReportRequests();
     private final ConfigInspector inspector;
     private final ScriptUiWindows windows;
     private final ScriptUiRenderer scriptUis;
@@ -68,8 +72,8 @@ public final class InspectorDock {
         this.state = state;
         this.source = source;
         this.scriptUis = scriptUis;
-        this.inspector = new ConfigInspector(ui, state, scriptUis, interactKeys);
-        this.windows = new ScriptUiWindows(ui, state, source, scriptUis, interactKeys);
+        this.inspector = new ConfigInspector(ui, state, scriptUis, interactKeys, reports);
+        this.windows = new ScriptUiWindows(ui, state, source, scriptUis, interactKeys, reports);
     }
 
     public InspectorState state() {
@@ -126,9 +130,20 @@ public final class InspectorDock {
      * Draws the scripts' UIs that are popped out into windows of their own.
      * The shell calls this every frame after its own window, whatever page or
      * drawer is showing: a popped-out UI does not belong to either.
+     * Then hands on a script's "Report a problem", so the dialog opens this frame.
      */
     public void renderWindows() {
         windows.render();
+        reports.deliver();
+    }
+
+    /**
+     * Where a script's own "Report a problem" goes: {@code opener} opens the
+     * host's report dialog. Render thread only. Until this is called a script's
+     * UI is told the host cannot report.
+     */
+    public void setReportOpener(Consumer<ReportSubject> opener) {
+        reports.connect(opener);
     }
 
     /** The drawer's width once fully open, grip included. */
