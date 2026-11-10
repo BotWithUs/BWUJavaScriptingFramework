@@ -266,6 +266,52 @@ class ScriptUiChromeTest {
                 () -> assertFalse(ScriptUiHandle.DOCKED.pinnedOverlay()));
     }
 
+    @Test
+    void aHandle_reportsThroughItsCallback() {
+        AtomicInteger reports = new AtomicInteger();
+        ScriptUiHost handle = new ScriptUiHandle(() -> { }, true, pinned -> { }, false, false,
+                ScriptUiHandle.DEFAULT_INTERACT_KEYS, () -> {
+                    reports.incrementAndGet();
+                    return true;
+                });
+
+        assertAll(
+                () -> assertTrue(handle.reportProblem()),
+                () -> assertEquals(1, reports.get()));
+    }
+
+    @Test
+    void theDockedAndShortHandles_cannotReport() {
+        assertAll(
+                () -> assertFalse(ScriptUiHandle.DOCKED.reportProblem()),
+                () -> assertFalse(new ScriptUiHandle(() -> { }, true).reportProblem()));
+    }
+
+    @Test
+    void reportingFromRender_runsTheHandlesReportCallback() {
+        AtomicInteger reports = new AtomicInteger();
+        AtomicReference<ScriptUiHost> attached = new AtomicReference<>();
+        ScriptUI ui = new ScriptUI() {
+            @Override
+            public void render() {
+                attached.get().reportProblem();
+            }
+
+            @Override
+            public void attach(ScriptUiHost handle) {
+                attached.set(handle);
+            }
+        };
+
+        draw(slot(ui, new ScriptUiHandle(() -> { }, true, pinned -> { }, false, false,
+                ScriptUiHandle.DEFAULT_INTERACT_KEYS, () -> {
+                    reports.incrementAndGet();
+                    return true;
+                })));
+
+        assertEquals(1, reports.get());
+    }
+
     private boolean askChrome(String owner, ScriptUI ui) {
         boolean[] answer = new boolean[1];
         host.frame(() -> answer[0] = scriptUis.drawsOwnChrome(new ScriptUiSlot(owner, "script", ui, RUN)));

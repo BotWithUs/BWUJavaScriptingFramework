@@ -3,7 +3,8 @@ package com.botwithus.bot.api.ui;
 /**
  * The host's handle on a script's UI, passed to {@link ScriptUI#attach(ScriptUiHost)}
  * before every frame. A script that draws its own window chrome uses it for its
- * close button. Call it from {@link ScriptUI#render()}.
+ * close button. Call it from {@link ScriptUI#render()}. A script with its own
+ * help or support buttons uses it to open the host's report dialog.
  */
 public interface ScriptUiHost {
 
@@ -51,5 +52,23 @@ public interface ScriptUiHost {
      */
     default String overlayInteractKeys() {
         return "Ctrl";
+    }
+
+    /**
+     * Opens the host's "Report a problem" dialog about this script on the game
+     * client it runs on, as the flag button on the script's row in the host
+     * does: the user says what went wrong and adds a note, and the host sends
+     * the script's run logs with it and shows the report code it gets back.
+     * The dialog opens in the host's own window from the next frame; this
+     * returns at once. It may be called from {@link ScriptUI#render()} or from
+     * any other thread.
+     *
+     * @return true when the host took the request and its dialog will open;
+     *         false when this host cannot report from a script's UI, such as an
+     *         older host or a script with no game client of its own, and the
+     *         script should offer its own way to get help instead
+     */
+    default boolean reportProblem() {
+        return false;
     }
 }

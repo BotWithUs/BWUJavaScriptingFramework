@@ -77,17 +77,21 @@ final class ConfigInspector {
     private final ScriptUiRenderer scriptUis;
     /** The keys held over a pinned overlay to click it, and the recorder that changes them. */
     private final InteractKeysStore interactKeys;
+    /** Carries a script's "Report a problem" from its UI to the host's report dialog. */
+    private final ScriptReportRequests reports;
     private final InteractKeysRecorder recorder = new InteractKeysRecorder();
     /** The picker's selection, reset from the target every frame. */
     private final ImInt pickerChoice = new ImInt();
     private ConfigEdits edits;
     private InspectorSubject editsFor;
 
-    ConfigInspector(Controls ui, InspectorState state, ScriptUiRenderer scriptUis, InteractKeysStore interactKeys) {
+    ConfigInspector(Controls ui, InspectorState state, ScriptUiRenderer scriptUis, InteractKeysStore interactKeys,
+                    ScriptReportRequests reports) {
         this.ui = ui;
         this.state = state;
         this.scriptUis = scriptUis;
         this.interactKeys = interactKeys;
+        this.reports = reports;
     }
 
     /** The open form, or {@code null} before its first frame. The dev preview's seam. */
@@ -597,12 +601,14 @@ final class ConfigInspector {
 
     /**
      * The script's UI as the drawer draws it: it has no window of its own to
-     * close, but the script's pin button pops it out and pins it.
+     * close, but the script's pin button pops it out and pins it, and its
+     * report button opens the host's report dialog.
      */
     private ScriptUiSlot dockedSlot(InspectorTarget target) {
         InspectorSubject subject = target.subject();
         return target.scriptUiSlot(new ScriptUiHandle(() -> { }, false,
-                pinned -> state.setPinned(subject, pinned), false, false, interactKeys.get().label()));
+                pinned -> state.setPinned(subject, pinned), false, false, interactKeys.get().label(),
+                () -> reports.request(subject)));
     }
 
     private void dashedFrame(ImDrawList draw, float x, float y, float w, float h) {
