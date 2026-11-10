@@ -4,9 +4,11 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,15 +21,27 @@ class VirtualThreadSchedulerTest {
     private final Clock clock = Clock.systemUTC();
     private final VirtualThreadScheduler scheduler = new VirtualThreadScheduler(clock);
 
+    /**
+     * The contract is "not before {@code at}" on the scheduler's own clock, so
+     * that is the clock the task reads. Timing it with {@code System.nanoTime()}
+     * instead compared two clocks that need not agree: a wall clock that reads
+     * slightly behind at schedule time, or runs fast, puts the moment a few
+     * milliseconds early on the monotonic scale without the scheduler being wrong.
+     */
     @Test
     void schedule_runsTheTaskAtTheMoment() throws InterruptedException {
         CountDownLatch ran = new CountDownLatch(1);
-        long start = System.nanoTime();
+        AtomicReference<Instant> ranAt = new AtomicReference<>();
+        Instant due = clock.instant().plus(DELAY);
 
-        scheduler.schedule(clock.instant().plus(DELAY), ran::countDown);
+        scheduler.schedule(due, () -> {
+            ranAt.set(clock.instant());
+            ran.countDown();
+        });
 
         assertTrue(ran.await(WAIT_MS, TimeUnit.MILLISECONDS));
-        assertTrue(System.nanoTime() - start >= DELAY.toNanos(), "ran early");
+        assertFalse(ranAt.get().isBefore(due),
+                () -> "ran early: at " + ranAt.get() + ", due " + due);
     }
 
     @Test
