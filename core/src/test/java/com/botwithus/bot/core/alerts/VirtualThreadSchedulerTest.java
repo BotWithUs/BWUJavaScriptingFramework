@@ -15,10 +15,24 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class VirtualThreadSchedulerTest {
 
-    private static final Duration DELAY = Duration.ofMillis(50);
+    /**
+     * Measured on the test clock, which runs at half speed, so the task fires
+     * about twice this long after it is scheduled in real time.
+     */
+    private static final Duration DELAY = Duration.ofMillis(25);
+
+    /** Real time, not clock time: how long a latch waits before the test gives up. */
     private static final long WAIT_MS = 5_000;
 
-    private final Clock clock = Clock.systemUTC();
+    /**
+     * Slower than real time and monotonic. Slower, so that a scheduler which
+     * waits on {@code Instant.now()} or {@code System.nanoTime()} instead of
+     * the clock it was given runs the task early by this clock and fails
+     * {@link #schedule_runsTheTaskAtTheMoment()}; a clock at real speed could
+     * not tell the two apart. Monotonic, so a wall clock stepped backwards
+     * between two reads cannot make a correct scheduler look early.
+     */
+    private final Clock clock = SlowMonotonicClock.startingAt(Clock.systemUTC().instant());
     private final VirtualThreadScheduler scheduler = new VirtualThreadScheduler(clock);
 
     /**
