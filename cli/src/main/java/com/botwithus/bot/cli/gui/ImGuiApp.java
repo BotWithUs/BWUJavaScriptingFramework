@@ -76,6 +76,7 @@ import com.botwithus.bot.cli.gui.report.ReportFlow;
 import com.botwithus.bot.cli.gui.scriptui.AssertRouter;
 import com.botwithus.bot.cli.gui.scriptui.ScriptUiRenderer;
 import com.botwithus.bot.cli.gui.scriptui.TypedChars;
+import com.botwithus.bot.cli.report.ReportSubject;
 import com.botwithus.bot.cli.report.ScriptReports;
 import com.botwithus.bot.cli.sdn.FavouritesStore;
 import com.botwithus.bot.cli.sdn.StoreRegistrar;
@@ -480,6 +481,7 @@ public class ImGuiApp extends Application {
         reportFlow = new ReportFlow(scriptReports);
         reportDialog = new ReportDialog(ui, reportFlow);
         liveBoard.setReportOpener(reportFlow::open);
+        inspector.setReportOpener(this::openReportFromScriptUi);
         notificationOverlay.setReportHandler(reportFlow::open);
         pages = new PageRegistry(buildPages(sdnCatalogue, sdnInstaller));
         shell = new Shell(ui, pages, inspector, notificationOverlay, hostWindow.chrome(ui));
@@ -644,6 +646,19 @@ public class ImGuiApp extends Application {
         if (oldSizeCb != null) {
             oldSizeCb.free();
         }
+    }
+
+    /**
+     * Opens the report dialog for a script's own "Report a problem". The script's
+     * UI may be in a pop-out over another window, so the host window is brought
+     * forward, restored first if minimised, for the dialog to be seen.
+     */
+    private void openReportFromScriptUi(ReportSubject subject) {
+        if (GLFW.glfwGetWindowAttrib(glfwWindow, GLFW.GLFW_ICONIFIED) == GLFW.GLFW_TRUE) {
+            GLFW.glfwRestoreWindow(glfwWindow);
+        }
+        GLFW.glfwFocusWindow(glfwWindow);
+        reportFlow.open(subject);
     }
 
     @Override
