@@ -13,4 +13,14 @@ public interface InspectorSource {
 
     /** The subject's script as it is now, or empty when no such runner exists. */
     Optional<InspectorTarget> resolve(InspectorSubject subject);
+
+    /**
+     * The account the client on {@code clientId} is identified as, or empty
+     * while it is not identified. A client's pipe name changes every time the
+     * game restarts; its account does not, so a pop-out window keyed by it
+     * keeps its place and size across restarts. None by default.
+     */
+    default Optional<String> accountOf(String clientId) {
+        return Optional.empty();
+    }
 }

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Which scripts' own UIs are popped out of the drawer into a window of their
@@ -37,6 +38,8 @@ import java.util.Set;
 final class ScriptUiPopouts {
 
     private static final String ID_PREFIX = "###script-ui-popout-";
+    /** Marks the account part of a client script's id, so it cannot read as a script name. */
+    private static final String ACCOUNT_KEY = "account-";
 
     private final Set<InspectorSubject> open = new LinkedHashSet<>();
     private final Set<InspectorSubject> remembered = new HashSet<>();
@@ -57,12 +60,21 @@ final class ScriptUiPopouts {
     }
 
     /**
-     * The ImGui id suffix for a subject's window: stable across frames and
-     * title changes, and distinct for the same script on two clients.
+     * The ImGui id suffix for a subject's window: stable across frames, title
+     * changes and restarts, so the host's layout file gives a window back the
+     * place and size it was left at, and distinct for the same script on two
+     * accounts. A client script's window is keyed by its client's account,
+     * never by the pipe name, which carries the game's pid and so changes
+     * every time the game restarts. A client not identified yet is keyed by
+     * the script alone. The id is read each frame the window is drawn.
+     *
+     * @param accountOf the account a client id is identified as, if any
      */
-    static String imguiIdOf(InspectorSubject subject) {
+    static String imguiIdOf(InspectorSubject subject, Function<String, Optional<String>> accountOf) {
         return switch (windowOf(subject)) {
-            case ClientScript script -> ID_PREFIX + "client-" + script.clientId() + "-" + script.scriptName();
+            case ClientScript script -> ID_PREFIX + "client-" + accountOf.apply(script.clientId())
+                    .map(account -> ACCOUNT_KEY + account + "-")
+                    .orElse("") + script.scriptName();
             case ManagementScript script -> ID_PREFIX + "management-" + script.scriptName();
         };
     }

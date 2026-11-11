@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -31,6 +32,12 @@ class ScriptUiPopoutsTest {
     private static final ClientScript ON_FERNMOSS = new ClientScript("BotWithUs_9001", "Example Script");
     private static final ManagementScript FLEET = new ManagementScript("Fleet Monitor");
     private static final Target HOST = Target.host();
+    private static final String OAKHEART_RESTARTED_PIPE = "BotWithUs_20512";
+    /** Oakheart's game on its first and its restarted pipe, and Fernmoss on its own. */
+    private static final Function<String, Optional<String>> ACCOUNTS = pipe -> Optional.ofNullable(Map.of(
+            TestScripts.PIPE, "oakheart-uuid",
+            OAKHEART_RESTARTED_PIPE, "oakheart-uuid",
+            "BotWithUs_9001", "fernmoss-uuid").get(pipe));
 
     private final ScriptUiPopouts popouts = new ScriptUiPopouts();
     private final AtomicBoolean isGone = new AtomicBoolean(false);
@@ -55,18 +62,39 @@ class ScriptUiPopoutsTest {
         assertAll(
                 () -> assertEquals(FLEET, ScriptUiPopouts.windowOf(onHost)),
                 () -> assertTrue(popouts.isPoppedOut(FLEET)),
-                () -> assertEquals(ScriptUiPopouts.imguiIdOf(FLEET), ScriptUiPopouts.imguiIdOf(onHost)));
+                () -> assertEquals(ScriptUiPopouts.imguiIdOf(FLEET, ACCOUNTS), ScriptUiPopouts.imguiIdOf(onHost, ACCOUNTS)));
     }
 
     @Test
-    void theWindowId_isAnImGuiIdSuffix_distinctForTheSameScriptOnTwoClients() {
-        String id = ScriptUiPopouts.imguiIdOf(ON_OAKHEART);
+    void theWindowId_isAnImGuiIdSuffix_distinctForTheSameScriptOnTwoAccounts() {
+        String id = ScriptUiPopouts.imguiIdOf(ON_OAKHEART, ACCOUNTS);
 
         assertAll(
                 () -> assertTrue(id.startsWith("###"), "the title before it can change without moving the window"),
-                () -> assertEquals(id, ScriptUiPopouts.imguiIdOf(new ClientScript(TestScripts.PIPE, "Example Script"))),
-                () -> assertNotEquals(id, ScriptUiPopouts.imguiIdOf(ON_FERNMOSS)),
-                () -> assertNotEquals(id, ScriptUiPopouts.imguiIdOf(new ManagementScript("Example Script"))));
+                () -> assertEquals(id, ScriptUiPopouts.imguiIdOf(
+                        new ClientScript(TestScripts.PIPE, "Example Script"), ACCOUNTS)),
+                () -> assertNotEquals(id, ScriptUiPopouts.imguiIdOf(ON_FERNMOSS, ACCOUNTS)),
+                () -> assertNotEquals(id, ScriptUiPopouts.imguiIdOf(new ManagementScript("Example Script"), ACCOUNTS)));
+    }
+
+    @Test
+    void theWindowId_survivesTheGameRestarting_onANewPipe() {
+        ClientScript afterRestart = new ClientScript(OAKHEART_RESTARTED_PIPE, "Example Script");
+
+        String id = ScriptUiPopouts.imguiIdOf(ON_OAKHEART, ACCOUNTS);
+
+        assertAll(
+                () -> assertEquals(id, ScriptUiPopouts.imguiIdOf(afterRestart, ACCOUNTS)),
+                () -> assertFalse(id.contains(TestScripts.PIPE), "a pipe name carries the game's pid"));
+    }
+
+    @Test
+    void theWindowId_ofAClientNotIdentifiedYet_carriesNoPipe() {
+        String id = ScriptUiPopouts.imguiIdOf(ON_OAKHEART, pipe -> Optional.empty());
+
+        assertAll(
+                () -> assertFalse(id.contains(TestScripts.PIPE), "a pipe name carries the game's pid"),
+                () -> assertNotEquals(id, ScriptUiPopouts.imguiIdOf(ON_OAKHEART, ACCOUNTS)));
     }
 
     @Test
