@@ -1468,7 +1468,7 @@ class WorldWalkerCallbackBridgeTest {
         int issued = bridge.interact(1234, new WwTile(3221, 3219, 0), 0);
 
         assertEquals(0, issued, "a skipped no-op (already-open door) must report issued=0");
-        verifyNoInteractions(api);
+        verify(api, never()).queueAction(any(GameAction.class));
     }
 
     @Test
@@ -1630,6 +1630,21 @@ class WorldWalkerCallbackBridgeTest {
     private static LocationType locType(int id, int sizeX, int sizeY) {
         return new LocationType(id, "", sizeX, sizeY, 0, 0, false, List.of(), -1, -1,
                 List.of(), 0, Map.of());
+    }
+
+    @Test
+    void interactMatchesAMultilocBasePublishedAsItsChild() {
+        int base = 127139;
+        int quietChild = 127141;
+        when(api.getLocationType(base)).thenReturn(new LocationType(base, "Underworld portal", 5, 5, 0, 0, false,
+                List.of("Enter"), 53549, -1, List.of(127140, quietChild), 0, Map.of()));
+        Location child = new Location(quietChild, 0x1A2B3C, -1, 3103, 3312, 0, 10, 0, 0);
+        when(locationsTable.stream()).thenReturn(Stream.of(child));
+
+        int issued = bridge.interact(base, new WwTile(3103, 3312, 0), 0);
+
+        assertEquals(1, issued, "a row naming the base must match the loc published under its child id");
+        assertQueuedAt(base, 3103, 3312);
     }
 
     @Test
