@@ -175,6 +175,24 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
+    void itemCountsIncludeTheCurrencyPouch() {
+        int ectoToken = 4278;
+        int pouchSlots = 30;
+        GameSnapshot.Inventories invs = mock(GameSnapshot.Inventories.class);
+        when(snapshot.inventories()).thenReturn(invs);
+        when(invs.byInvId(anyInt())).thenReturn(Optional.empty());
+        when(invs.byInvId(WorldWalkerCallbackBridge.CURRENCY_POUCH_INVENTORY_ID))
+                .thenReturn(Optional.of(new Inventory(WorldWalkerCallbackBridge.CURRENCY_POUCH_INVENTORY_ID,
+                        pouchSlots, List.of(new InventoryItem(0, ectoToken, 6)))));
+        int[] counts = new int[1];
+
+        bridge.readItemCounts(new int[] {ectoToken}, counts);
+
+        assertEquals(6, bridge.readItemCount(ectoToken));
+        assertEquals(6, counts[0]);
+    }
+
+    @Test
     void readPositionFallsBackWhenSnapshotNull() {
         bridge = new WorldWalkerCallbackBridge(api, () -> null, cancel, events::add, NO_GOAL);
 
