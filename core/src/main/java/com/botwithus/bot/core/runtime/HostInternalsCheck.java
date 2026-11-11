@@ -17,12 +17,12 @@ import java.util.function.Function;
  *
  * <p>Every script layer resolves against the boot layer, which is how a script
  * sees {@code api}, {@code quest} and {@code skilling}. The host module,
- * {@value #HOST_MODULE}, is in that layer too, and most of its packages are
- * exported to everyone, so a script that reads it can use the host's own
- * transports and runtime. A future release will narrow what the host module
- * exposes, and a script that depends on it will then fail to load. This check
- * is how the host learns which scripts that will be before it happens. It is
- * advisory: it reports, it does not refuse.</p>
+ * {@value #HOST_MODULE}, is in that layer too, but it exports its packages only
+ * to the host front-end, so no script can use any of them: a script that names
+ * one of its types fails when that code runs. This check tells the user which
+ * script that is, at load time and by name, rather than leaving them a linkage
+ * error from inside the script's loop. It is advisory: it reports, it does not
+ * refuse, because reading the module is harmless until a script uses it.</p>
  *
  * <p>It works from the resolved {@link Configuration} alone: descriptors and the
  * readability graph, before any class is loaded. That is what lets it see a
@@ -44,8 +44,8 @@ final class HostInternalsCheck {
     /** The host module whose exports a script should not depend on. */
     static final String HOST_MODULE = "com.botwithus.bot.core";
 
-    private static final String CONSEQUENCE = " This script reaches into host internals;"
-            + " a future release will refuse to load it. Scripts should depend on"
+    private static final String CONSEQUENCE = " The host does not export its internals to scripts,"
+            + " so any use this script makes of them fails when it runs. Scripts should depend on"
             + " com.botwithus.bot.api, com.botwithus.bot.quest and com.botwithus.bot.skilling"
             + " (and libraries such as imgui.binding), never on " + HOST_MODULE + ".";
 

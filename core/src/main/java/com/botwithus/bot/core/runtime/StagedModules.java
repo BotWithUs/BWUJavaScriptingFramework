@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Sorts one staging pass into the modules a loader can define layers over and
@@ -26,6 +27,10 @@ import java.util.Set;
  * <p>JARs are taken newest first by the source file's modification time, so
  * when two declare the same module the newest is loaded and the older ones
  * are reported, and the loaders hand scripts to a runtime in that order.</p>
+ *
+ * <p>A JAR whose module has the name of one of the host's own modules is
+ * reported too, and not loaded: the host's modules are the ones it runs, and a
+ * script's module is never one of them, whatever it is called.</p>
  */
 final class StagedModules {
 
@@ -33,6 +38,9 @@ final class StagedModules {
             .comparing((Path jar) -> JarLoadOutcome.readLastModified(jar).orElse(Instant.MIN),
                     Comparator.reverseOrder())
             .thenComparing(jar -> jar.getFileName().toString());
+
+    /** The prefix every module the host itself ships is named under. */
+    static final String HOST_MODULE_PREFIX = "com.botwithus.";
 
     private StagedModules() {}
 
@@ -46,6 +54,14 @@ final class StagedModules {
 
     /** Probes every JAR in {@code sources} that {@code staged} managed to copy. */
     static Probe probe(ScriptJarStaging.Staged staged, List<Path> sources) {
+        return probe(staged, sources, StagedModules::isHostModule);
+    }
+
+    /**
+     * As {@link #probe(ScriptJarStaging.Staged, List)}, with the test for a
+     * host module's name given, so a test can name one the class path lacks.
+     */
+    static Probe probe(ScriptJarStaging.Staged staged, List<Path> sources, Predicate<String> isHostModule) {
         Map<Path, Throwable> rejected = new LinkedHashMap<>(staged.failures());
         Map<String, Path> winnerSourceByModule = new LinkedHashMap<>();
         Map<String, Path> winnerCopyByModule = new LinkedHashMap<>();
@@ -57,6 +73,10 @@ final class StagedModules {
             Path copy = staged.copyOf(source);
             Optional<String> module = moduleNameOf(copy, source, rejected);
             if (module.isEmpty()) {
+                continue;
+            }
+            if (isHostModule.test(module.get())) {
+                rejected.put(source, hostModuleName(module.get()));
                 continue;
             }
             Path newer = winnerSourceByModule.putIfAbsent(module.get(), source);
@@ -88,6 +108,16 @@ final class StagedModules {
                     "JAR is not a Java module — missing module-info.java with 'provides ...'"));
         }
         return name;
+    }
+
+    /** Whether the boot layer holds a module of the host's called {@code name}. */
+    static boolean isHostModule(String name) {
+        return name.startsWith(HOST_MODULE_PREFIX) && ModuleLayer.boot().findModule(name).isPresent();
+    }
+
+    private static IllegalStateException hostModuleName(String module) {
+        return new IllegalStateException("Module '" + module + "' has the name of a module the host"
+                + " provides, so it cannot be loaded as a script. Give the script's module its own name.");
     }
 
     private static IllegalStateException duplicateModule(String module, Path newer) {
