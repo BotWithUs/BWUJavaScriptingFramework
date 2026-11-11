@@ -1379,7 +1379,10 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
      * transition's object id and which is not flagged deleted. Doors and stairs arrive as
      * combined-location sections ({@code interactId == -1}), so neither {@code interactId} nor
      * the section flag is filtered on. The resolvedId arm is additive: a morph ("multiloc") loc
-     * answers to both its base and its resolved id.</p>
+     * answers to both its base and its resolved id. A row naming a multiloc's base also matches a
+     * loc published under one of the base's cache transforms, since a snapshot can carry only the
+     * resolved child id (the Draynor Underworld portal, base 127139 over 127140/127141, read
+     * absent on every use once that happened).</p>
      *
      * <p>Distance is measured to the loc's footprint, not its anchor tile: the dataset's row tile
      * is often the stand tile or a corner of a multi-tile loc (a 4x4 cave entrance anchored two
@@ -1399,8 +1402,9 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         if (snap == null) {
             return new LocResolution.Absent();
         }
+        Set<Integer> ids = transitionIds(objectId);
         List<Location> candidates = snap.locations().stream()
-                .filter(loc -> (loc.typeId() == objectId || loc.resolvedId() == objectId)
+                .filter(loc -> (ids.contains(loc.typeId()) || ids.contains(loc.resolvedId()))
                         && loc.plane() == tile.plane()
                         && !loc.isDeleted())
                 .toList();
@@ -1463,6 +1467,18 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                 .map(type -> new TransitionLoc(objectId, new LocSize(type.sizeX(), type.sizeY()),
                         Objects.requireNonNullElse(type.name(), ""), hasOption(type, OPTION_OPEN)))
                 .orElseGet(() -> new TransitionLoc(objectId, LocSize.UNKNOWN, "", false));
+    }
+
+    /**
+     * The ids a transition's loc may be published under: its own id and, for a multiloc base,
+     * every transform the cache lists for it (a negative entry is "no loc" and is left out).
+     */
+    private Set<Integer> transitionIds(int objectId) {
+        Set<Integer> ids = new HashSet<>();
+        ids.add(objectId);
+        cachedLocType(objectId).map(LocationType::transforms).ifPresent(children ->
+                children.stream().filter(Objects::nonNull).filter(id -> id >= 0).forEach(ids::add));
+        return Set.copyOf(ids);
     }
 
     /** Loc type {@code id} from the cache, or empty when the cache cannot answer. */
