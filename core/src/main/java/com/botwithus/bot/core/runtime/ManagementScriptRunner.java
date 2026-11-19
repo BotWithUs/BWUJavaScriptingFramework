@@ -46,6 +46,43 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     private final ScriptProfiler profiler = new ScriptProfiler();
     private volatile Instant lastStartedAt;
     private volatile Runnable watchdogArmer;
+    /** Tags this script's thread for plugin-UI ownership; null in test seams. */
+    private volatile ManagementCallerTag callerTag;
+    private volatile ScriptUiLifecycle uiLifecycle = ScriptUiLifecycle.NONE;
+    /** The plugin-UI run id of the current or last run. */
+    private volatile long uiRunId;
+    /** The owner the current or last run's components are recorded under; one per run. */
+    private volatile String uiOwner;
+
+    /**
+     * Installs the process-wide tag this runner marks its thread with, so the
+     * plugin-UI components the script makes on any connection are recorded as its
+     * own (under {@link ManagementCallerTag#ownerOf}). Set by
+     * {@link ManagementScriptRuntime#registerScript}.
+     */
+    public void setCallerTag(ManagementCallerTag callerTag) {
+        this.callerTag = callerTag;
+    }
+
+    /**
+     * Installs the plugin-UI hooks, called with this script's owner name: opened
+     * before {@code onStart}, released when the run ends and again if the watchdog
+     * revokes it. The host fans both out over every connection.
+     */
+    public void setUiLifecycle(ScriptUiLifecycle uiLifecycle) {
+        this.uiLifecycle = uiLifecycle != null ? uiLifecycle : ScriptUiLifecycle.NONE;
+    }
+
+    /**
+     * The owner the current or last run's plugin-UI components are recorded under,
+     * or {@code null} before the first run. One per run, not per name: a management
+     * script draws on every connection, including ones added mid-run that never saw
+     * the run open, so a per-name owner would let a quarantined old run's late
+     * release reach a fresh run's components there.
+     */
+    public String uiOwner() {
+        return uiOwner;
+    }
 
     /**
      * Installs the hook that starts the owning runtime's watchdog. See
@@ -176,6 +213,34 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     public void revokeAccess() {
         log.warn("Management script {} ignored stop and cannot be cut off "
                 + "(cross-client, no per-connection gate)", getScriptName());
+        // Its plugin UI can be taken back, though: the release marks the owner closed,
+        // so anything it creates from here on is destroyed as soon as it is made.
+        // Off the watchdog thread, because the release makes RPC calls.
+        String owner = uiOwner();
+        if (owner == null) {
+            return;
+        }
+        ManagementCallerTag tag = this.callerTag;
+        if (tag != null) {
+            // Refuses this run's creates on every connection, including ones added
+            // after this point, which the release below never reaches.
+            tag.revoke(owner);
+        }
+        ScriptUiLifecycle lifecycle = this.uiLifecycle;
+        long run = this.uiRunId;
+        Thread.ofVirtual().name("ui-release-" + getScriptName())
+                .start(() -> releaseUi(lifecycle, owner, run));
+    }
+
+    private static void releaseUi(ScriptUiLifecycle lifecycle, String owner, long run) {
+        if (owner == null) {
+            return;
+        }
+        try {
+            lifecycle.released().accept(owner, run);
+        } catch (RuntimeException e) {
+            log.debug("Plugin UI release of {} failed: {}", owner, e.getMessage());
+        }
     }
 
     /** Keeps this script's classes loaded for as long as its thread runs. */
@@ -265,6 +330,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     public void run() {
         String name = getScriptName();
         MDC.put("script.name", name);
+        enterUiScope();
         boolean started = false;
         try {
             started = runOnStart(name);
@@ -276,6 +342,24 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             // Also after a failed onStart: awaitStop() waits on the latch this
             // releases. Mirrors ScriptRunner.run.
             cleanup(name, started);
+        }
+    }
+
+    /** Tags this thread for plugin-UI ownership and reopens the owner after an earlier run. */
+    private void enterUiScope() {
+        ScriptUiLifecycle lifecycle = this.uiLifecycle;
+        long run = lifecycle.runIds().getAsLong();
+        String owner = ManagementCallerTag.ownerOf(getScriptName(), run);
+        this.uiRunId = run;
+        this.uiOwner = owner;
+        ManagementCallerTag tag = this.callerTag;
+        if (tag != null) {
+            tag.enter(owner);
+        }
+        try {
+            lifecycle.opened().accept(owner, run);
+        } catch (RuntimeException e) {
+            log.debug("Plugin UI open of {} failed: {}", owner, e.getMessage());
         }
     }
 
@@ -357,7 +441,12 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             if (started) {
                 runOnStop(name);
             }
+            releaseUi(uiLifecycle, uiOwner(), uiRunId);
         } finally {
+            ManagementCallerTag tag = this.callerTag;
+            if (tag != null) {
+                tag.exit();
+            }
             MDC.clear();
             if (wasInterrupted) {
                 Thread.currentThread().interrupt();

@@ -89,6 +89,12 @@ public class ScriptRuntime {
      * own, so a host that wires no consent cannot open the microphone for a script.
      */
     private volatile VoiceGate voiceGate = VoiceConsent.refusingAll();
+    /**
+     * Opens and releases a script's plugin UI by script name: the connection's
+     * {@code GameAPIImpl.openGameUi} / {@code releaseGameUi}. A no-op until the host
+     * installs it.
+     */
+    private volatile ScriptUiLifecycle gameUiLifecycle = ScriptUiLifecycle.NONE;
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
@@ -172,6 +178,19 @@ public class ScriptRuntime {
 
     public void setOnStateChange(Runnable callback) {
         this.onStateChange = callback;
+    }
+
+    /**
+     * Installs what opens a script's plugin UI at the start of each run and destroys
+     * its components when it stops, crashes, is unloaded or is revoked: the
+     * connection's {@code GameAPIImpl::openGameUi} / {@code ::releaseGameUi}. Every
+     * script on a connection shares one agent pipe, and the agent only cleans up per
+     * pipe, so without this a stopped script's components would stay on screen until
+     * the whole connection closed. Read when a runner calls it, so it covers runners
+     * registered before it was set.
+     */
+    public void setGameUiLifecycle(ScriptUiLifecycle lifecycle) {
+        this.gameUiLifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
     }
 
     /**
@@ -350,6 +369,10 @@ public class ScriptRuntime {
             if (scoped.voice() != null) {
                 runner.setVoiceReleaser(scoped.voice()::closeAll);
             }
+            runner.setUiLifecycle(new ScriptUiLifecycle(
+                    () -> gameUiLifecycle.runIds().getAsLong(),
+                    (owner, run) -> gameUiLifecycle.opened().accept(owner, run),
+                    (owner, run) -> gameUiLifecycle.released().accept(owner, run)));
             runner.setWatchdogArmer(this::ensureWatchdog);
             if (connectionName != null) {
                 runner.setConnectionName(connectionName);

@@ -42,6 +42,9 @@ public class PipeClient implements AutoCloseable {
     public static final int DEFAULT_MAX_MESSAGE_BYTES = 4 * 1024 * 1024;
     static final String PIPE_PREFIX = "\\\\.\\pipe\\";
 
+    /** The little-endian length that prefixes every frame, both directions. */
+    static final int FRAME_HEADER_BYTES = 4;
+
     /**
      * Producer-side name prefix. NXTLibrary publishes one pipe per injected
      * game as {@code BotWithUs_<pid>}; the legacy single {@code BotWithUs}
@@ -174,27 +177,51 @@ public class PipeClient implements AutoCloseable {
             throw new PipeException("Pipe is closed");
         }
         try {
-            byte[] header = new byte[4];
-            readFully(header);
-            int length = (header[0] & 0xFF)
-                    | ((header[1] & 0xFF) << 8)
-                    | ((header[2] & 0xFF) << 16)
-                    | ((header[3] & 0xFF) << 24);
-            if (length <= 0 || length > maxMessageBytes) {
-                throw new PipeException("Invalid message length: " + length);
-            }
-            byte[] payload = new byte[length];
-            readFully(payload);
-            return payload;
+            return readFrame(transport.pipe::read, maxMessageBytes);
         } catch (IOException e) {
             throw new PipeException("Pipe read error", e);
         }
     }
 
-    private void readFully(byte[] buf) throws IOException {
+    /**
+     * Where {@link #readFrame} reads from: a {@code read(byte[], int, int)} with
+     * {@code InputStream} semantics. On the real pipe it is the handle's
+     * {@code ReadFile}.
+     */
+    @FunctionalInterface
+    interface ByteSource {
+        int read(byte[] buf, int off, int len) throws IOException;
+    }
+
+    /**
+     * Reads one frame: a 4-byte little-endian length, then exactly that many bytes.
+     *
+     * <p>The agent's pipe is {@code PIPE_TYPE_BYTE}, so one {@code ReadFile} is not
+     * one frame: it can return part of a frame, or the end of one frame and the
+     * start of the next (two pushes in one tick arrive as one run of bytes). This
+     * therefore asks for exactly the bytes it needs and loops until it has them,
+     * leaving whatever follows in the pipe for the next call. Package-private for
+     * {@code PipeFrameReaderTest}, which feeds it both shapes.</p>
+     */
+    static byte[] readFrame(ByteSource in, int maxMessageBytes) throws IOException {
+        byte[] header = new byte[FRAME_HEADER_BYTES];
+        readFully(in, header);
+        int length = (header[0] & 0xFF)
+                | ((header[1] & 0xFF) << 8)
+                | ((header[2] & 0xFF) << 16)
+                | ((header[3] & 0xFF) << 24);
+        if (length <= 0 || length > maxMessageBytes) {
+            throw new PipeException("Invalid message length: " + length);
+        }
+        byte[] payload = new byte[length];
+        readFully(in, payload);
+        return payload;
+    }
+
+    private static void readFully(ByteSource in, byte[] buf) throws IOException {
         int off = 0;
         while (off < buf.length) {
-            int n = transport.pipe.read(buf, off, buf.length - off);
+            int n = in.read(buf, off, buf.length - off);
             if (n < 0) {
                 throw new IOException("Pipe closed");
             }

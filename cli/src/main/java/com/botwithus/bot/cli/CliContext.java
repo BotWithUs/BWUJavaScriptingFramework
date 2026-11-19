@@ -81,6 +81,7 @@ import com.botwithus.bot.core.runtime.LoadReport;
 import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptFolder;
+import com.botwithus.bot.core.runtime.ManagementCallerTag;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
@@ -182,6 +183,12 @@ public class CliContext {
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
     private ManagementScriptRuntime managementRuntime;
+    /**
+     * Marks management-script threads for plugin-UI ownership. One for the process,
+     * because one management thread acts on every connection: the management runtime
+     * tags with it and every connection's {@code GameAPIImpl} reads it.
+     */
+    private final ManagementCallerTag managementCallerTag = new ManagementCallerTag();
     private NXTCache nxtCache;
     private boolean nxtCacheInitAttempted;
     private GamevalIndex gamevals;
@@ -562,6 +569,11 @@ public class CliContext {
         return conn != null && conn.isAlive() ? Optional.ofNullable(conn.getRuntime()) : Optional.empty();
     }
 
+    /** Every connection's {@code GameAPIImpl}, for the management plugin-UI fan-out. */
+    private List<GameAPIImpl> liveGameApis() {
+        return connections.values().stream().map(Connection::getGameAPI).filter(Objects::nonNull).toList();
+    }
+
     public ManagementScriptRuntime getManagementRuntime() {
         return managementRuntime;
     }
@@ -582,6 +594,10 @@ public class CliContext {
         managementRuntime = new ManagementScriptRuntime(mgmtContext, runnerEvents, managementSettingsStore);
         managementRuntime.setStallThreshold(this::stallAfterMs);
         managementRuntime.setContextFactory(script -> scopedManagementContext(script, messageBus, sharedState));
+        managementRuntime.setCallerTag(managementCallerTag);
+        // A management script can draw on any connection, so its plugin UI is opened
+        // and released on all of them.
+        managementRuntime.setGameUiLifecycle(new ManagementGameUiFanOut(this::liveGameApis).lifecycle());
     }
 
     /**
@@ -884,6 +900,7 @@ public class CliContext {
         ScriptRuntime runtime = newRuntime(context, name, scriptCtxChannel, eventBus);
         runtime.setVoiceGate(voiceConsent);
         wireScriptGate(runtime, rpc, gameAPI);
+        gameAPI.setManagementCallerTag(managementCallerTag);
 
         Connection conn = new Connection(name, pipe, rpc, runtime, new ScriptManagerImpl(runtime), connectedAt);
         wireRunLogs(runtime, rpc, conn);
@@ -915,6 +932,7 @@ public class CliContext {
         runtime.setScriptGate(scriptGate);
         rpc.setScriptGate(scriptGate);
         gameAPI.setScriptGate(scriptGate);
+        runtime.setGameUiLifecycle(gameAPI.gameUiLifecycle());
     }
 
     /**

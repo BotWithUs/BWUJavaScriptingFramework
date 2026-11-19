@@ -98,6 +98,7 @@ public final class JBotApplication {
             runtime.setScriptGate(scriptGate);
             rpc.setScriptGate(scriptGate);
             gameAPI.setScriptGate(scriptGate);
+            runtime.setGameUiLifecycle(gameAPI.gameUiLifecycle());
 
             ScriptManagerImpl scriptManager = new ScriptManagerImpl(runtime);
 

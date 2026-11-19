@@ -19,6 +19,16 @@ import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
+import com.botwithus.bot.api.gameui.CanvasOp;
+import com.botwithus.bot.api.gameui.GameUi;
+import com.botwithus.bot.api.gameui.UiEvent;
+import com.botwithus.bot.api.gameui.UiHandleInfo;
+import com.botwithus.bot.api.gameui.UiOrder;
+import com.botwithus.bot.api.gameui.UiPlacement;
+import com.botwithus.bot.api.gameui.UiProps;
+import com.botwithus.bot.api.gameui.UiReadback;
+import com.botwithus.bot.api.gameui.UiSubscription;
+import com.botwithus.bot.api.gameui.UiType;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.api.input.InputDialog;
 import com.botwithus.bot.api.input.KeyStroke;
@@ -79,7 +89,9 @@ import com.botwithus.bot.core.cache.VarpCacheInfo;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcRemoteException;
+import com.botwithus.bot.core.runtime.ManagementCallerTag;
 import com.botwithus.bot.core.runtime.ScriptGate;
+import com.botwithus.bot.core.runtime.ScriptUiLifecycle;
 import com.botwithus.bot.core.shm.ActionRefusalFeed;
 import com.botwithus.bot.core.worldwalker.DisabledMoves;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
@@ -195,6 +207,9 @@ public class GameAPIImpl implements GameAPI {
     private final WorldMapElements mapElementsFacade = new WorldMapElements(this);
     private final Components componentsFacade = new Components(this);
     private final Draw drawFacade = new Draw(this);
+    /** Assigned in the constructor: it needs {@link #rpc}, which a field initializer cannot see yet. */
+    private final GameUiBinding gameUiBinding;
+    private final GameUi gameUiFacade;
 
     /**
      * Where terminal walk events ({@link WalkArrivedEvent},
@@ -273,6 +288,26 @@ public class GameAPIImpl implements GameAPI {
     private final Map<String, AtomicLong> walkRefusals = new ConcurrentHashMap<>();
 
     private volatile ScriptGate scriptGate;
+
+    /**
+     * The process-wide tag of management-script threads, read for plugin-UI
+     * ownership only; see {@link #setManagementCallerTag}.
+     */
+    private volatile ManagementCallerTag managementCallerTag;
+
+    /** Issues plugin-UI run ids for {@link #gameUiLifecycle()}; unique on this connection. */
+    private final AtomicLong gameUiRuns = new AtomicLong();
+
+    /**
+     * Installs the process-wide tag management scripts mark their threads with, so
+     * the plugin-UI components a management script makes on this connection are
+     * its own rather than the host's: released when it stops, and out of reach of
+     * every other script. Walks and revocation do not read it. Unset (tests, a host
+     * without management scripts), every untagged caller is the host.
+     */
+    public void setManagementCallerTag(ManagementCallerTag managementCallerTag) {
+        this.managementCallerTag = managementCallerTag;
+    }
 
     /** Whether walks draw their route; see {@link #setDrawWalkerPath(boolean)}. */
     private volatile boolean isDrawingWalkerPath;
@@ -389,6 +424,9 @@ public class GameAPIImpl implements GameAPI {
         this.stubGuard = stubGuard;
         this.eventPublisher = eventPublisher;
         this.gamevals = gamevals;
+        this.gameUiBinding = new GameUiBinding(rpc, () -> scriptGate, () -> managementCallerTag, HOST_OWNER,
+                UiEventDispatcher.DEFAULT_CAPACITY);
+        this.gameUiFacade = new GameUi(this, gamevals);
     }
 
     // ---------------------------------------------------------------- Snapshot + entities
@@ -2095,5 +2133,100 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public DrawStats drawStats() {
         return DrawCodec.decodeStats(rpc.callSync("debug_draw_stats", Map.of()));
+    }
+
+    // ------------------------------------------------------------------ GameUiAPI
+
+    @Override
+    public GameUi gameUi() { return gameUiFacade; }
+
+    @Override
+    public UiHandleInfo uiGetComponent(int iface, int comp, int key) {
+        return gameUiBinding.getComponent(iface, comp, key);
+    }
+
+    @Override
+    public UiHandleInfo uiCreate(long parent, UiType type, UiPlacement placement, UiProps<?> props) {
+        return gameUiBinding.create(parent, type, placement, props);
+    }
+
+    @Override
+    public void uiSet(long handle, UiProps<?> props) {
+        gameUiBinding.set(handle, props);
+    }
+
+    @Override
+    public UiReadback uiGet(long handle, boolean isContentRequested) {
+        return gameUiBinding.get(handle, isContentRequested);
+    }
+
+    @Override
+    public int uiCanvas(long handle, List<CanvasOp> ops) {
+        return gameUiBinding.canvas(handle, ops);
+    }
+
+    @Override
+    public void uiOrder(long handle, UiOrder to) {
+        gameUiBinding.order(handle, to);
+    }
+
+    @Override
+    public boolean uiDestroy(long handle) {
+        return gameUiBinding.destroy(handle);
+    }
+
+    @Override
+    public int uiDestroyOwned() {
+        return gameUiBinding.destroyOwned();
+    }
+
+    @Override
+    public List<UiHandleInfo> uiList() {
+        return gameUiBinding.list();
+    }
+
+    @Override
+    public UiSubscription uiOnEvent(Consumer<UiEvent> listener) {
+        return gameUiBinding.onEvent(listener);
+    }
+
+    /**
+     * Destroys every plugin-UI handle {@code scriptName} made on this connection,
+     * one {@code ui.destroy} each, and drops its {@code ui.event} listeners. Wired
+     * to the script runtime's stop, crash, unload and revoke paths, so a script's
+     * UI never outlives it while the scripts sharing its pipe keep theirs.
+     *
+     * @return how many handles the agent removed
+     */
+    public int releaseGameUi(String scriptName) {
+        return gameUiBinding.releaseOwner(scriptName);
+    }
+
+    /**
+     * Makes {@code run} the owner's current plugin-UI run and lets it create again
+     * after an earlier run was released. Called at the start of every run, before any
+     * script code.
+     */
+    public void openGameUi(String owner, long run) {
+        gameUiBinding.openOwner(owner, run);
+    }
+
+    /**
+     * Releases one run of {@code owner}, as {@link #releaseGameUi(String)}, unless a
+     * newer run of it has opened since: then it does nothing, so a quarantined run's
+     * late cleanup cannot destroy its replacement's components.
+     *
+     * @return how many handles the agent removed
+     */
+    public int releaseGameUi(String owner, long run) {
+        return gameUiBinding.releaseOwner(owner, run);
+    }
+
+    /**
+     * This connection's {@link #openGameUi} / {@link #releaseGameUi(String, long)},
+     * for a script runtime, with run ids unique on this connection.
+     */
+    public ScriptUiLifecycle gameUiLifecycle() {
+        return new ScriptUiLifecycle(gameUiRuns::incrementAndGet, this::openGameUi, this::releaseGameUi);
     }
 }
