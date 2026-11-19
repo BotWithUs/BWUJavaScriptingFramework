@@ -46,6 +46,33 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     private final ScriptProfiler profiler = new ScriptProfiler();
     private volatile Instant lastStartedAt;
     private volatile Runnable watchdogArmer;
+    /** Tags this script's thread for plugin-UI ownership; null in test seams. */
+    private volatile ManagementCallerTag callerTag;
+    private volatile ScriptUiLifecycle uiLifecycle = ScriptUiLifecycle.NONE;
+
+    /**
+     * Installs the process-wide tag this runner marks its thread with, so the
+     * plugin-UI components the script makes on any connection are recorded as its
+     * own (under {@link ManagementCallerTag#ownerOf}). Set by
+     * {@link ManagementScriptRuntime#registerScript}.
+     */
+    public void setCallerTag(ManagementCallerTag callerTag) {
+        this.callerTag = callerTag;
+    }
+
+    /**
+     * Installs the plugin-UI hooks, called with this script's owner name: opened
+     * before {@code onStart}, released when the run ends and again if the watchdog
+     * revokes it. The host fans both out over every connection.
+     */
+    public void setUiLifecycle(ScriptUiLifecycle uiLifecycle) {
+        this.uiLifecycle = uiLifecycle != null ? uiLifecycle : ScriptUiLifecycle.NONE;
+    }
+
+    /** The owner name this script's plugin-UI components are recorded under. */
+    public String uiOwner() {
+        return ManagementCallerTag.ownerOf(getScriptName());
+    }
 
     /**
      * Installs the hook that starts the owning runtime's watchdog. See
@@ -176,6 +203,21 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     public void revokeAccess() {
         log.warn("Management script {} ignored stop and cannot be cut off "
                 + "(cross-client, no per-connection gate)", getScriptName());
+        // Its plugin UI can be taken back, though: the release marks the owner closed,
+        // so anything it creates from here on is destroyed as soon as it is made.
+        // Off the watchdog thread, because the release makes RPC calls.
+        String owner = uiOwner();
+        ScriptUiLifecycle lifecycle = this.uiLifecycle;
+        Thread.ofVirtual().name("ui-release-" + getScriptName())
+                .start(() -> releaseUi(lifecycle, owner));
+    }
+
+    private static void releaseUi(ScriptUiLifecycle lifecycle, String owner) {
+        try {
+            lifecycle.released().accept(owner);
+        } catch (RuntimeException e) {
+            log.debug("Plugin UI release of {} failed: {}", owner, e.getMessage());
+        }
     }
 
     /** Keeps this script's classes loaded for as long as its thread runs. */
@@ -265,6 +307,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     public void run() {
         String name = getScriptName();
         MDC.put("script.name", name);
+        enterUiScope();
         boolean started = false;
         try {
             started = runOnStart(name);
@@ -276,6 +319,19 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             // Also after a failed onStart: awaitStop() waits on the latch this
             // releases. Mirrors ScriptRunner.run.
             cleanup(name, started);
+        }
+    }
+
+    /** Tags this thread for plugin-UI ownership and reopens the owner after an earlier run. */
+    private void enterUiScope() {
+        ManagementCallerTag tag = this.callerTag;
+        if (tag != null) {
+            tag.enter(uiOwner());
+        }
+        try {
+            uiLifecycle.opened().accept(uiOwner());
+        } catch (RuntimeException e) {
+            log.debug("Plugin UI open of {} failed: {}", uiOwner(), e.getMessage());
         }
     }
 
@@ -357,7 +413,12 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             if (started) {
                 runOnStop(name);
             }
+            releaseUi(uiLifecycle, uiOwner());
         } finally {
+            ManagementCallerTag tag = this.callerTag;
+            if (tag != null) {
+                tag.exit();
+            }
             MDC.clear();
             if (wasInterrupted) {
                 Thread.currentThread().interrupt();

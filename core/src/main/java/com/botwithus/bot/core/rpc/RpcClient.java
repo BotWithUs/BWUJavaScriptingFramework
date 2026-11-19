@@ -9,7 +9,9 @@ import org.slf4j.LoggerFactory;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
 import com.botwithus.bot.core.runtime.ConnectionContext;
@@ -78,6 +80,9 @@ public class RpcClient implements AutoCloseable {
 
     /** The pub/sub control call; {@code _debug.} is historical, it is the live one. */
     static final String SUBSCRIBE_METHOD = "_debug.subscribe";
+
+    /** Told after every {@link #reconnect}; see {@link #addConnectionResetListener}. */
+    private final List<Runnable> resetListeners = new CopyOnWriteArrayList<>();
 
     /** Handler per subscribed topic. Re-subscribed on every {@link #reconnect}. */
     private final Map<String, Consumer<Map<String, Object>>> topicHandlers = new ConcurrentHashMap<>();
@@ -213,8 +218,30 @@ public class RpcClient implements AutoCloseable {
         } finally {
             pipeLock.unlock();
         }
+        notifyConnectionReset();
         start();
         resubscribeAll();
+    }
+
+    /**
+     * Registers {@code listener} to run after every {@link #reconnect} has swapped
+     * the transport and before the reader restarts or any subscription is re-sent.
+     * The agent cleans up per pipe, so anything the old pipe made on the agent is
+     * gone by then; a listener forgets it. Runs on the reconnecting thread, so it
+     * must be quick and must not make RPC calls.
+     */
+    public void addConnectionResetListener(Runnable listener) {
+        resetListeners.add(Objects.requireNonNull(listener, "listener"));
+    }
+
+    private void notifyConnectionReset() {
+        for (Runnable listener : resetListeners) {
+            try {
+                listener.run();
+            } catch (RuntimeException e) {
+                log.warn("Connection-reset listener threw: {}", e.toString());
+            }
+        }
     }
 
     /**

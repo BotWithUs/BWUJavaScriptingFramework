@@ -81,7 +81,9 @@ import com.botwithus.bot.core.runtime.LoadReport;
 import com.botwithus.bot.core.runtime.LocalScriptLoader;
 import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptFolder;
+import com.botwithus.bot.core.runtime.ManagementCallerTag;
 import com.botwithus.bot.core.runtime.ScriptGate;
+import com.botwithus.bot.core.runtime.ScriptUiLifecycle;
 import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.sdn.StoreRestorer;
@@ -182,6 +184,12 @@ public class CliContext {
     private AutoStartManager autoStartManager;
     private ClientManager clientManager;
     private ManagementScriptRuntime managementRuntime;
+    /**
+     * Marks management-script threads for plugin-UI ownership. One for the process,
+     * because one management thread acts on every connection: the management runtime
+     * tags with it and every connection's {@code GameAPIImpl} reads it.
+     */
+    private final ManagementCallerTag managementCallerTag = new ManagementCallerTag();
     private NXTCache nxtCache;
     private boolean nxtCacheInitAttempted;
     private GamevalIndex gamevals;
@@ -562,6 +570,21 @@ public class CliContext {
         return conn != null && conn.isAlive() ? Optional.ofNullable(conn.getRuntime()) : Optional.empty();
     }
 
+    /** Runs {@code action} on every connection's {@code GameAPIImpl}; one that throws does not stop the rest. */
+    private void eachGameApi(Consumer<GameAPIImpl> action) {
+        for (Connection conn : connections.values()) {
+            GameAPIImpl api = conn.getGameAPI();
+            if (api == null) {
+                continue;
+            }
+            try {
+                action.accept(api);
+            } catch (RuntimeException e) {
+                log.debug("Plugin UI hook on {} failed: {}", conn.getName(), e.getMessage());
+            }
+        }
+    }
+
     public ManagementScriptRuntime getManagementRuntime() {
         return managementRuntime;
     }
@@ -582,6 +605,12 @@ public class CliContext {
         managementRuntime = new ManagementScriptRuntime(mgmtContext, runnerEvents, managementSettingsStore);
         managementRuntime.setStallThreshold(this::stallAfterMs);
         managementRuntime.setContextFactory(script -> scopedManagementContext(script, messageBus, sharedState));
+        managementRuntime.setCallerTag(managementCallerTag);
+        // A management script can draw on any connection, so its plugin UI is opened
+        // and released on all of them.
+        managementRuntime.setGameUiLifecycle(new ScriptUiLifecycle(
+                owner -> eachGameApi(api -> api.openGameUi(owner)),
+                owner -> eachGameApi(api -> api.releaseGameUi(owner))));
     }
 
     /**
@@ -884,6 +913,7 @@ public class CliContext {
         ScriptRuntime runtime = newRuntime(context, name, scriptCtxChannel, eventBus);
         runtime.setVoiceGate(voiceConsent);
         wireScriptGate(runtime, rpc, gameAPI);
+        gameAPI.setManagementCallerTag(managementCallerTag);
 
         Connection conn = new Connection(name, pipe, rpc, runtime, new ScriptManagerImpl(runtime), connectedAt);
         wireRunLogs(runtime, rpc, conn);
@@ -915,7 +945,7 @@ public class CliContext {
         runtime.setScriptGate(scriptGate);
         rpc.setScriptGate(scriptGate);
         gameAPI.setScriptGate(scriptGate);
-        runtime.setGameUiReleaser(gameAPI::releaseGameUi);
+        runtime.setGameUiLifecycle(gameAPI.gameUiLifecycle());
     }
 
     /**

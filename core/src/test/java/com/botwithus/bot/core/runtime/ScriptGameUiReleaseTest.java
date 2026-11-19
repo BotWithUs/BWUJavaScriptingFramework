@@ -51,6 +51,8 @@ class ScriptGameUiReleaseTest {
     private static final int LOOP_DELAY_MS = 10;
     private static final long AWAIT_SECONDS = 5L;
     private static final long VERIFY_MS = 5_000L;
+    /** Alpha's first run, Beta's run, and Alpha's second run. */
+    private static final int RUNS_THAT_CREATED = 3;
     /** How long to keep watching that the survivor's component is left alone. */
     private static final long QUIET_MS = 300L;
 
@@ -153,7 +155,7 @@ class ScriptGameUiReleaseTest {
         runtime = new ScriptRuntime(new ScriptContextImpl(gameAPI, new EventBusImpl(), new MessageBusImpl()));
         runtime.setScriptGate(gate);
         gameAPI.setScriptGate(gate);
-        runtime.setGameUiReleaser(gameAPI::releaseGameUi);
+        runtime.setGameUiLifecycle(gameAPI.gameUiLifecycle());
     }
 
     @AfterEach
@@ -201,6 +203,21 @@ class ScriptGameUiReleaseTest {
 
         assertTrue(runner.awaitStop(VERIFY_MS));
         assertOnlyAlphaDestroyed(handles);
+    }
+
+    @Test
+    @DisplayName("a script started again after a stop can create again; its new component is kept")
+    void restart_reopensTheOwner() throws Exception {
+        long[] handles = startBoth(Behaviour.IDLE);
+        ScriptRunner runner = runtime.findRunner("UI Alpha");
+        runner.stop();
+        assertTrue(runner.awaitStop(VERIFY_MS));
+        long restartedHandle = Math.max(handles[0], handles[1]) + 1;
+
+        runner.start();
+
+        verify(rpc, timeout(VERIFY_MS).times(RUNS_THAT_CREATED)).callSync(eq("ui.create"), anyMap());
+        verify(rpc, after(QUIET_MS).never()).callSync("ui.destroy", Map.of("handle", restartedHandle));
     }
 
     @Test

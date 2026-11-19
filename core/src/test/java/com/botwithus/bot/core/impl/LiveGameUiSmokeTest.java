@@ -223,7 +223,7 @@ class LiveGameUiSmokeTest {
                 new MessageBusImpl()), ConnectionContext::set, ConnectionContext::clear);
         runtime.setScriptGate(gate);
         gameAPI.setScriptGate(gate);
-        runtime.setGameUiReleaser(gameAPI::releaseGameUi);
+        runtime.setGameUiLifecycle(gameAPI.gameUiLifecycle());
         Drawer drawer = new Drawer(gameArea);
         Keeper keeper = new Keeper(gameArea);
         try {

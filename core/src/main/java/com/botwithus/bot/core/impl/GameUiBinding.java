@@ -12,87 +12,125 @@ import com.botwithus.bot.api.gameui.UiRefusedException;
 import com.botwithus.bot.api.gameui.UiSubscription;
 import com.botwithus.bot.api.gameui.UiType;
 import com.botwithus.bot.core.rpc.RpcClient;
-import com.botwithus.bot.core.rpc.RpcException;
 import com.botwithus.bot.core.rpc.RpcRemoteException;
+import com.botwithus.bot.core.runtime.ManagementCallerTag;
 import com.botwithus.bot.core.runtime.ScriptGate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
  * The {@code ui.*} verbs over one connection's {@link RpcClient}, with the
- * per-script ownership the agent cannot provide on a shared pipe.
+ * per-owner lifetime the agent cannot provide on a shared pipe.
  *
- * <p>The connection is shared by every script on the client, and the agent's
- * {@code ui.destroy_all} and {@code ui.list} act on the whole connection. So this
- * class never sends {@code ui.destroy_all}: a script's handles are destroyed one
- * {@code ui.destroy} at a time ({@link #destroyOwned()} for the script itself,
- * {@link #releaseOwner} when the runtime stops it). {@code ui.list} is narrowed to
- * the caller's handles, and a {@code ui.event} goes only to the script that owns
- * the handle.</p>
+ * <p><b>Owners.</b> Every script on a client shares one connection, and the
+ * agent's {@code ui.destroy_all} and {@code ui.list} act on the whole connection,
+ * so this class never sends {@code ui.destroy_all}. Each call is attributed to an
+ * owner: the {@link ScriptGate} tag of a script thread, else the
+ * {@link ManagementCallerTag} of a management-script thread, else
+ * {@code hostOwner}. An owner can act only on its own handles; the host can act on
+ * any. {@code ui.list} is narrowed to the caller, and a {@code ui.event} reaches
+ * only its owner, on that owner's own {@link UiEventDispatcher} lane.</p>
  *
- * <p>The caller is identified the way walks are: by the {@link ScriptGate} tag on
- * the calling thread. A thread with no tag (host code) is {@code hostOwner}; it may
- * act on any handle, and its own handles are left for the agent to destroy when
- * the connection closes.</p>
+ * <p><b>Release.</b> {@link #releaseOwner} closes the owner, then destroys its
+ * handles one {@code ui.destroy} at a time, newest first, <em>as the host</em>: a
+ * release can run on the stopping script's own thread or after it was revoked, and
+ * the gate would park and refuse each of its calls. A create whose reply arrives
+ * after the owner closed is destroyed at once (see {@link #create}).</p>
+ *
+ * <p><b>Reset.</b> When the RPC client swaps its pipe, the agent has destroyed
+ * everything the old pipe made. {@link #onConnectionReset} forgets it all, tells
+ * each owner's listeners with reason {@link UiEvent#REASON_CONNECTION_RESET}, and
+ * moves to a new handle epoch so old handle objects can never act on a component
+ * made afterwards (see {@link UiHandleSpace}).</p>
  */
 final class GameUiBinding {
 
     private static final Logger log = LoggerFactory.getLogger(GameUiBinding.class);
 
-    /** What the host says when a script reaches for another script's handle. */
+    /** What the host says when an owner reaches for another owner's handle. */
     static final String NOT_YOURS = "ui: handle belongs to another script on this connection";
+    /** What the host says about a handle from before a connection reset. */
+    static final String STALE = "ui: handle is from before the connection was reset; look the component up "
+            + "or create it again";
+    /** What a create says when its owner was released while the call was in flight. */
+    static final String RELEASED = "ui: the script was stopped while this component was being created; "
+            + "it has been destroyed";
+    private static final String SUBSCRIBE = "_debug.subscribe";
 
     private final RpcClient rpc;
-    private final Supplier<String> callerOwner;
     private final Supplier<ScriptGate> gate;
+    private final Supplier<ManagementCallerTag> managementTag;
     private final String hostOwner;
     private final UiOwnership ownership = new UiOwnership();
+    private final UiHandleSpace handles = new UiHandleSpace();
+    private final UiEventDispatcher dispatcher;
     private final Object subscribeLock = new Object();
     private volatile boolean isSubscribed;
+    private final AtomicBoolean isResetHooked = new AtomicBoolean();
 
-    GameUiBinding(RpcClient rpc, Supplier<String> callerOwner, Supplier<ScriptGate> gate,
-                  String hostOwner) {
+    GameUiBinding(RpcClient rpc, Supplier<ScriptGate> gate, Supplier<ManagementCallerTag> managementTag,
+                  String hostOwner, int eventCapacity) {
         this.rpc = rpc;
-        this.callerOwner = callerOwner;
         this.gate = gate;
+        this.managementTag = managementTag;
         this.hostOwner = hostOwner;
+        this.dispatcher = new UiEventDispatcher(eventCapacity);
     }
+
+    // ------------------------------------------------------------------ verbs
 
     UiHandleInfo getComponent(int iface, int comp, int key) {
-        ensureSubscribed();
+        hookConnectionReset();
+        String owner = owner();
+        ensureSubscribed(false);
         UiHandleInfo info = UiCodec.decodeHandle(
                 call(UiCodec.GET_COMPONENT, UiCodec.getComponentParams(iface, comp, key)));
-        ownership.recordLookup(callerOwner.get(), info.handle());
-        return info;
+        ownership.recordLookup(owner, info.handle());
+        return toHost(info);
     }
 
+    /**
+     * Creates a component. If the owner was released (stopped, crashed, revoked)
+     * while the call was in flight, the new component is destroyed at once, as the
+     * host, and the call fails: otherwise it would outlive its script, untracked.
+     */
     UiHandleInfo create(long parent, UiType type, UiPlacement placement, UiProps<?> props) {
         if (type == null || !type.isCreatable()) {
             throw new IllegalArgumentException("not a creatable type: " + type);
         }
-        String owner = callerOwner.get();
-        requireUsable(UiCodec.CREATE, owner, parent);
-        ensureSubscribed();
+        hookConnectionReset();
+        String owner = owner();
+        long agentParent = usableHandle(UiCodec.CREATE, owner, parent);
+        ensureSubscribed(false);
         UiPlacement where = placement != null ? placement : UiPlacement.auto();
         UiHandleInfo info = UiCodec.decodeHandle(
-                call(UiCodec.CREATE, UiCodec.createParams(parent, type, where, props)));
-        ownership.recordCreated(owner, info.handle());
-        return info;
+                call(UiCodec.CREATE, UiCodec.createParams(agentParent, type, where, props)));
+        if (isRevoked(owner) || !ownership.recordCreated(owner, info.handle())) {
+            asHost(() -> destroyAttempt(owner, info.handle()));
+            throw new UiRefusedException(UiCodec.CREATE, RELEASED);
+        }
+        return toHost(info);
     }
 
     void set(long handle, UiProps<?> props) {
-        requireUsable(UiCodec.SET, callerOwner.get(), handle);
-        call(UiCodec.SET, UiCodec.setParams(handle, props));
+        long agent = usableHandle(UiCodec.SET, owner(), handle);
+        call(UiCodec.SET, UiCodec.setParams(agent, props));
     }
 
     UiReadback get(long handle, boolean isContentRequested) {
-        requireUsable(UiCodec.GET, callerOwner.get(), handle);
-        return UiCodec.decodeReadback(call(UiCodec.GET, UiCodec.getParams(handle, isContentRequested)));
+        long agent = usableHandle(UiCodec.GET, owner(), handle);
+        UiReadback r = UiCodec.decodeReadback(call(UiCodec.GET, UiCodec.getParams(agent, isContentRequested)));
+        return new UiReadback(toHost(r.info()), r.x(), r.y(), r.width(), r.height(), r.rgba(), r.isVisible(),
+                r.isRestricted(), r.isClickthrough(), r.numElements(), r.lineWidth(), r.lineInvert(),
+                r.fill(), r.outlineThickness(), r.useCount(), r.isOpFlagsRead(), r.opMask(), r.opTarget(),
+                r.content());
     }
 
     int canvas(long handle, List<CanvasOp> ops) {
@@ -100,143 +138,278 @@ final class GameUiBinding {
             throw new IllegalArgumentException("ui.canvas takes 1.." + UiLimits.MAX_CANVAS_OPS
                     + " ops per call, got " + (ops == null ? 0 : ops.size()));
         }
-        requireUsable(UiCodec.CANVAS, callerOwner.get(), handle);
-        Map<String, Object> reply = call(UiCodec.CANVAS, UiCodec.canvasParams(handle, ops));
+        long agent = usableHandle(UiCodec.CANVAS, owner(), handle);
+        Map<String, Object> reply = call(UiCodec.CANVAS, UiCodec.canvasParams(agent, ops));
         return MapHelper.getIntOr(reply, "num_elements", UiReadback.NOT_APPLICABLE);
     }
 
     void order(long handle, UiOrder to) {
-        requireUsable(UiCodec.ORDER, callerOwner.get(), handle);
-        call(UiCodec.ORDER, UiCodec.orderParams(handle, to));
+        long agent = usableHandle(UiCodec.ORDER, owner(), handle);
+        call(UiCodec.ORDER, UiCodec.orderParams(agent, to));
     }
 
     /**
      * Destroys one handle. Whatever the agent answers, the handle is no longer
-     * tracked: success removed it, {@code unknown handle} means it was gone, and a
-     * quarantined removal is the agent's to retry.
+     * tracked afterwards: success removed it, {@code unknown handle} means it was
+     * gone, and a quarantined removal is the agent's to retry.
      */
     boolean destroy(long handle) {
-        requireUsable(UiCodec.DESTROY, callerOwner.get(), handle);
+        long agent = usableHandle(UiCodec.DESTROY, owner(), handle);
         try {
-            return MapHelper.getBool(call(UiCodec.DESTROY, UiCodec.handleParams(handle)), "freed");
+            return MapHelper.getBool(call(UiCodec.DESTROY, UiCodec.handleParams(agent)), "freed");
         } finally {
-            ownership.forget(handle);
+            ownership.forget(agent);
         }
     }
 
-    /** Destroys the caller's own agent handles, newest first; returns how many the agent removed. */
+    /** Destroys the caller's own handles, newest first; returns how many the agent removed. */
     int destroyOwned() {
-        String owner = callerOwner.get();
-        int removed = 0;
-        for (long handle : ownership.agentHandlesOf(owner)) {
-            removed += destroyTracked(owner, handle) ? 1 : 0;
-        }
-        return removed;
-    }
-
-    /**
-     * Releases everything {@code owner} holds: drops its listeners and destroys its
-     * agent handles one by one. Called by the runtime when the script stops,
-     * crashes, is unloaded or is revoked. Never sends {@code ui.destroy_all}.
-     *
-     * @return how many handles the agent removed
-     */
-    int releaseOwner(String owner) {
-        List<Long> handles = ownership.release(owner);
-        int removed = 0;
-        for (long handle : handles) {
-            removed += destroyTracked(owner, handle) ? 1 : 0;
-        }
-        if (!handles.isEmpty()) {
-            log.debug("Released {} of {} plugin-UI handle(s) for {}", removed, handles.size(), owner);
-        }
-        return removed;
+        String owner = owner();
+        return destroyEach(owner, ownership.agentHandlesOf(owner));
     }
 
     /** {@code ui.list}, narrowed to the caller's own handles; the host sees all of them. */
     List<UiHandleInfo> list() {
-        String owner = callerOwner.get();
+        String owner = owner();
         List<UiHandleInfo> all = UiCodec.decodeList(call(UiCodec.LIST, Map.of()));
-        if (hostOwner.equals(owner)) {
-            return all;
-        }
-        return all.stream().filter(info -> ownership.isOwnedBy(owner, info)).toList();
+        return all.stream()
+                .filter(info -> hostOwner.equals(owner) || ownership.isOwnedBy(owner, info.handle(), info.isJagex()))
+                .map(this::toHost)
+                .toList();
     }
 
+    /** Registers a listener; the subscription it needs is required here, so a refusal is raised. */
     UiSubscription onEvent(Consumer<UiEvent> listener) {
         if (listener == null) {
             throw new IllegalArgumentException("listener");
         }
-        ensureSubscribed();
-        return ownership.addListener(callerOwner.get(), listener);
+        hookConnectionReset();
+        String owner = owner();
+        ensureSubscribed(true);
+        return ownership.addListener(owner, listener);
     }
 
-    /** The {@code ui.event} handler; runs on the RPC client's push thread. */
+    // ------------------------------------------------------------------ lifetime
+
+    /** Lets {@code owner} create again: called at the start of each of its runs. */
+    void openOwner(String owner) {
+        ownership.reopen(owner);
+    }
+
+    /**
+     * Releases everything {@code owner} holds: closes it, drops its listeners and its
+     * event lane, and destroys its handles one by one, as the host. Each handle is
+     * untracked only after its own destroy was attempted, and one failure does not
+     * stop the rest. Never sends {@code ui.destroy_all}.
+     *
+     * @return how many handles the agent removed
+     */
+    int releaseOwner(String owner) {
+        List<Long> owned = ownership.close(owner);
+        dispatcher.close(owner);
+        int removed = asHost(() -> destroyEach(owner, owned));
+        if (!owned.isEmpty()) {
+            log.debug("Released {} of {} plugin-UI handle(s) for {}", removed, owned.size(), owner);
+        }
+        return removed;
+    }
+
+    /** The pipe was replaced: everything the old one made is gone, and every old handle is now stale. */
+    void onConnectionReset() {
+        long ended = handles.advance();
+        Map<String, List<Long>> lost = ownership.reset();
+        lost.forEach((owner, agentHandles) -> agentHandles.forEach(h -> dispatch(owner,
+                new UiEvent(UiHandleSpace.compose(ended, h), UiEvent.HOOK_DESTROYED,
+                        Optional.of(UiEvent.REASON_CONNECTION_RESET)))));
+        if (!lost.isEmpty()) {
+            log.info("Connection reset: forgot the plugin-UI handles of {} owner(s)", lost.size());
+        }
+    }
+
+    // ------------------------------------------------------------------ events
+
+    /** The {@code ui.event} handler; runs on the RPC client's push thread and only routes. */
     void onPush(Map<String, Object> data) {
         UiCodec.decodeEvent(data).ifPresent(event -> {
-            for (UiOwnership.Delivery delivery : ownership.route(event)) {
-                deliver(delivery, event);
+            UiEvent hostEvent = new UiEvent(handles.toHost(event.handle()), event.hook(), event.reason());
+            for (String owner : ownership.route(event.handle(), event.isDestroyed())) {
+                dispatch(owner, hostEvent);
             }
         });
     }
 
-    private void deliver(UiOwnership.Delivery delivery, UiEvent event) {
-        ScriptGate scriptGate = gate.get();
-        String owner = delivery.owner();
-        boolean isScript = scriptGate != null && !hostOwner.equals(owner);
-        if (isScript && scriptGate.isRevoked(owner)) {
+    private void dispatch(String owner, UiEvent event) {
+        dispatcher.submit(owner, () -> deliver(owner, event));
+    }
+
+    private void deliver(String owner, UiEvent event) {
+        if (isRevoked(owner)) {
             return;
         }
-        if (isScript) {
-            // Calls the listener makes are the script's, not the host's.
-            scriptGate.enter(owner);
+        for (Consumer<UiEvent> listener : ownership.listenersOf(owner)) {
+            runAs(owner, () -> {
+                try {
+                    listener.accept(event);
+                } catch (RuntimeException e) {
+                    log.warn("ui.event listener of {} threw: {}", owner, e.toString());
+                }
+            });
         }
+    }
+
+    // ------------------------------------------------------------------ internals
+
+    /**
+     * Registers for connection resets the first time this connection's plugin UI is
+     * used. Lazy on purpose: until a handle or a listener exists there is nothing to
+     * forget, and a connection that never uses plugin UI makes no extra call on its
+     * RPC client.
+     */
+    private void hookConnectionReset() {
+        if (isResetHooked.compareAndSet(false, true)) {
+            rpc.addConnectionResetListener(this::onConnectionReset);
+        }
+    }
+
+    /** The caller: a script, else a management script, else the host. */
+    private String owner() {
+        ScriptGate scriptGate = gate.get();
+        String script = scriptGate != null ? scriptGate.current() : null;
+        if (script != null) {
+            return script;
+        }
+        ManagementCallerTag tag = managementTag.get();
+        String management = tag != null ? tag.current() : null;
+        return management != null ? management : hostOwner;
+    }
+
+    private boolean isRevoked(String owner) {
+        ScriptGate scriptGate = gate.get();
+        return scriptGate != null && scriptGate.isRevoked(owner);
+    }
+
+    /**
+     * The agent's number for a script-visible handle, refusing one from an earlier
+     * connection and one another owner made. The host may use any current handle.
+     */
+    private long usableHandle(String method, String owner, long hostHandle) {
+        if (!handles.isCurrent(hostHandle)) {
+            throw new UiRefusedException(method, STALE);
+        }
+        long agent = UiHandleSpace.agentOf(hostHandle);
+        String madeBy = ownership.agentOwnerOf(agent);
+        if (madeBy != null && !madeBy.equals(owner) && !hostOwner.equals(owner)) {
+            throw new UiRefusedException(method, NOT_YOURS);
+        }
+        return agent;
+    }
+
+    private UiHandleInfo toHost(UiHandleInfo agent) {
+        return new UiHandleInfo(handles.toHost(agent.handle()), agent.type(), agent.iface(), agent.comp(),
+                agent.key(), handles.toHost(agent.parent()), agent.isJagex(), agent.isQuarantined());
+    }
+
+    private int destroyEach(String owner, List<Long> agentHandles) {
+        int removed = 0;
+        for (long handle : agentHandles) {
+            removed += destroyAttempt(owner, handle) ? 1 : 0;
+        }
+        return removed;
+    }
+
+    /** One destroy, never throwing; the handle is untracked after the attempt, whatever it did. */
+    private boolean destroyAttempt(String owner, long agentHandle) {
         try {
-            delivery.listener().accept(event);
+            call(UiCodec.DESTROY, UiCodec.handleParams(agentHandle));
+            return true;
         } catch (RuntimeException e) {
-            log.warn("ui.event listener of {} threw: {}", owner, e.toString());
+            log.debug("ui.destroy of {}'s handle {} failed: {}", owner, agentHandle, e.getMessage());
+            return false;
         } finally {
-            if (isScript) {
-                scriptGate.exit();
+            ownership.forget(agentHandle);
+        }
+    }
+
+    /**
+     * Runs {@code action} with the calling thread untagged, so the gate treats its
+     * calls as the host's: never parked, never refused for a revoked script.
+     */
+    private <T> T asHost(Supplier<T> action) {
+        ScriptGate scriptGate = gate.get();
+        ManagementCallerTag tag = managementTag.get();
+        String script = scriptGate != null ? scriptGate.current() : null;
+        String management = tag != null ? tag.current() : null;
+        clearTags(scriptGate, tag);
+        try {
+            return action.get();
+        } finally {
+            if (script != null) {
+                scriptGate.enter(script);
+            }
+            if (management != null) {
+                tag.enter(management);
             }
         }
     }
 
-    private boolean destroyTracked(String owner, long handle) {
+    private static void clearTags(ScriptGate scriptGate, ManagementCallerTag tag) {
+        if (scriptGate != null) {
+            scriptGate.exit();
+        }
+        if (tag != null) {
+            tag.exit();
+        }
+    }
+
+    /** Runs a listener tagged as its owner, so the calls it makes are that owner's. */
+    private void runAs(String owner, Runnable action) {
+        ScriptGate scriptGate = gate.get();
+        ManagementCallerTag tag = managementTag.get();
+        boolean isManagement = ManagementCallerTag.isOwnerName(owner);
+        boolean isScript = !isManagement && !hostOwner.equals(owner) && scriptGate != null;
+        if (isScript) {
+            scriptGate.enter(owner);
+        } else if (isManagement && tag != null) {
+            tag.enter(owner);
+        }
         try {
-            call(UiCodec.DESTROY, UiCodec.handleParams(handle));
-            return true;
-        } catch (UiRefusedException e) {
-            log.debug("ui.destroy of {}'s handle {} refused: {}", owner, handle, e.getMessage());
-            return false;
-        } catch (RpcException e) {
-            // A dead pipe: the agent destroys the connection's components when it
-            // sees the close, so nothing is leaked by stopping here.
-            log.warn("ui.destroy of {}'s handle {} failed: {}", owner, handle, e.getMessage());
-            return false;
+            action.run();
         } finally {
-            ownership.forget(handle);
+            clearTags(isScript ? scriptGate : null, isManagement ? tag : null);
         }
     }
 
-    /** Refuses a handle that another script on this connection made; the host may use any. */
-    private void requireUsable(String method, String owner, long handle) {
-        String madeBy = ownership.agentOwnerOf(handle);
-        if (madeBy != null && !madeBy.equals(owner) && !hostOwner.equals(owner)) {
-            throw new UiRefusedException(method, NOT_YOURS);
-        }
-    }
-
-    private void ensureSubscribed() {
+    /**
+     * Subscribes to {@code ui.event} once. A refusal is raised as
+     * {@link UiRefusedException} when {@code isRequired} (a listener is being
+     * added); otherwise it is logged and retried on the next call, so a create does
+     * not fail for want of events.
+     */
+    private void ensureSubscribed(boolean isRequired) {
         if (isSubscribed) {
             return;
         }
         synchronized (subscribeLock) {
-            if (!isSubscribed) {
+            if (isSubscribed) {
+                return;
+            }
+            try {
                 rpc.subscribeTopic(UiCodec.EVENT_TOPIC, this::onPush);
                 isSubscribed = true;
+            } catch (RpcRemoteException e) {
+                subscribeFailed(new UiRefusedException(SUBSCRIBE, e.producerMessage(), e), isRequired);
+            } catch (RuntimeException e) {
+                subscribeFailed(e, isRequired);
             }
         }
+    }
+
+    private static void subscribeFailed(RuntimeException failure, boolean isRequired) {
+        if (isRequired) {
+            throw failure;
+        }
+        log.warn("Subscribing to {} failed; retrying on the next call: {}",
+                UiCodec.EVENT_TOPIC, failure.getMessage());
     }
 
     private Map<String, Object> call(String method, Map<String, Object> params) {

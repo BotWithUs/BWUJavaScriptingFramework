@@ -1,7 +1,7 @@
 package com.botwithus.bot.api.gameui;
 
 /** Something a new component can be created under: a Jagex component or one of the script's own. */
-public sealed interface UiParent permits JagexComponent, UiComponent {
+public interface UiParent {
 
     /** The agent's handle. */
     long handle();

@@ -25,10 +25,13 @@ import java.util.Objects;
  * <p>A builder is mutable and not thread-safe. It is read when it is passed to a
  * call, so reusing one afterwards does not change a component already made.</p>
  *
+ * <p>Not sealed: a later agent adds component types, and each brings a props class
+ * here. The constructor is package-private, so this package's classes are the only
+ * subclasses there will be; scripts cannot add one.</p>
+ *
  * @param <P> the concrete builder, so chained calls keep their type
  */
-public abstract sealed class UiProps<P extends UiProps<P>>
-        permits CanvasProps, LayerProps, LineProps, RectangleProps, TextProps {
+public abstract class UiProps<P extends UiProps<P>> {
 
     private final Map<String, Object> values = new LinkedHashMap<>();
 

@@ -90,10 +90,11 @@ public class ScriptRuntime {
      */
     private volatile VoiceGate voiceGate = VoiceConsent.refusingAll();
     /**
-     * Destroys a script's plugin-UI components by script name. The connection's
-     * {@code GameAPIImpl.releaseGameUi}; a no-op until the host installs it.
+     * Opens and releases a script's plugin UI by script name: the connection's
+     * {@code GameAPIImpl.openGameUi} / {@code releaseGameUi}. A no-op until the host
+     * installs it.
      */
-    private volatile Consumer<String> gameUiReleaser = name -> { };
+    private volatile ScriptUiLifecycle gameUiLifecycle = ScriptUiLifecycle.NONE;
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
@@ -180,15 +181,16 @@ public class ScriptRuntime {
     }
 
     /**
-     * Installs what destroys a script's plugin-UI components, by script name, when
-     * it stops, crashes, is unloaded or is revoked: the connection's
-     * {@code GameAPIImpl::releaseGameUi}. Every script on a connection shares one
-     * agent pipe, and the agent only cleans up per pipe, so without this a stopped
-     * script's components would stay on screen until the whole connection closed.
-     * Read when a runner releases, so it covers runners registered before it was set.
+     * Installs what opens a script's plugin UI at the start of each run and destroys
+     * its components when it stops, crashes, is unloaded or is revoked: the
+     * connection's {@code GameAPIImpl::openGameUi} / {@code ::releaseGameUi}. Every
+     * script on a connection shares one agent pipe, and the agent only cleans up per
+     * pipe, so without this a stopped script's components would stay on screen until
+     * the whole connection closed. Read when a runner calls it, so it covers runners
+     * registered before it was set.
      */
-    public void setGameUiReleaser(Consumer<String> releaser) {
-        this.gameUiReleaser = Objects.requireNonNull(releaser, "releaser");
+    public void setGameUiLifecycle(ScriptUiLifecycle lifecycle) {
+        this.gameUiLifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
     }
 
     /**
@@ -367,8 +369,9 @@ public class ScriptRuntime {
             if (scoped.voice() != null) {
                 runner.setVoiceReleaser(scoped.voice()::closeAll);
             }
-            String scriptName = runner.getScriptName();
-            runner.setUiReleaser(() -> gameUiReleaser.accept(scriptName));
+            runner.setUiLifecycle(new ScriptUiLifecycle(
+                    owner -> gameUiLifecycle.opened().accept(owner),
+                    owner -> gameUiLifecycle.released().accept(owner)));
             runner.setWatchdogArmer(this::ensureWatchdog);
             if (connectionName != null) {
                 runner.setConnectionName(connectionName);

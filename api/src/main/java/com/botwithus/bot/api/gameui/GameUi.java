@@ -110,7 +110,21 @@ public final class GameUi {
         return api.uiDestroyOwned();
     }
 
-    /** Listens for {@code ui.event} pushes about the calling script's handles. */
+    /**
+     * Listens for {@code ui.event} pushes about the calling script's handles, and for
+     * the host's own {@link UiEvent#REASON_CONNECTION_RESET}.
+     *
+     * <p><b>Threading.</b> The listener runs on a host thread dedicated to the calling
+     * script ({@code ui-event-<script>}), never on the script's own thread, so it runs
+     * <b>concurrently with {@code onLoop}</b>: guard any state the two share. The
+     * script's events arrive one at a time, in order. Calls the listener makes are
+     * attributed to the script, as if made from {@code onLoop}. Other scripts' events
+     * run on their own threads, so a slow listener delays only its own script; past
+     * 256 queued events, more are dropped with a WARN in the log. The listener is
+     * removed when the subscription is closed or the script stops.</p>
+     *
+     * @throws UiRefusedException when the agent refuses the {@code ui.event} subscription
+     */
     public UiSubscription onEvent(Consumer<UiEvent> listener) {
         return api.uiOnEvent(listener);
     }

@@ -89,7 +89,9 @@ import com.botwithus.bot.core.cache.VarpCacheInfo;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.rpc.RpcRemoteException;
+import com.botwithus.bot.core.runtime.ManagementCallerTag;
 import com.botwithus.bot.core.runtime.ScriptGate;
+import com.botwithus.bot.core.runtime.ScriptUiLifecycle;
 import com.botwithus.bot.core.shm.ActionRefusalFeed;
 import com.botwithus.bot.core.worldwalker.DisabledMoves;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
@@ -287,6 +289,23 @@ public class GameAPIImpl implements GameAPI {
 
     private volatile ScriptGate scriptGate;
 
+    /**
+     * The process-wide tag of management-script threads, read for plugin-UI
+     * ownership only; see {@link #setManagementCallerTag}.
+     */
+    private volatile ManagementCallerTag managementCallerTag;
+
+    /**
+     * Installs the process-wide tag management scripts mark their threads with, so
+     * the plugin-UI components a management script makes on this connection are
+     * its own rather than the host's: released when it stops, and out of reach of
+     * every other script. Walks and revocation do not read it. Unset (tests, a host
+     * without management scripts), every untagged caller is the host.
+     */
+    public void setManagementCallerTag(ManagementCallerTag managementCallerTag) {
+        this.managementCallerTag = managementCallerTag;
+    }
+
     /** Whether walks draw their route; see {@link #setDrawWalkerPath(boolean)}. */
     private volatile boolean isDrawingWalkerPath;
 
@@ -402,7 +421,8 @@ public class GameAPIImpl implements GameAPI {
         this.stubGuard = stubGuard;
         this.eventPublisher = eventPublisher;
         this.gamevals = gamevals;
-        this.gameUiBinding = new GameUiBinding(rpc, this::callerOwner, () -> scriptGate, HOST_OWNER);
+        this.gameUiBinding = new GameUiBinding(rpc, () -> scriptGate, () -> managementCallerTag, HOST_OWNER,
+                UiEventDispatcher.DEFAULT_CAPACITY);
         this.gameUiFacade = new GameUi(this, gamevals);
     }
 
@@ -2177,5 +2197,18 @@ public class GameAPIImpl implements GameAPI {
      */
     public int releaseGameUi(String scriptName) {
         return gameUiBinding.releaseOwner(scriptName);
+    }
+
+    /**
+     * Lets {@code owner} create plugin-UI components again after an earlier run was
+     * released. Called at the start of every run, before any script code.
+     */
+    public void openGameUi(String owner) {
+        gameUiBinding.openOwner(owner);
+    }
+
+    /** This connection's {@link #openGameUi} / {@link #releaseGameUi}, for a script runtime. */
+    public ScriptUiLifecycle gameUiLifecycle() {
+        return new ScriptUiLifecycle(this::openGameUi, this::releaseGameUi);
     }
 }

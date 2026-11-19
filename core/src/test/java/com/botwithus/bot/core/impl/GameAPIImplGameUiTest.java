@@ -23,16 +23,22 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
-import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -319,15 +325,28 @@ class GameAPIImplGameUiTest {
     @DisplayName("events")
     class Events {
 
-        private final List<String> heard = new ArrayList<>();
+        /** How long a negative check waits for a delivery that must not come. */
+        private static final long QUIET_MS = 300L;
+        private static final long AWAIT_SECONDS = 5L;
+
+        private final BlockingQueue<String> heard = new LinkedBlockingQueue<>();
 
         private void listenAs(String script) {
-            as(script, () -> ui.onEvent(e -> heard.add(script + ":" + e.handle() + ":" + gate.current())));
+            as(script, () -> ui.onEvent(e -> heard.add(script + ":" + e.handle() + ":" + gate.current()
+                    + ":" + e.reason().orElse(""))));
+        }
+
+        private String next() throws InterruptedException {
+            return heard.poll(AWAIT_SECONDS, TimeUnit.SECONDS);
+        }
+
+        private void assertNothingMore() throws InterruptedException {
+            assertNull(heard.poll(QUIET_MS, TimeUnit.MILLISECONDS), "nothing else may be delivered");
         }
 
         @Test
-        @DisplayName("an event reaches only the owning script, on a thread tagged as that script")
-        void event_routedToOwnerOnly() {
+        @DisplayName("an event reaches only the owning script, on its own thread, tagged as that script")
+        void event_routedToOwnerOnly() throws InterruptedException {
             Canvas alpha = canvasOf(ALPHA);
             Canvas beta = canvasOf(BETA);
             listenAs(ALPHA);
@@ -335,10 +354,33 @@ class GameAPIImplGameUiTest {
             Consumer<Map<String, Object>> push = capturedPushHandler();
 
             push.accept(Map.of("handle", alpha.handle(), "hook", "destroyed", "reason", "parent_gone"));
+            assertEquals(ALPHA + ":" + alpha.handle() + ":" + ALPHA + ":parent_gone", next());
             push.accept(Map.of("handle", beta.handle(), "hook", "destroyed", "reason", "server_events"));
+            assertEquals(BETA + ":" + beta.handle() + ":" + BETA + ":server_events", next());
+            assertNothingMore();
+        }
 
-            assertEquals(List.of(ALPHA + ":" + alpha.handle() + ":" + ALPHA,
-                    BETA + ":" + beta.handle() + ":" + BETA), heard);
+        @Test
+        @DisplayName("a slow listener in one script does not hold up another script's events")
+        void slowListener_delaysOnlyItsOwnScript() throws InterruptedException {
+            Canvas alpha = canvasOf(ALPHA);
+            Canvas beta = canvasOf(BETA);
+            CountDownLatch alphaBlocked = new CountDownLatch(1);
+            CountDownLatch releaseAlpha = new CountDownLatch(1);
+            as(ALPHA, () -> ui.onEvent(e -> {
+                alphaBlocked.countDown();
+                awaitQuietly(releaseAlpha);
+            }));
+            listenAs(BETA);
+            Consumer<Map<String, Object>> push = capturedPushHandler();
+
+            push.accept(Map.of("handle", alpha.handle(), "hook", "destroyed"));
+            assertTrue(alphaBlocked.await(AWAIT_SECONDS, TimeUnit.SECONDS), "Alpha's listener never ran");
+            push.accept(Map.of("handle", beta.handle(), "hook", "destroyed"));
+
+            assertEquals(BETA + ":" + beta.handle() + ":" + BETA + ":", next(),
+                    "Beta's event must arrive while Alpha's listener is still blocked");
+            releaseAlpha.countDown();
         }
 
         @Test
@@ -355,7 +397,7 @@ class GameAPIImplGameUiTest {
 
         @Test
         @DisplayName("a shared Jagex handle's event reaches every script that looked it up")
-        void jagexEvent_reachesEveryLookup() {
+        void jagexEvent_reachesEveryLookup() throws InterruptedException {
             canvasOf(ALPHA);
             canvasOf(BETA);
             listenAs(ALPHA);
@@ -363,12 +405,16 @@ class GameAPIImplGameUiTest {
 
             capturedPushHandler().accept(Map.of("handle", JAGEX_HANDLE, "hook", "destroyed", "reason", "removed"));
 
-            assertEquals(2, heard.size());
+            Set<String> owners = new HashSet<>();
+            owners.add(String.valueOf(next()).split(":")[0]);
+            owners.add(String.valueOf(next()).split(":")[0]);
+            assertEquals(Set.of(ALPHA, BETA), owners, "both lookups hear it");
+            assertNothingMore();
         }
 
         @Test
         @DisplayName("a released or revoked script hears nothing more")
-        void releasedOrRevoked_hearsNothing() {
+        void releasedOrRevoked_hearsNothing() throws InterruptedException {
             Canvas alpha = canvasOf(ALPHA);
             Canvas beta = canvasOf(BETA);
             listenAs(ALPHA);
@@ -380,19 +426,27 @@ class GameAPIImplGameUiTest {
             push.accept(Map.of("handle", alpha.handle(), "hook", "destroyed"));
             push.accept(Map.of("handle", beta.handle(), "hook", "destroyed"));
 
-            assertEquals(List.of(), heard);
+            assertNothingMore();
         }
 
         @Test
         @DisplayName("closing a subscription stops delivery")
-        void closedSubscription_stopsDelivery() {
+        void closedSubscription_stopsDelivery() throws InterruptedException {
             Canvas alpha = canvasOf(ALPHA);
             var subscription = as(ALPHA, () -> ui.onEvent(e -> heard.add("x")));
             subscription.close();
 
             capturedPushHandler().accept(Map.of("handle", alpha.handle(), "hook", "destroyed"));
 
-            assertEquals(List.of(), heard);
+            assertNothingMore();
+        }
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

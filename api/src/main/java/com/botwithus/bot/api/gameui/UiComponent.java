@@ -7,8 +7,13 @@ package com.botwithus.bot.api.gameui;
  * <p>Every call is one round-trip. Once the component is gone (destroyed, or
  * announced {@link UiEvent#HOOK_DESTROYED}) every call fails with the agent's
  * {@code unknown handle} refusal.</p>
+ *
+ * <p>Not sealed: the agent will learn more types (buttons, input fields, sliders and
+ * so on), and each arrives as a new implementation. Do not switch exhaustively over
+ * component types. Only this package's classes are handed to scripts; an
+ * implementation a script writes itself is just a handle number and gains nothing.</p>
  */
-public sealed interface UiComponent extends UiParent permits Canvas, Layer, Line, Rectangle, Text {
+public interface UiComponent extends UiParent {
 
     /** Moves the component in front of its siblings. */
     void toFront();

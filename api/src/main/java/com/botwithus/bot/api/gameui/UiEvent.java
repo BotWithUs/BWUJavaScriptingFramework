@@ -36,6 +36,21 @@ public record UiEvent(long handle, String hook, Optional<String> reason) {
     /** The op-flag check could not be read, and the guard failed closed. */
     public static final String REASON_INTERFACE_UNREADABLE = "interface_unreadable";
 
+    /**
+     * Sent by the <b>host</b>, not the agent: the host's connection to the agent was
+     * replaced (the agent restarted, or the pipe broke and was reopened). The agent
+     * destroys everything a connection made when it closes, so every handle the
+     * script held is gone. Each is announced once with this reason, Jagex handles
+     * included.
+     *
+     * <p>After a reset every component object the script kept ({@code Canvas},
+     * {@code Layer}, {@code JagexComponent} and the rest) is dead for good: each call
+     * on it is refused with a {@link UiRefusedException}, even if a component made
+     * later happens to get the same number from a restarted agent. Look Jagex
+     * components up again and create the script's own again.</p>
+     */
+    public static final String REASON_CONNECTION_RESET = "connection_reset";
+
     public UiEvent {
         if (hook == null) {
             throw new IllegalArgumentException("hook");

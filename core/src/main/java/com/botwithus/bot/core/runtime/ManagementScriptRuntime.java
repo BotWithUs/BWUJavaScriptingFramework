@@ -48,6 +48,8 @@ public class ManagementScriptRuntime {
     private Runnable onStateChange;
     /** Builds each registered runner's context; {@code null} hands every runner {@link #context}. */
     private volatile ContextFactory contextFactory;
+    private volatile ManagementCallerTag callerTag;
+    private volatile ScriptUiLifecycle gameUiLifecycle = ScriptUiLifecycle.NONE;
 
     public ManagementScriptRuntime(ManagementContext context) {
         this(context, RunnerListener.NONE);
@@ -108,11 +110,33 @@ public class ManagementScriptRuntime {
         this.contextFactory = Objects.requireNonNull(factory, "factory");
     }
 
+    /**
+     * Installs the process-wide tag management threads are marked with for plugin-UI
+     * ownership. Must be the instance every connection's {@code GameAPIImpl} reads.
+     * Applies to runners registered from now on.
+     */
+    public void setCallerTag(ManagementCallerTag callerTag) {
+        this.callerTag = callerTag;
+    }
+
+    /**
+     * Installs what opens and releases a management script's plugin UI, by owner
+     * name ({@link ManagementCallerTag#ownerOf}). The host fans each call out over
+     * every connection, since a management script can draw on any of them.
+     */
+    public void setGameUiLifecycle(ScriptUiLifecycle lifecycle) {
+        this.gameUiLifecycle = Objects.requireNonNull(lifecycle, "lifecycle");
+    }
+
     /** Registers a management script without starting it. */
     public ManagementScriptRunner registerScript(ManagementScript script) {
         ManagementScriptRunner runner = new ManagementScriptRunner(script, contextOf(script), settings);
         runner.setWatchdogArmer(this::ensureWatchdog);
         runner.setRunnerListener(runnerListener);
+        runner.setCallerTag(callerTag);
+        runner.setUiLifecycle(new ScriptUiLifecycle(
+                owner -> gameUiLifecycle.opened().accept(owner),
+                owner -> gameUiLifecycle.released().accept(owner)));
         runners.add(runner);
         return runner;
     }

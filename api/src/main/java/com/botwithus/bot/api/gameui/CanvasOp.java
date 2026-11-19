@@ -10,6 +10,13 @@ package com.botwithus.bot.api.gameui;
  *
  * <p>Ranges are the agent's: a bad argument refuses the whole call before its first
  * op runs.</p>
+ *
+ * <p><b>Sealed on purpose, and that has a cost for scripts.</b> The sealing is what
+ * makes the host's encoder fail to compile when an op is added without its wire
+ * form. The price is that a new op (the agent refuses {@code text} and
+ * {@code sprite} today and will accept them later) is a source break for any
+ * <em>exhaustive</em> {@code switch} over {@code CanvasOp}. Scripts build ops; they
+ * should not switch over them, and if they must, they should keep a default arm.</p>
  */
 public sealed interface CanvasOp {
 

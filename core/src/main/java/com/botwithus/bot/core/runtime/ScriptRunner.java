@@ -96,7 +96,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private volatile Runnable eventUnsubscriber;
     private volatile Runnable messageUnsubscriber;
     private volatile Runnable voiceReleaser;
-    private volatile Runnable uiReleaser;
+    private volatile ScriptUiLifecycle uiLifecycle = ScriptUiLifecycle.NONE;
     private volatile Runnable watchdogArmer;
     private volatile RunnerListener runnerListener = RunnerListener.NONE;
     private volatile Supplier<RunLogging> runLogging = RunLogging::fileLess;
@@ -179,14 +179,16 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     }
 
     /**
-     * Installs the hook that destroys this script's plugin-UI components and drops
-     * its {@code ui.event} listeners. Run when the script stops (cleanly, by crash
-     * or by an {@code onStart} throw) and again when it is revoked, since a revoked
-     * script never reaches its own cleanup. Set by {@link ScriptRuntime#registerScript};
-     * null in test seams.
+     * Installs the plugin-UI hooks. {@code opened} runs on the script thread before
+     * {@code onStart}, so a script released by an earlier run may create
+     * components again. {@code released} destroys this script's components and drops
+     * its {@code ui.event} listeners; it runs when the script stops (cleanly, by
+     * crash or by an {@code onStart} throw) and again when it is revoked, since a
+     * revoked script never reaches its own cleanup. Set by
+     * {@link ScriptRuntime#registerScript}; {@link ScriptUiLifecycle#NONE} in test seams.
      */
-    public void setUiReleaser(Runnable uiReleaser) {
-        this.uiReleaser = uiReleaser;
+    public void setUiLifecycle(ScriptUiLifecycle uiLifecycle) {
+        this.uiLifecycle = uiLifecycle != null ? uiLifecycle : ScriptUiLifecycle.NONE;
     }
 
     public void setErrorHandler(ErrorHandler errorHandler) {
@@ -246,14 +248,13 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
      * A revoked script's thread never reaches {@link #cleanup}, so its plugin UI is
      * taken back here. Off the caller's thread: the watchdog calls this, and the
      * release makes RPC calls that can wait behind the very script being revoked.
-     * The new thread is untagged, so the gate lets those calls through.
+     * The release itself runs as the host whatever thread it is on.
      */
     private void releaseUiOfRevoked() {
-        Runnable releaser = this.uiReleaser;
-        if (releaser != null) {
-            String name = getScriptName();
-            Thread.ofVirtual().name("ui-release-" + name).start(() -> release(releaser, "Plugin UI", name));
-        }
+        String name = getScriptName();
+        ScriptUiLifecycle lifecycle = this.uiLifecycle;
+        Thread.ofVirtual().name("ui-release-" + name)
+                .start(() -> release(() -> lifecycle.released().accept(name), "Plugin UI", name));
     }
 
     /** Keeps this script's classes loaded for as long as its thread runs. */
@@ -629,6 +630,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         if (gate != null) {
             gate.enter(name);
         }
+        release(() -> uiLifecycle.opened().accept(name), "Plugin UI open", name);
         MDC.put("script.name", name);
         if (connectionName != null) {
             MDC.put("connection.name", connectionName);
@@ -794,7 +796,8 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         release(this.eventUnsubscriber, "Event", name);
         release(this.messageUnsubscriber, "ISC", name);
         release(this.voiceReleaser, "Voice", name);
-        release(this.uiReleaser, "Plugin UI", name);
+        ScriptUiLifecycle lifecycle = this.uiLifecycle;
+        release(() -> lifecycle.released().accept(name), "Plugin UI", name);
     }
 
     private void release(Runnable unsubscriber, String kind, String name) {
