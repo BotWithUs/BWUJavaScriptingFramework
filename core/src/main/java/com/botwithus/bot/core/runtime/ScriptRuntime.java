@@ -89,6 +89,11 @@ public class ScriptRuntime {
      * own, so a host that wires no consent cannot open the microphone for a script.
      */
     private volatile VoiceGate voiceGate = VoiceConsent.refusingAll();
+    /**
+     * Destroys a script's plugin-UI components by script name. The connection's
+     * {@code GameAPIImpl.releaseGameUi}; a no-op until the host installs it.
+     */
+    private volatile Consumer<String> gameUiReleaser = name -> { };
 
     /**
      * Constructs a runtime that propagates each runner's connection tag through
@@ -172,6 +177,18 @@ public class ScriptRuntime {
 
     public void setOnStateChange(Runnable callback) {
         this.onStateChange = callback;
+    }
+
+    /**
+     * Installs what destroys a script's plugin-UI components, by script name, when
+     * it stops, crashes, is unloaded or is revoked: the connection's
+     * {@code GameAPIImpl::releaseGameUi}. Every script on a connection shares one
+     * agent pipe, and the agent only cleans up per pipe, so without this a stopped
+     * script's components would stay on screen until the whole connection closed.
+     * Read when a runner releases, so it covers runners registered before it was set.
+     */
+    public void setGameUiReleaser(Consumer<String> releaser) {
+        this.gameUiReleaser = Objects.requireNonNull(releaser, "releaser");
     }
 
     /**
@@ -350,6 +367,8 @@ public class ScriptRuntime {
             if (scoped.voice() != null) {
                 runner.setVoiceReleaser(scoped.voice()::closeAll);
             }
+            String scriptName = runner.getScriptName();
+            runner.setUiReleaser(() -> gameUiReleaser.accept(scriptName));
             runner.setWatchdogArmer(this::ensureWatchdog);
             if (connectionName != null) {
                 runner.setConnectionName(connectionName);

@@ -915,6 +915,7 @@ public class CliContext {
         runtime.setScriptGate(scriptGate);
         rpc.setScriptGate(scriptGate);
         gameAPI.setScriptGate(scriptGate);
+        runtime.setGameUiReleaser(gameAPI::releaseGameUi);
     }
 
     /**

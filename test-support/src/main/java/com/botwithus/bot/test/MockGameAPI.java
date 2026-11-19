@@ -3,6 +3,16 @@ package com.botwithus.bot.test;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.draw.Draw;
+import com.botwithus.bot.api.gameui.CanvasOp;
+import com.botwithus.bot.api.gameui.GameUi;
+import com.botwithus.bot.api.gameui.UiEvent;
+import com.botwithus.bot.api.gameui.UiHandleInfo;
+import com.botwithus.bot.api.gameui.UiOrder;
+import com.botwithus.bot.api.gameui.UiPlacement;
+import com.botwithus.bot.api.gameui.UiProps;
+import com.botwithus.bot.api.gameui.UiReadback;
+import com.botwithus.bot.api.gameui.UiSubscription;
+import com.botwithus.bot.api.gameui.UiType;
 import com.botwithus.bot.api.draw.DrawBatchResult;
 import com.botwithus.bot.api.draw.DrawCommand;
 import com.botwithus.bot.api.draw.DrawEntry;
@@ -440,6 +450,61 @@ final class MockGameAPI implements GameAPI {
     @Override
     public Draw draw() {
         throw notStubbed("draw");
+    }
+
+    @Override
+    public GameUi gameUi() {
+        throw notStubbed("gameUi");
+    }
+
+    @Override
+    public UiHandleInfo uiGetComponent(int iface, int comp, int key) {
+        throw notStubbed("uiGetComponent");
+    }
+
+    @Override
+    public UiHandleInfo uiCreate(long parent, UiType type, UiPlacement placement, UiProps<?> props) {
+        throw notStubbed("uiCreate");
+    }
+
+    @Override
+    public void uiSet(long handle, UiProps<?> props) {
+        throw notStubbed("uiSet");
+    }
+
+    @Override
+    public UiReadback uiGet(long handle, boolean isContentRequested) {
+        throw notStubbed("uiGet");
+    }
+
+    @Override
+    public int uiCanvas(long handle, List<CanvasOp> ops) {
+        throw notStubbed("uiCanvas");
+    }
+
+    @Override
+    public void uiOrder(long handle, UiOrder to) {
+        throw notStubbed("uiOrder");
+    }
+
+    @Override
+    public boolean uiDestroy(long handle) {
+        throw notStubbed("uiDestroy");
+    }
+
+    @Override
+    public int uiDestroyOwned() {
+        throw notStubbed("uiDestroyOwned");
+    }
+
+    @Override
+    public List<UiHandleInfo> uiList() {
+        throw notStubbed("uiList");
+    }
+
+    @Override
+    public UiSubscription uiOnEvent(Consumer<UiEvent> listener) {
+        throw notStubbed("uiOnEvent");
     }
 
     @Override

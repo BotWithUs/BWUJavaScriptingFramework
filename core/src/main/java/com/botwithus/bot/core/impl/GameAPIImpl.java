@@ -19,6 +19,16 @@ import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
+import com.botwithus.bot.api.gameui.CanvasOp;
+import com.botwithus.bot.api.gameui.GameUi;
+import com.botwithus.bot.api.gameui.UiEvent;
+import com.botwithus.bot.api.gameui.UiHandleInfo;
+import com.botwithus.bot.api.gameui.UiOrder;
+import com.botwithus.bot.api.gameui.UiPlacement;
+import com.botwithus.bot.api.gameui.UiProps;
+import com.botwithus.bot.api.gameui.UiReadback;
+import com.botwithus.bot.api.gameui.UiSubscription;
+import com.botwithus.bot.api.gameui.UiType;
 import com.botwithus.bot.api.gameval.GamevalIndex;
 import com.botwithus.bot.api.input.InputDialog;
 import com.botwithus.bot.api.input.KeyStroke;
@@ -195,6 +205,9 @@ public class GameAPIImpl implements GameAPI {
     private final WorldMapElements mapElementsFacade = new WorldMapElements(this);
     private final Components componentsFacade = new Components(this);
     private final Draw drawFacade = new Draw(this);
+    /** Assigned in the constructor: it needs {@link #rpc}, which a field initializer cannot see yet. */
+    private final GameUiBinding gameUiBinding;
+    private final GameUi gameUiFacade;
 
     /**
      * Where terminal walk events ({@link WalkArrivedEvent},
@@ -389,6 +402,8 @@ public class GameAPIImpl implements GameAPI {
         this.stubGuard = stubGuard;
         this.eventPublisher = eventPublisher;
         this.gamevals = gamevals;
+        this.gameUiBinding = new GameUiBinding(rpc, this::callerOwner, () -> scriptGate, HOST_OWNER);
+        this.gameUiFacade = new GameUi(this, gamevals);
     }
 
     // ---------------------------------------------------------------- Snapshot + entities
@@ -2095,5 +2110,72 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public DrawStats drawStats() {
         return DrawCodec.decodeStats(rpc.callSync("debug_draw_stats", Map.of()));
+    }
+
+    // ------------------------------------------------------------------ GameUiAPI
+
+    @Override
+    public GameUi gameUi() { return gameUiFacade; }
+
+    @Override
+    public UiHandleInfo uiGetComponent(int iface, int comp, int key) {
+        return gameUiBinding.getComponent(iface, comp, key);
+    }
+
+    @Override
+    public UiHandleInfo uiCreate(long parent, UiType type, UiPlacement placement, UiProps<?> props) {
+        return gameUiBinding.create(parent, type, placement, props);
+    }
+
+    @Override
+    public void uiSet(long handle, UiProps<?> props) {
+        gameUiBinding.set(handle, props);
+    }
+
+    @Override
+    public UiReadback uiGet(long handle, boolean isContentRequested) {
+        return gameUiBinding.get(handle, isContentRequested);
+    }
+
+    @Override
+    public int uiCanvas(long handle, List<CanvasOp> ops) {
+        return gameUiBinding.canvas(handle, ops);
+    }
+
+    @Override
+    public void uiOrder(long handle, UiOrder to) {
+        gameUiBinding.order(handle, to);
+    }
+
+    @Override
+    public boolean uiDestroy(long handle) {
+        return gameUiBinding.destroy(handle);
+    }
+
+    @Override
+    public int uiDestroyOwned() {
+        return gameUiBinding.destroyOwned();
+    }
+
+    @Override
+    public List<UiHandleInfo> uiList() {
+        return gameUiBinding.list();
+    }
+
+    @Override
+    public UiSubscription uiOnEvent(Consumer<UiEvent> listener) {
+        return gameUiBinding.onEvent(listener);
+    }
+
+    /**
+     * Destroys every plugin-UI handle {@code scriptName} made on this connection,
+     * one {@code ui.destroy} each, and drops its {@code ui.event} listeners. Wired
+     * to the script runtime's stop, crash, unload and revoke paths, so a script's
+     * UI never outlives it while the scripts sharing its pipe keep theirs.
+     *
+     * @return how many handles the agent removed
+     */
+    public int releaseGameUi(String scriptName) {
+        return gameUiBinding.releaseOwner(scriptName);
     }
 }

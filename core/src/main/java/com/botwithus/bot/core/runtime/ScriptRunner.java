@@ -96,6 +96,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private volatile Runnable eventUnsubscriber;
     private volatile Runnable messageUnsubscriber;
     private volatile Runnable voiceReleaser;
+    private volatile Runnable uiReleaser;
     private volatile Runnable watchdogArmer;
     private volatile RunnerListener runnerListener = RunnerListener.NONE;
     private volatile Supplier<RunLogging> runLogging = RunLogging::fileLess;
@@ -177,6 +178,17 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         this.voiceReleaser = voiceReleaser;
     }
 
+    /**
+     * Installs the hook that destroys this script's plugin-UI components and drops
+     * its {@code ui.event} listeners. Run when the script stops (cleanly, by crash
+     * or by an {@code onStart} throw) and again when it is revoked, since a revoked
+     * script never reaches its own cleanup. Set by {@link ScriptRuntime#registerScript};
+     * null in test seams.
+     */
+    public void setUiReleaser(Runnable uiReleaser) {
+        this.uiReleaser = uiReleaser;
+    }
+
     public void setErrorHandler(ErrorHandler errorHandler) {
         this.errorHandler = errorHandler;
     }
@@ -226,6 +238,21 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         ScriptGate gate = this.scriptGate;
         if (gate != null) {
             gate.revoke(getScriptName());
+        }
+        releaseUiOfRevoked();
+    }
+
+    /**
+     * A revoked script's thread never reaches {@link #cleanup}, so its plugin UI is
+     * taken back here. Off the caller's thread: the watchdog calls this, and the
+     * release makes RPC calls that can wait behind the very script being revoked.
+     * The new thread is untagged, so the gate lets those calls through.
+     */
+    private void releaseUiOfRevoked() {
+        Runnable releaser = this.uiReleaser;
+        if (releaser != null) {
+            String name = getScriptName();
+            Thread.ofVirtual().name("ui-release-" + name).start(() -> release(releaser, "Plugin UI", name));
         }
     }
 
@@ -767,6 +794,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         release(this.eventUnsubscriber, "Event", name);
         release(this.messageUnsubscriber, "ISC", name);
         release(this.voiceReleaser, "Voice", name);
+        release(this.uiReleaser, "Plugin UI", name);
     }
 
     private void release(Runnable unsubscriber, String kind, String name) {

@@ -3,6 +3,7 @@ package com.botwithus.bot.api;
 import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.domain.ActionAPI;
 import com.botwithus.bot.api.domain.DrawAPI;
+import com.botwithus.bot.api.domain.GameUiAPI;
 import com.botwithus.bot.api.domain.NavigationAPI;
 import com.botwithus.bot.api.domain.SystemAPI;
 import com.botwithus.bot.api.domain.VariableAPI;
@@ -67,6 +68,7 @@ import java.util.OptionalInt;
  *   <li>{@link NavigationAPI} — walker, pathfinder queries, region cache</li>
  *   <li>{@link VariableAPI} — on-demand varp / varbit / varc reads</li>
  *   <li>{@link DrawAPI} — debug drawing over the client ({@code api.draw()})</li>
+ *   <li>{@link GameUiAPI} — native game components the client draws ({@code api.gameUi()})</li>
  * </ul>
  *
  * <p>Per-tick reads of game state (local player, NPCs, players, inventories)
@@ -77,7 +79,8 @@ import java.util.OptionalInt;
  *
  * @see ScriptContext#getGameAPI()
  */
-public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAPI, DrawAPI {
+public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAPI, DrawAPI,
+        GameUiAPI {
 
     /**
      * Value the gameval-named variable reads return when the name does not

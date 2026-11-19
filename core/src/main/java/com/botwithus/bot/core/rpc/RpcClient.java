@@ -9,6 +9,9 @@ import org.slf4j.LoggerFactory;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import com.botwithus.bot.core.runtime.ConnectionContext;
 import com.botwithus.bot.core.runtime.ScriptGate;
 
@@ -32,10 +35,18 @@ import java.util.function.Consumer;
  *
  * <p>A background reader thread polls for incoming messages using
  * {@link PipeClient#available()} (which calls {@code PeekNamedPipe} on
- * Windows) so it never blocks on the pipe handle. The pipe carries only
- * RPC traffic now — game events are delivered via the shared-memory ring
- * (see {@code SharedRegionEventPump}). The reader's remaining job is to
- * detect a broken pipe and notify the disconnect handler.</p>
+ * Windows) so it never blocks on the pipe handle. Game events are delivered
+ * via the shared-memory ring (see {@code SharedRegionEventPump}); the pipe
+ * carries RPC replies plus the agent's pub/sub <em>pushes</em>
+ * ({@code {topic, data}} frames, no {@code id}) for topics this connection
+ * subscribed to with {@link #subscribeTopic}. The reader's job is to deliver
+ * pushes that arrive between calls and to detect a broken pipe.</p>
+ *
+ * <p><b>A push is never dropped for arriving at the wrong moment.</b> Whichever
+ * thread reads it (the reader between calls, or a caller waiting for its own
+ * reply) hands it to the topic's handler. Handlers run on one dedicated thread,
+ * in arrival order, and never under {@link #pipeLock}, so a handler may itself
+ * make RPC calls.</p>
  */
 public class RpcClient implements AutoCloseable {
 
@@ -64,6 +75,19 @@ public class RpcClient implements AutoCloseable {
     private String connectionName;
     private volatile ScriptGate scriptGate;
     private volatile RpcCallObserver callObserver = RpcCallObserver.NONE;
+
+    /** The pub/sub control call; {@code _debug.} is historical, it is the live one. */
+    static final String SUBSCRIBE_METHOD = "_debug.subscribe";
+
+    /** Handler per subscribed topic. Re-subscribed on every {@link #reconnect}. */
+    private final Map<String, Consumer<Map<String, Object>>> topicHandlers = new ConcurrentHashMap<>();
+
+    // rule-exception: platform thread, not virtual. Push handlers can be script code
+    // (a ui.event listener), and a script spinning on a virtual thread pins its
+    // carrier for good. See ScriptRunner's rule-exception and CLAUDE.md
+    // "Java rules exceptions".
+    private final ExecutorService pushDispatch = Executors.newSingleThreadExecutor(
+            r -> Thread.ofPlatform().name("rpc-push").daemon(true).unstarted(r));
 
     /**
      * Latches on the first transport-level failure of a connection generation
@@ -190,6 +214,47 @@ public class RpcClient implements AutoCloseable {
             pipeLock.unlock();
         }
         start();
+        resubscribeAll();
+    }
+
+    /**
+     * Subscribes this connection to {@code topic} and routes its pushes to
+     * {@code handler}, replacing any earlier handler for it. The handler is
+     * installed before the subscribe call is sent, so a push the agent emits the
+     * moment the subscription takes is not lost. The subscription is re-sent after
+     * every {@link #reconnect}, since a new pipe instance starts with none.
+     *
+     * @throws RpcException when the agent refuses or the call fails; the handler is
+     *                      removed again
+     */
+    public void subscribeTopic(String topic, Consumer<Map<String, Object>> handler) {
+        if (topic == null || topic.isEmpty() || handler == null) {
+            throw new IllegalArgumentException("topic and handler are required");
+        }
+        topicHandlers.put(topic, handler);
+        try {
+            sendSubscribe(topic);
+        } catch (RuntimeException e) {
+            topicHandlers.remove(topic, handler);
+            throw e;
+        }
+    }
+
+    private void sendSubscribe(String topic) {
+        Map<String, Object> reply = callSync(SUBSCRIBE_METHOD, Map.of("topics", List.of(topic)));
+        if (!Boolean.TRUE.equals(reply.get("ok"))) {
+            throw new RpcRemoteException(SUBSCRIBE_METHOD, "subscription to " + topic + " was refused");
+        }
+    }
+
+    private void resubscribeAll() {
+        for (String topic : topicHandlers.keySet()) {
+            try {
+                sendSubscribe(topic);
+            } catch (RuntimeException e) {
+                log.warn("Re-subscribing to {} after reconnect failed: {}", topic, e.getMessage());
+            }
+        }
     }
 
     /**
@@ -268,6 +333,7 @@ public class RpcClient implements AutoCloseable {
         closed = true;
         running = false;
         watchdog.shutdownNow();
+        pushDispatch.shutdownNow();
         pipe.close();
     }
 
@@ -340,13 +406,57 @@ public class RpcClient implements AutoCloseable {
     }
 
     /**
-     * Drain stray messages from the pipe — anything visible to the reader is
-     * traffic not claimed by an in-flight doCall, so the kernel buffer must
-     * not be allowed to fill. Caller holds {@code pipeLock}.
+     * Drain messages from the pipe — anything visible to the reader is traffic
+     * not claimed by an in-flight doCall, so the kernel buffer must not be
+     * allowed to fill. Pushes are delivered; anything else is dropped. Caller
+     * holds {@code pipeLock}.
      */
     private void drainStrayMessages() throws PipeException {
         while (pipe.available() > 0) {
-            pipe.readMessage();
+            routeUnclaimed(MessagePackCodec.decode(pipe.readMessage()));
+        }
+    }
+
+    /**
+     * A frame no call is waiting for: a push (a {@code topic}, no {@code id}) goes
+     * to its topic's handler on the dispatch thread; a stale reply is dropped.
+     */
+    private void routeUnclaimed(Map<String, Object> msg) {
+        Object topic = msg.get("topic");
+        if (topic == null || msg.containsKey("id")) {
+            log.debug("Dropping a reply no call was waiting for (id={})", msg.get("id"));
+            return;
+        }
+        Consumer<Map<String, Object>> handler = topicHandlers.get(String.valueOf(topic));
+        if (handler == null) {
+            log.debug("Dropping a push on {}: no handler", topic);
+            return;
+        }
+        Map<String, Object> data = pushData(msg);
+        try {
+            pushDispatch.execute(() -> deliverPush(handler, topic, data));
+        } catch (RejectedExecutionException e) {
+            log.debug("Push on {} after close; dropped", topic);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> pushData(Map<String, Object> msg) {
+        // rule-exception: {rule:no-instanceof} and {rule:no-casts} — wire-decode boundary,
+        // same justification as callSync: a push's data is a verbatim msgpack value, and
+        // every topic this client subscribes to carries a map.
+        if (msg.get("data") instanceof Map<?, ?> m) {
+            return (Map<String, Object>) m;
+        }
+        return Map.of();
+    }
+
+    private static void deliverPush(Consumer<Map<String, Object>> handler, Object topic,
+                                    Map<String, Object> data) {
+        try {
+            handler.accept(data);
+        } catch (RuntimeException e) {
+            log.warn("Handler for push on {} threw: {}", topic, e.toString());
         }
     }
 
@@ -469,7 +579,9 @@ public class RpcClient implements AutoCloseable {
                 settled.set(true);
                 return msg;
             }
-            // Wrong id (stale response, mismatched call) — skip it
+            // Not ours: a push that landed while we waited (delivered, not lost),
+            // or a stale reply (dropped).
+            routeUnclaimed(msg);
         }
     }
 
