@@ -123,6 +123,12 @@ public final class GameUi {
      * 256 queued events, more are dropped with a WARN in the log. The listener is
      * removed when the subscription is closed or the script stops.</p>
      *
+     * <p><b>A listener that never returns</b> keeps its script's event thread busy for
+     * good: that script's later events queue behind it and are then dropped, and
+     * nothing escalates it, because the script watchdog watches {@code onLoop}, not
+     * listeners. Stopping the script stops delivery, but cannot free that thread.
+     * Keep listeners short, and hand slow work to {@code onLoop}.</p>
+     *
      * @throws UiRefusedException when the agent refuses the {@code ui.event} subscription
      */
     public UiSubscription onEvent(Consumer<UiEvent> listener) {

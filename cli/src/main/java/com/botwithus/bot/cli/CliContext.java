@@ -83,7 +83,6 @@ import com.botwithus.bot.core.runtime.SDNScriptLoader;
 import com.botwithus.bot.core.runtime.ScriptFolder;
 import com.botwithus.bot.core.runtime.ManagementCallerTag;
 import com.botwithus.bot.core.runtime.ScriptGate;
-import com.botwithus.bot.core.runtime.ScriptUiLifecycle;
 import com.botwithus.bot.core.runtime.ScriptLoadResult;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
 import com.botwithus.bot.core.sdn.StoreRestorer;
@@ -570,19 +569,9 @@ public class CliContext {
         return conn != null && conn.isAlive() ? Optional.ofNullable(conn.getRuntime()) : Optional.empty();
     }
 
-    /** Runs {@code action} on every connection's {@code GameAPIImpl}; one that throws does not stop the rest. */
-    private void eachGameApi(Consumer<GameAPIImpl> action) {
-        for (Connection conn : connections.values()) {
-            GameAPIImpl api = conn.getGameAPI();
-            if (api == null) {
-                continue;
-            }
-            try {
-                action.accept(api);
-            } catch (RuntimeException e) {
-                log.debug("Plugin UI hook on {} failed: {}", conn.getName(), e.getMessage());
-            }
-        }
+    /** Every connection's {@code GameAPIImpl}, for the management plugin-UI fan-out. */
+    private List<GameAPIImpl> liveGameApis() {
+        return connections.values().stream().map(Connection::getGameAPI).filter(Objects::nonNull).toList();
     }
 
     public ManagementScriptRuntime getManagementRuntime() {
@@ -608,9 +597,7 @@ public class CliContext {
         managementRuntime.setCallerTag(managementCallerTag);
         // A management script can draw on any connection, so its plugin UI is opened
         // and released on all of them.
-        managementRuntime.setGameUiLifecycle(new ScriptUiLifecycle(
-                owner -> eachGameApi(api -> api.openGameUi(owner)),
-                owner -> eachGameApi(api -> api.releaseGameUi(owner))));
+        managementRuntime.setGameUiLifecycle(new ManagementGameUiFanOut(this::liveGameApis).lifecycle());
     }
 
     /**

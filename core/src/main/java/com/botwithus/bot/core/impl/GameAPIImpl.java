@@ -295,6 +295,9 @@ public class GameAPIImpl implements GameAPI {
      */
     private volatile ManagementCallerTag managementCallerTag;
 
+    /** Issues plugin-UI run ids for {@link #gameUiLifecycle()}; unique on this connection. */
+    private final AtomicLong gameUiRuns = new AtomicLong();
+
     /**
      * Installs the process-wide tag management scripts mark their threads with, so
      * the plugin-UI components a management script makes on this connection are
@@ -2200,15 +2203,30 @@ public class GameAPIImpl implements GameAPI {
     }
 
     /**
-     * Lets {@code owner} create plugin-UI components again after an earlier run was
-     * released. Called at the start of every run, before any script code.
+     * Makes {@code run} the owner's current plugin-UI run and lets it create again
+     * after an earlier run was released. Called at the start of every run, before any
+     * script code.
      */
-    public void openGameUi(String owner) {
-        gameUiBinding.openOwner(owner);
+    public void openGameUi(String owner, long run) {
+        gameUiBinding.openOwner(owner, run);
     }
 
-    /** This connection's {@link #openGameUi} / {@link #releaseGameUi}, for a script runtime. */
+    /**
+     * Releases one run of {@code owner}, as {@link #releaseGameUi(String)}, unless a
+     * newer run of it has opened since: then it does nothing, so a quarantined run's
+     * late cleanup cannot destroy its replacement's components.
+     *
+     * @return how many handles the agent removed
+     */
+    public int releaseGameUi(String owner, long run) {
+        return gameUiBinding.releaseOwner(owner, run);
+    }
+
+    /**
+     * This connection's {@link #openGameUi} / {@link #releaseGameUi(String, long)},
+     * for a script runtime, with run ids unique on this connection.
+     */
     public ScriptUiLifecycle gameUiLifecycle() {
-        return new ScriptUiLifecycle(this::openGameUi, this::releaseGameUi);
+        return new ScriptUiLifecycle(gameUiRuns::incrementAndGet, this::openGameUi, this::releaseGameUi);
     }
 }

@@ -194,7 +194,7 @@ class GameUiLifetimeTest {
             replyMayGo.countDown();
             api.releaseGameUi(ALPHA);
 
-            api.openGameUi(ALPHA);
+            api.openGameUi(ALPHA, 1L);
 
             assertEquals(FIRST_CREATED, asScript(ALPHA, GameUiLifetimeTest.this::canvas).handle());
             verify(rpc, never()).callSync(eq("ui.destroy"), anyMap());
@@ -360,19 +360,19 @@ class GameUiLifetimeTest {
         void refusedSubscribe_isNotFatalForCreate() {
             doThrow(new RpcRemoteException("_debug.subscribe", "subscription to ui.event was refused"))
                     .doNothing()
-                    .when(rpc).subscribeTopic(eq("ui.event"), any());
+                    .when(rpc).subscribeTopic(eq("ui.event"), any(), any());
 
             asScript(ALPHA, GameUiLifetimeTest.this::canvas);
             asScript(ALPHA, GameUiLifetimeTest.this::canvas);
 
-            verify(rpc, times(2)).subscribeTopic(eq("ui.event"), any());
+            verify(rpc, times(2)).subscribeTopic(eq("ui.event"), any(), any());
         }
 
         @Test
         @DisplayName("adding a listener needs the subscription, so its refusal is raised as a UiRefusedException")
         void refusedSubscribe_failsOnEvent() {
             doThrow(new RpcRemoteException("_debug.subscribe", "subscription to ui.event was refused"))
-                    .when(rpc).subscribeTopic(eq("ui.event"), any());
+                    .when(rpc).subscribeTopic(eq("ui.event"), any(), any());
 
             UiRefusedException e = assertThrows(UiRefusedException.class,
                     () -> asScript(ALPHA, () -> ui.onEvent(event -> { })));

@@ -63,6 +63,8 @@ final class GameUiBinding {
     static final String RELEASED = "ui: the script was stopped while this component was being created; "
             + "it has been destroyed";
     private static final String SUBSCRIBE = "_debug.subscribe";
+    /** The agent's refusal for a handle that no longer exists (or is not this connection's). */
+    private static final String UNKNOWN_HANDLE = "unknown handle";
 
     private final RpcClient rpc;
     private final Supplier<ScriptGate> gate;
@@ -149,17 +151,24 @@ final class GameUiBinding {
     }
 
     /**
-     * Destroys one handle. Whatever the agent answers, the handle is no longer
-     * tracked afterwards: success removed it, {@code unknown handle} means it was
-     * gone, and a quarantined removal is the agent's to retry.
+     * Destroys one handle. It stops being tracked only when the agent removed it or
+     * says it is {@code unknown}. Any other refusal leaves it tracked: refusing to
+     * destroy a shared Jagex handle, for one, must not untrack it for the other owners
+     * that looked it up.
      */
     boolean destroy(long handle) {
         long agent = usableHandle(UiCodec.DESTROY, owner(), handle);
+        boolean isFreed;
         try {
-            return MapHelper.getBool(call(UiCodec.DESTROY, UiCodec.handleParams(agent)), "freed");
-        } finally {
-            ownership.forget(agent);
+            isFreed = MapHelper.getBool(call(UiCodec.DESTROY, UiCodec.handleParams(agent)), "freed");
+        } catch (UiRefusedException e) {
+            if (e.getMessage() != null && e.getMessage().contains(UNKNOWN_HANDLE)) {
+                ownership.forget(agent);
+            }
+            throw e;
         }
+        ownership.forget(agent);
+        return isFreed;
     }
 
     /** Destroys the caller's own handles, newest first; returns how many the agent removed. */
@@ -191,9 +200,27 @@ final class GameUiBinding {
 
     // ------------------------------------------------------------------ lifetime
 
-    /** Lets {@code owner} create again: called at the start of each of its runs. */
-    void openOwner(String owner) {
-        ownership.reopen(owner);
+    /**
+     * Makes {@code run} the owner's current run and lets it create again: called at
+     * the start of each of its runs.
+     */
+    void openOwner(String owner, long run) {
+        ownership.reopen(owner, run);
+        dispatcher.reopen(owner);
+    }
+
+    /**
+     * Releases one run of {@code owner}: {@link #releaseOwner(String)}, unless a newer
+     * run has opened since, in which case it does nothing. That is a quarantined run
+     * finishing its cleanup after its replacement started.
+     *
+     * @return how many handles the agent removed
+     */
+    int releaseOwner(String owner, long run) {
+        return ownership.closeRun(owner, run).map(owned -> releaseClosed(owner, owned)).orElseGet(() -> {
+            log.debug("Ignored a stale plugin-UI release of {} run {}: a newer run has opened", owner, run);
+            return 0;
+        });
     }
 
     /**
@@ -205,7 +232,10 @@ final class GameUiBinding {
      * @return how many handles the agent removed
      */
     int releaseOwner(String owner) {
-        List<Long> owned = ownership.close(owner);
+        return releaseClosed(owner, ownership.close(owner));
+    }
+
+    private int releaseClosed(String owner, List<Long> owned) {
         dispatcher.close(owner);
         int removed = asHost(() -> destroyEach(owner, owned));
         if (!owned.isEmpty()) {
@@ -283,9 +313,11 @@ final class GameUiBinding {
         return management != null ? management : hostOwner;
     }
 
+    /** Whether the watchdog revoked {@code owner}: a script on this connection's gate, or a management run. */
     private boolean isRevoked(String owner) {
         ScriptGate scriptGate = gate.get();
-        return scriptGate != null && scriptGate.isRevoked(owner);
+        ManagementCallerTag tag = managementTag.get();
+        return (scriptGate != null && scriptGate.isRevoked(owner)) || (tag != null && tag.isRevoked(owner));
     }
 
     /**
@@ -361,21 +393,50 @@ final class GameUiBinding {
         }
     }
 
-    /** Runs a listener tagged as its owner, so the calls it makes are that owner's. */
+    /**
+     * Runs a listener as exactly its owner: <b>both</b> tags are set for every kind of
+     * owner (the gate tag to the script or to none, the management tag to the
+     * management script or to none), whatever the thread carried before, and the
+     * thread's previous tags are put back afterwards. Setting only the owner's own
+     * tag would leave a stale one in force: a management listener on a thread still
+     * gate-tagged as some script would act as that script.
+     */
     private void runAs(String owner, Runnable action) {
         ScriptGate scriptGate = gate.get();
         ManagementCallerTag tag = managementTag.get();
         boolean isManagement = ManagementCallerTag.isOwnerName(owner);
-        boolean isScript = !isManagement && !hostOwner.equals(owner) && scriptGate != null;
-        if (isScript) {
-            scriptGate.enter(owner);
-        } else if (isManagement && tag != null) {
-            tag.enter(owner);
-        }
+        boolean isScript = !isManagement && !hostOwner.equals(owner);
+        String previousScript = scriptGate != null ? scriptGate.current() : null;
+        String previousManagement = tag != null ? tag.current() : null;
+        setTag(scriptGate, isScript ? owner : null);
+        setTag(tag, isManagement ? owner : null);
         try {
             action.run();
         } finally {
-            clearTags(isScript ? scriptGate : null, isManagement ? tag : null);
+            setTag(scriptGate, previousScript);
+            setTag(tag, previousManagement);
+        }
+    }
+
+    private static void setTag(ScriptGate scriptGate, String owner) {
+        if (scriptGate == null) {
+            return;
+        }
+        if (owner != null) {
+            scriptGate.enter(owner);
+        } else {
+            scriptGate.exit();
+        }
+    }
+
+    private static void setTag(ManagementCallerTag tag, String owner) {
+        if (tag == null) {
+            return;
+        }
+        if (owner != null) {
+            tag.enter(owner);
+        } else {
+            tag.exit();
         }
     }
 
@@ -394,7 +455,9 @@ final class GameUiBinding {
                 return;
             }
             try {
-                rpc.subscribeTopic(UiCodec.EVENT_TOPIC, this::onPush);
+                // Lost when a reconnect cannot re-subscribe: clear the flag so the
+                // next call tries again rather than trusting a dead subscription.
+                rpc.subscribeTopic(UiCodec.EVENT_TOPIC, this::onPush, () -> isSubscribed = false);
                 isSubscribed = true;
             } catch (RpcRemoteException e) {
                 subscribeFailed(new UiRefusedException(SUBSCRIBE, e.producerMessage(), e), isRequired);

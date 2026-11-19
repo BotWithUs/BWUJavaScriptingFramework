@@ -1,5 +1,8 @@
 package com.botwithus.bot.core.runtime;
 
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * Says, for the calling thread, which management script it belongs to, so that
  * per-connection resources a management script makes can be attributed to it and
@@ -23,8 +26,11 @@ public final class ManagementCallerTag {
 
     private static final String OWNER_PREFIX = "<mgmt:";
     private static final String OWNER_SUFFIX = ">";
+    private static final String RUN_SEPARATOR = "#";
 
     private final InheritableThreadLocal<String> current = new InheritableThreadLocal<>();
+    /** Owners whose run was revoked; permanent, as a {@link ScriptGate} revocation is. */
+    private final Set<String> revoked = ConcurrentHashMap.newKeySet();
 
     public ManagementCallerTag() {
     }
@@ -36,6 +42,30 @@ public final class ManagementCallerTag {
      */
     public static String ownerOf(String managementScriptName) {
         return OWNER_PREFIX + managementScriptName + OWNER_SUFFIX;
+    }
+
+    /**
+     * The owner one <b>run</b> of a management script records its resources under.
+     * Each run is its own owner, so an earlier run that lingers after a reload can
+     * never release, or be confused with, the run that replaced it.
+     */
+    public static String ownerOf(String managementScriptName, long run) {
+        return OWNER_PREFIX + managementScriptName + RUN_SEPARATOR + run + OWNER_SUFFIX;
+    }
+
+    /**
+     * Marks {@code owner}'s run as revoked: the watchdog gave up on it. Resources it
+     * still creates are destroyed as soon as they are made, on every connection,
+     * including ones added after the revoke, which the release fan-out never
+     * reached.
+     */
+    public void revoke(String owner) {
+        revoked.add(owner);
+    }
+
+    /** Whether {@code owner}'s run was revoked. */
+    public boolean isRevoked(String owner) {
+        return owner != null && revoked.contains(owner);
     }
 
     /** Whether {@code owner} is a name {@link #ownerOf} made. */

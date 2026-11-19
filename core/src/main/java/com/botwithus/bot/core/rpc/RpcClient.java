@@ -84,6 +84,9 @@ public class RpcClient implements AutoCloseable {
     /** Told after every {@link #reconnect}; see {@link #addConnectionResetListener}. */
     private final List<Runnable> resetListeners = new CopyOnWriteArrayList<>();
 
+    /** Told when a {@link #reconnect} could not re-send a topic's subscription. */
+    private final Map<String, Runnable> lostHandlers = new ConcurrentHashMap<>();
+
     /** Handler per subscribed topic. Re-subscribed on every {@link #reconnect}. */
     private final Map<String, Consumer<Map<String, Object>>> topicHandlers = new ConcurrentHashMap<>();
 
@@ -91,8 +94,14 @@ public class RpcClient implements AutoCloseable {
     // (a ui.event listener), and a script spinning on a virtual thread pins its
     // carrier for good. See ScriptRunner's rule-exception and CLAUDE.md
     // "Java rules exceptions".
+    //
+    // Inherits no inheritable thread-locals. The thread is created lazily, by whichever
+    // thread routes the first push, and that is often a script thread waiting for its
+    // own reply. Inheriting would make every later push run tagged as that script:
+    // attributed to it, and parked or refused once it is revoked.
     private final ExecutorService pushDispatch = Executors.newSingleThreadExecutor(
-            r -> Thread.ofPlatform().name("rpc-push").daemon(true).unstarted(r));
+            r -> Thread.ofPlatform().name("rpc-push").daemon(true).inheritInheritableThreadLocals(false)
+                    .unstarted(r));
 
     /**
      * Latches on the first transport-level failure of a connection generation
@@ -215,10 +224,13 @@ public class RpcClient implements AutoCloseable {
             // New transport, new generation: re-arm the once-only disconnect
             // latch so a later break on this connection is reported too.
             transportBroken.set(false);
+            // Inside the lock, before any call can reach the new pipe: a call
+            // that slipped in between the swap and the listener would make
+            // something on the new pipe that the listener then forgets.
+            notifyConnectionReset();
         } finally {
             pipeLock.unlock();
         }
-        notifyConnectionReset();
         start();
         resubscribeAll();
     }
@@ -227,8 +239,11 @@ public class RpcClient implements AutoCloseable {
      * Registers {@code listener} to run after every {@link #reconnect} has swapped
      * the transport and before the reader restarts or any subscription is re-sent.
      * The agent cleans up per pipe, so anything the old pipe made on the agent is
-     * gone by then; a listener forgets it. Runs on the reconnecting thread, so it
-     * must be quick and must not make RPC calls.
+     * gone by then; a listener forgets it.
+     *
+     * <p>It runs on the reconnecting thread <b>while the pipe lock is held</b>, so no
+     * call reaches the new pipe until every listener has returned. It must therefore
+     * be quick and must never make an RPC call (that would deadlock on the lock).</p>
      */
     public void addConnectionResetListener(Runnable listener) {
         resetListeners.add(Objects.requireNonNull(listener, "listener"));
@@ -255,14 +270,26 @@ public class RpcClient implements AutoCloseable {
      *                      removed again
      */
     public void subscribeTopic(String topic, Consumer<Map<String, Object>> handler) {
-        if (topic == null || topic.isEmpty() || handler == null) {
-            throw new IllegalArgumentException("topic and handler are required");
+        subscribeTopic(topic, handler, () -> { });
+    }
+
+    /**
+     * {@link #subscribeTopic(String, Consumer)}, plus {@code onLost}: run when a
+     * {@link #reconnect} could not re-send the subscription. The handler is then
+     * removed, so the caller knows to subscribe again rather than wait for pushes
+     * that will never come.
+     */
+    public void subscribeTopic(String topic, Consumer<Map<String, Object>> handler, Runnable onLost) {
+        if (topic == null || topic.isEmpty() || handler == null || onLost == null) {
+            throw new IllegalArgumentException("topic, handler and onLost are required");
         }
         topicHandlers.put(topic, handler);
+        lostHandlers.put(topic, onLost);
         try {
             sendSubscribe(topic);
         } catch (RuntimeException e) {
             topicHandlers.remove(topic, handler);
+            lostHandlers.remove(topic, onLost);
             throw e;
         }
     }
@@ -280,6 +307,11 @@ public class RpcClient implements AutoCloseable {
                 sendSubscribe(topic);
             } catch (RuntimeException e) {
                 log.warn("Re-subscribing to {} after reconnect failed: {}", topic, e.getMessage());
+                topicHandlers.remove(topic);
+                Runnable onLost = lostHandlers.remove(topic);
+                if (onLost != null) {
+                    onLost.run();
+                }
             }
         }
     }

@@ -122,7 +122,7 @@ class GameAPIImplGameUiTest {
     private Consumer<Map<String, Object>> capturedPushHandler() {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Consumer<Map<String, Object>>> captor = ArgumentCaptor.forClass(Consumer.class);
-        verify(rpc).subscribeTopic(eq("ui.event"), captor.capture());
+        verify(rpc).subscribeTopic(eq("ui.event"), captor.capture(), any());
         return captor.getValue();
     }
 
@@ -147,7 +147,7 @@ class GameAPIImplGameUiTest {
 
             assertEquals(2, elements);
             InOrder order = inOrder(rpc);
-            order.verify(rpc).subscribeTopic(eq("ui.event"), any());
+            order.verify(rpc).subscribeTopic(eq("ui.event"), any(), any());
             order.verify(rpc).callSync(eq("ui.get_component"),
                     eq(Map.of("iface", GAME_AREA_IFACE, "comp", GAME_AREA_COMP)));
             order.verify(rpc).callSync(eq("ui.create"), argThat(p -> p.get("parent").equals(JAGEX_HANDLE)
@@ -167,7 +167,7 @@ class GameAPIImplGameUiTest {
             canvasOf(ALPHA);
             canvasOf(BETA);
 
-            verify(rpc, times(1)).subscribeTopic(eq("ui.event"), any());
+            verify(rpc, times(1)).subscribeTopic(eq("ui.event"), any(), any());
         }
 
         @Test

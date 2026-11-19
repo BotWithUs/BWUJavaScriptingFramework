@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
@@ -47,6 +48,8 @@ final class UiOwnership {
     private final Map<Long, Set<String>> jagexOwners = new HashMap<>();
     private final Map<String, List<Consumer<UiEvent>>> listeners = new HashMap<>();
     private final Set<String> closed = new HashSet<>();
+    /** The run each owner last opened; a release naming any other run is stale. */
+    private final Map<String, Long> runs = new HashMap<>();
 
     /** Records a created handle; {@code false}, recording nothing, when the owner is closed. */
     synchronized boolean recordCreated(String owner, long handle) {
@@ -108,9 +111,28 @@ final class UiOwnership {
         return agentHandlesOf(owner);
     }
 
-    /** Lets a closed owner create again: a new run of the same script. */
-    synchronized void reopen(String owner) {
+    /**
+     * Makes {@code run} the owner's current run and lets it create again, whatever
+     * an earlier run left closed.
+     */
+    synchronized void reopen(String owner, long run) {
+        runs.put(owner, run);
         closed.remove(owner);
+    }
+
+    /**
+     * {@link #close} for one run: does nothing, and returns empty, when a newer run
+     * of the owner has opened since. That is a quarantined old run finishing its
+     * cleanup after its replacement started, and its release must not touch the
+     * replacement. An owner never opened (host code, a connection added mid-run)
+     * has no current run, so any release of it is current.
+     */
+    synchronized Optional<List<Long>> closeRun(String owner, long run) {
+        Long current = runs.get(owner);
+        if (current != null && current != run) {
+            return Optional.empty();
+        }
+        return Optional.of(close(owner));
     }
 
     synchronized boolean isClosed(String owner) {

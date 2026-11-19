@@ -97,6 +97,8 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private volatile Runnable messageUnsubscriber;
     private volatile Runnable voiceReleaser;
     private volatile ScriptUiLifecycle uiLifecycle = ScriptUiLifecycle.NONE;
+    /** The plugin-UI run id of the current or last run; its release names this run only. */
+    private volatile long uiRunId;
     private volatile Runnable watchdogArmer;
     private volatile RunnerListener runnerListener = RunnerListener.NONE;
     private volatile Supplier<RunLogging> runLogging = RunLogging::fileLess;
@@ -253,8 +255,9 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private void releaseUiOfRevoked() {
         String name = getScriptName();
         ScriptUiLifecycle lifecycle = this.uiLifecycle;
+        long run = this.uiRunId;
         Thread.ofVirtual().name("ui-release-" + name)
-                .start(() -> release(() -> lifecycle.released().accept(name), "Plugin UI", name));
+                .start(() -> release(() -> lifecycle.released().accept(name, run), "Plugin UI", name));
     }
 
     /** Keeps this script's classes loaded for as long as its thread runs. */
@@ -630,7 +633,10 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         if (gate != null) {
             gate.enter(name);
         }
-        release(() -> uiLifecycle.opened().accept(name), "Plugin UI open", name);
+        ScriptUiLifecycle lifecycle = this.uiLifecycle;
+        long uiRun = lifecycle.runIds().getAsLong();
+        this.uiRunId = uiRun;
+        release(() -> lifecycle.opened().accept(name, uiRun), "Plugin UI open", name);
         MDC.put("script.name", name);
         if (connectionName != null) {
             MDC.put("connection.name", connectionName);
@@ -797,7 +803,8 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         release(this.messageUnsubscriber, "ISC", name);
         release(this.voiceReleaser, "Voice", name);
         ScriptUiLifecycle lifecycle = this.uiLifecycle;
-        release(() -> lifecycle.released().accept(name), "Plugin UI", name);
+        long run = this.uiRunId;
+        release(() -> lifecycle.released().accept(name, run), "Plugin UI", name);
     }
 
     private void release(Runnable unsubscriber, String kind, String name) {

@@ -49,6 +49,10 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
     /** Tags this script's thread for plugin-UI ownership; null in test seams. */
     private volatile ManagementCallerTag callerTag;
     private volatile ScriptUiLifecycle uiLifecycle = ScriptUiLifecycle.NONE;
+    /** The plugin-UI run id of the current or last run. */
+    private volatile long uiRunId;
+    /** The owner the current or last run's components are recorded under; one per run. */
+    private volatile String uiOwner;
 
     /**
      * Installs the process-wide tag this runner marks its thread with, so the
@@ -69,9 +73,15 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         this.uiLifecycle = uiLifecycle != null ? uiLifecycle : ScriptUiLifecycle.NONE;
     }
 
-    /** The owner name this script's plugin-UI components are recorded under. */
+    /**
+     * The owner the current or last run's plugin-UI components are recorded under,
+     * or {@code null} before the first run. One per run, not per name: a management
+     * script draws on every connection, including ones added mid-run that never saw
+     * the run open, so a per-name owner would let a quarantined old run's late
+     * release reach a fresh run's components there.
+     */
     public String uiOwner() {
-        return ManagementCallerTag.ownerOf(getScriptName());
+        return uiOwner;
     }
 
     /**
@@ -207,14 +217,27 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
         // so anything it creates from here on is destroyed as soon as it is made.
         // Off the watchdog thread, because the release makes RPC calls.
         String owner = uiOwner();
+        if (owner == null) {
+            return;
+        }
+        ManagementCallerTag tag = this.callerTag;
+        if (tag != null) {
+            // Refuses this run's creates on every connection, including ones added
+            // after this point, which the release below never reaches.
+            tag.revoke(owner);
+        }
         ScriptUiLifecycle lifecycle = this.uiLifecycle;
+        long run = this.uiRunId;
         Thread.ofVirtual().name("ui-release-" + getScriptName())
-                .start(() -> releaseUi(lifecycle, owner));
+                .start(() -> releaseUi(lifecycle, owner, run));
     }
 
-    private static void releaseUi(ScriptUiLifecycle lifecycle, String owner) {
+    private static void releaseUi(ScriptUiLifecycle lifecycle, String owner, long run) {
+        if (owner == null) {
+            return;
+        }
         try {
-            lifecycle.released().accept(owner);
+            lifecycle.released().accept(owner, run);
         } catch (RuntimeException e) {
             log.debug("Plugin UI release of {} failed: {}", owner, e.getMessage());
         }
@@ -324,14 +347,19 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
 
     /** Tags this thread for plugin-UI ownership and reopens the owner after an earlier run. */
     private void enterUiScope() {
+        ScriptUiLifecycle lifecycle = this.uiLifecycle;
+        long run = lifecycle.runIds().getAsLong();
+        String owner = ManagementCallerTag.ownerOf(getScriptName(), run);
+        this.uiRunId = run;
+        this.uiOwner = owner;
         ManagementCallerTag tag = this.callerTag;
         if (tag != null) {
-            tag.enter(uiOwner());
+            tag.enter(owner);
         }
         try {
-            uiLifecycle.opened().accept(uiOwner());
+            lifecycle.opened().accept(owner, run);
         } catch (RuntimeException e) {
-            log.debug("Plugin UI open of {} failed: {}", uiOwner(), e.getMessage());
+            log.debug("Plugin UI open of {} failed: {}", owner, e.getMessage());
         }
     }
 
@@ -413,7 +441,7 @@ public class ManagementScriptRunner implements Runnable, LivenessWatchdog.Subjec
             if (started) {
                 runOnStop(name);
             }
-            releaseUi(uiLifecycle, uiOwner());
+            releaseUi(uiLifecycle, uiOwner(), uiRunId);
         } finally {
             ManagementCallerTag tag = this.callerTag;
             if (tag != null) {

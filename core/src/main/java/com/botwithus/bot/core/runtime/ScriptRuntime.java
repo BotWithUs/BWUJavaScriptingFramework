@@ -370,8 +370,9 @@ public class ScriptRuntime {
                 runner.setVoiceReleaser(scoped.voice()::closeAll);
             }
             runner.setUiLifecycle(new ScriptUiLifecycle(
-                    owner -> gameUiLifecycle.opened().accept(owner),
-                    owner -> gameUiLifecycle.released().accept(owner)));
+                    () -> gameUiLifecycle.runIds().getAsLong(),
+                    (owner, run) -> gameUiLifecycle.opened().accept(owner, run),
+                    (owner, run) -> gameUiLifecycle.released().accept(owner, run)));
             runner.setWatchdogArmer(this::ensureWatchdog);
             if (connectionName != null) {
                 runner.setConnectionName(connectionName);

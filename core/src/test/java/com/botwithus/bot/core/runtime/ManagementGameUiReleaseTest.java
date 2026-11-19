@@ -99,8 +99,9 @@ class ManagementGameUiReleaseTest {
 
         ManagementScriptRunner runner = runtime.registerScript(manager);
         runner.start();
-        assertEquals(ManagementCallerTag.ownerOf(NAME), manager.ownerSeen.get(AWAIT_SECONDS, TimeUnit.SECONDS),
-                "the management thread must carry its own owner tag");
+        String seen = manager.ownerSeen.get(AWAIT_SECONDS, TimeUnit.SECONDS);
+        assertEquals(runner.uiOwner(), seen, "the management thread must carry its own owner tag");
+        assertTrue(runner.uiOwner().startsWith("<mgmt:" + NAME + "#"), "one owner per run: " + runner.uiOwner());
         runner.stop();
 
         assertTrue(runner.awaitStop(VERIFY_MS));
