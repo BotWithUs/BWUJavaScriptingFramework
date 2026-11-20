@@ -59,4 +59,18 @@ class ConfigValuesTest {
         assertEquals(OptionalInt.empty(), result.intAt(3));
         assertEquals(OptionalInt.empty(), new ScriptResult(List.of()).intAt(0));
     }
+    @Test
+    void npcLocSequenceQuestParams_readThroughTheSameAccessors() {
+        Map<String, Object> params = Map.of("26", 4.0, "27", "Wield", "28", 7L);
+        NpcType npc = new NpcType(1, "Hans", 0, true, true, List.of(), -1, -1, List.of(), params);
+        LocationType loc = new LocationType(2, "Tree", 1, 1, 2, 2, false, List.of(), -1, -1,
+                List.of(), -1, params);
+
+        assertEquals(OptionalInt.of(4), npc.intParam(26));
+        assertEquals(Optional.of("Wield"), npc.stringParam(27));
+        assertEquals(OptionalInt.of(7), loc.intParam(28));
+        assertEquals(OptionalInt.empty(), loc.intParam(27));
+        assertEquals(OptionalInt.empty(), new NpcType(3, "x", 0, true, true, List.of(), -1, -1,
+                List.of(), null).intParam(26));
+    }
 }

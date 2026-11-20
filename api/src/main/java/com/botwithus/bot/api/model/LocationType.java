@@ -2,6 +2,8 @@ package com.botwithus.bot.api.model;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Location (game object) definition from the game cache.
@@ -35,4 +37,15 @@ public record LocationType(
         List<Integer> transforms,
         int mapSpriteId,
         Map<String, Object> params
-) {}
+) {
+
+    /** The integer value of param {@code paramId}, or empty when the location has none. */
+    public OptionalInt intParam(int paramId) {
+        return ConfigValues.intParam(params, paramId);
+    }
+
+    /** The string value of param {@code paramId}, or empty when the location has none. */
+    public Optional<String> stringParam(int paramId) {
+        return ConfigValues.stringParam(params, paramId);
+    }
+}
