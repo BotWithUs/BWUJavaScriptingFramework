@@ -24,9 +24,13 @@ import java.util.OptionalInt;
  * {@link GameAPI#quests()}.
  *
  * <p>A quest's definition names the variable its progress is kept in, with a start and an end
- * value ({@link QuestType#progressVars()}). The quest is started once the variable is above
+ * value ({@link QuestType#progressVars()}). The quest is started once the variable reaches
  * the start value and complete once it reaches the end value. Like v1, only the first variable
  * listed is read; a definition lists varps before varbits.</p>
+ *
+ * <p>Started means <em>at or above</em> the start value, not above it as v1 had it. Cook's
+ * Assistant's definition is start 1, end 2 (read live on 951-4): with v1's rule no value of
+ * its progress variable would read "started".</p>
  *
  * <p><b>Relation to quest-core.</b> {@code QuestProgressTracker} follows the variables one
  * scripted quest lists, event by event, so a quest script can branch on the exact step it is
@@ -124,7 +128,7 @@ public final class QuestLog {
         if (value >= variable.endValue()) {
             return QuestStage.COMPLETE;
         }
-        return value > variable.startValue() ? QuestStage.STARTED : QuestStage.NOT_STARTED;
+        return value >= variable.startValue() ? QuestStage.STARTED : QuestStage.NOT_STARTED;
     }
 
     private OptionalInt read(QuestVar variable) {

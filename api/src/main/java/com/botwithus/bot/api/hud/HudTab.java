@@ -1,35 +1,33 @@
 package com.botwithus.bot.api.hud;
 
-import com.botwithus.bot.api.gameval.GamevalRef;
-import com.botwithus.bot.api.gameval.GamevalType;
-
 /**
- * A side window the ribbon opens, with the ribbon option that opens it and the window's own
- * interface (gameval name, with the id it had when this was written as the fallback).
+ * A side window the ribbon opens. Each carries the game's own window number, the key of the
+ * cache enum {@code RIBBON_WINDOWS} (ribbon slot to window), and the ribbon slot it had on
+ * 951-4, used when the cache cannot be read.
  */
 public enum HudTab {
 
-    BACKPACK("Open Backpack", "TOPLEVEL_V2_INVENTORY", 1473),
-    EQUIPMENT("Open Worn Equipment", "TOPLEVEL_V2_WORN", 1464),
-    SKILLS("Open Skills", "STATS_CHILD", 1466),
-    PRAYER("Open Prayers", "TOPLEVEL_V2_PRAYER", 1458),
-    MAGIC("Open Magic Abilities", "TOPLEVEL_V2_WINDOW_ABILITY_BOOK_MAGIC", 1461);
+    SKILLS(0, 8),
+    BACKPACK(2, 9),
+    EQUIPMENT(3, 10),
+    PRAYER(4, 11),
+    MAGIC(5, 12);
 
-    private final String option;
-    private final GamevalRef window;
+    private final int window;
+    private final int fallbackSlot;
 
-    HudTab(String option, String windowName, int windowId) {
-        this.option = option;
-        this.window = new GamevalRef(GamevalType.INTERFACE, windowName, windowId);
+    HudTab(int window, int fallbackSlot) {
+        this.window = window;
+        this.fallbackSlot = fallbackSlot;
     }
 
-    /** The ribbon option that opens the window. */
-    public String option() {
-        return option;
-    }
-
-    /** The window's interface. */
-    public GamevalRef window() {
+    /** The game's window number, as {@code RIBBON_WINDOWS} outputs it. */
+    public int window() {
         return window;
+    }
+
+    /** The ribbon slot to use when {@code RIBBON_WINDOWS} cannot be read. */
+    public int fallbackSlot() {
+        return fallbackSlot;
     }
 }

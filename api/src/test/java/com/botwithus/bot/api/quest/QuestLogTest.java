@@ -27,7 +27,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Quest stage from a definition's progress variable, and the unmet-requirements walk. The
- * varp quest uses start 1 / end 7 and the varbit quest start 0 / end 40, so swapping the two
+ * varp quest uses start 1 / end 7 and the varbit quest start 5 / end 40, so swapping the two
  * thresholds, comparing with the wrong operator or reading the wrong id space changes an
  * answer below.
  */
@@ -54,7 +54,7 @@ class QuestLogTest {
         when(api.getQuestType(VARP_QUEST)).thenReturn(quest(VARP_QUEST, "Cook's Assistant", false,
                 List.of(triple(PROGRESS_VARP, 1, 7)), List.of(), List.of(), List.of()));
         when(api.getQuestType(VARBIT_QUEST)).thenReturn(quest(VARBIT_QUEST, "Rune Mysteries", false,
-                List.of(), List.of(triple(PROGRESS_VARBIT, 0, 40)), List.of(), List.of()));
+                List.of(), List.of(triple(PROGRESS_VARBIT, 5, 40)), List.of(), List.of()));
         when(api.getQuestType(GATED_QUEST)).thenReturn(quest(GATED_QUEST, "Druidic Ritual", true,
                 List.of(), List.of(), List.of(VARP_QUEST, VARBIT_QUEST),
                 List.of(Map.of("skill", COOKING, "level", 12), Map.of("skill", HERBLORE, "level", 3))));
@@ -77,11 +77,11 @@ class QuestLogTest {
     }
 
     @Test
-    void varpQuest_atTheStartValue_isNotStarted_andOneAbove_isStarted() {
-        varp(PROGRESS_VARP, 1);
+    void varpQuest_belowTheStartValue_isNotStarted_andAtIt_isStarted() {
+        varp(PROGRESS_VARP, 0);
         assertEquals(QuestStage.NOT_STARTED, quests.status(VARP_QUEST).stage());
 
-        varp(PROGRESS_VARP, 2);
+        varp(PROGRESS_VARP, 1);
         assertEquals(QuestStage.STARTED, quests.status(VARP_QUEST).stage());
         assertFalse(quests.isComplete(VARP_QUEST));
     }

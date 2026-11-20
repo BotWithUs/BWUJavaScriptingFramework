@@ -2,9 +2,9 @@ package com.botwithus.bot.api.quest;
 
 /** Where a quest stands for the logged-in player. */
 public enum QuestStage {
-    /** The progress variable is at or below the quest's start value. */
+    /** The progress variable is below the quest's start value. */
     NOT_STARTED,
-    /** Above the start value and below the end value. */
+    /** At or above the start value and below the end value. */
     STARTED,
     /** At or above the end value. */
     COMPLETE,

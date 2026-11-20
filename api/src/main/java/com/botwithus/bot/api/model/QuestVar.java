@@ -7,7 +7,7 @@ package com.botwithus.bot.api.model;
  *
  * @param kind       whether {@link #id()} is a varp or a varbit
  * @param id         the varp or varbit id
- * @param startValue the quest counts as started once the variable is above this value
+ * @param startValue the quest counts as started once the variable reaches this value
  * @param endValue   the quest counts as complete once the variable is at or above this value
  * @see QuestType#progressVars()
  */
