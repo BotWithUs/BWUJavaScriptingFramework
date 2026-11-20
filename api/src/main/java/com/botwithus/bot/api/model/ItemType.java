@@ -4,6 +4,7 @@ import com.botwithus.bot.api.inventory.Equipment;
 
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 
 /**
  * Item definition from the game cache.
@@ -101,5 +102,11 @@ public record ItemType(
     public boolean isTwoHanded() {
         int shield = Equipment.Slot.SHIELD.index;
         return wearpos2 == shield || wearpos3 == shield;
+    }
+
+    /** The integer value of item param {@code paramId}, or empty when the item has none. */
+    public OptionalInt intParam(int paramId) {
+        return params == null ? OptionalInt.empty()
+                : ConfigValues.asInt(params.get(Integer.toString(paramId)));
     }
 }

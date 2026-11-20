@@ -353,7 +353,8 @@ tasks.register<Test>("harnessTest") {
            "botwithus.live.groundItems", "botwithus.live.groundItemId",
            "botwithus.live.expectOpenIfaces",
            "botwithus.live.expectOpenIfaceTypes", "botwithus.live.inventoryOps",
-           "botwithus.live.dropItemId").forEach { key ->
+           "botwithus.live.dropItemId", "botwithus.live.combatHud",
+           "botwithus.live.lodestones").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {
