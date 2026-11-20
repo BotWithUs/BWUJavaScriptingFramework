@@ -18,6 +18,8 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntFunction;
+import java.util.function.Predicate;
+import java.util.regex.Pattern;
 
 /**
  * Snapshot-backed wrapper for one game inventory (backpack, bank, equipment, ...).
@@ -298,6 +300,199 @@ public class InventoryContainer {
             return false;
         }
         return t.name().toLowerCase().contains(needle.toLowerCase());
+    }
+
+    // ------------------------------------------------- Exact names, patterns, categories
+
+    /*
+     * Unlike the substring String methods above, everything in this section that takes a name
+     * matches the WHOLE display name, ignoring case: "Logs" finds Logs and not Oak logs. A
+     * Pattern must match the whole name too (Matcher.matches, not find). The difference is
+     * deliberate: these methods decide what to click or deposit, where a substring match
+     * picks the wrong item.
+     */
+
+    /** True when some item's whole display name matches {@code namePattern}. */
+    public boolean contains(Pattern namePattern) {
+        return getFirst(namePattern) != null;
+    }
+
+    /** Total quantity of items whose whole display name matches {@code namePattern}. */
+    public int count(Pattern namePattern) {
+        return countMatching(byPattern(namePattern));
+    }
+
+    /** First slot whose item's whole display name matches {@code namePattern}, or {@code null}. */
+    public InventoryItem getFirst(Pattern namePattern) {
+        return firstMatching(byPattern(namePattern));
+    }
+
+    /** Every slot whose item's whole display name matches {@code namePattern}. */
+    public List<InventoryItem> getAll(Pattern namePattern) {
+        return allMatching(byPattern(namePattern));
+    }
+
+    /** First slot whose item is named exactly {@code name}, ignoring case, or {@code null}. */
+    public InventoryItem getFirstExact(String name) {
+        return firstMatching(byExactNames(name));
+    }
+
+    /** True when every one of {@code names} is present, each matched as a whole name. */
+    public boolean containsAllOf(String... names) {
+        for (String name : names) {
+            if (getFirstExact(name) == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** True when any of {@code names} is present, each matched as a whole name. */
+    public boolean containsAnyOf(String... names) {
+        return firstMatching(byExactNames(names)) != null;
+    }
+
+    /** True when some item other than {@code itemIds} is present. */
+    public boolean containsAnyExcept(int... itemIds) {
+        return firstMatching(byIds(itemIds).negate()) != null;
+    }
+
+    /** True when some item not named any of {@code names} (whole names) is present. */
+    public boolean containsAnyExcept(String... names) {
+        return firstMatching(byExactNames(names).negate()) != null;
+    }
+
+    /** True when some item's cache category ({@link ItemType#category()}) is {@code category}. */
+    public boolean containsCategory(int category) {
+        return firstMatching(byCategory(category)) != null;
+    }
+
+    /** Every slot whose item's cache category is {@code category}. */
+    public List<InventoryItem> getAllInCategory(int category) {
+        return allMatching(byCategory(category));
+    }
+
+    /**
+     * Every slot whose item lists {@code option} (ignoring case) in its cache inventory
+     * options, {@link ItemType#inventoryOptions()}. That list is what the definition stores,
+     * so the client's default {@code "Drop"} is not in it; for what a live slot offers, read
+     * {@link GameAPI#getComponentOps} instead.
+     */
+    public List<InventoryItem> getItemsWithOption(String option) {
+        return allMatching(it -> {
+            ItemType t = lookupType(it.itemId());
+            return t != null && t.inventoryOptions().stream().anyMatch(option::equalsIgnoreCase);
+        });
+    }
+
+    /**
+     * {@link #interactFirst(int, String)} on the first item named exactly {@code name}.
+     *
+     * @return {@code false} when no such item is present or the option is not offered
+     */
+    public boolean interactFirst(String name, String option) {
+        InventoryItem it = getFirstExact(name);
+        return it != null && interactFirst(it.itemId(), option);
+    }
+
+    /** {@link #interactFirst(int, String)} on the first item whose name matches {@code namePattern}. */
+    public boolean interactFirst(Pattern namePattern, String option) {
+        InventoryItem it = getFirst(namePattern);
+        return it != null && interactFirst(it.itemId(), option);
+    }
+
+    /** Alias for {@link #interactFirst(String, String)}: the item named exactly {@code name}. */
+    public boolean interact(String name, String option) {
+        return interactFirst(name, option);
+    }
+
+    /** Alias for {@link #interactFirst(Pattern, String)}. */
+    public boolean interact(Pattern namePattern, String option) {
+        return interactFirst(namePattern, option);
+    }
+
+    /** Matches a filled slot whose item's whole display name matches {@code pattern}. */
+    protected final Predicate<InventoryItem> byPattern(Pattern pattern) {
+        return it -> {
+            String name = displayName(it);
+            return name != null && pattern.matcher(name).matches();
+        };
+    }
+
+    /** Matches a filled slot whose item's whole display name matches any of {@code patterns}. */
+    protected final Predicate<InventoryItem> byPatterns(Pattern... patterns) {
+        Predicate<InventoryItem> any = it -> false;
+        for (Pattern pattern : patterns) {
+            any = any.or(byPattern(pattern));
+        }
+        return any;
+    }
+
+    /** Matches a filled slot whose item is named exactly any of {@code names}, ignoring case. */
+    protected final Predicate<InventoryItem> byExactNames(String... names) {
+        List<String> wanted = List.of(names);
+        return it -> {
+            String name = displayName(it);
+            return name != null && wanted.stream().anyMatch(name::equalsIgnoreCase);
+        };
+    }
+
+    /** Matches a slot holding any of {@code itemIds}. */
+    protected static Predicate<InventoryItem> byIds(int... itemIds) {
+        int[] ids = itemIds.clone();
+        return it -> {
+            for (int id : ids) {
+                if (it.itemId() == id) {
+                    return true;
+                }
+            }
+            return false;
+        };
+    }
+
+    private Predicate<InventoryItem> byCategory(int category) {
+        return it -> {
+            ItemType t = lookupType(it.itemId());
+            return t != null && t.category() == category;
+        };
+    }
+
+    /** First filled slot {@code matcher} accepts, or {@code null}. Empty slots never match. */
+    protected final InventoryItem firstMatching(Predicate<InventoryItem> matcher) {
+        for (InventoryItem it : getAllSlots()) {
+            if (!it.isEmpty() && matcher.test(it)) {
+                return it;
+            }
+        }
+        return null;
+    }
+
+    /** Every filled slot {@code matcher} accepts. Empty slots never match. */
+    protected final List<InventoryItem> allMatching(Predicate<InventoryItem> matcher) {
+        List<InventoryItem> out = new ArrayList<>();
+        for (InventoryItem it : getAllSlots()) {
+            if (!it.isEmpty() && matcher.test(it)) {
+                out.add(it);
+            }
+        }
+        return out;
+    }
+
+    private int countMatching(Predicate<InventoryItem> matcher) {
+        int n = 0;
+        for (InventoryItem it : allMatching(matcher)) {
+            n += it.quantity();
+        }
+        return n;
+    }
+
+    /** The item's display name, or {@code null} for an empty slot or an unresolved definition. */
+    private String displayName(InventoryItem it) {
+        if (it.isEmpty()) {
+            return null;
+        }
+        ItemType t = lookupType(it.itemId());
+        return t == null ? null : t.name();
     }
 
     // ------------------------------------------------------------ Gameval names
