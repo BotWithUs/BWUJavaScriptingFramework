@@ -28,6 +28,14 @@ class CoordinateTest {
     }
 
     @Test
+    void regionId_putsRegionXInTheHighByte() {
+        Coordinate varrock = new Coordinate(3212, 3424, 0);
+        assertEquals(50, varrock.regionX());
+        assertEquals(53, varrock.regionY());
+        assertEquals((50 << 8) | 53, varrock.regionId());
+    }
+
+    @Test
     void offsets_deriveNewTiles() {
         Coordinate a = new Coordinate(10, 20, 1);
         assertEquals(new Coordinate(13, 18, 1), a.offset(3, -2));
