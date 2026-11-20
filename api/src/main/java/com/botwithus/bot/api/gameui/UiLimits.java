@@ -3,7 +3,7 @@ package com.botwithus.bot.api.gameui;
 /**
  * The agent's plugin-UI limits, mirrored from NXTLibrary
  * ({@code src/rpc/UiRegistry.h}, {@code src/rpc/UiHandlers.cpp},
- * {@code src/game/PluginUi.h}). Change one there and change it here in the same
+ * {@code src/rpc/UiWidgetParse.cpp}, {@code src/game/PluginUi.h}). Change one there and change it here in the same
  * logical change.
  *
  * <p>The agent enforces every one of these itself and its refusal reaches the
@@ -45,6 +45,26 @@ public final class UiLimits {
 
     /** Highest explicit dynamic id. */
     public static final int MAX_DYNAMIC = 0xFFF;
+
+    /** Bytes of UTF-8 a button label or an input field's content must be strictly shorter than. */
+    public static final int LABEL_CAPACITY_BYTES = TEXT_CAPACITY_BYTES;
+
+    /** Entries one combo field or list holds. */
+    public static final int MAX_ENTRIES = 256;
+
+    /** Bytes of UTF-8 one entry's text may hold. */
+    public static final int MAX_ENTRY_TEXT_BYTES = 255;
+
+    /** Bounds on an input field's {@code max_length}. */
+    public static final int MIN_INPUT_LENGTH = 1;
+    public static final int MAX_INPUT_LENGTH = 9999;
+
+    /** Bounds on a list's {@code selection_limit}. */
+    public static final int MIN_SELECTION_LIMIT = 1;
+    public static final int MAX_SELECTION_LIMIT = 255;
+
+    /** Bytes of content an {@link UiHookEvent.ContentChanged} carries at most. */
+    public static final int MAX_EVENT_CONTENT_BYTES = 767;
 
     private UiLimits() {
     }

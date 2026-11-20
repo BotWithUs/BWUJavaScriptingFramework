@@ -1,6 +1,7 @@
 package com.botwithus.bot.api.gameui;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * A canvas: a box the script draws lines, rectangles, gradients and triangles on.
@@ -60,6 +61,16 @@ public final class Canvas implements UiComponent {
     @Override
     public void toBack() {
         node.order(UiOrder.BACK);
+    }
+
+    @Override
+    public UiSubscription subscribe(UiHook hook, Consumer<? super UiHookEvent> listener) {
+        return node.subscribe(hook, listener);
+    }
+
+    @Override
+    public boolean unsubscribe(UiHook hook) {
+        return node.unsubscribe(hook);
     }
 
     @Override

@@ -1,7 +1,9 @@
 package com.botwithus.bot.api.gameui;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -111,6 +113,14 @@ public abstract class UiProps<P extends UiProps<P>> {
         return put("clickthrough", isClickthrough);
     }
 
+    /**
+     * Whether the component takes input. A disabled button, check, field or list is
+     * drawn greyed out by the client and ignores the user.
+     */
+    public final P enabled(boolean isEnabled) {
+        return put("enabled", isEnabled);
+    }
+
     /** Whether nothing has been set. */
     public final boolean isEmpty() {
         return values.isEmpty();
@@ -123,5 +133,22 @@ public abstract class UiProps<P extends UiProps<P>> {
 
     final P putText(String text) {
         return put("text", Objects.requireNonNull(text, "text"));
+    }
+
+    final P putString(String key, String value) {
+        return put(key, Objects.requireNonNull(value, key));
+    }
+
+    /** {@code entries} as the wire carries them: {@code [{id, text}]}, in order. */
+    final P putEntries(List<UiEntry> entries) {
+        Objects.requireNonNull(entries, "entries");
+        List<Map<String, Object>> wire = new ArrayList<>(entries.size());
+        for (UiEntry entry : entries) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("id", Objects.requireNonNull(entry, "entry").id());
+            map.put("text", entry.text());
+            wire.add(map);
+        }
+        return put("entries", List.copyOf(wire));
     }
 }

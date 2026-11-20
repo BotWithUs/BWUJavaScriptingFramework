@@ -1,7 +1,11 @@
 package com.botwithus.bot.core.impl;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
 
 /**
  * Shared type-safe extraction helpers for reading values from
@@ -160,6 +164,33 @@ public final class MapHelper {
     public static String getStringNullable(Map<String, Object> map, String key) {
         Object v = map.get(key);
         return v instanceof String s ? s : null;
+    }
+
+    /** A list of mixed values, as msgpack decoded them (a nil stays {@code null}); empty when the key is absent or not a list. */
+    public static List<Object> getObjectList(Map<String, Object> map, String key) {
+        Object v = map.get(key);
+        if (v instanceof List<?> list) {
+            return Collections.unmodifiableList(new ArrayList<Object>(list));
+        }
+        return List.of();
+    }
+
+    /** Element {@code index} as an int; empty when it is missing or not a number. */
+    public static OptionalInt intAt(List<Object> list, int index) {
+        if (index >= list.size()) {
+            return OptionalInt.empty();
+        }
+        Object v = list.get(index);
+        return v instanceof Number n ? OptionalInt.of(n.intValue()) : OptionalInt.empty();
+    }
+
+    /** Element {@code index} as a string; empty when it is missing, nil or not a string. */
+    public static Optional<String> stringAt(List<Object> list, int index) {
+        if (index >= list.size()) {
+            return Optional.empty();
+        }
+        Object v = list.get(index);
+        return v instanceof String s ? Optional.of(s) : Optional.empty();
     }
 
     /**

@@ -1,5 +1,7 @@
 package com.botwithus.bot.api.gameui;
 
+import java.util.function.Consumer;
+
 /**
  * A text label.
  */
@@ -44,6 +46,16 @@ public final class Text implements UiComponent {
     @Override
     public void toBack() {
         node.order(UiOrder.BACK);
+    }
+
+    @Override
+    public UiSubscription subscribe(UiHook hook, Consumer<? super UiHookEvent> listener) {
+        return node.subscribe(hook, listener);
+    }
+
+    @Override
+    public boolean unsubscribe(UiHook hook) {
+        return node.unsubscribe(hook);
     }
 
     @Override
