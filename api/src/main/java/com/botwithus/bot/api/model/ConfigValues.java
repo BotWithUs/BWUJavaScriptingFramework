@@ -1,5 +1,6 @@
 package com.botwithus.bot.api.model;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
@@ -33,6 +34,19 @@ final class ConfigValues {
             case Byte b -> OptionalInt.of(b);
             case null, default -> OptionalInt.empty();
         };
+    }
+
+    /**
+     * Param {@code paramId} of a cache definition's param map as an {@code int}. The map is
+     * keyed by the param id in decimal and may be {@code null} on a definition with no params.
+     */
+    static OptionalInt intParam(Map<String, Object> params, int paramId) {
+        return params == null ? OptionalInt.empty() : asInt(params.get(Integer.toString(paramId)));
+    }
+
+    /** Param {@code paramId} as a string; see {@link #intParam(Map, int)}. */
+    static Optional<String> stringParam(Map<String, Object> params, int paramId) {
+        return params == null ? Optional.empty() : asString(params.get(Integer.toString(paramId)));
     }
 
     /** The value as a string, or empty when it is absent or not a string. */

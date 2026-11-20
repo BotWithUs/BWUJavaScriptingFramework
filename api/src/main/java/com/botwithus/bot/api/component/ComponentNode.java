@@ -3,12 +3,17 @@ package com.botwithus.bot.api.component;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentOp;
+import com.botwithus.bot.api.model.ComponentOps;
 import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.util.Interfaces;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.OptionalInt;
 
 /**
  * Rich wrapper around a {@link Component} record plus its position in a
@@ -22,6 +27,8 @@ import java.util.List;
  * a one-shot subtree fetch).</p>
  */
 public final class ComponentNode {
+
+    private static final Logger log = LoggerFactory.getLogger(ComponentNode.class);
 
     /** param3 for a plain component action: no inventory sub-slot. */
     private static final int NO_SUB_SLOT = -1;
@@ -148,6 +155,51 @@ public final class ComponentNode {
                 optionIndex,
                 NO_SUB_SLOT,
                 Interfaces.componentHash(interfaceId(), componentId())));
+    }
+
+    /**
+     * The right-click ops the client lists on this component now, read live with
+     * {@link GameAPI#getComponentOps} for this node's interface, component and
+     * {@link #subId() sub}. One pipe round-trip per call; {@link ComponentOps#NONE} when the
+     * component no longer resolves.
+     */
+    public ComponentOps ops() {
+        ComponentOps ops = api.getComponentOps(interfaceId(), componentId(), subId());
+        return ops == null ? ComponentOps.NONE : ops;
+    }
+
+    /** The option names {@link #ops()} lists, in op order. One round-trip. */
+    public List<String> options() {
+        return ops().ops().stream().map(ComponentOp::name).toList();
+    }
+
+    /** Whether the client lists {@code option} on this component (case-insensitive). */
+    public boolean hasOption(String option) {
+        return ops().opNamed(option).isPresent();
+    }
+
+    /**
+     * Queue the right-click option named {@code option} (case-insensitive, exact) on this
+     * component. The name is resolved to the op number the client would send through
+     * {@link GameAPI#getComponentOps}, so it follows the live menu rather than a guessed
+     * index: an item slot's ops follow the item in it.
+     *
+     * <p>Unlike {@link #interact(int)}, this sends the node's own {@link #subId() sub} in
+     * {@code param2}, so it works on a slot of a grid or a dynamic child as well as on a plain
+     * component (whose sub is {@code -1}).</p>
+     *
+     * @return {@code true} when the option was listed and the click was queued; {@code false}
+     *         when the component does not list it (nothing is queued)
+     */
+    public boolean interact(String option) {
+        OptionalInt op = ops().opNamed(option);
+        if (op.isEmpty()) {
+            log.debug("{} lists no option '{}'", this, option);
+            return false;
+        }
+        api.queueAction(new GameAction(ActionTypes.COMPONENT, op.getAsInt(), subId(),
+                Interfaces.componentHash(interfaceId(), componentId())));
+        return true;
     }
 
     /**

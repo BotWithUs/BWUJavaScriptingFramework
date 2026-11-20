@@ -4,6 +4,7 @@ import com.botwithus.bot.api.inventory.Equipment;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
@@ -106,7 +107,11 @@ public record ItemType(
 
     /** The integer value of item param {@code paramId}, or empty when the item has none. */
     public OptionalInt intParam(int paramId) {
-        return params == null ? OptionalInt.empty()
-                : ConfigValues.asInt(params.get(Integer.toString(paramId)));
+        return ConfigValues.intParam(params, paramId);
+    }
+
+    /** The string value of item param {@code paramId}, or empty when the item has none. */
+    public Optional<String> stringParam(int paramId) {
+        return ConfigValues.stringParam(params, paramId);
     }
 }

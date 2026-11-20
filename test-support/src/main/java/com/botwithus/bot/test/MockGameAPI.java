@@ -404,6 +404,16 @@ final class MockGameAPI implements GameAPI {
     }
 
     @Override
+    public boolean logout() {
+        throw notStubbed("logout");
+    }
+
+    @Override
+    public boolean exitToLobby() {
+        throw notStubbed("exitToLobby");
+    }
+
+    @Override
     public void scheduleBreak(int durationMs) {
         throw notStubbed("scheduleBreak");
     }

@@ -111,7 +111,7 @@ final class InventoryFixture {
         return captor.getAllValues();
     }
 
-    private InventoryFixture inventory(int invId, int slots, int... itemIds) {
+    InventoryFixture inventory(int invId, int slots, int... itemIds) {
         List<InventoryItem> items = new ArrayList<>();
         for (int slot = 0; slot < itemIds.length; slot++) {
             int id = itemIds[slot];

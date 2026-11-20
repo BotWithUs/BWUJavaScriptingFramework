@@ -12,6 +12,7 @@ import com.botwithus.bot.api.event.ScriptCrashedEvent;
 import com.botwithus.bot.api.runtime.LastCrash;
 import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.Phase;
+import com.botwithus.bot.api.runtime.ScriptPause;
 import com.botwithus.bot.api.runtime.ScriptHealth;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
@@ -74,7 +75,12 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     private final ScriptContextPublisher scriptCtxPublisher;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean disposed = new AtomicBoolean(false);
-    private final AtomicReference<ScriptConfig> currentConfig = new AtomicReference<>();
+    /**
+     * The script's settings and current config, one map. Replaced by the runtime with the
+     * instance the script's context holds, so {@code ctx.getSettings()} and the UI's config
+     * are the same values.
+     */
+    private volatile RunnerSettings settings = new RunnerSettings();
     private final AtomicReference<ScriptHealth> healthRef =
             new AtomicReference<>(ScriptHealth.HEALTHY);
     private final RunnerLiveness livenessState;
@@ -326,6 +332,7 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         this.scriptCtxPublisher = scriptCtxPublisher != null
                 ? scriptCtxPublisher : ScriptContextPublisher.NOOP;
         this.livenessState = livenessState != null ? livenessState : new RunnerLiveness();
+        this.settings.setPersister(this::persistConfig);
     }
 
     /**
@@ -535,24 +542,36 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
     }
 
     /**
-     * Returns the current config snapshot, or {@code null} if not yet loaded.
+     * Binds the settings the script's context hands out, so both sides see one map. Its
+     * {@code save()} persists under this runner's script name and account.
      */
-    public ScriptConfig getCurrentConfig() {
-        return currentConfig.get();
+    public void setSettings(RunnerSettings settings) {
+        settings.setPersister(this::persistConfig);
+        this.settings = settings;
+    }
+
+    /** The script's settings: its config fields and every key it stored itself. */
+    public RunnerSettings getSettings() {
+        return settings;
     }
 
     /**
-     * Applies a new configuration from the UI thread. Persists and notifies the script.
+     * Returns the current config snapshot: every stored value, declared field or not. Empty
+     * until loaded or applied.
      */
-    public void applyConfig(ScriptConfig config) {
-        currentConfig.set(config);
+    public ScriptConfig getCurrentConfig() {
+        return settings.current();
+    }
+
+    /**
+     * Applies a new configuration from the UI thread. Its values are laid over the current
+     * ones, so keys the script stored itself survive a UI apply; the result is persisted and
+     * handed to the script.
+     */
+    public void applyConfig(ScriptConfig applied) {
+        ScriptConfig config = settings.merge(applied);
         String name = getScriptName();
-        String uuid = accountUuid;
-        if (uuid == null) {
-            log.info("applyConfig({}): no accountUuid set, skipping persist", name);
-        } else {
-            Thread.startVirtualThread(() -> ScriptConfigStore.save(name, uuid, config));
-        }
+        Thread.startVirtualThread(() -> persistConfig(config));
         try {
             script.onConfigUpdate(config);
         } catch (Throwable e) {
@@ -561,8 +580,36 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         }
     }
 
+    /**
+     * Pauses the script: {@code onLoop} is not called again, and its {@code Timing} waits
+     * hold, until {@link #resume()}. Idempotent; the same switch the script's own
+     * {@code ScriptContext.pause()} flips.
+     */
+    public void pause() {
+        livenessState.pauseGate().pause();
+        log.info("Paused script {}", getScriptName());
+    }
+
+    /** Resumes a paused script. Idempotent. */
+    public void resume() {
+        livenessState.pauseGate().resume();
+        log.info("Resumed script {}", getScriptName());
+    }
+
+    public boolean isPaused() {
+        return livenessState.isPaused();
+    }
+
+    /**
+     * Runs the whole lifecycle with the runner's pause switch bound to
+     * {@link ScriptPause#CURRENT}, so {@code Timing} on this thread can find it.
+     */
     @Override
     public void run() {
+        ScopedValue.where(ScriptPause.CURRENT, livenessState.pauseGate()).run(this::runLifecycle);
+    }
+
+    private void runLifecycle() {
         String name = getScriptName();
         RunLogging logging = runLogging.get();
         ScriptRun run = openRun(logging);
@@ -675,6 +722,11 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         }
     }
 
+    /**
+     * Loads the saved settings, declared fields defaulted. Loaded even for a script with no
+     * fields, because its settings may hold keys it stored itself; only a script that
+     * declares fields is handed {@code onConfigUpdate}, as before.
+     */
     private void loadPersistedConfig(String name) {
         // One read: the check and the load must see the same value.
         String uuid = accountUuid;
@@ -684,9 +736,10 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         }
         try {
             List<ConfigField> fields = script.getConfigFields();
-            if (fields != null && !fields.isEmpty()) {
-                ScriptConfig config = ScriptConfigStore.load(name, uuid, fields);
-                currentConfig.set(config);
+            List<ConfigField> declared = fields == null ? List.of() : fields;
+            ScriptConfig config = ScriptConfigStore.load(name, uuid, declared);
+            settings.replace(config);
+            if (!declared.isEmpty()) {
                 script.onConfigUpdate(config);
             }
         } catch (Throwable e) {
@@ -695,9 +748,22 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
         }
     }
 
+    /** Writes {@code config} to this script's per-account file; skipped without an account. */
+    private void persistConfig(ScriptConfig config) {
+        String name = getScriptName();
+        String uuid = accountUuid;
+        if (uuid == null) {
+            log.info("persistConfig({}): no accountUuid set, skipping persist", name);
+            return;
+        }
+        ScriptConfigStore.save(name, uuid, config);
+    }
+
     private void runLoop() throws InterruptedException {
         GameAPI gameAPI = context.getGameAPI();
         while (running.get() && !Thread.currentThread().isInterrupted()) {
+            // Blocks while paused; a stop interrupts the thread, which ends the wait.
+            livenessState.pauseGate().awaitResumed();
             recordTile(gameAPI);
             long loopStart = System.nanoTime();
             livenessState.enterLoop();

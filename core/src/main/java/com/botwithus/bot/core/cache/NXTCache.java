@@ -10,8 +10,6 @@ import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.VarbitType;
 import com.botwithus.bot.core.util.NativeCache;
 import com.botwithus.bot.core.util.Throwables;
-import com.google.gson.Gson;
-import com.google.gson.reflect.TypeToken;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +20,6 @@ import java.lang.foreign.Linker;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
-import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
@@ -75,8 +72,6 @@ public final class NXTCache implements AutoCloseable {
     public static final int NXT_ERR_IO        = 4;
     public static final int NXT_ERR_INTERNAL  = 5;
 
-    private static final Gson GSON = new Gson();
-    private static final Type MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
 
     /** Upper bound on a single native-returned blob; guards a garbage length from SIGSEGV-ing the JVM. */
     private static final long MAX_NATIVE_BLOB_BYTES = 256L * 1024 * 1024;
@@ -811,7 +806,7 @@ public final class NXTCache implements AutoCloseable {
     }
 
     private static Map<String, Object> parseObject(String json) {
-        return GSON.fromJson(json, MAP_TYPE);
+        return CacheJson.parseObject(json);
     }
 
     private static String lastError() {

@@ -12,6 +12,7 @@ import com.botwithus.bot.api.util.Interfaces;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -174,6 +175,64 @@ public final class Dialog {
     }
 
     /**
+     * True when the player-chat dialog (the player speaking, {@code CHAT_V2_RIGHT}, 1191) is
+     * open. Read from the snapshot's open-interface list: no round-trip.
+     */
+    public static boolean isPlayerChatOpen(GameAPI api) {
+        return ChatPage.PLAYER.isOpen(api);
+    }
+
+    /**
+     * The text of the one-page dialog open now: an NPC or the player speaking, or a plain or
+     * item message box, checked in that order. The text is the client's own string, so it can
+     * hold markup such as {@code <br>} or {@code <col=...>}; {@link #plain(String)} strips it.
+     *
+     * @return the text, or empty when none of those dialogs is open
+     */
+    public static Optional<String> getText(GameAPI api) {
+        return ChatPage.open(api).flatMap(page -> page.text(api));
+    }
+
+    /**
+     * The speaker's name on the chat dialog open now, NPC or player. Message boxes have no
+     * speaker, and neither does the multi-choice dialog: it carries no title component of
+     * its own, so it reads empty too.
+     *
+     * @return the name, or empty when no chat with a speaker is open
+     */
+    public static Optional<String> getTitle(GameAPI api) {
+        return ChatPage.open(api).flatMap(page -> page.title(api));
+    }
+
+    /** True when any click-to-continue dialog is open: NPC, player, message or item box. */
+    public static boolean canContinue(GameAPI api) {
+        return ChatPage.open(api).isPresent();
+    }
+
+    /**
+     * Advances whichever click-to-continue dialog is open by its continue button, with the
+     * {@code DIALOGUE} action a manual click sends (as {@link #continueChat} does for the NPC
+     * chat alone).
+     *
+     * @return {@code true} when a dialog was open and the continue was queued
+     */
+    public static boolean continueDialog(GameAPI api) {
+        Optional<ChatPage> page = ChatPage.open(api);
+        page.ifPresent(open -> api.queueAction(new GameAction(ActionTypes.DIALOGUE,
+                DIALOGUE_PARAM1, NO_SUB_SLOT, open.continueHash(api))));
+        return page.isPresent();
+    }
+
+    /** {@code text} with the client's markup removed and whitespace collapsed; case kept. */
+    public static String plain(String text) {
+        if (text == null || text.isEmpty()) {
+            return "";
+        }
+        String stripped = MARKUP.matcher(text).replaceAll(" ");
+        return WHITESPACE.matcher(stripped).replaceAll(" ").strip();
+    }
+
+    /**
      * Builds an option from a candidate row, or {@code null} when the row carries
      * no label (an empty/unused slot). The row's non-blank {@code TEXT} descendants
      * are read by {@link #cells}.
@@ -238,11 +297,6 @@ public final class Dialog {
 
     /** Lowercase + strip markup tags + collapse whitespace, for tolerant matching. */
     static String normalize(String raw) {
-        if (raw == null || raw.isEmpty()) {
-            return "";
-        }
-        String stripped = MARKUP.matcher(raw).replaceAll(" ");
-        String collapsed = WHITESPACE.matcher(stripped).replaceAll(" ");
-        return collapsed.toLowerCase(Locale.ROOT).strip();
+        return plain(raw).toLowerCase(Locale.ROOT);
     }
 }

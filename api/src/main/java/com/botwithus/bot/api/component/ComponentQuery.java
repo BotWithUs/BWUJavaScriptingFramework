@@ -1,12 +1,17 @@
 package com.botwithus.bot.api.component;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.model.ComponentOps;
 import com.botwithus.bot.api.model.ComponentRef;
+import com.botwithus.bot.api.model.ItemType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -38,6 +43,12 @@ public final class ComponentQuery {
 
     private static final Logger log = LoggerFactory.getLogger(ComponentQuery.class);
 
+    /** {@link ComponentNode#itemId()} on a component that shows no item. */
+    private static final int NO_ITEM = -1;
+
+    /** The op whose mask bit marks a component's default (left-click) option. */
+    private static final int DEFAULT_OP = 1;
+
     private final GameAPI api;
     private final int rootInterfaceId;
     private final int rootComponentId;
@@ -45,6 +56,10 @@ public final class ComponentQuery {
     private Predicate<ComponentNode> filter = node -> true;
     private int limit = Integer.MAX_VALUE;
     private ComponentTree cachedTree;
+    /** Live ops already read for this query, so several terminals cost one read per node. */
+    private final Map<NodeKey, ComponentOps> opsByNode = new HashMap<>();
+    /** Item definitions already looked up for this query; empty for an unknown id. */
+    private final Map<Integer, Optional<ItemType>> itemTypes = new HashMap<>();
 
     ComponentQuery(GameAPI api, int rootInterfaceId, int rootComponentId) {
         this.api = api;
@@ -170,6 +185,74 @@ public final class ComponentQuery {
     }
 
     /**
+     * Keep components whose live right-click menu lists any of {@code options}, matched
+     * case-insensitively and exactly, as {@link ComponentNode#hasOption} matches.
+     *
+     * <p>The menu is not in the tree, so this reads it with one {@code get_component_ops}
+     * round-trip per component that reaches the filter (memoised for the query). Add it after
+     * the cheaper filters, which run first because filters AND in the order they are added.</p>
+     */
+    public ComponentQuery withOption(String... options) {
+        if (options.length == 0) {
+            log.warn("withOption() was given no options; this query will match nothing");
+            return filter(node -> false);
+        }
+        return filter(node -> {
+            ComponentOps ops = opsOf(node);
+            for (String option : options) {
+                if (ops.opNamed(option).isPresent()) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    /**
+     * Keep components whose default (left-click) option reaches the server: op
+     * {@value #DEFAULT_OP} is set in the op-flags word. That is the flag v1's
+     * {@code hasDefaultOption} read. One {@code get_component_ops} per node, as
+     * {@link #withOption}.
+     */
+    public ComponentQuery hasDefaultOption() {
+        return filter(node -> opsOf(node).isTransmitting(DEFAULT_OP));
+    }
+
+    /**
+     * Keep components showing an item whose display name contains {@code name}
+     * (case-insensitive), as the display-name filters elsewhere match. One cache lookup per
+     * distinct item id, memoised for the query.
+     */
+    public ComponentQuery withItemName(String name) {
+        String needle = name.toLowerCase(Locale.ROOT);
+        return filter(node -> itemOf(node)
+                .map(type -> type.name() != null
+                        && type.name().toLowerCase(Locale.ROOT).contains(needle))
+                .orElse(false));
+    }
+
+    /** Keep components showing an item whose display name {@code pattern} finds a match in. */
+    public ComponentQuery withItemName(Pattern pattern) {
+        return filter(node -> itemOf(node)
+                .map(type -> type.name() != null && pattern.matcher(type.name()).find())
+                .orElse(false));
+    }
+
+    /** Keep components showing an item of cache category {@code category}. */
+    public ComponentQuery withItemCategory(int category) {
+        return filter(node -> itemOf(node).map(type -> type.category() == category).orElse(false));
+    }
+
+    /**
+     * Keep components showing an item whose amount is in {@code min..max}, inclusive.
+     * Components showing no item never match, whatever the range.
+     */
+    public ComponentQuery withItemAmount(int min, int max) {
+        return filter(node -> node.itemId() != NO_ITEM
+                && node.itemAmount() >= min && node.itemAmount() <= max);
+    }
+
+    /**
      * Keep only components that are on screen: {@link ComponentNode#isVisibleGlobal()}, which is
      * visible by their own flag <em>and</em> under every parent up to a root. A child whose own
      * flag says visible under a hidden layer is not kept. To filter on the own flag alone, use
@@ -263,5 +346,31 @@ public final class ComponentQuery {
                     : ComponentTree.fetch(api, rootInterfaceId, rootComponentId);
         }
         return cachedTree;
+    }
+    private ComponentOps opsOf(ComponentNode node) {
+        return opsByNode.computeIfAbsent(new NodeKey(node), key -> node.ops());
+    }
+
+    private Optional<ItemType> itemOf(ComponentNode node) {
+        if (node.itemId() == NO_ITEM) {
+            return Optional.empty();
+        }
+        return itemTypes.computeIfAbsent(node.itemId(), this::lookUpItem);
+    }
+
+    private Optional<ItemType> lookUpItem(int itemId) {
+        try {
+            return Optional.ofNullable(api.getItemType(itemId));
+        } catch (RuntimeException e) {
+            log.debug("getItemType({}) failed; the item matches no item filter", itemId, e);
+            return Optional.empty();
+        }
+    }
+
+    /** One component, or one sub of it, as {@link #opsByNode} keys it. */
+    private record NodeKey(int interfaceId, int componentId, int subId) {
+        NodeKey(ComponentNode node) {
+            this(node.interfaceId(), node.componentId(), node.subId());
+        }
     }
 }
