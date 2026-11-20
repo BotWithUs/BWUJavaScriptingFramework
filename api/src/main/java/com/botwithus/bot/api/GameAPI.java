@@ -49,6 +49,7 @@ import com.botwithus.bot.api.model.ComponentTreeNode;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.SpotAnimation;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.quest.QuestLog;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.summoning.Summoning;
@@ -254,6 +255,11 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     /** The world list, the current world, and hopping with arrival confirmed. */
     default Worlds worlds() {
         return new Worlds(this);
+    }
+
+    /** Status of any quest by id or gameval name: stage, progress, unmet requirements. */
+    default QuestLog quests() {
+        return new QuestLog(this);
     }
 
     /**

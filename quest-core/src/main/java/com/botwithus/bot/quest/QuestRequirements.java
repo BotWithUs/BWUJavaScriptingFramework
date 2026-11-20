@@ -3,6 +3,7 @@ package com.botwithus.bot.quest;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
+import com.botwithus.bot.api.quest.QuestLog;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 
@@ -19,10 +20,10 @@ import java.util.Map;
  * <p>Treat the result as advisory. {@link GameAPI#getQuestType(int)} is
  * currently a slice-5 stub on the producer, so when no real definition is
  * returned the check defaults to {@link RequirementCheck#pass()}. Skill /
- * membership checks against a real definition are exact; QP and
- * dependent-quest checks are stubbed out until those reads land (the
- * producer currently has no surface for "is quest X complete?" or
- * "what's the player's total QP?").</p>
+ * membership checks against a real definition are exact. A prior quest counts
+ * as complete when {@link QuestLog#isComplete(int)} says so (its progress
+ * variable has reached the definition's end value). Quest points are still not
+ * checked: the player's total has no identified variable.</p>
  */
 public final class QuestRequirements {
 
@@ -37,6 +38,7 @@ public final class QuestRequirements {
         List<RequirementCheck.Missing> missing = new ArrayList<>();
         checkMembership(type, api, missing);
         checkSkills(type, api, missing);
+        checkPriorQuests(type, api, missing);
         return missing.isEmpty()
                 ? RequirementCheck.pass()
                 : RequirementCheck.fail(missing);
@@ -66,6 +68,20 @@ public final class QuestRequirements {
             int actual = stat == null ? 0 : stat.actualLevel();
             if (actual < requiredLevel) {
                 out.add(new RequirementCheck.Missing.Skill(skillId, requiredLevel, actual));
+            }
+        }
+    }
+
+    /**
+     * Each prior quest the definition lists must be complete. Read through the api's
+     * {@link QuestLog}, so this and {@code api.quests()} agree on what "complete" means.
+     */
+    private static void checkPriorQuests(QuestType type, GameAPI api,
+                                         List<RequirementCheck.Missing> out) {
+        QuestLog log = new QuestLog(api);
+        for (int prior : type.dependentQuestIds()) {
+            if (!log.isComplete(prior)) {
+                out.add(new RequirementCheck.Missing.DependentQuest(prior));
             }
         }
     }

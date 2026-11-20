@@ -14,6 +14,7 @@ module com.botwithus.bot.api {
     exports com.botwithus.bot.api.input;
     exports com.botwithus.bot.api.inventory;
     exports com.botwithus.bot.api.model;
+    exports com.botwithus.bot.api.quest;
     exports com.botwithus.bot.api.snapshot;
     exports com.botwithus.bot.api.summoning;
     exports com.botwithus.bot.api.isc;
