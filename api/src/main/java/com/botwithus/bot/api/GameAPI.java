@@ -5,6 +5,7 @@ import com.botwithus.bot.api.combat.LocalCombat;
 import com.botwithus.bot.api.combat.Prayers;
 import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.domain.ActionAPI;
+import com.botwithus.bot.api.domain.ClientStateAPI;
 import com.botwithus.bot.api.domain.DrawAPI;
 import com.botwithus.bot.api.domain.GameUiAPI;
 import com.botwithus.bot.api.domain.NavigationAPI;
@@ -52,6 +53,7 @@ import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.summoning.Summoning;
 import com.botwithus.bot.api.world.LodestoneNetwork;
+import com.botwithus.bot.api.world.Worlds;
 
 import java.util.List;
 import java.util.Map;
@@ -85,7 +87,7 @@ import java.util.OptionalInt;
  * @see ScriptContext#getGameAPI()
  */
 public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAPI, DrawAPI,
-        GameUiAPI {
+        GameUiAPI, ClientStateAPI {
 
     /**
      * Value the gameval-named variable reads return when the name does not
@@ -249,6 +251,11 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
         return new LodestoneNetwork(this);
     }
 
+    /** The world list, the current world, and hopping with arrival confirmed. */
+    default Worlds worlds() {
+        return new Worlds(this);
+    }
+
     /**
      * Per-item obj vars for every filled slot of a container — the per-instance
      * variables an item carries in its slot's {@code ObjVarDomain}
@@ -306,20 +313,18 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     WorldMapElements mapElements();
 
     /**
-     * Low-level RPC: ask the producer for cache-resident world map elements
-     * matching {@code filter}. The map shape is the same one
-     * {@link WorldMapElements.Query} accumulates. Most scripts go through
-     * {@link #mapElements()} instead. Stub-empty until producer iteration
-     * lands.
+     * Cache-resident world map element placements matching {@code filter}, read through
+     * {@code NXTCache.dll} (no RPC). The map shape is the one {@link WorldMapElements.Query}
+     * accumulates; {@link WorldMapElements#AREA_KEY} picks the area, the main world by
+     * default. Most scripts go through {@link #mapElements()} instead. Empty when the host
+     * has no cache, or its NXTCache.dll predates the placement export.
      */
     List<WorldMapElement> queryWorldMapElements(Map<String, Object> filter);
 
     /**
-     * Single world-map element by {@link WorldMapElement#id() id}, or
-     * {@code null} when not found. Default implementation scans the
-     * {@link #queryWorldMapElements unfiltered query} result client-side, so
-     * it inherits the producer-side stub-empty behaviour — once cache
-     * iteration lands, this returns real data without a code change.
+     * A placement of the world-map element {@link WorldMapElement#id() id} in the main world
+     * area, or {@code null} when it has none there. An element can be placed many times;
+     * this returns the first. Scans the {@link #queryWorldMapElements unfiltered query}.
      *
      * <p>Convenience for callers that already know the id (e.g. resolving a
      * named-location catalog entry). For map searches with filters use
@@ -395,7 +400,12 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
 
     // ---------------------------------------------------------------- Login / breaks (mutations)
 
-    /** Initiates a world hop to the given world id. */
+    /**
+     * Asks the agent to change to {@code worldId} and returns at once, without saying whether
+     * it started. Kept for existing callers; a refusal is logged. Prefer
+     * {@code worlds().hop(worldId)}, which reports the agent's reason and waits for arrival,
+     * or {@link #requestWorld(int)} for the agent's answer alone.
+     */
     void setWorld(int worldId);
 
     /**
@@ -435,6 +445,12 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
 
     /**
      * Executes a previously-obtained client script handle.
+     *
+     * <p>The script receives its ints in {@code intArgs} order and its strings in
+     * {@code stringArgs} order. Together they hold at most {@link ScriptResult#MAX_ARGS}
+     * values, and each string is at most {@link ScriptResult#MAX_STRING_ARG_BYTES} bytes of
+     * UTF-8; past either the call is refused before it is sent. String <em>returns</em>
+     * still come back empty.</p>
      *
      * @param handle     handle from {@link #getScriptHandle(int)}
      * @param intArgs    integer args, or {@code null}
@@ -655,10 +671,11 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     List<Integer> getStaticChildren(int interfaceId, int componentId);
 
     /**
-     * Returns the dynamic (script-spawned) child component ids of
-     * {@code (interfaceId, componentId)}. Same shape and caveats as
-     * {@link #getStaticChildren(int, int)}; this is the path embedded
-     * dropdowns and other transient sub-trees travel through.
+     * The flat {@code get_dynamic_children} list. <b>It is not a list of child ids:</b> a
+     * dynamic child's component id is its parent's, so every entry repeats the parent's id
+     * and only the list's length means anything. Use
+     * {@link #getDynamicChildSlots(int, int)} for the sub ids that tell the children apart
+     * and that a click on one sends.
      */
     List<Integer> getDynamicChildren(int interfaceId, int componentId);
 

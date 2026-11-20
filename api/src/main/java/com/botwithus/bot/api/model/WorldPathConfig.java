@@ -1,5 +1,10 @@
 package com.botwithus.bot.api.model;
 
+import com.botwithus.bot.api.world.Area;
+import com.botwithus.bot.api.world.RectangularArea;
+
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -24,6 +29,22 @@ import java.util.Objects;
  * {@link MovementOptions#allowDive()}, which the host applies itself; the host
  * logs a warning when that happens.</p>
  *
+ * <h2>Avoid areas</h2>
+ * {@link #avoidAreas()} are tile rectangles the walker never routes through, on the first
+ * plan and every re-plan: no walk step onto one of their tiles, and no door, stairs, boat,
+ * shortcut or teleport that starts or lands inside one. A ride that only passes over one on
+ * its way (a boat crossing it) is not refused, because only the two ends of a transport are
+ * known. An area holding the walk's start or goal tile is not applied to that plan, or the
+ * walk could never leave or reach it. A route that would have to cross an area fails with
+ * no route; it is never quietly taken through it. At most {@link #MAX_AVOID_AREAS}.
+ *
+ * <p>{@link #avoid(Area...)} takes any {@link Area}. A {@link RectangularArea} is sent
+ * exactly. A circle or a polygon is <b>covered by its bounding box</b>, so the walker also
+ * avoids the tiles in the box's corners outside the shape: conservative, never through the
+ * shape. An {@code Area} with no {@link Area#boundingBox()} is refused. A
+ * {@code worldwalker.dll} too old for avoid areas makes a walk or query that carries any
+ * fail rather than route through them.</p>
+ *
  * @param agilityLevel              player agility level (≤1 = auto-read from stats)
  * @param maxIterations             max pathfinder iterations
  * @param allowDoors                allow opening doors
@@ -40,6 +61,7 @@ import java.util.Objects;
  * @param globalTeleportMinHeuristic min heuristic distance before teleports considered
  * @param heuristicWeight           A* heuristic weight multiplier
  * @param movement                  the special movement the walker may use; never {@code null}
+ * @param avoidAreas                rectangles the walker never routes through; never {@code null}
  */
 public record WorldPathConfig(
         int agilityLevel,
@@ -57,8 +79,12 @@ public record WorldPathConfig(
         float transportCost,
         float globalTeleportMinHeuristic,
         float heuristicWeight,
-        MovementOptions movement
+        MovementOptions movement,
+        List<RectangularArea> avoidAreas
 ) {
+
+    /** Most avoid areas one config may carry ({@code WW_MAX_AVOID_AREAS}). */
+    public static final int MAX_AVOID_AREAS = 64;
 
     // ── Defaults matching the server. Named once and reused by both DEFAULT and
     //    the Builder field initializers so a bump on one side can't drift away from the other.
@@ -83,6 +109,53 @@ public record WorldPathConfig(
 
     public WorldPathConfig {
         Objects.requireNonNull(movement, "movement");
+        avoidAreas = List.copyOf(avoidAreas);
+        if (avoidAreas.size() > MAX_AVOID_AREAS) {
+            throw new IllegalArgumentException("at most " + MAX_AVOID_AREAS
+                    + " avoid areas, got " + avoidAreas.size());
+        }
+    }
+
+    /** The constructor as it was before {@link #avoidAreas()} existed: nothing avoided. */
+    public WorldPathConfig(int agilityLevel, int maxIterations,
+                           boolean allowDoors, boolean allowShortcuts,
+                           boolean allowPlaneTransitions, boolean allowClimbovers,
+                           boolean allowTransports, boolean allowTeleports,
+                           float doorCost, float transitionCost, float shortcutCost,
+                           float climboverCost, float transportCost,
+                           float globalTeleportMinHeuristic, float heuristicWeight,
+                           MovementOptions movement) {
+        this(agilityLevel, maxIterations, allowDoors, allowShortcuts, allowPlaneTransitions,
+                allowClimbovers, allowTransports, allowTeleports, doorCost, transitionCost,
+                shortcutCost, climboverCost, transportCost, globalTeleportMinHeuristic,
+                heuristicWeight, movement, List.of());
+    }
+
+    /**
+     * This config with {@code areas} avoided as well as any already avoided. See the class
+     * comment for how each shape becomes a rectangle.
+     *
+     * @throws IllegalArgumentException for an area with no bounding box, or past
+     *                                  {@link #MAX_AVOID_AREAS} in all
+     */
+    public WorldPathConfig avoid(Area... areas) {
+        List<RectangularArea> all = new ArrayList<>(avoidAreas);
+        all.addAll(toRectangles(areas));
+        return new WorldPathConfig(agilityLevel, maxIterations, allowDoors, allowShortcuts,
+                allowPlaneTransitions, allowClimbovers, allowTransports, allowTeleports,
+                doorCost, transitionCost, shortcutCost, climboverCost, transportCost,
+                globalTeleportMinHeuristic, heuristicWeight, movement, all);
+    }
+
+    /** Each area's rectangle: itself, or its bounding box. */
+    static List<RectangularArea> toRectangles(Area... areas) {
+        List<RectangularArea> out = new ArrayList<>(areas.length);
+        for (Area area : areas) {
+            Objects.requireNonNull(area, "area");
+            out.add(area.boundingBox().orElseThrow(() -> new IllegalArgumentException(
+                    "avoid area " + area + " has no bounding box; pass a RectangularArea")));
+        }
+        return out;
     }
 
     /**
@@ -164,6 +237,7 @@ public record WorldPathConfig(
         private boolean allowOtherTeleportChains = true;
         private boolean allowSurge = true;
         private boolean allowDive = true;
+        private final List<RectangularArea> avoidAreas = new ArrayList<>();
 
         private Builder() {}
 
@@ -192,6 +266,12 @@ public record WorldPathConfig(
         public Builder allowSurge(boolean val) { allowSurge = val; return this; }
         public Builder allowDive(boolean val) { allowDive = val; return this; }
 
+        /** Avoids {@code areas} as well; see {@link WorldPathConfig#avoid(Area...)}. */
+        public Builder avoid(Area... areas) {
+            avoidAreas.addAll(toRectangles(areas));
+            return this;
+        }
+
         public WorldPathConfig build() {
             return new WorldPathConfig(
                     agilityLevel, maxIterations,
@@ -201,7 +281,8 @@ public record WorldPathConfig(
                     transportCost, globalTeleportMinHeuristic, heuristicWeight,
                     new MovementOptions(allowSpiritTrees, allowGliders, allowCharters,
                             allowFairyRings, allowLodestones, allowMagicCarpets,
-                            allowOtherTeleportChains, allowSurge, allowDive)
+                            allowOtherTeleportChains, allowSurge, allowDive),
+                    avoidAreas
             );
         }
     }

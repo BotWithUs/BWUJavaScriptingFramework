@@ -3,16 +3,6 @@ package com.botwithus.bot.test;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.draw.Draw;
-import com.botwithus.bot.api.gameui.CanvasOp;
-import com.botwithus.bot.api.gameui.GameUi;
-import com.botwithus.bot.api.gameui.UiEvent;
-import com.botwithus.bot.api.gameui.UiHandleInfo;
-import com.botwithus.bot.api.gameui.UiOrder;
-import com.botwithus.bot.api.gameui.UiPlacement;
-import com.botwithus.bot.api.gameui.UiProps;
-import com.botwithus.bot.api.gameui.UiReadback;
-import com.botwithus.bot.api.gameui.UiSubscription;
-import com.botwithus.bot.api.gameui.UiType;
 import com.botwithus.bot.api.draw.DrawBatchResult;
 import com.botwithus.bot.api.draw.DrawCommand;
 import com.botwithus.bot.api.draw.DrawEntry;
@@ -23,12 +13,23 @@ import com.botwithus.bot.api.entities.Players;
 import com.botwithus.bot.api.entities.Projectiles;
 import com.botwithus.bot.api.entities.SceneObjects;
 import com.botwithus.bot.api.entities.WorldMapElements;
+import com.botwithus.bot.api.gameui.CanvasOp;
+import com.botwithus.bot.api.gameui.GameUi;
+import com.botwithus.bot.api.gameui.UiEvent;
+import com.botwithus.bot.api.gameui.UiHandleInfo;
+import com.botwithus.bot.api.gameui.UiOrder;
+import com.botwithus.bot.api.gameui.UiPlacement;
+import com.botwithus.bot.api.gameui.UiProps;
+import com.botwithus.bot.api.gameui.UiReadback;
+import com.botwithus.bot.api.gameui.UiSubscription;
+import com.botwithus.bot.api.gameui.UiType;
 import com.botwithus.bot.api.input.InputDialog;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
 import com.botwithus.bot.api.model.ActionEntry;
 import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentChild;
 import com.botwithus.bot.api.model.ComponentOps;
 import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.ComponentTreeNode;
@@ -36,6 +37,7 @@ import com.botwithus.bot.api.model.EntityKind;
 import com.botwithus.bot.api.model.EntityRead;
 import com.botwithus.bot.api.model.EnumType;
 import com.botwithus.bot.api.model.GameAction;
+import com.botwithus.bot.api.model.GeOffer;
 import com.botwithus.bot.api.model.Headbar;
 import com.botwithus.bot.api.model.HintArrow;
 import com.botwithus.bot.api.model.ItemType;
@@ -44,21 +46,26 @@ import com.botwithus.bot.api.model.LoginState;
 import com.botwithus.bot.api.model.NpcType;
 import com.botwithus.bot.api.model.OverheadText;
 import com.botwithus.bot.api.model.PathResult;
+import com.botwithus.bot.api.model.PlayerAppearance;
 import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.SpotAnimation;
 import com.botwithus.bot.api.model.StructType;
+import com.botwithus.bot.api.model.TargetMode;
 import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.VarbitValue;
 import com.botwithus.bot.api.model.VarpRead;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldMapElement;
 import com.botwithus.bot.api.model.WorldPathConfig;
+import com.botwithus.bot.api.model.WorldToScreen;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
-import com.botwithus.bot.api.model.PlayerAppearance;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.world.Coordinate;
+import com.botwithus.bot.api.world.WorldHopRequest;
+import com.botwithus.bot.api.world.WorldList;
 
 import java.util.List;
 import java.util.Map;
@@ -240,6 +247,54 @@ final class MockGameAPI implements GameAPI {
     @Override
     public PathResult findWorldPath(int fromX, int fromY, int toX, int toY) {
         throw notStubbed("findWorldPath");
+    }
+
+    @Override
+    public PathResult findWorldPath(int fromX, int fromY, int toX, int toY, int plane,
+                                    WorldPathConfig config) {
+        throw notStubbed("findWorldPath");
+    }
+
+    // ---------------------------------------------------------------- ClientStateAPI
+
+    @Override
+    public int getCurrentWorld() {
+        throw notStubbed("getCurrentWorld");
+    }
+
+    @Override
+    public WorldList getWorldList() {
+        throw notStubbed("getWorldList");
+    }
+
+    @Override
+    public WorldHopRequest requestWorld(int worldId) {
+        throw notStubbed("requestWorld");
+    }
+
+    @Override
+    public List<GeOffer> getGeOffers() {
+        throw notStubbed("getGeOffers");
+    }
+
+    @Override
+    public TargetMode getTargetMode() {
+        throw notStubbed("getTargetMode");
+    }
+
+    @Override
+    public WorldToScreen worldToScreen(List<Coordinate> tiles) {
+        throw notStubbed("worldToScreen");
+    }
+
+    @Override
+    public List<ComponentChild> getStaticChildSlots(int interfaceId, int componentId) {
+        throw notStubbed("getStaticChildSlots");
+    }
+
+    @Override
+    public List<ComponentChild> getDynamicChildSlots(int interfaceId, int componentId) {
+        throw notStubbed("getDynamicChildSlots");
     }
 
     @Override

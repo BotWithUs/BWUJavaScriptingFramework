@@ -7,6 +7,8 @@ import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 
+import com.botwithus.bot.api.model.GeOffer;
+
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -14,10 +16,8 @@ import java.util.stream.IntStream;
  * Convenience wrapper around the Grand Exchange interface ({@code STOCKMARKET},
  * iface 105) and its collect-all panel ({@code STOCKMARKET_COLLECTALL}, iface 651).
  *
- * <p>Only the interface probe and the button clicks live here. Offer state
- * (per-slot item, status, progress) is not exposed yet: the producer RPC that
- * used to publish it was removed and nothing replaces it, so there is no read
- * that could answer truthfully.</p>
+ * <p>Offer state comes from {@link #offers()}, which reads the client's own slot table
+ * ({@code get_ge_offers}) and works whether or not the interface is open.</p>
  *
  * <p>Every interface and component is addressed by its gameval name through
  * {@link GameAPI#gamevals()}; the literal ids are the fallback for a host with
@@ -74,6 +74,16 @@ public final class GrandExchange {
     }
 
     // ---------------------------------------------------------------- State
+
+    /** The eight offer slots of the main market, in slot order. */
+    public List<GeOffer> offers() {
+        return api.getGeOffers();
+    }
+
+    /** The slots holding an offer ({@link GeOffer#isActive()}). */
+    public List<GeOffer> activeOffers() {
+        return offers().stream().filter(GeOffer::isActive).toList();
+    }
 
     /** True when the GE interface is open. */
     public boolean isOpen() {

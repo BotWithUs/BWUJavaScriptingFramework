@@ -1,6 +1,10 @@
 package com.botwithus.bot.api.inventory;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.entities.Npc;
+import com.botwithus.bot.api.entities.SceneObject;
+import com.botwithus.bot.api.snapshot.InventoryItem;
+import com.botwithus.bot.api.util.Waiter;
 
 import java.util.regex.Pattern;
 
@@ -40,5 +44,27 @@ public final class Backpack extends InventoryContainer {
     /** {@link #use(int)} on the first item whose whole name matches {@code namePattern}. */
     public boolean use(Pattern namePattern) {
         return interactFirst(namePattern, USE);
+    }
+
+    /**
+     * Uses {@code item} on {@code target}, another backpack item, and waits for the game to
+     * take it: the knife on a log. Blocks for up to a few ticks; see {@link UseOn}.
+     */
+    public UseOn.Result useOn(InventoryItem item, InventoryItem target) {
+        return useOn().onItem(item, target);
+    }
+
+    /** Uses {@code item} on {@code npc}; see {@link UseOn}. */
+    public UseOn.Result useOn(InventoryItem item, Npc npc) {
+        return useOn().onNpc(item, npc);
+    }
+
+    /** Uses {@code item} on the loc {@code object}; see {@link UseOn}. */
+    public UseOn.Result useOn(InventoryItem item, SceneObject object) {
+        return useOn().onObject(item, object);
+    }
+
+    private UseOn useOn() {
+        return new UseOn(api, this, Waiter.TIMING);
     }
 }

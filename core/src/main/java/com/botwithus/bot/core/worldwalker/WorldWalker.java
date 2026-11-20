@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -316,9 +317,30 @@ public final class WorldWalker implements AutoCloseable {
      */
     public WwPathResult query(WwTile start, WwGoal goal, CapabilitySnapshot capabilities,
                               DynamicRegion instance, DisabledMoves moves) {
+        return query(start, goal, capabilities, instance, moves, List.of());
+    }
+
+    /**
+     * {@link #query(WwTile, WwGoal, CapabilitySnapshot, DynamicRegion, DisabledMoves)} that
+     * never routes through {@code avoid} ({@code ww_query_opts} with a V2
+     * {@code WwPlanOptions}). An empty {@code avoid} makes exactly the five-argument call.
+     *
+     * <p>The result carries the route's links ({@code ww_path_links}) when the library has
+     * that export.</p>
+     *
+     * @return the assembled path, or {@code null} when no route exists
+     * @throws IllegalStateException when {@code avoid} is not empty and the library predates
+     *                               avoid areas: the plan is refused rather than made
+     *                               through them
+     */
+    public WwPathResult query(WwTile start, WwGoal goal, CapabilitySnapshot capabilities,
+                              DynamicRegion instance, DisabledMoves moves, List<WwArea> avoid) {
         Objects.requireNonNull(start, "start");
         Objects.requireNonNull(goal, "goal");
         Objects.requireNonNull(moves, "moves");
+        Objects.requireNonNull(avoid, "avoid");
+        MethodHandle opts = avoid.isEmpty() ? null
+                : requireOpts(N.wwQueryOpts, WorldWalkerNative.QUERY_OPTS);
         enterCall();
         try (Arena tmp = Arena.ofConfined()) {
             MemorySegment startSeg = writeTile(tmp, start);
@@ -333,11 +355,17 @@ public final class WorldWalker implements AutoCloseable {
 
             int rc;
             try {
-                rc = N.queryEntry.call(moves,
-                        () -> (int) N.wwQueryEx.invokeExact(
-                                artifact, pool, startSeg, goalSeg, capsSeg, instSeg, outPath),
-                        mask -> (int) N.wwQueryMoves.orElseThrow().invokeExact(
-                                artifact, pool, startSeg, goalSeg, capsSeg, instSeg, outPath, mask));
+                if (opts != null) {
+                    MemorySegment optSeg = PlanOptions.write(tmp, moves, avoid);
+                    rc = (int) opts.invokeExact(
+                            artifact, pool, startSeg, goalSeg, capsSeg, instSeg, optSeg, outPath);
+                } else {
+                    rc = N.queryEntry.call(moves,
+                            () -> (int) N.wwQueryEx.invokeExact(
+                                    artifact, pool, startSeg, goalSeg, capsSeg, instSeg, outPath),
+                            mask -> (int) N.wwQueryMoves.orElseThrow().invokeExact(
+                                    artifact, pool, startSeg, goalSeg, capsSeg, instSeg, outPath, mask));
+                }
             } catch (Throwable t) {
                 throw rethrow(t);
             }
@@ -354,7 +382,7 @@ public final class WorldWalker implements AutoCloseable {
             // and zeroes the WwPath, so a half-decoded outPath stays consistent
             // even if step decoding throws.
             try {
-                return decodePath(outPath);
+                return withLinks(decodePath(outPath), outPath);
             } finally {
                 invokeVoid(N.wwPathFree, outPath);
             }
@@ -405,9 +433,26 @@ public final class WorldWalker implements AutoCloseable {
      * @return the terminal status of the run
      */
     public WwStatus runExecutor(WwGoal goal, WwCallbacks callbacks, DisabledMoves moves) {
+        return runExecutor(goal, callbacks, moves, List.of());
+    }
+
+    /**
+     * {@link #runExecutor(WwGoal, WwCallbacks, DisabledMoves)} that never routes through
+     * {@code avoid}, on the first plan and every re-plan ({@code ww_executor_run_opts}). An
+     * empty {@code avoid} makes exactly the three-argument call.
+     *
+     * @return the terminal status of the run
+     * @throws IllegalStateException when {@code avoid} is not empty and the library predates
+     *                               avoid areas: nothing is walked
+     */
+    public WwStatus runExecutor(WwGoal goal, WwCallbacks callbacks, DisabledMoves moves,
+                                List<WwArea> avoid) {
         Objects.requireNonNull(goal, "goal");
         Objects.requireNonNull(callbacks, "callbacks");
         Objects.requireNonNull(moves, "moves");
+        Objects.requireNonNull(avoid, "avoid");
+        MethodHandle opts = avoid.isEmpty() ? null
+                : requireOpts(N.wwExecutorRunOpts, WorldWalkerNative.EXECUTOR_RUN_OPTS);
         enterCall();
         Linker linker = Linker.nativeLinker();
         try (Arena tmp = Arena.ofConfined()) {
@@ -417,10 +462,15 @@ public final class WorldWalker implements AutoCloseable {
             int rc;
             try {
                 MemorySegment callbacksSeg = run.callbacksStruct;
-                rc = N.executorEntry.call(moves,
-                        () -> (int) N.wwExecutorRun.invokeExact(artifact, pool, goalSeg, callbacksSeg),
-                        mask -> (int) N.wwExecutorRunEx.orElseThrow().invokeExact(
-                                artifact, pool, goalSeg, callbacksSeg, mask));
+                if (opts != null) {
+                    MemorySegment optSeg = PlanOptions.write(tmp, moves, avoid);
+                    rc = (int) opts.invokeExact(artifact, pool, goalSeg, callbacksSeg, optSeg);
+                } else {
+                    rc = N.executorEntry.call(moves,
+                            () -> (int) N.wwExecutorRun.invokeExact(artifact, pool, goalSeg, callbacksSeg),
+                            mask -> (int) N.wwExecutorRunEx.orElseThrow().invokeExact(
+                                    artifact, pool, goalSeg, callbacksSeg, mask));
+                }
             } catch (Throwable t) {
                 // If a callback also threw, surface that first — it's the
                 // closer cause. invokeExact failures are far rarer and likely
@@ -437,6 +487,58 @@ public final class WorldWalker implements AutoCloseable {
             return WwStatus.fromWire(rc);
         } finally {
             leaveCall();
+        }
+    }
+
+    /** Whether the loaded library can apply avoid areas to a query and to a walk. */
+    public static boolean supportsAvoidAreas() {
+        return N.wwQueryOpts.isPresent() && N.wwExecutorRunOpts.isPresent();
+    }
+
+    /** Whether the loaded library reports a path's links. */
+    public static boolean supportsRouteLinks() {
+        return N.wwPathLinks.isPresent();
+    }
+
+    /**
+     * The plan-options entry point, or a refusal: a library older than it cannot apply avoid
+     * areas, and planning without them would route through what the caller ruled out.
+     */
+    private static MethodHandle requireOpts(Optional<MethodHandle> entry, String symbol) {
+        return entry.orElseThrow(() -> new IllegalStateException("worldwalker.dll has no "
+                + symbol + ": it cannot apply avoid areas, so nothing was planned. "
+                + "Update worldwalker.dll."));
+    }
+
+    /**
+     * {@code path} with its links from {@code ww_path_links}, read before the caller frees
+     * {@code outPath}. Left unresolved, rather than failed, when the library lacks the
+     * export or the call fails: the route itself is still good.
+     */
+    private WwPathResult withLinks(WwPathResult path, MemorySegment outPath) {
+        if (N.wwPathLinks.isEmpty()) {
+            return path;
+        }
+        try (Arena tmp = Arena.ofConfined()) {
+            MemorySegment outLinks = tmp.allocate(ADDRESS);
+            MemorySegment outCount = tmp.allocate(JAVA_LONG);
+            int rc;
+            try {
+                rc = (int) N.wwPathLinks.get().invokeExact(artifact, outPath, outLinks, outCount);
+            } catch (Throwable t) {
+                throw rethrow(t);
+            }
+            if (rc != WorldWalkerLayouts.WW_OK) {
+                log.debug("ww_path_links rc={}: {}", rc, lastError());
+                return path;
+            }
+            MemorySegment links = outLinks.get(ADDRESS, 0);
+            try {
+                return new WwPathResult(path.steps(), path.cost(),
+                        PlanOptions.readLinks(links, outCount.get(JAVA_LONG, 0)), true);
+            } finally {
+                invokeVoid(N.wwFree, links);
+            }
         }
     }
 

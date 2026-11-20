@@ -25,6 +25,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -165,6 +166,17 @@ public final class NXTCache implements AutoCloseable {
     private static final Optional<MethodHandle> MH_GAMEVAL_INDEX_VERSION =
             LIB.find("nxt_gameval_index_version").map(sym -> LINKER.downcallHandle(sym,
                     FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS)));
+    /**
+     * {@code nxt_get_worldmap_area_elements} and {@code nxt_get_worldmap_elements}, bound
+     * optionally for the same reason as {@link #MH_VARP_INFO}: an older NXTCache.dll must
+     * still load, with world map element placements simply unavailable.
+     */
+    private static final Optional<MethodHandle> MH_WME_AREA =
+            LIB.find("nxt_get_worldmap_area_elements").map(sym -> LINKER.downcallHandle(sym,
+                    FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_INT, ADDRESS, ADDRESS)));
+    private static final Optional<MethodHandle> MH_WME_ALL =
+            LIB.find("nxt_get_worldmap_elements").map(sym -> LINKER.downcallHandle(sym,
+                    FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS)));
     private static final Optional<MethodHandle> MH_BUILD_GAMEVAL_DB =
             LIB.find("nxt_build_gameval_db").map(sym -> LINKER.downcallHandle(sym,
                     FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS, ADDRESS)));
@@ -539,6 +551,79 @@ public final class NXTCache implements AutoCloseable {
                     throw new NXTCacheException("read_file_raw returned implausible length: " + len);
                 }
                 return buf.reinterpret(len).toArray(JAVA_BYTE);
+            } finally {
+                MH_FREE.invokeExact(buf);
+            }
+        }
+    }
+
+    // ----------------------------------------------------------- World map placements
+
+    /** Whether the loaded NXTCache.dll exports the world map element placements. */
+    public static boolean supportsWorldMapElements() {
+        return MH_WME_AREA.isPresent() && MH_WME_ALL.isPresent();
+    }
+
+    /**
+     * Every element placement of world map area {@code areaId}, in file order; empty for an
+     * area that places nothing or does not exist.
+     *
+     * @throws NXTCacheException when the library lacks the export or the read fails
+     */
+    public List<WmePlacement> worldMapAreaElements(int areaId) {
+        MethodHandle mh = MH_WME_AREA.orElseThrow(() -> new NXTCacheException(
+                "NXTCache.dll has no nxt_get_worldmap_area_elements; update it"));
+        try {
+            return guard.call(() -> readPlacements("worldmap_area_elements(" + areaId + ")",
+                    (out, len) -> (int) mh.invokeExact(handle, areaId, out, len)));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /**
+     * Every element placement of every world map area, areas in ascending id order.
+     *
+     * @throws NXTCacheException when the library lacks the export or the read fails
+     */
+    public List<WmePlacement> worldMapElements() {
+        MethodHandle mh = MH_WME_ALL.orElseThrow(() -> new NXTCacheException(
+                "NXTCache.dll has no nxt_get_worldmap_elements; update it"));
+        try {
+            return guard.call(() -> readPlacements("worldmap_elements",
+                    (out, len) -> (int) mh.invokeExact(handle, out, len)));
+        } catch (Throwable t) {
+            throw rethrow(t);
+        }
+    }
+
+    /** One placement export: fills its two out-parameters and returns an {@code nxt_result}. */
+    @FunctionalInterface
+    private interface PlacementCall {
+        int invoke(MemorySegment outArray, MemorySegment outCount) throws Throwable;
+    }
+
+    private static List<WmePlacement> readPlacements(String what, PlacementCall call) throws Throwable {
+        try (Arena tmp = Arena.ofConfined()) {
+            MemorySegment outPtr = tmp.allocate(ADDRESS);
+            MemorySegment outLen = tmp.allocate(JAVA_LONG);
+            int rc = call.invoke(outPtr, outLen);
+            if (rc == NXT_ERR_NOT_FOUND) {
+                return List.of();
+            }
+            if (rc != NXT_OK) {
+                throw new NXTCacheException(what + " rc=" + rc + ": " + lastError());
+            }
+            MemorySegment buf = outPtr.get(ADDRESS, 0);
+            long count = outLen.get(JAVA_LONG, 0);
+            if (buf.address() == 0L) {
+                return List.of();
+            }
+            try {
+                if (count < 0 || count > WmePlacement.MAX_PLACEMENTS) {
+                    throw new NXTCacheException(what + " returned implausible count: " + count);
+                }
+                return WmePlacement.readAll(buf.reinterpret(count * WmePlacement.BYTES), (int) count);
             } finally {
                 MH_FREE.invokeExact(buf);
             }
