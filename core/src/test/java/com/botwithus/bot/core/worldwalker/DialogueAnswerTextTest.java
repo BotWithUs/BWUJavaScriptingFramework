@@ -72,6 +72,22 @@ class DialogueAnswerTextTest {
     }
 
     @Test
+    void decodeSelection_littleEndianSlots_decodesArdougne() {
+        assertEquals("Ardougne", DialogueAnswerText.decodeSelection(0x6F647241, 0x656E6775, 0, 0));
+    }
+
+    @Test
+    void decodeSelection_allZeroSlots_isEmpty() {
+        assertEquals("", DialogueAnswerText.decodeSelection(0, 0, 0, 0));
+    }
+
+    @Test
+    void decodeSelection_fullBuffer_keepsAllSixteenBytes() {
+        assertEquals("abcdefghijklmnop",
+                DialogueAnswerText.decodeSelection(0x64636261, 0x68676665, 0x6C6B6A69, 0x706F6E6D));
+    }
+
+    @Test
     void decode_wrongSlotCount_throws() {
         assertThrows(IllegalArgumentException.class, () -> DialogueAnswerText.decode(1, 2, 3));
     }
