@@ -620,6 +620,28 @@ public final class Layout {
     public static final int EVT_RADIO_GROUP_SELECT  = 80;
 
     // ------------------------------------------------------------------
+    // HitmarkBody (Events.h, EVT_HITMARK). 20 bytes, little-endian:
+    //   i32 targetServerIndex; i8 targetType; u8[3] pad; i32 hitmarkType;
+    //   i32 damage; i32 cycle;
+    // HeadbarBody (Events.h, EVT_HEADBAR). 16 bytes, little-endian:
+    //   i32 targetServerIndex; i8 targetType; u8[3] pad; i32 headbarType; i32 value;
+    // Additive over the ring: decoding them is not a protocol bump.
+    // ------------------------------------------------------------------
+
+    public static final int HITMARK_TARGET_INDEX_OFFSET = 0;
+    public static final int HITMARK_TARGET_TYPE_OFFSET  = 4;
+    public static final int HITMARK_TYPE_OFFSET         = 8;
+    public static final int HITMARK_DAMAGE_OFFSET       = 12;
+    public static final int HITMARK_CYCLE_OFFSET        = 16;
+    public static final int HITMARK_BODY_BYTES          = 20;
+
+    public static final int HEADBAR_TARGET_INDEX_OFFSET = 0;
+    public static final int HEADBAR_TARGET_TYPE_OFFSET  = 4;
+    public static final int HEADBAR_TYPE_OFFSET         = 8;
+    public static final int HEADBAR_VALUE_OFFSET        = 12;
+    public static final int HEADBAR_BODY_BYTES          = 16;
+
+    // ------------------------------------------------------------------
     // KeyInputBody (Events.h, EVT_KEY_INPUT). 8 bytes, little-endian:
     //   u32 key; u8 isAlt; u8 isCtrl; u8 isShift; u8 flags;
     // flags was padding (always 0) before the kKeyFlag* bits existed, so an

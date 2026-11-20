@@ -14,6 +14,10 @@ package com.botwithus.bot.api.event;
  */
 public sealed interface GameEvent
         permits ActionExecutedEvent,
+                HeadbarEvent,
+                HitmarkEvent,
+                InventoryChangeEvent,
+                SkillChangeEvent,
                 BreakEndedEvent,
                 BreakStartedEvent,
                 ChatMessageEvent,

@@ -31,6 +31,7 @@ public final class SharedRegionEventPump implements AutoCloseable {
     private final SharedRegion region;
     private final ActionRefusalFeed refusals = new ActionRefusalFeed();
     private final EventRingReader reader;
+    private final SnapshotChangeDetector changes;
     private final Thread thread;
     private volatile boolean running = true;
 
@@ -49,6 +50,7 @@ public final class SharedRegionEventPump implements AutoCloseable {
     SharedRegionEventPump(SharedRegion region, Consumer<GameEvent> consumer, String threadName) {
         this.region = region;
         this.reader = new EventRingReader(region, /*fromHead*/ true, refusals::publish);
+        this.changes = new SnapshotChangeDetector(consumer);
         this.thread = new Thread(() -> runLoop(consumer), threadName);
         this.thread.setDaemon(true);
         this.thread.start();
@@ -67,6 +69,7 @@ public final class SharedRegionEventPump implements AutoCloseable {
                     // log and continue draining.
                     log.warn("event-ring poll failed; continuing", re);
                 }
+                deriveSnapshotChanges();
                 try {
                     Thread.sleep(POLL_INTERVAL_MS);
                 } catch (InterruptedException ie) {
@@ -82,6 +85,16 @@ public final class SharedRegionEventPump implements AutoCloseable {
     }
 
     /** Diagnostic — exposes the underlying reader's drop counters. */
+    // Inventory and skill change events are derived host-side on this thread, after the
+    // ring drain, so a tick's ring events always reach the bus before its derived ones.
+    private void deriveSnapshotChanges() {
+        try {
+            changes.observe(region.snapshot());
+        } catch (RuntimeException re) {
+            log.warn("snapshot change detection failed; continuing", re);
+        }
+    }
+
     public EventRingReader reader() { return reader; }
 
     /** The action refusals this pump decodes, for the host's own reactions (not the event bus). */

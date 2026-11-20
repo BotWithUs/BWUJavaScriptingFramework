@@ -1,6 +1,10 @@
 package com.botwithus.bot.core.shm;
 
 import com.botwithus.bot.api.event.ActionExecutedEvent;
+import com.botwithus.bot.api.event.HeadbarEvent;
+import com.botwithus.bot.api.event.HitmarkEvent;
+import com.botwithus.bot.api.event.InventoryChangeEvent;
+import com.botwithus.bot.api.event.SkillChangeEvent;
 import com.botwithus.bot.api.event.BreakEndedEvent;
 import com.botwithus.bot.api.event.BreakStartedEvent;
 import com.botwithus.bot.api.event.ChatMessageEvent;
@@ -162,6 +166,20 @@ public final class SnapshotProbe {
             case ScriptLoadFailedEvent e ->
                     "jar=" + e.jar().getFileName()
                             + " cause=" + e.cause().getClass().getSimpleName();
+            case HitmarkEvent e ->
+                    "target=" + e.targetServerIndex() + "/" + e.targetType()
+                            + " type=" + e.hitmarkType() + " damage=" + e.damage()
+                            + " cycle=" + e.cycle();
+            case HeadbarEvent e ->
+                    "target=" + e.targetServerIndex() + "/" + e.targetType()
+                            + " type=" + e.headbarType() + " value=" + e.value();
+            case InventoryChangeEvent e ->
+                    "inv=" + e.invId() + " slot=" + e.slot() + " " + e.oldItem().itemId() + "x"
+                            + e.oldItem().quantity() + "->" + e.newItem().itemId() + "x"
+                            + e.newItem().quantity();
+            case SkillChangeEvent e ->
+                    "skill=" + e.skillId() + " xp=" + e.oldExperience() + "->"
+                            + e.newExperience() + " level=" + e.oldLevel() + "->" + e.newLevel();
         };
     }
 }

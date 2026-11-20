@@ -5,6 +5,8 @@ import com.botwithus.bot.api.event.BreakEndedEvent;
 import com.botwithus.bot.api.event.BreakStartedEvent;
 import com.botwithus.bot.api.event.ChatMessageEvent;
 import com.botwithus.bot.api.event.GameEvent;
+import com.botwithus.bot.api.event.HeadbarEvent;
+import com.botwithus.bot.api.event.HitmarkEvent;
 import com.botwithus.bot.api.event.KeyInputEvent;
 import com.botwithus.bot.api.event.LoginStateChangeEvent;
 import com.botwithus.bot.api.event.ObjVarChangeEvent;
@@ -217,6 +219,8 @@ public final class EventRingReader {
             case Layout.EVT_WALK_FAILED        -> decodeWalk(bodyOff, bodyLen, /*outcome*/2);
             case Layout.EVT_RADIO_GROUP_SELECT -> decodeRadioGroupSelect(bodyOff, bodyLen);
             case Layout.EVT_SPOT_ANIM          -> decodeSpotAnim(bodyOff, bodyLen);
+            case Layout.EVT_HITMARK            -> decodeHitmark(bodyOff, bodyLen);
+            case Layout.EVT_HEADBAR            -> decodeHeadbar(bodyOff, bodyLen);
             default -> null;       // forward-compat: skip unknowns
         };
     }
@@ -392,6 +396,29 @@ public final class EventRingReader {
         int plane             = ring.get(ValueLayout.JAVA_BYTE,  off + 16);
         return new SpotAnimEvent(targetServerIndex, targetType, spotAnimId,
                 tileX, tileY, plane);
+    }
+
+    private HitmarkEvent decodeHitmark(long off, int len) {
+        if (len < Layout.HITMARK_BODY_BYTES) {
+            return null;
+        }
+        return new HitmarkEvent(
+                ring.get(ValueLayout.JAVA_INT, off + Layout.HITMARK_TARGET_INDEX_OFFSET),
+                ring.get(ValueLayout.JAVA_BYTE, off + Layout.HITMARK_TARGET_TYPE_OFFSET),
+                ring.get(ValueLayout.JAVA_INT, off + Layout.HITMARK_TYPE_OFFSET),
+                ring.get(ValueLayout.JAVA_INT, off + Layout.HITMARK_DAMAGE_OFFSET),
+                ring.get(ValueLayout.JAVA_INT, off + Layout.HITMARK_CYCLE_OFFSET));
+    }
+
+    private HeadbarEvent decodeHeadbar(long off, int len) {
+        if (len < Layout.HEADBAR_BODY_BYTES) {
+            return null;
+        }
+        return new HeadbarEvent(
+                ring.get(ValueLayout.JAVA_INT, off + Layout.HEADBAR_TARGET_INDEX_OFFSET),
+                ring.get(ValueLayout.JAVA_BYTE, off + Layout.HEADBAR_TARGET_TYPE_OFFSET),
+                ring.get(ValueLayout.JAVA_INT, off + Layout.HEADBAR_TYPE_OFFSET),
+                ring.get(ValueLayout.JAVA_INT, off + Layout.HEADBAR_VALUE_OFFSET));
     }
 
     private GameEvent decodeWalk(long off, int len, int outcome) {
