@@ -1321,7 +1321,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private List<String> readModalChoiceTexts() {
         Map<Integer, String> textByComponent = new HashMap<>();
         for (Component component : api.getComponents(MODAL_CHOICE_TEXT_REFS)) {
-            if (component != null && component.ifaceId() == MODAL_CHOICE_INTERFACE) {
+            // A hidden row can keep the label of an earlier chooser; it must never match.
+            if (component != null && component.ifaceId() == MODAL_CHOICE_INTERFACE && !component.isHidden()) {
                 textByComponent.put(component.compId(), component.text());
             }
         }
