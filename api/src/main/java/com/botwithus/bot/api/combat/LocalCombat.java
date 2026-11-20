@@ -18,16 +18,25 @@ import java.util.Optional;
  */
 public final class LocalCombat {
 
-    /** {@link LocalPlayer#targetType()} of an NPC target. */
+    /**
+     * {@link LocalPlayer#targetType()} of an NPC target; {@code targetIndex} is then the NPC's
+     * server index. Verified live (951-4): attacking a duck read {@code 5912 / 1}.
+     */
     public static final int TARGET_TYPE_NPC = 1;
-    /** {@link LocalPlayer#targetType()} of a player target. */
+    /** {@link LocalPlayer#targetType()} of a player target. Inferred, not yet seen live. */
     public static final int TARGET_TYPE_PLAYER = 2;
-    /** {@link LocalPlayer#targetIndex()} when there is no target. */
+    /** {@link LocalPlayer#targetType()} once a target is dropped (seen live after a kill). */
+    public static final int TARGET_TYPE_CLEARED = 0;
+    /** {@link LocalPlayer#targetType()} before anything was targeted this session (seen live). */
+    public static final int TARGET_TYPE_NEVER_SET = 127;
+    /** {@link LocalPlayer#targetIndex()} when the producer publishes no index. */
     public static final int NO_TARGET_INDEX = -1;
     /** How recent a hitmark on the local player must be to count as combat, in ms. */
     public static final long RECENT_HIT_MS = 6_000L;
 
     private static final int IN_COMBAT = 1;
+    /** {@code LORE_POINTS} stores tenths of a point. */
+    private static final int TENTHS = 10;
 
     private static final GamevalRef ADRENALINE = new GamevalRef(GamevalType.VARP, "SA_ENERGY", 679);
     private static final GamevalRef IN_COMBAT_FLAG =
@@ -79,9 +88,10 @@ public final class LocalCombat {
         return prayers.points();
     }
 
-    /** Current summoning points as the game stores them ({@code LORE_POINTS}). */
+    /** Current summoning points as the orb shows them; see {@code Summoning.points()}. */
     public int summoningPoints() {
-        return api.getVarbit(SUMMONING_POINTS.resolve(api.gamevals()));
+        int raw = api.getVarbit(SUMMONING_POINTS.resolve(api.gamevals()));
+        return raw < 0 ? -1 : raw / TENTHS;
     }
 
     /** The local player's display name, if its player row is loaded. */
@@ -152,7 +162,9 @@ public final class LocalCombat {
     }
 
     private static boolean hasTarget(LocalPlayer self) {
-        return self.targetIndex() != NO_TARGET_INDEX && self.targetType() != 0;
+        int type = self.targetType();
+        return self.targetIndex() != NO_TARGET_INDEX && type != TARGET_TYPE_CLEARED
+                && type != TARGET_TYPE_NEVER_SET;
     }
 
     private Optional<LocalPlayer> self() {

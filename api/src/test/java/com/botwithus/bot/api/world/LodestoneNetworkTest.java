@@ -91,15 +91,15 @@ class LodestoneNetworkTest {
     @Test
     void teleportToPrevious_usesTheNamedOption() {
         when(api.getComponentOps(1465, 34, -1)).thenReturn(new ComponentOps(0, List.of(
-                new ComponentOp(1, "Home Teleport", true),
-                new ComponentOp(3, "Previous Destination", true))));
+                new ComponentOp(1, "Lodestone Network", true),
+                new ComponentOp(2, "Teleport Burthorpe", true))));
         doAnswer(inv -> {
             self.set(at(2899, 3544));
             return null;
         }).when(api).queueAction(any());
 
         assertEquals(LodestoneNetwork.Result.ARRIVED, network.teleportToPrevious(2_000));
-        verify(api).queueAction(new GameAction(ActionTypes.COMPONENT, 3, -1, HOME_BUTTON));
+        verify(api).queueAction(new GameAction(ActionTypes.COMPONENT, 2, -1, HOME_BUTTON));
     }
 
     @Test

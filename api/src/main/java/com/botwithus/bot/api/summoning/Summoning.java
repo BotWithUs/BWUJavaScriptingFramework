@@ -22,6 +22,7 @@ import java.util.Optional;
 public final class Summoning {
 
     private static final int POINTS_PER_LEVEL = 10;
+    private static final int TENTHS = 10;
     private static final int NO_POUCH = 0;
     private static final int OP_PRESS = 1;
     private static final int NO_SUB_INDEX = -1;
@@ -53,8 +54,17 @@ public final class Summoning {
         this.beastOfBurden = new BeastOfBurden(api);
     }
 
-    /** Current summoning points as the game stores them ({@code LORE_POINTS}). */
+    /**
+     * Current summoning points as the orb shows them. {@code LORE_POINTS} stores tenths, as
+     * {@code PRAYER_POINTS} does; {@code -1} when unreadable.
+     */
     public int points() {
+        int raw = rawPoints();
+        return raw < 0 ? -1 : raw / TENTHS;
+    }
+
+    /** {@code LORE_POINTS} as stored: tenths of a point. */
+    public int rawPoints() {
         return api.getVarbit(POINTS.resolve(api.gamevals()));
     }
 

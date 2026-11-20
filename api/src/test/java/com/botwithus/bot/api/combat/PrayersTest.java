@@ -61,7 +61,8 @@ class PrayersTest {
     void pointsAndMax_readTheVarbitAndTheLevel() {
         when(api.getVarbit(16736)).thenReturn(142);
 
-        assertEquals(142, prayers.points());
+        assertEquals(14, prayers.points());
+        assertEquals(142, prayers.rawPoints());
         assertEquals(150, prayers.maxPoints());
     }
 
@@ -103,7 +104,7 @@ class PrayersTest {
     void toggle_clicksTheButtonShowingThePrayersSprite() {
         stubTieredDefence();
         when(api.isInterfaceOpen(PRAYER_WINDOW)).thenReturn(true);
-        when(api.getInterfaceTree(PRAYER_WINDOW, 0)).thenReturn(List.of(
+        when(api.getInterfaceTree(PRAYER_WINDOW, PRAYER_BUTTONS)).thenReturn(List.of(
                 node(PRAYER_BUTTONS, 0, 11111), node(PRAYER_BUTTONS, 4, ROCK_SKIN_SPRITE_OFF)));
 
         assertTrue(prayers.toggle(Prayer.TIERED_DEFENCE));

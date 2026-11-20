@@ -76,6 +76,15 @@ class LocalCombatTest {
     }
 
     @Test
+    void target_theTwoIdleEncodingsSeenLive_areBothNone() {
+        when(snapshot.self()).thenReturn(self(0, LocalCombat.TARGET_TYPE_NEVER_SET));
+        assertSame(CombatTarget.NONE, combat.target());
+        when(snapshot.self()).thenReturn(self(0, LocalCombat.TARGET_TYPE_CLEARED));
+        assertSame(CombatTarget.NONE, combat.target());
+        assertFalse(combat.isInCombat());
+    }
+
+    @Test
     void inCombat_trueOnTheGamesFlagAlone() {
         when(snapshot.self()).thenReturn(self(-1, 0));
         when(api.getVarbit(1899)).thenReturn(1);

@@ -47,7 +47,8 @@ public final class ActionBar {
             GamevalType.VAR_CLIENT, "COMBATV2_GLOBAL_COOLDOWN_START_CLIENT", 2091);
     private static final GamevalRef GLOBAL_COOLDOWN_END = new GamevalRef(
             GamevalType.VAR_CLIENT, "COMBATV2_GLOBAL_COOLDOWN_END_CLIENT", 2092);
-    private static final String SLOT_BUTTON_PREFIX = "TOPLEVEL_V2_COMBAT_BAR__BUTTON_";
+    /** The slot's click layer: {@code GRAPHIC_n} carries the triggers, {@code BUTTON_n} has none. */
+    private static final String SLOT_BUTTON_PREFIX = "TOPLEVEL_V2_COMBAT_BAR__GRAPHIC_";
 
     private static final int NO_SUB_INDEX = -1;
     private static final int OP_ACTIVATE = 1;

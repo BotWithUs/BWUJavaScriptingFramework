@@ -34,6 +34,8 @@ public final class Prayers {
     private static final int ON = 1;
     private static final int OP_TOGGLE = 1;
     private static final int POINTS_PER_LEVEL = 10;
+    /** {@code PRAYER_POINTS} stores tenths of a point. */
+    private static final int TENTHS = 10;
 
     private static final GamevalRef POINTS =
             new GamevalRef(GamevalType.VARBIT, "PRAYER_POINTS", 16736);
@@ -42,10 +44,29 @@ public final class Prayers {
             new GamevalRef(GamevalType.VARBIT, "TOPSTAT_PRAYER_BUTTON", 5941);
     private static final GamevalRef PRAYER_WINDOW =
             new GamevalRef(GamevalType.INTERFACE, "TOPLEVEL_V2_PRAYER", 1458);
-    /** The quick-prayer orb on the combat bar. */
+    /**
+     * The quick-prayer orb on the combat bar. Op 1 is "Turn quick prayers on/off", op 2
+     * "Select quick prayers" (read live with {@code get_component_ops}).
+     */
     private static final GamevalRef QUICK_PRAYER_ORB = new GamevalRef(GamevalType.COMPONENT,
-            "TOPLEVEL_V2_COMBAT_BAR__PRAYER_BUTTON_LAYER", Interfaces.componentHash(1430, 17));
-    private static final int WHOLE_INTERFACE = 0;
+            "TOPLEVEL_V2_COMBAT_BAR__PRAYER_GLOBE_LAYER", Interfaces.componentHash(1430, 18));
+    private static final int OP_SELECT_QUICK_PRAYERS = 2;
+    /** The ribbon's button grid; each ribbon slot is a sub of it. */
+    private static final GamevalRef RIBBON = new GamevalRef(GamevalType.COMPONENT,
+            "TOPLEVEL_V2_RIBBON__WINDOW_BUILD", Interfaces.componentHash(1431, 0));
+    /** Cache enum: ribbon slot to the toplevel window it opens. */
+    private static final GamevalRef RIBBON_SLOT_TO_WINDOW =
+            new GamevalRef(GamevalType.ENUM, "RIBBON_WINDOWS", 13319);
+    /** Toplevel window number of the prayer window (its row in {@code TOPLEVEL_V2_WINDOW_ID_TO_DATA} is titled Prayers). */
+    private static final int PRAYER_WINDOW_NUMBER = 4;
+    /** Ribbon slot of the prayer window on the current cache; used when the enum is unreadable. */
+    private static final int PRAYER_RIBBON_SLOT = 11;
+    /**
+     * The prayer button grid. Every prayer tier is its own sub, showing its
+     * {@code PRAYER_GRAPHIC_ON} sprite when unlocked and {@code PRAYER_GRAPHIC_OFF} when not.
+     */
+    private static final GamevalRef PRAYER_BUTTONS = new GamevalRef(GamevalType.COMPONENT,
+            "TOPLEVEL_V2_PRAYER__PRAYER_BUTTONS", Interfaces.componentHash(1458, 40));
     private static final int NO_SUB_INDEX = -1;
 
     private final GameAPI api;
@@ -54,8 +75,18 @@ public final class Prayers {
         this.api = api;
     }
 
-    /** Current prayer points as the orb shows them (990 at 99 Prayer, full). */
+    /**
+     * Current prayer points as the orb shows them (990 at 99 Prayer, full). The varbit holds
+     * tenths: live, a character at Prayer 2 read {@code PRAYER_POINTS} 200 with the orb
+     * showing "20/20". {@code -1} when unreadable.
+     */
     public int points() {
+        int raw = rawPoints();
+        return raw < 0 ? -1 : raw / TENTHS;
+    }
+
+    /** {@code PRAYER_POINTS} as stored: tenths of a point. */
+    public int rawPoints() {
         return api.getVarbit(POINTS.resolve(api.gamevals()));
     }
 
@@ -125,6 +156,25 @@ public final class Prayers {
         return button.isPresent();
     }
 
+    /** True when the prayer window is open. */
+    public boolean isWindowOpen() {
+        return api.isInterfaceOpen(PRAYER_WINDOW.resolve(api.gamevals()));
+    }
+
+    /**
+     * Opens the prayer window from the ribbon when it is closed. The ribbon button toggles,
+     * so this does nothing when the window is already open. Returns whether it is open or a
+     * click to open it was queued.
+     */
+    public boolean openWindow() {
+        if (isWindowOpen()) {
+            return true;
+        }
+        api.queueAction(new GameAction(ActionTypes.COMPONENT, OP_TOGGLE, prayerRibbonSlot(),
+                RIBBON.resolve(api.gamevals())));
+        return true;
+    }
+
     /** True when the quick-prayer orb is on. */
     public boolean isQuickPrayersActive() {
         return api.getVarbit(QUICK_PRAYERS_ON.resolve(api.gamevals())) == ON;
@@ -134,6 +184,18 @@ public final class Prayers {
     public boolean toggleQuickPrayers() {
         api.queueAction(new GameAction(ActionTypes.COMPONENT, OP_TOGGLE, NO_SUB_INDEX,
                 QUICK_PRAYER_ORB.resolve(api.gamevals())));
+        return true;
+    }
+
+    /**
+     * Opens quick-prayer selection ("Select quick prayers" on the orb): while it is open, a
+     * {@link #toggle(Prayer)} adds the prayer to or removes it from the quick set instead of
+     * turning it on. Click the orb's confirm (or this again) to leave. Returns whether the
+     * click was queued.
+     */
+    public boolean openQuickPrayerSelection() {
+        api.queueAction(new GameAction(ActionTypes.COMPONENT, OP_SELECT_QUICK_PRAYERS,
+                NO_SUB_INDEX, QUICK_PRAYER_ORB.resolve(api.gamevals())));
         return true;
     }
 
@@ -153,12 +215,30 @@ public final class Prayers {
         return List.copyOf(on);
     }
 
+    private int prayerRibbonSlot() {
+        try {
+            var slots = api.getEnumType(RIBBON_SLOT_TO_WINDOW.resolve(api.gamevals()));
+            if (slots != null) {
+                for (var entry : slots.intEntries().entrySet()) {
+                    if (entry.getValue() == PRAYER_WINDOW_NUMBER) {
+                        return entry.getKey();
+                    }
+                }
+            }
+        } catch (IllegalStateException noCache) {
+            // fall through to the literal
+        }
+        return PRAYER_RIBBON_SLOT;
+    }
+
     private Optional<ComponentTreeNode> findButton(PrayerInfo info) {
         int window = PRAYER_WINDOW.resolve(api.gamevals());
         if (!api.isInterfaceOpen(window)) {
             return Optional.empty();
         }
-        return api.getInterfaceTree(window, WHOLE_INTERFACE).stream()
+        int buttons = PRAYER_BUTTONS.resolve(api.gamevals());
+        return api.getInterfaceTree(Interfaces.interfaceIdFromHash(buttons),
+                        Interfaces.componentIdFromHash(buttons)).stream()
                 .filter(node -> node.component().spriteId() == info.graphicOn()
                         || node.component().spriteId() == info.graphicOff())
                 .filter(node -> !node.component().triggers().isEmpty())

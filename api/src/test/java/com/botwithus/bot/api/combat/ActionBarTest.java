@@ -46,7 +46,7 @@ class ActionBarTest {
     private static final int TYPE_TO_ENUM = 13199;
     private static final int LOBSTER = 379;
     private static final int UNKNOWN_TYPE = 99;
-    private static final int SLOT_ONE_BUTTON = (1430 << 16) | 65;
+    private static final int SLOT_ONE_BUTTON = (1430 << 16) | 66;
 
     private final GameAPI api = mock(GameAPI.class);
     private final MapGamevalIndex gamevals = new MapGamevalIndex();
@@ -57,7 +57,7 @@ class ActionBarTest {
         when(api.gamevals()).thenReturn(gamevals);
         gamevals.put(GamevalType.VARBIT, "COMBATV2_ACTIONBAR_CURRENT_BAR", 1893);
         gamevals.put(GamevalType.ENUM, "COMBATV2_TYPE_TO_ENUM", TYPE_TO_ENUM);
-        gamevals.put(GamevalType.COMPONENT, "TOPLEVEL_V2_COMBAT_BAR__BUTTON_1", SLOT_ONE_BUTTON);
+        gamevals.put(GamevalType.COMPONENT, "TOPLEVEL_V2_COMBAT_BAR__GRAPHIC_1", SLOT_ONE_BUTTON);
         when(api.getVarbit(1893)).thenReturn(BAR);
         registerSlotVars();
         when(api.getEnumType(TYPE_TO_ENUM)).thenReturn(enumOf(TYPE_TO_ENUM,

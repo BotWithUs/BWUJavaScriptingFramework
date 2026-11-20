@@ -9,7 +9,10 @@ import java.util.OptionalInt;
  * {@link ScriptResult#returns()}).
  *
  * <p>Those maps are decoded from JSON or msgpack, so a value is a boxed number or a string
- * and nothing in the type system says which. This class is the one place that asks.</p>
+ * and nothing in the type system says which. This class is the one place that asks. The
+ * cache's JSON goes through Gson into {@code Map<String, Object>}, which makes every number a
+ * {@code Double}; msgpack gives {@code Integer} or {@code Long}. All three are accepted when
+ * they hold a whole number in {@code int} range.</p>
  */
 final class ConfigValues {
 
@@ -24,6 +27,8 @@ final class ConfigValues {
             case Integer i -> OptionalInt.of(i);
             case Long l when l >= Integer.MIN_VALUE && l <= Integer.MAX_VALUE ->
                     OptionalInt.of(l.intValue());
+            case Double d when d == Math.rint(d) && d >= Integer.MIN_VALUE
+                    && d <= Integer.MAX_VALUE -> OptionalInt.of(d.intValue());
             case Short s -> OptionalInt.of(s);
             case Byte b -> OptionalInt.of(b);
             case null, default -> OptionalInt.empty();

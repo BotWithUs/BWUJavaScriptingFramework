@@ -62,7 +62,8 @@ class SummoningTest {
         when(api.getVarp(1787)).thenReturn(48);
         when(api.getVarbit(25412)).thenReturn(17);
 
-        assertEquals(612, summoning.points());
+        assertEquals(61, summoning.points());
+        assertEquals(612, summoning.rawPoints());
         assertEquals(43, summoning.minutesRemaining());
         assertEquals(48, summoning.specialMovePoints());
         assertEquals(17, summoning.scrollsStored());
