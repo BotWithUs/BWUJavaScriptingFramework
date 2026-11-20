@@ -119,7 +119,8 @@ public final class Npcs {
     }
 
     /** Query subclass — wires the snapshot stream + name resolution to {@link EntityQuery}. */
-    public static final class Query extends EntityQuery<Npc, Query> {
+    public static final class Query extends EntityQuery<Npc, Query>
+            implements ActorFilters<Npc, Query>, OptionFilters<Npc, Query> {
         private final IntFunction<NpcType> typeLookup;
 
         Query(GameAPI api, IntFunction<NpcType> typeLookup) {
@@ -134,6 +135,21 @@ public final class Npcs {
          */
         public Query withGameval(String... gamevals) {
             return withGamevalOf(GamevalType.NPC, gamevals);
+        }
+
+        /** NPCs whose current hitpoints are from {@code min} to {@code max}, inclusive. */
+        public Query withHealth(int min, int max) {
+            return filter(n -> n.hp() >= min && n.hp() <= max);
+        }
+
+        /**
+         * NPCs whose health, as a percentage of their maximum, is from {@code min} to
+         * {@code max}, inclusive. An NPC whose maximum is not known ({@link Npc#maxHp()} reads
+         * {@code 0} or less) never matches, rather than reading as 0%.
+         */
+        public Query withHealthPercent(int min, int max) {
+            return filter(n -> n.maxHp() > 0
+                    && n.getHealthPercent() >= min && n.getHealthPercent() <= max);
         }
 
         @Override

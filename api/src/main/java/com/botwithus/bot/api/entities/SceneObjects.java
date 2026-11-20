@@ -6,12 +6,12 @@ import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.SceneObjectInfo;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Location;
-import com.botwithus.bot.api.snapshot.LocationFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntFunction;
 import java.util.stream.Stream;
@@ -110,12 +110,24 @@ public final class SceneObjects {
         return fetched;
     }
 
-    public static final class Query extends EntityQuery<SceneObject, Query> {
+    public static final class Query extends EntityQuery<SceneObject, Query>
+            implements AnimationFilters<SceneObject, Query>, OptionFilters<SceneObject, Query> {
         private final IntFunction<LocationType> typeLookup;
+        private boolean includeHidden;
 
         Query(GameAPI api, IntFunction<LocationType> typeLookup) {
             super(api);
             this.typeLookup = typeLookup;
+        }
+
+        /**
+         * Also yield locs the client is hiding. By default a query sees only what the player
+         * sees; with this, a hidden row is kept and reports {@link SceneObject#isHidden()}
+         * {@code true}. Deleted rows are never yielded.
+         */
+        public Query includeHidden() {
+            this.includeHidden = true;
+            return this;
         }
 
         /**
@@ -131,8 +143,8 @@ public final class SceneObjects {
         @Override
         protected Stream<SceneObject> source() {
             // Both LOCATION variants are interactable scene entries, and they carry the loc
-            // id in different fields -- Location.baseId() makes that pick once. Hidden /
-            // deleted rows are dropped.
+            // id in different fields -- Location.baseId() makes that pick once. Deleted rows
+            // are always dropped; hidden ones unless includeHidden() was asked for.
             //
             // Two ids reach the SceneObject and they are not interchangeable. The base id is
             // the action param1 and the identity every hardcoded id set is written against;
@@ -144,9 +156,9 @@ public final class SceneObjects {
                 return Stream.empty();
             }
             return snap.locations().stream()
-                    .filter(LocationFilter.visible())
+                    .filter(l -> !l.isDeleted() && (includeHidden || !l.isHidden()))
                     .map(this::toSceneObject)
-                    .filter(java.util.Objects::nonNull);
+                    .filter(Objects::nonNull);
         }
 
         private SceneObject toSceneObject(Location l) {
@@ -164,7 +176,9 @@ public final class SceneObjects {
                             "",
                             List.of(),
                             l.shape(),
-                            l.rotation()),
+                            l.rotation(),
+                            l.animationId(),
+                            l.isHidden()),
                     typeLookup);
         }
 

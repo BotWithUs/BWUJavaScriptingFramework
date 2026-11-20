@@ -28,6 +28,9 @@ import java.util.List;
  *                    source of this row did not carry one
  * @param rotation    quarter turns {@code 0..3} applied to the loc's model, or
  *                    {@link #UNKNOWN_ROTATION} when the source of this row did not carry one
+ * @param animationId the animation the loc is playing, or {@link #NO_ANIMATION} when it is
+ *                    not animating or the source of this row did not carry one
+ * @param hidden      whether the client is hiding this loc (the snapshot's hidden flag)
  */
 public record SceneObjectInfo(
         int handle,
@@ -39,7 +42,9 @@ public record SceneObjectInfo(
         String name,
         List<String> options,
         int shape,
-        int rotation
+        int rotation,
+        int animationId,
+        boolean hidden
 ) {
 
     /** {@link #shape()} for a row built without one. Never published by the producer. */
@@ -48,8 +53,22 @@ public record SceneObjectInfo(
     /** {@link #rotation()} for a row built without one. Never published by the producer. */
     public static final int UNKNOWN_ROTATION = -1;
 
+    /** {@link #animationId()} for a loc that is not animating, as the snapshot publishes it. */
+    public static final int NO_ANIMATION = -1;
+
     public SceneObjectInfo {
         options = List.copyOf(options);
+    }
+
+    /**
+     * Builds a visible, non-animating row with a shape and rotation. Kept so callers written
+     * before {@code animationId} and {@code hidden} existed compile unchanged.
+     */
+    public SceneObjectInfo(int handle, int typeId, int resolvedId, int tileX, int tileY,
+                           int plane, String name, List<String> options, int shape,
+                           int rotation) {
+        this(handle, typeId, resolvedId, tileX, tileY, plane, name, options, shape, rotation,
+                NO_ANIMATION, false);
     }
 
     /**
@@ -59,6 +78,6 @@ public record SceneObjectInfo(
     public SceneObjectInfo(int handle, int typeId, int resolvedId, int tileX, int tileY,
                            int plane, String name, List<String> options) {
         this(handle, typeId, resolvedId, tileX, tileY, plane, name, options,
-                UNKNOWN_SHAPE, UNKNOWN_ROTATION);
+                UNKNOWN_SHAPE, UNKNOWN_ROTATION, NO_ANIMATION, false);
     }
 }

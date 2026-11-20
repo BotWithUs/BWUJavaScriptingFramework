@@ -17,7 +17,7 @@ import java.util.function.IntFunction;
  * directly. The facade owns the LocationType cache that backs
  * {@link #getType()} repeats.</p>
  */
-public final class SceneObject implements EntityContext {
+public final class SceneObject implements EntityContext, Animated, Interactive {
 
     private final GameAPI api;
     private final SceneObjectInfo raw;
@@ -97,10 +97,20 @@ public final class SceneObject implements EntityContext {
      */
     public int shape() { return raw.shape(); }
 
+    /**
+     * The animation this loc is playing (a fire flickering, a door swinging), or
+     * {@link SceneObjectInfo#NO_ANIMATION} when it is still.
+     */
+    public int animationId() { return raw.animationId(); }
+
     // ---------------- Convenience shims (kept for scripts that pre-date the rewrite) ----------------
 
-    /** The snapshot only carries visible objects; this stub always returns {@code false}. */
-    public boolean isHidden() { return false; }
+    /**
+     * Whether the client is hiding this loc, read from the snapshot row's hidden flag. A default
+     * {@link SceneObjects#query()} never yields a hidden loc, so this is {@code false} there;
+     * ask for them with {@link SceneObjects.Query#includeHidden()}.
+     */
+    public boolean isHidden() { return raw.hidden(); }
     /** Chebyshev distance to the local player tile, or {@code MAX_VALUE} if the player isn't loaded. */
     public int distanceToPlayer() {
         var lp = api.getLocalPlayer();

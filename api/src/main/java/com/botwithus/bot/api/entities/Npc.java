@@ -29,7 +29,7 @@ import java.util.function.IntFunction;
  * (Java has no import aliasing, and the enclosing class shadows any
  * import of the snapshot type).</p>
  */
-public final class Npc implements EntityContext {
+public final class Npc implements Actor, Interactive {
 
     /** Scale of {@link #getHealthPercent()}: full health reads as this value. */
     private static final int FULL_HEALTH_PERCENT = 100;

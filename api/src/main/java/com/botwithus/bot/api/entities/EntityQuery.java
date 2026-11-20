@@ -3,6 +3,7 @@ package com.botwithus.bot.api.entities;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.world.Area;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,6 +12,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -104,6 +106,31 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
         return filter(t -> hasTypeId(t, typeId));
     }
 
+    /** Filter to any of several type/definition ids. No ids matches nothing. */
+    public Q withIds(int... typeIds) {
+        int[] ids = typeIds.clone();
+        return filter(t -> {
+            for (int id : ids) {
+                if (hasTypeId(t, id)) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    /**
+     * Filter to any of several display names, each matched whole and ignoring case, as
+     * {@link #namedExact(String)} does. No names matches nothing.
+     */
+    public Q namedAnyOf(String... names) {
+        List<String> wanted = Arrays.stream(names).map(this::normaliseName).toList();
+        return filter(t -> {
+            String n = normalisedNameOf(t);
+            return n != null && wanted.stream().anyMatch(n::equalsIgnoreCase);
+        });
+    }
+
     /**
      * Filter by gameval symbolic name — the hook subclasses expose as
      * {@code withGameval(...)} once they know which {@link GamevalType} their
@@ -191,6 +218,37 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
         return filter(t -> t.distanceTo(x, y) <= radius);
     }
 
+    /** Filter to entities standing in {@code area} (its plane included). */
+    public Q inside(Area area) {
+        return filter(t -> area.contains(t));
+    }
+
+    /** Filter to entities standing outside {@code area}, which includes other planes. */
+    public Q outside(Area area) {
+        return filter(t -> !area.contains(t));
+    }
+
+    /**
+     * Filter to entities whose tile the local player can walk to, through
+     * {@link com.botwithus.bot.api.domain.NavigationAPI#isReachable(int, int)}. Entities on
+     * another plane from the player never match; nothing matches when the player is not
+     * loaded.
+     *
+     * <p>Two things to know. It asks for a path to the entity's <em>own</em> tile, so scenery
+     * that blocks its tile (a bank booth, a tree, a rock) reads unreachable even when it can be
+     * used — it suits NPCs, players and ground items. And it runs one local pathfind per
+     * candidate, so add it <b>last</b>: filters run in the order they were added and stop at
+     * the first that fails, so the cheap ones prune first.</p>
+     */
+    public Q reachable() {
+        LocalPlayer lp = api.getLocalPlayer();
+        if (lp == null) {
+            return filter(t -> false);
+        }
+        int plane = lp.plane();
+        return filter(t -> t.plane() == plane && api.isReachable(t.tileX(), t.tileY()));
+    }
+
     /** Sort results by distance from the local player, ascending. */
     public Q sortByDistance() {
         this.sortByDistance = true;
@@ -241,6 +299,39 @@ public abstract class EntityQuery<T extends EntityContext, Q extends EntityQuery
     /** First match as Optional. */
     public Optional<T> findFirst() {
         return Optional.ofNullable(first());
+    }
+
+    /** Last match in result order (after any sort and limit), or {@code null}. */
+    public T last() {
+        List<T> list = all();
+        return list.isEmpty() ? null : list.getLast();
+    }
+
+    /** A uniformly random match (after any sort and limit), or {@code null}. */
+    public T random() {
+        List<T> list = all();
+        return list.isEmpty() ? null : list.get(ThreadLocalRandom.current().nextInt(list.size()));
+    }
+
+    /**
+     * The match nearest (Chebyshev) to a tile, ignoring plane, or {@code null}. Distance
+     * ties keep source order. Sorting and {@link #limit} do not apply: every match is
+     * considered.
+     */
+    public T nearestTo(int tileX, int tileY) {
+        return source().filter(filter)
+                .min(Comparator.comparingInt(t -> t.distanceTo(tileX, tileY)))
+                .orElse(null);
+    }
+
+    /** {@link #nearestTo(int, int)} among matches on {@code plane} only. */
+    public T nearestTo(int tileX, int tileY, int plane) {
+        return onPlane(plane).nearestTo(tileX, tileY);
+    }
+
+    /** {@link #nearestTo(int, int, int)} the tile {@code other} stands on. */
+    public T nearestTo(EntityContext other) {
+        return nearestTo(other.tileX(), other.tileY(), other.plane());
     }
 
     public int count() { return all().size(); }

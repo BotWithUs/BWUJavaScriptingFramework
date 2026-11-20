@@ -2,7 +2,6 @@ package com.botwithus.bot.skilling.banking;
 
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.Navigation;
-import com.botwithus.bot.api.entities.SceneObject;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.model.GameAction;
@@ -146,7 +145,7 @@ public final class Banking {
     public boolean boothInRange(int radius) {
         return api.objects().query()
                 .withinDistance(radius)
-                .filter(o -> o.hasOption("Bank"))
+                .filter(o -> o.hasOption(Bank.BANK_OPTION))
                 .exists();
     }
 
@@ -167,16 +166,12 @@ public final class Banking {
 
     // --------------------------------------------------------------- open/close
 
-    /** Click the nearest bank booth/chest to open the bank. */
+    /**
+     * Click the nearest bank booth, chest or banker to open the bank, through the api's
+     * {@link Bank#open()}; {@code true} when a click was queued or the bank is already open.
+     */
     public boolean openNearbyBooth() {
-        SceneObject booth = api.objects().query()
-                .withinDistance(10)
-                .filter(o -> o.hasOption("Bank") || o.hasOption("Use"))
-                .nearest();
-        if (booth == null) {
-            return false;
-        }
-        return booth.interact("Bank") || booth.interact("Use");
+        return api.bank().open();
     }
 
     /** Walk to the nearest Atlas bank (or no-op when a booth is already in range). */

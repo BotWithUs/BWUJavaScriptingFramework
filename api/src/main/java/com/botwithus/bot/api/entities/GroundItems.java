@@ -79,7 +79,8 @@ public final class GroundItems {
         return fetched;
     }
 
-    public static final class Query extends EntityQuery<GroundItem, Query> {
+    public static final class Query extends EntityQuery<GroundItem, Query>
+            implements OptionFilters<GroundItem, Query> {
         private final IntFunction<ItemType> typeLookup;
 
         Query(GameAPI api, IntFunction<ItemType> typeLookup) {

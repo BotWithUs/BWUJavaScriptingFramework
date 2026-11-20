@@ -25,7 +25,7 @@ import java.util.Optional;
  * (Java has no import aliasing, and the enclosing class shadows any
  * import of the snapshot type).</p>
  */
-public final class Player implements EntityContext {
+public final class Player implements Actor {
 
     private final GameAPI api;
     // FQN: disambiguates from this-class entity Player — see class-level note.

@@ -2,6 +2,8 @@ package com.botwithus.bot.api.inventory;
 
 import com.botwithus.bot.api.GameAPI;
 
+import java.util.regex.Pattern;
+
 /**
  * The local player's backpack (inv id 93, slot grid at iface 1473 comp 5).
  * Singleton per {@link GameAPI}; obtain via {@code api.backpack()}.
@@ -28,5 +30,15 @@ public final class Backpack extends InventoryContainer {
      */
     public boolean use(int itemId) {
         return interactFirst(itemId, USE);
+    }
+
+    /** {@link #use(int)} on the first item named exactly {@code name}, ignoring case. */
+    public boolean use(String name) {
+        return interactFirst(name, USE);
+    }
+
+    /** {@link #use(int)} on the first item whose whole name matches {@code namePattern}. */
+    public boolean use(Pattern namePattern) {
+        return interactFirst(namePattern, USE);
     }
 }
