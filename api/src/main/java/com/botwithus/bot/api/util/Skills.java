@@ -16,6 +16,10 @@ import com.botwithus.bot.api.model.PlayerStat;
  *     // ...
  * }
  * }</pre>
+ *
+ * <p>The {@code int} constants and {@link SkillType} name the same ids; the
+ * {@link SkillType} overloads add the xp-curve helpers ({@link #xpToNextLevel},
+ * {@link #getVirtualLevel}).</p>
  */
 public final class Skills {
 
@@ -76,5 +80,38 @@ public final class Skills {
     public static int getXp(GameAPI api, int skillId) {
         PlayerStat stat = api.getPlayerStat(skillId);
         return stat != null ? stat.experience() : 0;
+    }
+
+    /** {@link #getLevel(GameAPI, int)} for a {@link SkillType}. */
+    public static int getLevel(GameAPI api, SkillType skill) {
+        return getLevel(api, skill.id());
+    }
+
+    /** {@link #getBoostedLevel(GameAPI, int)} for a {@link SkillType}. */
+    public static int getBoostedLevel(GameAPI api, SkillType skill) {
+        return getBoostedLevel(api, skill.id());
+    }
+
+    /** {@link #getXp(GameAPI, int)} for a {@link SkillType}. */
+    public static int getXp(GameAPI api, SkillType skill) {
+        return getXp(api, skill.id());
+    }
+
+    /**
+     * Xp still needed for the next (virtual) level on the skill's curve, or {@code 0} when
+     * not in-game or at the top of the curve.
+     */
+    public static int xpToNextLevel(GameAPI api, SkillType skill) {
+        PlayerStat stat = api.getPlayerStat(skill.id());
+        return stat == null ? 0 : skill.xpTable().xpToNextLevel(stat.experience());
+    }
+
+    /**
+     * The level the skill's xp reaches on its curve, including virtual levels past its
+     * cap. {@code 0} when not in-game.
+     */
+    public static int getVirtualLevel(GameAPI api, SkillType skill) {
+        PlayerStat stat = api.getPlayerStat(skill.id());
+        return stat == null ? 0 : skill.xpTable().levelForXp(stat.experience());
     }
 }
