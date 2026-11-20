@@ -3,10 +3,12 @@ package com.botwithus.bot.core.impl;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.Navigation;
 import com.botwithus.bot.api.ScriptContext;
+import com.botwithus.bot.api.config.ScriptSettings;
 import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
+import com.botwithus.bot.api.runtime.ScriptPause;
 import com.botwithus.bot.api.voice.VoiceInput;
 
 import java.util.Optional;
@@ -42,12 +44,23 @@ public class ScriptContextImpl implements ScriptContext {
     private final Supplier<Optional<String>> displayName;
     /** Backs {@link #getVoiceInput()}; {@link VoiceInput#UNAVAILABLE} until the host binds it. */
     private final VoiceInput voiceInput;
+    /** Backs pause/resume and {@link #getSettings()}; {@link Controls#UNBOUND} until bound. */
+    private final Controls controls;
+
+    /**
+     * The run's pause switch and settings, which the runtime creates with the script's runner
+     * state. Either is {@code null} until bound: an unbound context never pauses and hands out
+     * in-memory settings, as the {@link ScriptContext} defaults do.
+     */
+    private record Controls(ScriptPause pause, ScriptSettings settings) {
+        static final Controls UNBOUND = new Controls(null, null);
+    }
 
     public ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, MessageBus messageBus,
                              SharedState sharedState, ScriptContextPublisher scriptContext) {
         this(gameAPI, eventBus, eventBus, messageBus, sharedState,
                 new Walker(gameAPI, eventBus), scriptContext, () -> false, NO_STOP_CALLBACK,
-                NO_DISPLAY_NAME, VoiceInput.UNAVAILABLE);
+                NO_DISPLAY_NAME, VoiceInput.UNAVAILABLE, Controls.UNBOUND);
     }
 
     public ScriptContextImpl(GameAPI gameAPI, EventBusImpl eventBus, MessageBus messageBus, SharedState sharedState) {
@@ -62,7 +75,7 @@ public class ScriptContextImpl implements ScriptContext {
                               MessageBus messageBus, SharedState sharedState, Navigation navigation,
                               ScriptContextPublisher scriptContext, BooleanSupplier stopRequested,
                               Runnable stopCallback, Supplier<Optional<String>> displayName,
-                              VoiceInput voiceInput) {
+                              VoiceInput voiceInput, Controls controls) {
         this.gameAPI = gameAPI;
         this.eventBus = eventBus;
         this.scriptEventBus = scriptEventBus;
@@ -74,6 +87,7 @@ public class ScriptContextImpl implements ScriptContext {
         this.stopCallback = stopCallback != null ? stopCallback : NO_STOP_CALLBACK;
         this.displayName = displayName != null ? displayName : NO_DISPLAY_NAME;
         this.voiceInput = voiceInput != null ? voiceInput : VoiceInput.UNAVAILABLE;
+        this.controls = controls != null ? controls : Controls.UNBOUND;
     }
 
     /**
@@ -85,7 +99,7 @@ public class ScriptContextImpl implements ScriptContext {
     public ScriptContextImpl withScriptContext(ScriptContextPublisher publisher) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
                 navigation, publisher != null ? publisher : ScriptContextPublisher.NOOP,
-                stopRequested, stopCallback, displayName, voiceInput);
+                stopRequested, stopCallback, displayName, voiceInput, controls);
     }
 
     /**
@@ -96,7 +110,7 @@ public class ScriptContextImpl implements ScriptContext {
      */
     public ScriptContextImpl withEventBus(EventBus bus) {
         return new ScriptContextImpl(gameAPI, eventBus, bus != null ? bus : eventBus, messageBus,
-                sharedState, navigation, scriptContext, stopRequested, stopCallback, displayName, voiceInput);
+                sharedState, navigation, scriptContext, stopRequested, stopCallback, displayName, voiceInput, controls);
     }
 
     /**
@@ -119,7 +133,7 @@ public class ScriptContextImpl implements ScriptContext {
                 ? bus
                 : new IdentifiedMessageBus(bus, name);
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, identified, sharedState,
-                navigation, scriptContext, stopRequested, stopCallback, displayName, voiceInput);
+                navigation, scriptContext, stopRequested, stopCallback, displayName, voiceInput, controls);
     }
 
     /**
@@ -130,7 +144,7 @@ public class ScriptContextImpl implements ScriptContext {
     public ScriptContextImpl withStopSignal(BooleanSupplier signal) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
                 navigation, scriptContext, signal != null ? signal : () -> false, stopCallback,
-                displayName, voiceInput);
+                displayName, voiceInput, controls);
     }
 
     /**
@@ -142,7 +156,7 @@ public class ScriptContextImpl implements ScriptContext {
     public ScriptContextImpl withStopCallback(Runnable callback) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
                 navigation, scriptContext, stopRequested,
-                callback != null ? callback : NO_STOP_CALLBACK, displayName, voiceInput);
+                callback != null ? callback : NO_STOP_CALLBACK, displayName, voiceInput, controls);
     }
 
     /**
@@ -155,7 +169,7 @@ public class ScriptContextImpl implements ScriptContext {
     public ScriptContextImpl withDisplayName(Supplier<Optional<String>> source) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
                 navigation, scriptContext, stopRequested, stopCallback,
-                source != null ? source : NO_DISPLAY_NAME, voiceInput);
+                source != null ? source : NO_DISPLAY_NAME, voiceInput, controls);
     }
 
     /**
@@ -166,7 +180,18 @@ public class ScriptContextImpl implements ScriptContext {
      */
     public ScriptContextImpl withVoiceInput(VoiceInput voice) {
         return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
-                navigation, scriptContext, stopRequested, stopCallback, displayName, voice);
+                navigation, scriptContext, stopRequested, stopCallback, displayName, voice, controls);
+    }
+
+    /**
+     * Returns a copy of this context whose {@link #pause()}, {@link #resume()} and
+     * {@link #isPaused()} drive {@code pause}, and whose {@link #getSettings()} is
+     * {@code settings}. Bound by the runtime to the runner's own switch and settings.
+     */
+    public ScriptContextImpl withControls(ScriptPause pause, ScriptSettings settings) {
+        return new ScriptContextImpl(gameAPI, eventBus, scriptEventBus, messageBus, sharedState,
+                navigation, scriptContext, stopRequested, stopCallback, displayName, voiceInput,
+                new Controls(pause, settings));
     }
 
     @Override
@@ -198,4 +223,28 @@ public class ScriptContextImpl implements ScriptContext {
 
     @Override
     public VoiceInput getVoiceInput() { return voiceInput; }
+
+    @Override
+    public void pause() {
+        if (controls.pause() != null) {
+            controls.pause().pause();
+        }
+    }
+
+    @Override
+    public void resume() {
+        if (controls.pause() != null) {
+            controls.pause().resume();
+        }
+    }
+
+    @Override
+    public boolean isPaused() {
+        return controls.pause() != null && controls.pause().isPaused();
+    }
+
+    @Override
+    public ScriptSettings getSettings() {
+        return controls.settings() != null ? controls.settings() : ScriptContext.super.getSettings();
+    }
 }

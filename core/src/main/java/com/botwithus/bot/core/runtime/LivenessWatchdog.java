@@ -180,6 +180,9 @@ final class LivenessWatchdog implements AutoCloseable {
 
     /** Advisory only: nobody asked this script to stop, it has just been in one loop a long time. */
     private void flagIdleStall(Subject subject, RunnerLiveness liveness, long nowNanos) {
+        if (liveness.isPaused()) {
+            return;
+        }
         long inLoopMs = liveness.millisInLoop(nowNanos);
         if (inLoopMs >= idleStallMs.getAsLong() && liveness.markStalled()) {
             subject.onLivenessChanged(Liveness.STALLED);
