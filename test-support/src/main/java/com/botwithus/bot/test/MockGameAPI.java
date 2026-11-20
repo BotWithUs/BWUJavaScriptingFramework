@@ -17,6 +17,8 @@ import com.botwithus.bot.api.gameui.CanvasOp;
 import com.botwithus.bot.api.gameui.GameUi;
 import com.botwithus.bot.api.gameui.UiEvent;
 import com.botwithus.bot.api.gameui.UiHandleInfo;
+import com.botwithus.bot.api.gameui.UiHook;
+import com.botwithus.bot.api.gameui.UiHookEvent;
 import com.botwithus.bot.api.gameui.UiOrder;
 import com.botwithus.bot.api.gameui.UiPlacement;
 import com.botwithus.bot.api.gameui.UiProps;
@@ -560,6 +562,21 @@ final class MockGameAPI implements GameAPI {
     @Override
     public UiSubscription uiOnEvent(Consumer<UiEvent> listener) {
         throw notStubbed("uiOnEvent");
+    }
+
+    @Override
+    public UiSubscription uiSubscribe(long handle, UiHook hook, Consumer<UiHookEvent> listener) {
+        throw notStubbed("uiSubscribe");
+    }
+
+    @Override
+    public boolean uiUnsubscribe(long handle, UiHook hook) {
+        throw notStubbed("uiUnsubscribe");
+    }
+
+    @Override
+    public boolean uiBlur(long handle) {
+        throw notStubbed("uiBlur");
     }
 
     @Override

@@ -4,6 +4,8 @@ import com.botwithus.bot.api.gameui.CanvasOp;
 import com.botwithus.bot.api.gameui.GameUi;
 import com.botwithus.bot.api.gameui.UiEvent;
 import com.botwithus.bot.api.gameui.UiHandleInfo;
+import com.botwithus.bot.api.gameui.UiHook;
+import com.botwithus.bot.api.gameui.UiHookEvent;
 import com.botwithus.bot.api.gameui.UiOrder;
 import com.botwithus.bot.api.gameui.UiPlacement;
 import com.botwithus.bot.api.gameui.UiProps;
@@ -104,4 +106,28 @@ public interface GameUiAPI {
      * handles. See {@link GameUi#onEvent} for the thread it runs on.
      */
     UiSubscription uiOnEvent(Consumer<UiEvent> listener);
+
+    /**
+     * Listens for {@code hook} on one of the calling script's own components: the
+     * first listener for a (handle, hook) sends {@code ui.subscribe}, and closing the
+     * last one sends {@code ui.unsubscribe}. Events are decoded by the component's
+     * type and delivered as {@link GameUi#onEvent} describes. Refused by the agent for
+     * a Jagex handle and for a hook the type does not have.
+     */
+    UiSubscription uiSubscribe(long handle, UiHook hook, Consumer<UiHookEvent> listener);
+
+    /**
+     * Drops every listener the calling script has for {@code hook} on {@code handle}
+     * and sends {@code ui.unsubscribe}. Returns the agent's {@code unsubscribed}:
+     * whether the hook was subscribed. A handle the agent no longer knows answers
+     * {@code false} rather than a refusal; its subscriptions went with it.
+     */
+    boolean uiUnsubscribe(long handle, UiHook hook);
+
+    /**
+     * {@code ui.blur}: clears the client's input focus from one of the calling
+     * script's input fields. Returns whether it had focus. Refused by the agent for
+     * any other type.
+     */
+    boolean uiBlur(long handle);
 }

@@ -7,9 +7,8 @@ package com.botwithus.bot.api.gameui;
  * <p>Only the types the agent can create today have a constant here, plus
  * {@link #OTHER} for anything else a Jagex handle can report. The agent refuses
  * every other type with {@code ui type not supported yet: <type>}; when it learns
- * one (buttons, input fields, sliders and so on), it arrives as a new constant and
- * a new {@code create*} method on {@link GameUi}, so nothing a script already
- * calls changes shape.</p>
+ * one (sprites, models), it arrives as a new constant and a new {@code create*}
+ * method on {@link GameUi}, so nothing a script already calls changes shape.</p>
  */
 public enum UiType {
 
@@ -17,7 +16,15 @@ public enum UiType {
     RECTANGLE("rectangle", 1),
     TEXT("text", 2),
     CANVAS("canvas", 8),
+    BUTTON("button", 9),
+    CHECK("check", 10),
+    LIST("list", 11),
+    INPUT_FIELD("input_field", 12),
+    SLIDER("slider", 13),
+    COMBO_FIELD("combo_field", 14),
     LAYER("layer", 20),
+    PANEL("panel", 21),
+    GRID("grid", 22),
     /** A Jagex component of a type the agent does not name. Never creatable. */
     OTHER("other", -1);
 

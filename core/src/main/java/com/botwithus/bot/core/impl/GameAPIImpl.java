@@ -28,6 +28,8 @@ import com.botwithus.bot.api.gameui.CanvasOp;
 import com.botwithus.bot.api.gameui.GameUi;
 import com.botwithus.bot.api.gameui.UiEvent;
 import com.botwithus.bot.api.gameui.UiHandleInfo;
+import com.botwithus.bot.api.gameui.UiHook;
+import com.botwithus.bot.api.gameui.UiHookEvent;
 import com.botwithus.bot.api.gameui.UiOrder;
 import com.botwithus.bot.api.gameui.UiPlacement;
 import com.botwithus.bot.api.gameui.UiProps;
@@ -2261,6 +2263,21 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public UiSubscription uiOnEvent(Consumer<UiEvent> listener) {
         return gameUiBinding.onEvent(listener);
+    }
+
+    @Override
+    public UiSubscription uiSubscribe(long handle, UiHook hook, Consumer<UiHookEvent> listener) {
+        return gameUiBinding.subscribe(handle, hook, listener);
+    }
+
+    @Override
+    public boolean uiUnsubscribe(long handle, UiHook hook) {
+        return gameUiBinding.unsubscribe(handle, hook);
+    }
+
+    @Override
+    public boolean uiBlur(long handle) {
+        return gameUiBinding.blur(handle);
     }
 
     /**

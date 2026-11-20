@@ -22,8 +22,23 @@ import java.util.function.Consumer;
  *         .rgba(0xFFFFFFFF));
  * }</pre>
  *
+ * <p>Interactive components (buttons, checks, lists, input fields, sliders, combo
+ * fields, panels, grids) report the user's actions as typed events:</p>
+ *
+ * <pre>{@code
+ * Slider volume = ui.createSlider(panel, new SliderProps().range(0, 100, 5, 20).value(50)
+ *         .at(8, 40).size(200, 16));
+ * volume.onValueChanged(e -> level = e.value());
+ * InputField name = ui.createInputField(panel, new InputFieldProps().maxLength(12));
+ * name.onContentChanged(e -> {
+ *     if (e.reason() == ContentChangeReason.SUBMIT) {
+ *         submitted = e.content().orElse("");
+ *     }
+ * });
+ * }</pre>
+ *
  * <p>Everything a script creates is destroyed when the script stops, so a script
- * does not have to clean up after itself. See {@link GameUiAPI} for the ownership
+ * does not have to clean up after itself; its subscriptions go with it. See {@link GameUiAPI} for the ownership
  * rules and for how refusals surface.</p>
  */
 public final class GameUi {
@@ -98,6 +113,70 @@ public final class GameUi {
 
     public Text createText(UiParent parent, TextProps props, UiPlacement placement) {
         return new Text(create(parent, UiType.TEXT, placement, props));
+    }
+
+    public Button createButton(UiParent parent, ButtonProps props) {
+        return createButton(parent, props, UiPlacement.auto());
+    }
+
+    public Button createButton(UiParent parent, ButtonProps props, UiPlacement placement) {
+        return new Button(create(parent, UiType.BUTTON, placement, props));
+    }
+
+    public Check createCheck(UiParent parent, CheckProps props) {
+        return createCheck(parent, props, UiPlacement.auto());
+    }
+
+    public Check createCheck(UiParent parent, CheckProps props, UiPlacement placement) {
+        return new Check(create(parent, UiType.CHECK, placement, props));
+    }
+
+    public ListBox createListBox(UiParent parent, ListBoxProps props) {
+        return createListBox(parent, props, UiPlacement.auto());
+    }
+
+    public ListBox createListBox(UiParent parent, ListBoxProps props, UiPlacement placement) {
+        return new ListBox(create(parent, UiType.LIST, placement, props));
+    }
+
+    public InputField createInputField(UiParent parent, InputFieldProps props) {
+        return createInputField(parent, props, UiPlacement.auto());
+    }
+
+    public InputField createInputField(UiParent parent, InputFieldProps props, UiPlacement placement) {
+        return new InputField(create(parent, UiType.INPUT_FIELD, placement, props));
+    }
+
+    public Slider createSlider(UiParent parent, SliderProps props) {
+        return createSlider(parent, props, UiPlacement.auto());
+    }
+
+    public Slider createSlider(UiParent parent, SliderProps props, UiPlacement placement) {
+        return new Slider(create(parent, UiType.SLIDER, placement, props));
+    }
+
+    public ComboField createComboField(UiParent parent, ComboFieldProps props) {
+        return createComboField(parent, props, UiPlacement.auto());
+    }
+
+    public ComboField createComboField(UiParent parent, ComboFieldProps props, UiPlacement placement) {
+        return new ComboField(create(parent, UiType.COMBO_FIELD, placement, props));
+    }
+
+    public Panel createPanel(UiParent parent, PanelProps props) {
+        return createPanel(parent, props, UiPlacement.auto());
+    }
+
+    public Panel createPanel(UiParent parent, PanelProps props, UiPlacement placement) {
+        return new Panel(create(parent, UiType.PANEL, placement, props));
+    }
+
+    public Grid createGrid(UiParent parent, GridProps props) {
+        return createGrid(parent, props, UiPlacement.auto());
+    }
+
+    public Grid createGrid(UiParent parent, GridProps props, UiPlacement placement) {
+        return new Grid(create(parent, UiType.GRID, placement, props));
     }
 
     /** The calling script's own handles, as the agent lists them (quarantined ones included). */

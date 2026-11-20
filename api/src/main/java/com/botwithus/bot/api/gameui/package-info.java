@@ -1,7 +1,9 @@
 /**
- * Plugin UI: native game components (canvases, rectangles, lines, text, layers)
- * that a script creates and the client itself draws, with its own z-order,
- * scaling and styling. Reached through {@code api.gameUi()}.
+ * Plugin UI: native game components (canvases, rectangles, lines, text, layers,
+ * and the interactive buttons, checks, lists, input fields, sliders, combo fields,
+ * panels and grids) that a script creates and the client itself draws, with its
+ * own z-order, scaling and styling. Reached through {@code api.gameUi()}. The
+ * user's actions on them arrive as typed {@link com.botwithus.bot.api.gameui.UiHookEvent}s.
  *
  * <p>This is an additional, opt-in route. The script's ImGui tab
  * ({@code com.botwithus.bot.api.ui}) and the debug-draw overlay
@@ -15,7 +17,10 @@
  *   <li>the interaction configs the agent refuses on every agent component: no
  *       props builder can spell them;</li>
  *   <li>category {@code 0}: {@link com.botwithus.bot.api.gameui.UiPlacement}
- *       rejects it at construction.</li>
+ *       rejects it at construction;</li>
+ *   <li>a slider range sent in parts: {@link com.botwithus.bot.api.gameui.SliderProps#range}
+ *       takes all four values;</li>
+ *   <li>a prop on the wrong type: each props class carries only its type's.</li>
  * </ul>
  */
 package com.botwithus.bot.api.gameui;

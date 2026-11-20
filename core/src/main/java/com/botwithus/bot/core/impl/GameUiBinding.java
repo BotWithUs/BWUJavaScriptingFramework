@@ -3,6 +3,8 @@ package com.botwithus.bot.core.impl;
 import com.botwithus.bot.api.gameui.CanvasOp;
 import com.botwithus.bot.api.gameui.UiEvent;
 import com.botwithus.bot.api.gameui.UiHandleInfo;
+import com.botwithus.bot.api.gameui.UiHook;
+import com.botwithus.bot.api.gameui.UiHookEvent;
 import com.botwithus.bot.api.gameui.UiLimits;
 import com.botwithus.bot.api.gameui.UiOrder;
 import com.botwithus.bot.api.gameui.UiPlacement;
@@ -49,6 +51,13 @@ import java.util.function.Supplier;
  * each owner's listeners with reason {@link UiEvent#REASON_CONNECTION_RESET}, and
  * moves to a new handle epoch so old handle objects can never act on a component
  * made afterwards (see {@link UiHandleSpace}).</p>
+ *
+ * <p><b>Hooks.</b> {@code ui.subscribe} is sent for the first listener of a
+ * (handle, hook) and {@code ui.unsubscribe} when the last one closes. Listeners and
+ * each component's type live in {@link UiHookRegistry}; a hook push is decoded by
+ * that type and delivered on the owner's lane like any other event. A handle that
+ * goes (destroy, {@code destroyed}, release, reset) takes its listeners with it, so
+ * no {@code ui.unsubscribe} is ever sent for a handle the agent already dropped.</p>
  */
 final class GameUiBinding {
 
@@ -62,6 +71,8 @@ final class GameUiBinding {
     /** What a create says when its owner was released while the call was in flight. */
     static final String RELEASED = "ui: the script was stopped while this component was being created; "
             + "it has been destroyed";
+    /** What a subscribe says when its component went while the call was in flight. */
+    static final String GONE = "ui: unknown handle (the component was destroyed while subscribing)";
     private static final String SUBSCRIBE = "_debug.subscribe";
     /** The agent's refusal for a handle that no longer exists (or is not this connection's). */
     private static final String UNKNOWN_HANDLE = "unknown handle";
@@ -71,6 +82,9 @@ final class GameUiBinding {
     private final Supplier<ManagementCallerTag> managementTag;
     private final String hostOwner;
     private final UiOwnership ownership = new UiOwnership();
+    private final UiHookRegistry hooks = new UiHookRegistry();
+    /** Serialises subscribe and unsubscribe, so the first-listener and last-listener calls cannot cross. */
+    private final Object hookLock = new Object();
     private final UiHandleSpace handles = new UiHandleSpace();
     private final UiEventDispatcher dispatcher;
     private final Object subscribeLock = new Object();
@@ -114,6 +128,8 @@ final class GameUiBinding {
         UiPlacement where = placement != null ? placement : UiPlacement.auto();
         UiHandleInfo info = UiCodec.decodeHandle(
                 call(UiCodec.CREATE, UiCodec.createParams(agentParent, type, where, props)));
+        // Recorded before the owner, so a release that lands in between forgets both.
+        hooks.recordType(info.handle(), type);
         if (isRevoked(owner) || !ownership.recordCreated(owner, info.handle())) {
             asHost(() -> destroyAttempt(owner, info.handle()));
             throw new UiRefusedException(UiCodec.CREATE, RELEASED);
@@ -129,10 +145,7 @@ final class GameUiBinding {
     UiReadback get(long handle, boolean isContentRequested) {
         long agent = usableHandle(UiCodec.GET, owner(), handle);
         UiReadback r = UiCodec.decodeReadback(call(UiCodec.GET, UiCodec.getParams(agent, isContentRequested)));
-        return new UiReadback(toHost(r.info()), r.x(), r.y(), r.width(), r.height(), r.rgba(), r.isVisible(),
-                r.isRestricted(), r.isClickthrough(), r.numElements(), r.lineWidth(), r.lineInvert(),
-                r.fill(), r.outlineThickness(), r.useCount(), r.isOpFlagsRead(), r.opMask(), r.opTarget(),
-                r.content());
+        return r.withInfo(toHost(r.info()));
     }
 
     int canvas(long handle, List<CanvasOp> ops) {
@@ -162,12 +175,12 @@ final class GameUiBinding {
         try {
             isFreed = MapHelper.getBool(call(UiCodec.DESTROY, UiCodec.handleParams(agent)), "freed");
         } catch (UiRefusedException e) {
-            if (e.getMessage() != null && e.getMessage().contains(UNKNOWN_HANDLE)) {
-                ownership.forget(agent);
+            if (isUnknownHandle(e)) {
+                forget(agent);
             }
             throw e;
         }
-        ownership.forget(agent);
+        forget(agent);
         return isFreed;
     }
 
@@ -196,6 +209,61 @@ final class GameUiBinding {
         String owner = owner();
         ensureSubscribed(true);
         return ownership.addListener(owner, listener);
+    }
+
+    /**
+     * Adds a hook listener to one of the caller's components. The first listener for
+     * a (handle, hook) sends {@code ui.subscribe}; a refusal is raised and nothing is
+     * registered. A component destroyed while the call was in flight is refused too,
+     * so no listener outlives its component.
+     */
+    UiSubscription subscribe(long handle, UiHook hook, Consumer<UiHookEvent> listener) {
+        if (hook == null || listener == null) {
+            throw new IllegalArgumentException(hook == null ? "hook" : "listener");
+        }
+        hookConnectionReset();
+        long agent = usableHandle(UiCodec.SUBSCRIBE, owner(), handle);
+        ensureSubscribed(true);
+        synchronized (hookLock) {
+            if (!hooks.hasListeners(agent, hook)) {
+                call(UiCodec.SUBSCRIBE, UiCodec.hookParams(agent, hook));
+            }
+            if (!hooks.add(agent, hook, listener)) {
+                throw new UiRefusedException(UiCodec.SUBSCRIBE, GONE);
+            }
+        }
+        long epochHandle = handle;
+        AtomicBoolean isClosed = new AtomicBoolean();
+        return () -> {
+            if (isClosed.compareAndSet(false, true)) {
+                closeListener(epochHandle, agent, hook, listener);
+            }
+        };
+    }
+
+    /**
+     * Drops the caller's listeners for {@code hook} and sends {@code ui.unsubscribe}.
+     * A handle the agent no longer knows, or one from before a reset, answers
+     * {@code false}: its subscriptions are already gone.
+     */
+    boolean unsubscribe(long handle, UiHook hook) {
+        if (hook == null) {
+            throw new IllegalArgumentException("hook");
+        }
+        if (!handles.isCurrent(handle)) {
+            return false;
+        }
+        long agent = usableHandle(UiCodec.UNSUBSCRIBE, owner(), handle);
+        synchronized (hookLock) {
+            hooks.removeAll(agent, hook);
+            return sendUnsubscribe(agent, hook);
+        }
+    }
+
+    /** {@code ui.blur}: whether the field had the client's input focus. */
+    boolean blur(long handle) {
+        long agent = usableHandle(UiCodec.BLUR, owner(), handle);
+        return MapHelper.getBool(call(UiCodec.BLUR, UiCodec.handleParams(agent)), "blurred");
     }
 
     // ------------------------------------------------------------------ lifetime
@@ -247,6 +315,7 @@ final class GameUiBinding {
     /** The pipe was replaced: everything the old one made is gone, and every old handle is now stale. */
     void onConnectionReset() {
         long ended = handles.advance();
+        hooks.clear();
         Map<String, List<Long>> lost = ownership.reset();
         lost.forEach((owner, agentHandles) -> agentHandles.forEach(h -> dispatch(owner,
                 new UiEvent(UiHandleSpace.compose(ended, h), UiEvent.HOOK_DESTROYED,
@@ -258,14 +327,55 @@ final class GameUiBinding {
 
     // ------------------------------------------------------------------ events
 
-    /** The {@code ui.event} handler; runs on the RPC client's push thread and only routes. */
+    /**
+     * The {@code ui.event} handler; runs on the RPC client's push thread and only
+     * routes. A hook this host knows goes to that hook's listeners, decoded; anything
+     * else ({@code destroyed}, or a hook a newer agent added) goes to the
+     * {@code onEvent} listeners as a {@link UiEvent}, as it always has.
+     */
     void onPush(Map<String, Object> data) {
+        Optional<UiCodec.HookPush> hookPush = UiCodec.decodeHookPush(data);
+        if (hookPush.isPresent()) {
+            routeHook(hookPush.get());
+            return;
+        }
         UiCodec.decodeEvent(data).ifPresent(event -> {
             UiEvent hostEvent = new UiEvent(handles.toHost(event.handle()), event.hook(), event.reason());
+            if (event.isDestroyed()) {
+                hooks.forget(event.handle());
+            }
             for (String owner : ownership.route(event.handle(), event.isDestroyed())) {
                 dispatch(owner, hostEvent);
             }
         });
+    }
+
+    /**
+     * Decodes a hook push by the component's recorded type and queues it on its
+     * owner's lane. One for a handle this connection's owners did not make, or whose
+     * args do not have the hook's shape, is dropped with a DEBUG.
+     */
+    private void routeHook(UiCodec.HookPush push) {
+        long agent = push.handle();
+        String owner = ownership.agentOwnerOf(agent);
+        Optional<UiHookEvent> event = hooks.typeOf(agent).flatMap(type ->
+                UiCodec.decodeHookEvent(handles.toHost(agent), type, push.hook(), push.args()));
+        if (owner == null || event.isEmpty()) {
+            log.debug("ui.event {} for handle {} dropped: untracked handle or malformed args {}",
+                    push.hook().wireName(), agent, push.args());
+            return;
+        }
+        UiHookEvent hookEvent = event.get();
+        dispatcher.submit(owner, () -> deliverHook(owner, agent, hookEvent));
+    }
+
+    private void deliverHook(String owner, long agent, UiHookEvent event) {
+        if (isRevoked(owner)) {
+            return;
+        }
+        for (Consumer<UiHookEvent> listener : hooks.listeners(agent, event.hook())) {
+            runListener(owner, () -> listener.accept(event));
+        }
     }
 
     private void dispatch(String owner, UiEvent event) {
@@ -277,14 +387,61 @@ final class GameUiBinding {
             return;
         }
         for (Consumer<UiEvent> listener : ownership.listenersOf(owner)) {
-            runAs(owner, () -> {
-                try {
-                    listener.accept(event);
-                } catch (RuntimeException e) {
-                    log.warn("ui.event listener of {} threw: {}", owner, e.toString());
-                }
-            });
+            runListener(owner, () -> listener.accept(event));
         }
+    }
+
+    /** Runs one listener as its owner; a listener that throws is logged and does not stop the rest. */
+    private void runListener(String owner, Runnable listener) {
+        runAs(owner, () -> {
+            try {
+                listener.run();
+            } catch (RuntimeException e) {
+                log.warn("ui.event listener of {} threw: {}", owner, e.toString());
+            }
+        });
+    }
+
+    /**
+     * One subscription closed: drops its listener and, when it was the hook's last,
+     * unsubscribes. Sends nothing for a handle that is already gone (destroyed,
+     * released, announced, or from before a reset), and never throws: a close runs
+     * in cleanup paths.
+     */
+    private void closeListener(long hostHandle, long agent, UiHook hook, Consumer<UiHookEvent> listener) {
+        synchronized (hookLock) {
+            if (!handles.isCurrent(hostHandle) || !hooks.remove(agent, hook, listener)) {
+                return;
+            }
+            try {
+                sendUnsubscribe(agent, hook);
+            } catch (RuntimeException e) {
+                log.debug("ui.unsubscribe of handle {} {} failed: {}", agent, hook.wireName(), e.getMessage());
+            }
+        }
+    }
+
+    /** {@code ui.unsubscribe}; an unknown handle answers {@code false}, as a gone handle has nothing to drop. */
+    private boolean sendUnsubscribe(long agent, UiHook hook) {
+        try {
+            return MapHelper.getBool(call(UiCodec.UNSUBSCRIBE, UiCodec.hookParams(agent, hook)), "unsubscribed");
+        } catch (UiRefusedException e) {
+            if (isUnknownHandle(e)) {
+                forget(agent);
+                return false;
+            }
+            throw e;
+        }
+    }
+
+    private static boolean isUnknownHandle(UiRefusedException e) {
+        return e.getMessage() != null && e.getMessage().contains(UNKNOWN_HANDLE);
+    }
+
+    /** Stops tracking an agent handle: its owner, and its hook listeners with it. */
+    private void forget(long agent) {
+        ownership.forget(agent);
+        hooks.forget(agent);
     }
 
     // ------------------------------------------------------------------ internals
@@ -358,7 +515,7 @@ final class GameUiBinding {
             log.debug("ui.destroy of {}'s handle {} failed: {}", owner, agentHandle, e.getMessage());
             return false;
         } finally {
-            ownership.forget(agentHandle);
+            forget(agentHandle);
         }
     }
 
