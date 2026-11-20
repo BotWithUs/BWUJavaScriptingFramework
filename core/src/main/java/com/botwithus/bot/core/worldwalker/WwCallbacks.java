@@ -186,8 +186,10 @@ public interface WwCallbacks {
      *       sub, (iface<<16)|comp)}. The executor has already waited for the
      *       target interface (param3>>16 for COMPONENT) to open.</li>
      *   <li>{@link ChainStepKind#DIALOGUE_SELECT} — {@code a=interface, b=index,
-     *       c=per_page, d=next_comp, e=wait_ticks}; resolve the option component
-     *       against the live (possibly paged) dialogue and click it.</li>
+     *       c=per_page, d=next_comp, e=wait_ticks}; {@code f..i} carry optional
+     *       zero-padded ASCII option text (16 bytes, little-endian, slot f first).
+     *       For interface 720 with text, click the first matching option or do
+     *       nothing when none matches. Otherwise select by index, paging as needed.</li>
      *   <li>{@link ChainStepKind#CLICK_ITEM} — {@code a..d=worn(iface,comp,opt,
      *       sub)}, {@code e..h=backpack(iface,comp,opt,sub)}, {@code i=backpack
      *       _special}; check whether the teleport item is worn or carried and

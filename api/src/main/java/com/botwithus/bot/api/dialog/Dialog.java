@@ -295,8 +295,8 @@ public final class Dialog {
         return Integer.parseInt(s.substring(0, s.length() - 1));
     }
 
-    /** Lowercase + strip markup tags + collapse whitespace, for tolerant matching. */
-    static String normalize(String raw) {
+    /** Lowercases, strips markup, and collapses whitespace for dialogue text matching. */
+    public static String normalize(String raw) {
         return plain(raw).toLowerCase(Locale.ROOT);
     }
 }
