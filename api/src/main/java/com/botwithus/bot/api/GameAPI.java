@@ -4,6 +4,10 @@ import com.botwithus.bot.api.combat.ActionBar;
 import com.botwithus.bot.api.combat.LocalCombat;
 import com.botwithus.bot.api.combat.Prayers;
 import com.botwithus.bot.api.component.Components;
+import com.botwithus.bot.api.buff.Buffs;
+import com.botwithus.bot.api.hud.Hud;
+import com.botwithus.bot.api.inventory.DepositBox;
+import com.botwithus.bot.api.inventory.LootInventory;
 import com.botwithus.bot.api.domain.ActionAPI;
 import com.botwithus.bot.api.domain.ClientStateAPI;
 import com.botwithus.bot.api.domain.DrawAPI;
@@ -261,6 +265,46 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
     default QuestLog quests() {
         return new QuestLog(this);
     }
+
+    /** The bank deposit box: open, deposit all or all but some, worn, familiar, pouch. */
+    default DepositBox depositBox() {
+        return new DepositBox(this);
+    }
+
+    /** The loot window and the loot inventory behind it. */
+    default LootInventory loot() {
+        return new LootInventory(this);
+    }
+
+    /** Var-backed buffs (potions, incense): active, time left. */
+    default Buffs buffs() {
+        return new Buffs(this);
+    }
+
+    /** Ribbon tabs and leaving the world by the game's own Escape-menu path. */
+    default Hud hud() {
+        return new Hud(this);
+    }
+
+    /**
+     * Logs out to the login screen the way a player does: the agent's {@code logout} presses
+     * the Escape menu's Logout and then its confirmation. Returns once the clicks are queued;
+     * poll {@link #getLoginState()} for the login screen. A game logout only: no credential or
+     * saved launcher session is touched.
+     *
+     * @return {@code true} when queued; {@code false} when the agent refused (not in the
+     *         world, actions blocked, Escape menu not found, action queue full)
+     */
+    boolean logout();
+
+    /**
+     * Leaves the world for the lobby: the agent's {@code exit_to_lobby} presses the Escape
+     * menu's Exit to Lobby. Returns once the click is queued; poll {@link #getLoginState()}.
+     *
+     * @return {@code true} when queued; {@code false} when the agent refused, as for
+     *         {@link #logout()}
+     */
+    boolean exitToLobby();
 
     /**
      * Per-item obj vars for every filled slot of a container — the per-instance

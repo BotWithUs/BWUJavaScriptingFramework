@@ -2,6 +2,7 @@ module com.botwithus.bot.api {
     requires transitive org.slf4j;
 
     exports com.botwithus.bot.api;
+    exports com.botwithus.bot.api.buff;
     exports com.botwithus.bot.api.combat;
     exports com.botwithus.bot.api.component;
     exports com.botwithus.bot.api.dialog;
@@ -11,6 +12,7 @@ module com.botwithus.bot.api {
     exports com.botwithus.bot.api.event;
     exports com.botwithus.bot.api.gameval;
     exports com.botwithus.bot.api.gameui;
+    exports com.botwithus.bot.api.hud;
     exports com.botwithus.bot.api.input;
     exports com.botwithus.bot.api.inventory;
     exports com.botwithus.bot.api.model;

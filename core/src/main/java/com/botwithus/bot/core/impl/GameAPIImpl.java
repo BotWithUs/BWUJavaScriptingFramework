@@ -493,6 +493,34 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public LodestoneNetwork lodestones() { return lodestonesFacade; }
 
+    /** {@code logout {} -> {}}; see {@link #queueEscapeMenu}. */
+    @Override
+    public boolean logout() {
+        return queueEscapeMenu("logout");
+    }
+
+    /** {@code exit_to_lobby {} -> {}}; see {@link #queueEscapeMenu}. */
+    @Override
+    public boolean exitToLobby() {
+        return queueEscapeMenu("exit_to_lobby");
+    }
+
+    /**
+     * Calls one of the agent's Escape-menu leave methods, which reply {@code {}} once the
+     * clicks are queued. A refusal ({@code not_in_game}, {@code actions_blocked},
+     * {@code logout_ui_not_found}, {@code action_queue_full}) is {@code false} with a WARN
+     * naming it; only {@link RpcRemoteException} is caught, so a dead pipe still propagates.
+     */
+    private boolean queueEscapeMenu(String method) {
+        try {
+            rpc.callSync(method, Map.of());
+            return true;
+        } catch (RpcRemoteException e) {
+            log.warn("{} refused by the agent: {}", method, e.producerMessage());
+            return false;
+        }
+    }
+
     @Override
     public SceneObjects objects() { return objectsFacade; }
 
