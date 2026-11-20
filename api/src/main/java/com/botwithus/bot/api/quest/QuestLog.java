@@ -1,6 +1,7 @@
 package com.botwithus.bot.api.quest;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.gameval.GamevalEntry;
 import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
@@ -14,7 +15,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
@@ -38,6 +41,13 @@ import java.util.OptionalInt;
  * subscription. quest-core's {@code QuestRequirements} asks this class which prior quests are
  * incomplete.</p>
  *
+ * <p><b>Stub records.</b> The cache holds some quests twice: a stub with an empty
+ * {@code listName} and no progress variable (gameval {@code COOK_QUEST}, id 6) beside the
+ * real, listed quest of the same name ({@code COOKS_ASSISTANT}, 257). Asked about a stub, this
+ * class reads the listed quest of the same name instead, and {@link QuestStatus#questId()}
+ * names the record it read. The name index behind that is built once per instance, from the
+ * gameval index, the first time a stub is asked about.</p>
+ *
  * <p>Quest points are not checked: the game holds the player's total in a variable that has
  * not been identified, so a quest-point requirement is not reported either way.</p>
  */
@@ -45,7 +55,12 @@ public final class QuestLog {
 
     private static final Logger log = LoggerFactory.getLogger(QuestLog.class);
 
+    /** Upper bound on quest gamevals read when building {@link #listedByName()}. */
+    private static final int MAX_QUESTS = 4096;
+
     private final GameAPI api;
+    /** Built by {@link #listedByName()} on first use; replaced whole, never mutated. */
+    private volatile Map<String, Integer> listedIndex;
 
     public QuestLog(GameAPI api) {
         this.api = api;
@@ -56,10 +71,11 @@ public final class QuestLog {
      * {@link QuestStage#UNKNOWN}. One definition lookup and one variable read.
      */
     public QuestStatus status(int questId) {
-        Optional<QuestType> type = questType(questId);
+        Optional<QuestType> type = questType(questId).map(this::preferListed);
         if (type.isEmpty()) {
             return QuestStatus.unknown(questId, "");
         }
+        questId = type.get().id();
         List<QuestVar> vars = type.get().progressVars();
         if (vars.isEmpty()) {
             return QuestStatus.unknown(questId, type.get().name());
@@ -104,7 +120,7 @@ public final class QuestLog {
      * definition to read requirements from. Quest points are not checked (see the class).
      */
     public List<QuestRequirement> unmetRequirements(int questId) {
-        Optional<QuestType> type = questType(questId);
+        Optional<QuestType> type = questType(questId).map(this::preferListed);
         if (type.isEmpty()) {
             return List.of();
         }
@@ -159,6 +175,43 @@ public final class QuestLog {
                 unmet.add(new QuestRequirement.Skill(required.skillId(), required.level(), actual));
             }
         }
+    }
+
+    /**
+     * {@code type} itself when it is a listed quest; for an unlisted stub record (empty
+     * {@code listName}), the listed quest of the same name when there is one.
+     */
+    private QuestType preferListed(QuestType type) {
+        if (isListed(type)) {
+            return type;
+        }
+        Integer listed = listedByName().get(type.name());
+        if (listed == null || listed == type.id()) {
+            return type;
+        }
+        return questType(listed).orElse(type);
+    }
+
+    /**
+     * Name -> id of every listed quest the gameval index names, built on first need and kept:
+     * definitions do not change within a client session.
+     */
+    private Map<String, Integer> listedByName() {
+        Map<String, Integer> index = listedIndex;
+        if (index != null) {
+            return index;
+        }
+        Map<String, Integer> built = new HashMap<>();
+        for (GamevalEntry entry : api.gamevals().startingWith(GamevalType.QUEST, "", MAX_QUESTS)) {
+            questType(entry.id()).filter(QuestLog::isListed)
+                    .ifPresent(quest -> built.putIfAbsent(quest.name(), quest.id()));
+        }
+        listedIndex = Map.copyOf(built);
+        return listedIndex;
+    }
+
+    private static boolean isListed(QuestType type) {
+        return type.listName() != null && !type.listName().isEmpty();
     }
 
     private Optional<QuestType> questType(int questId) {

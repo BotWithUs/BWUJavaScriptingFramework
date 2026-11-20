@@ -5,6 +5,7 @@ import com.botwithus.bot.api.combat.LocalCombat;
 import com.botwithus.bot.api.combat.Prayers;
 import com.botwithus.bot.api.summoning.Summoning;
 import com.botwithus.bot.api.world.LodestoneNetwork;
+import com.botwithus.bot.api.quest.QuestLog;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.draw.Draw;
@@ -220,6 +221,7 @@ public class GameAPIImpl implements GameAPI {
     private final LocalCombat combatFacade = new LocalCombat(this, prayersFacade);
     private final Summoning summoningFacade = new Summoning(this);
     private final LodestoneNetwork lodestonesFacade = new LodestoneNetwork(this);
+    private final QuestLog questsFacade = new QuestLog(this);
     private final SceneObjects objectsFacade = new SceneObjects(this);
     private final GroundItems groundItemsFacade = new GroundItems(this);
     private final Projectiles projectilesFacade = new Projectiles(this);
@@ -492,6 +494,10 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public LodestoneNetwork lodestones() { return lodestonesFacade; }
+
+    /** One shared instance, so its stub-to-listed quest index is built once. */
+    @Override
+    public QuestLog quests() { return questsFacade; }
 
     /** {@code logout {} -> {}}; see {@link #queueEscapeMenu}. */
     @Override

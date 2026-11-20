@@ -1,7 +1,9 @@
 package com.botwithus.bot.api.quest;
 
 import com.botwithus.bot.api.GameAPI;
+import com.botwithus.bot.api.gameval.GamevalEntry;
 import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.api.gameval.GamevalType;
 import com.botwithus.bot.api.model.PlayerStat;
 import com.botwithus.bot.api.model.QuestType;
 import com.botwithus.bot.api.model.QuestVar;
@@ -133,6 +135,25 @@ class QuestLogTest {
         assertTrue(quests.requirementsMet(GATED_QUEST));
     }
 
+    @Test
+    void unlistedStub_readsTheListedQuestOfTheSameName() {
+        int stub = 6;
+        GamevalIndex index = mock(GamevalIndex.class);
+        when(api.gamevals()).thenReturn(index);
+        when(index.startingWith(GamevalType.QUEST, "", 4096)).thenReturn(List.of(
+                new GamevalEntry(GamevalType.QUEST, stub, "COOK_QUEST"),
+                new GamevalEntry(GamevalType.QUEST, VARP_QUEST, "COOKS_ASSISTANT")));
+        when(api.getQuestType(stub)).thenReturn(new QuestType(stub, "Cook's Assistant", "", 0, 0,
+                false, 0, 0, -1, List.of(), 0, List.of(), List.of(), List.of(), List.of(), Map.of()));
+        varp(PROGRESS_VARP, 7);
+
+        QuestStatus status = quests.status(stub);
+
+        assertEquals(VARP_QUEST, status.questId());
+        assertEquals(QuestStage.COMPLETE, status.stage());
+        assertEquals(QuestStage.COMPLETE, quests.status(VARP_QUEST).stage());
+    }
+
     private void varp(int id, int value) {
         when(api.readVarp(id)).thenReturn(new VarpRead(id, VarpState.SET, value, value,
                 VarKind.INT, true));
@@ -154,7 +175,7 @@ class QuestLogTest {
                                    List<Map<String, Object>> varps,
                                    List<Map<String, Object>> varbits, List<Integer> priors,
                                    List<Map<String, Object>> skills) {
-        return new QuestType(id, name, "", 0, 0, members, 1, 0, -1, List.of(), 0, priors, skills,
+        return new QuestType(id, name, name, 0, 0, members, 1, 0, -1, List.of(), 0, priors, skills,
                 varps, varbits, Map.of());
     }
 

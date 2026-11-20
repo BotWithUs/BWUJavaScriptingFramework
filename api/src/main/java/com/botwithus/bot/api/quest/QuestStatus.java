@@ -7,7 +7,8 @@ import java.util.Optional;
 /**
  * A quest's state for the logged-in player, read once.
  *
- * @param questId  the quest's id
+ * @param questId  the id of the record read: the one asked about, or for an unlisted stub
+ *                 record the listed quest of the same name (see {@link QuestLog})
  * @param name     the quest's name from its definition; empty when there is no definition
  * @param stage    where the quest stands
  * @param progress the raw value of the progress variable, or {@link #UNKNOWN_PROGRESS}
