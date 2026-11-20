@@ -20,11 +20,18 @@ import java.util.stream.Stream;
  * World-map element query facade. Singleton per {@link GameAPI}; obtain via
  * {@code api.mapElements()}.
  *
- * <p>RPC-backed: each terminal operation issues {@code query_world_map_elements}
- * with the accumulated filter map and post-filters / sorts in Java. The
- * producer-side handler is currently a stub returning empty results — once
- * the cache iteration lands, this facade picks up real data without code
- * changes.</p>
+ * <p>Cache-backed: each terminal operation hands the accumulated filter map to
+ * {@link GameAPI#queryWorldMapElements} and post-filters / sorts in Java. The placements
+ * come from cache index 41 through {@code NXTCache.dll}.</p>
+ *
+ * <p><b>One area at a time, the main world by default.</b> Every placement belongs to a
+ * world map area, in whose map space its tile is. A query reads {@link #MAIN_AREA_ID}
+ * unless {@link Query#inArea(int)} or {@link Query#allAreas()} says otherwise, because the
+ * main overview draws a few regions (Prifddinas, Ashdale) away from their real tiles and
+ * places them again, at the real tile, in their own area: a radius query over every area
+ * would show those regions twice, once as ghosts. The filters this cache has no data for
+ * ({@code withSkill}, {@code withDescription}, {@code withResources}, {@code withItemId},
+ * {@code withResourceNamed}) match nothing.</p>
  *
  * <pre>{@code
  * WorldMapElement spot = api.mapElements().query()
@@ -37,6 +44,13 @@ import java.util.stream.Stream;
  * }</pre>
  */
 public final class WorldMapElements {
+
+    /** The main world map area: the overview of the whole surface world. */
+    public static final int MAIN_AREA_ID = 28;
+    /** {@link #AREA_KEY} value that reads every area. */
+    public static final int ALL_AREAS = -1;
+    /** Filter-map key naming the area to read; absent means {@link #MAIN_AREA_ID}. */
+    public static final String AREA_KEY = "area_id";
 
     /** Default tile radius for {@code nearPlayer()} — covers a typical map view. */
     private static final int DEFAULT_QUERY_RADIUS_TILES = 64;
@@ -126,6 +140,21 @@ public final class WorldMapElements {
 
         /** Default radius around the local player (covers a typical map view). */
         public Query nearPlayer() { return nearPlayer(DEFAULT_QUERY_RADIUS_TILES); }
+
+        /** Reads world map area {@code areaId} instead of {@link #MAIN_AREA_ID}. */
+        public Query inArea(int areaId) {
+            rpcFilter.put(AREA_KEY, areaId);
+            return this;
+        }
+
+        /**
+         * Reads every area. A region the main overview draws away from its real tile then
+         * appears twice; see the class comment.
+         */
+        public Query allAreas() {
+            rpcFilter.put(AREA_KEY, ALL_AREAS);
+            return this;
+        }
 
         public Query onPlane(int plane) {
             rpcFilter.put("plane", plane);

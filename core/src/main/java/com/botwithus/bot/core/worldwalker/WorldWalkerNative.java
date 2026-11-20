@@ -26,6 +26,9 @@ final class WorldWalkerNative {
 
     private static final String QUERY_MOVES = "ww_query_moves";
     private static final String EXECUTOR_RUN_EX = "ww_executor_run_ex";
+    static final String QUERY_OPTS = "ww_query_opts";
+    static final String EXECUTOR_RUN_OPTS = "ww_executor_run_opts";
+    static final String PATH_LINKS = "ww_path_links";
 
     // ── Error + memory ─────────────────────────────────────────────────────
 
@@ -58,6 +61,15 @@ final class WorldWalkerNative {
     /** {@code ww_executor_run_ex}; absent from a library that predates it. */
     final Optional<MethodHandle> wwExecutorRunEx; // (ptr, ptr, WwGoal, ptr, u32) -> int
     final MovesEntry executorEntry;
+
+    // ── Plan options + route links (optional) ──────────────────────────────
+
+    /** {@code ww_query_opts}; absent from a library that predates plan options. */
+    final Optional<MethodHandle> wwQueryOpts;      // (ptr, ptr, WwTile, WwGoal, ptr, ptr, ptr, ptr) -> int
+    /** {@code ww_executor_run_opts}; absent from a library that predates plan options. */
+    final Optional<MethodHandle> wwExecutorRunOpts; // (ptr, ptr, WwGoal, ptr, ptr) -> int
+    /** {@code ww_path_links}; absent from a library that predates route links. */
+    final Optional<MethodHandle> wwPathLinks;      // (ptr, const WwPath*, WwRouteLink**, size_t*) -> int
 
     // ── Upcall descriptors (used by UpcallStubs.install) ───────────────────
 
@@ -196,6 +208,30 @@ final class WorldWalkerNative {
                         ADDRESS,                                // const WwCallbacks*
                         JAVA_INT));                             // uint32_t disabledMoves
         executorEntry = new MovesEntry(EXECUTOR_RUN_EX, wwExecutorRunEx.isPresent());
+
+        wwQueryOpts = optionalDowncall(linker, lookup, QUERY_OPTS,
+                FunctionDescriptor.of(JAVA_INT,
+                        ADDRESS,                                // ww_artifact*
+                        ADDRESS,                                // ww_context_pool*
+                        WorldWalkerLayouts.WW_TILE,             // WwTile (by value)
+                        WorldWalkerLayouts.WW_GOAL,             // WwGoal (by value)
+                        ADDRESS,                                // const WwCapabilitySnapshot*
+                        ADDRESS,                                // const WwInstanceChunks*
+                        ADDRESS,                                // const WwPlanOptions*
+                        ADDRESS));                              // WwPath* (out)
+        wwExecutorRunOpts = optionalDowncall(linker, lookup, EXECUTOR_RUN_OPTS,
+                FunctionDescriptor.of(JAVA_INT,
+                        ADDRESS,                                // ww_artifact*
+                        ADDRESS,                                // ww_context_pool*
+                        WorldWalkerLayouts.WW_GOAL,             // WwGoal (by value)
+                        ADDRESS,                                // const WwCallbacks*
+                        ADDRESS));                              // const WwPlanOptions*
+        wwPathLinks = optionalDowncall(linker, lookup, PATH_LINKS,
+                FunctionDescriptor.of(JAVA_INT,
+                        ADDRESS,                                // const ww_artifact*
+                        ADDRESS,                                // const WwPath*
+                        ADDRESS,                                // WwRouteLink** (out)
+                        ADDRESS));                              // size_t* (out)
     }
 
     /**

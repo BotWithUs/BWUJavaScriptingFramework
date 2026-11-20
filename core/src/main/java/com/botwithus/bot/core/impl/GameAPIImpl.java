@@ -84,6 +84,14 @@ import com.botwithus.bot.api.model.VarpRead;
 import com.botwithus.bot.api.model.VarbitRead;
 import com.botwithus.bot.api.model.WalkStatus;
 import com.botwithus.bot.api.model.WorldPathConfig;
+import com.botwithus.bot.api.model.ComponentChild;
+import com.botwithus.bot.api.model.GeOffer;
+import com.botwithus.bot.api.model.TargetMode;
+import com.botwithus.bot.api.model.WorldToScreen;
+import com.botwithus.bot.api.world.Coordinate;
+import com.botwithus.bot.api.world.RectangularArea;
+import com.botwithus.bot.api.world.WorldHopRequest;
+import com.botwithus.bot.api.world.WorldList;
 import com.botwithus.bot.api.model.WorldPathConfig.MovementOptions;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
@@ -99,6 +107,7 @@ import com.botwithus.bot.core.runtime.ScriptGate;
 import com.botwithus.bot.core.runtime.ScriptUiLifecycle;
 import com.botwithus.bot.core.shm.ActionRefusalFeed;
 import com.botwithus.bot.core.worldwalker.DisabledMoves;
+import com.botwithus.bot.core.worldwalker.WwArea;
 import com.botwithus.bot.core.worldwalker.WorldWalker;
 import com.botwithus.bot.core.worldwalker.WorldWalkerException;
 import com.botwithus.bot.core.worldwalker.WwEvent;
@@ -216,6 +225,7 @@ public class GameAPIImpl implements GameAPI {
     private final Projectiles projectilesFacade = new Projectiles(this);
     private final WorldMapElements mapElementsFacade = new WorldMapElements(this);
     private final Components componentsFacade = new Components(this);
+    private final WorldMapElementIndex worldMaps;
     private final Draw drawFacade = new Draw(this);
     /** Assigned in the constructor: it needs {@link #rpc}, which a field initializer cannot see yet. */
     private final GameUiBinding gameUiBinding;
@@ -430,6 +440,7 @@ public class GameAPIImpl implements GameAPI {
         this.refusals = refusals;
         this.rpc = rpc;
         this.cache = cache;
+        this.worldMaps = new WorldMapElementIndex(new CacheWorldMapSource(cache));
         this.snapshotSource = snapshotSource;
         this.stubGuard = stubGuard;
         this.eventPublisher = eventPublisher;
@@ -510,49 +521,8 @@ public class GameAPIImpl implements GameAPI {
     public Components components() { return componentsFacade; }
 
     @Override
-    @SuppressWarnings("unchecked")
     public List<WorldMapElement> queryWorldMapElements(Map<String, Object> filter) {
-        stubGuard.warnOnce("queryWorldMapElements");
-        return rpc.callSyncList("query_world_map_elements", filter).stream()
-                .map(m -> new WorldMapElement(
-                        getInt(m, "id"),
-                        getInt(m, "tile_x"),
-                        getInt(m, "tile_y"),
-                        getInt(m, "plane"),
-                        getInt(m, "category"),
-                        getInt(m, "sprite_id"),
-                        getInt(m, "element_id"),
-                        getString(m, "name"),
-                        getString(m, "tooltip"),
-                        getString(m, "description"),
-                        getInt(m, "min_level"),
-                        getInt(m, "level_tier1"),
-                        getInt(m, "level_tier2"),
-                        getInt(m, "level_tier3"),
-                        getMapList(m, "skill_requirements").stream()
-                                .map(sr -> new SkillRequirement(
-                                        getInt(sr, "skill_id"),
-                                        getInt(sr, "level"),
-                                        getString(sr, "skill_name")))
-                                .toList(),
-                        getMapList(m, "resources").stream()
-                                .map(rs -> new ResourceSection(
-                                        getString(rs, "title"),
-                                        getMapList(rs, "items").stream()
-                                                .map(ri -> new ResourceItem(
-                                                        getInt(ri, "item_id"),
-                                                        getInt(ri, "level"),
-                                                        getInt(ri, "quantity")))
-                                                .toList()))
-                                .toList(),
-                        getMapList(m, "placements").stream()
-                                .map(pl -> new WorldMapPlacement(
-                                        getInt(pl, "plane"),
-                                        getInt(pl, "tile_x"),
-                                        getInt(pl, "tile_y"),
-                                        getBool(pl, "members_only")))
-                                .toList()))
-                .toList();
+        return worldMaps.query(filter);
     }
 
     @Override
@@ -747,19 +717,7 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public ScriptResult executeScript(long handle, int[] intArgs, String[] stringArgs, String[] returns) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("handle", handle);
-        if (intArgs != null && intArgs.length > 0) {
-            List<Integer> intList = new ArrayList<>();
-            for (int a : intArgs) intList.add(a);
-            params.put("int_args", intList);
-        }
-        if (stringArgs != null && stringArgs.length > 0) {
-            params.put("string_args", List.of(stringArgs));
-        }
-        if (returns != null && returns.length > 0) {
-            params.put("returns", List.of(returns));
-        }
+        Map<String, Object> params = ClientStateCodec.executeScriptParams(handle, intArgs, stringArgs, returns);
         Map<String, Object> r = rpc.callSync("execute_script", params);
         @SuppressWarnings("unchecked")
         List<Object> returnValues = r.containsKey("returns") ? (List<Object>) r.get("returns") : List.of();
@@ -1071,6 +1029,54 @@ public class GameAPIImpl implements GameAPI {
         return getIntList(r, "children");
     }
 
+    // ---------------------------------------------------------------- Client state (ClientStateAPI)
+    // Shapes: NXTLibrary PUBLIC_PROTOCOL 6.2.1, 6.2.2, 6.7; decoded by ClientStateCodec.
+
+    @Override
+    public int getCurrentWorld() {
+        return ClientStateCodec.decodeCurrentWorld(rpc.callSync(ClientStateCodec.GET_CURRENT_WORLD, Map.of()));
+    }
+
+    @Override
+    public WorldList getWorldList() {
+        return ClientStateCodec.decodeWorldList(rpc.callSync(ClientStateCodec.GET_WORLD_LIST, Map.of()));
+    }
+
+    @Override
+    public WorldHopRequest requestWorld(int worldId) {
+        return ClientStateCodec.decodeSetWorld(
+                rpc.callSync(ClientStateCodec.SET_WORLD, ClientStateCodec.setWorldParams(worldId)));
+    }
+
+    @Override
+    public List<GeOffer> getGeOffers() {
+        return ClientStateCodec.decodeGeOffers(
+                rpc.callSync(ClientStateCodec.GET_GE_OFFERS, ClientStateCodec.geOffersParams()));
+    }
+
+    @Override
+    public TargetMode getTargetMode() {
+        return ClientStateCodec.decodeTargetMode(rpc.callSync(ClientStateCodec.GET_TARGET_MODE, Map.of()));
+    }
+
+    @Override
+    public WorldToScreen worldToScreen(List<Coordinate> tiles) {
+        return ClientStateCodec.decodeWorldToScreen(
+                rpc.callSync(ClientStateCodec.WORLD_TO_SCREEN, ClientStateCodec.worldToScreenParams(tiles)));
+    }
+
+    @Override
+    public List<ComponentChild> getStaticChildSlots(int interfaceId, int componentId) {
+        return ClientStateCodec.decodeChildSlots(rpc.callSync(ClientStateCodec.GET_STATIC_CHILDREN,
+                ClientStateCodec.childSlotsParams(interfaceId, componentId)));
+    }
+
+    @Override
+    public List<ComponentChild> getDynamicChildSlots(int interfaceId, int componentId) {
+        return ClientStateCodec.decodeChildSlots(rpc.callSync(ClientStateCodec.GET_DYNAMIC_CHILDREN,
+                ClientStateCodec.childSlotsParams(interfaceId, componentId)));
+    }
+
     // ---------------------------------------------------------------- State probes
 
     @Override
@@ -1089,7 +1095,11 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public void setWorld(int worldId) {
-        rpc.callSync("set_world", Map.of("world_id", worldId));
+        WorldHopRequest request = requestWorld(worldId);
+        if (!request.started()) {
+            log.warn("set_world({}) refused: {}", worldId,
+                    request.reason().isEmpty() ? "no reason (an agent older than the reply)" : request.reason());
+        }
     }
 
     @Override
@@ -1181,9 +1191,10 @@ public class GameAPIImpl implements GameAPI {
         Thread worker;
         try {
             DisabledMoves moves = walkMoves(effective);
-            WalkPathOverlay overlay = newWalkOverlay(w, goal, moves, snapSrc, lease);
+            WalkRouting routing = new WalkRouting(moves, effective.movement(), avoidAreas(effective));
+            WalkPathOverlay overlay = newWalkOverlay(w, goal, routing, snapSrc, lease);
             built = Optional.of(overlay);
-            worker = newWalkWorker(w, goal, new WalkRouting(moves, effective.movement()),
+            worker = newWalkWorker(w, goal, routing,
                     snapSrc, lease, overlay, x, y);
         } catch (RuntimeException e) {
             // Nothing was started: shut the overlay's worker and hand the lease back.
@@ -1217,7 +1228,7 @@ public class GameAPIImpl implements GameAPI {
                 .daemon(true)
                 .unstarted(() -> runWalkThenCloseOverlay(
                         () -> runWalkHearingRefusals(bridge,
-                                () -> runWalk(() -> w.runExecutor(goal, bridge, moves), moves, lease,
+                                () -> runWalk(() -> w.runExecutor(goal, bridge, moves, routing.avoid()), moves, lease,
                                         publisher, x, y)),
                         overlay));
     }
@@ -1226,7 +1237,19 @@ public class GameAPIImpl implements GameAPI {
      * What a walk's executor is allowed to use: the planner mask, and the movement
      * options the callback bridge applies itself (Surge, Dive).
      */
-    private record WalkRouting(DisabledMoves moves, MovementOptions movement) { }
+    private record WalkRouting(DisabledMoves moves, MovementOptions movement, List<WwArea> avoid) { }
+
+    /**
+     * {@code config}'s avoid areas as the walker takes them. Package-private so the mapping
+     * is testable without the native library.
+     */
+    static List<WwArea> avoidAreas(WorldPathConfig config) {
+        List<WwArea> out = new ArrayList<>(config.avoidAreas().size());
+        for (RectangularArea a : config.avoidAreas()) {
+            out.add(new WwArea(a.plane(), a.minX(), a.minY(), a.maxX(), a.maxY()));
+        }
+        return out;
+    }
 
     /**
      * The executor's callbacks, reporting progress to the log and to {@code overlay},
@@ -1323,13 +1346,14 @@ public class GameAPIImpl implements GameAPI {
      * <p>Not registered in {@link #liveOverlays} here; the caller registers it
      * once the walk's executor thread exists.</p>
      */
-    private WalkPathOverlay newWalkOverlay(WorldWalker w, WwGoal goal, DisabledMoves moves,
+    private WalkPathOverlay newWalkOverlay(WorldWalker w, WwGoal goal, WalkRouting routing,
                                            Supplier<GameSnapshot> snapSrc, WalkLease lease) {
         WorldWalkerCallbackBridge inputs = new WorldWalkerCallbackBridge(
                 this, snapSrc, lease.cancel(), e -> { }, goal);
         return new WalkPathOverlay(
                 new WalkPathLayout(lease.seq()),
-                start -> w.query(start, goal, inputs.readCapability(), inputs.readInstance(), moves),
+                start -> w.query(start, goal, inputs.readCapability(), inputs.readInstance(),
+                        routing.moves(), routing.avoid()),
                 new WalkPathOverlay.DrawSink(drawFacade),
                 this::currentTile,
                 () -> isDrawingWalkerPath,
@@ -1633,23 +1657,47 @@ public class GameAPIImpl implements GameAPI {
         return findPath(fromX, fromY, toX, toY);
     }
 
+    @Override
+    public PathResult findWorldPath(int fromX, int fromY, int toX, int toY, int plane,
+                                    WorldPathConfig config) {
+        WorldPathConfig effective = config == null ? WorldPathConfig.DEFAULT : config;
+        WwTile start = new WwTile(fromX, fromY, plane);
+        WwGoal goal = new WwGoal(toX, toY, plane, 0);
+        List<WwArea> avoid = avoidAreas(effective);
+        try {
+            return toPathResult(lazyWorldWalker().query(start, goal, null, currentInstance(),
+                    walkMoves(effective), avoid));
+        } catch (IllegalStateException e) {
+            // A library too old for avoid areas: refusing loudly is the contract, since a
+            // "not found" here would read as "no route avoids them".
+            throw e;
+        } catch (RuntimeException e) {
+            log.debug("findWorldPath query failed: {}", e.toString());
+            return notFoundPath();
+        }
+    }
+
     private PathResult runQuery(int fromX, int fromY, int toX, int toY, int plane) {
         WwTile start = new WwTile(fromX, fromY, plane);
         WwGoal goal = new WwGoal(toX, toY, plane, 0);
         try {
-            WwPathResult result = lazyWorldWalker().query(start, goal, null, currentInstance(), walkMoves());
-            if (result == null) {
-                return notFoundPath();
-            }
-            List<int[]> tiles = new ArrayList<>(result.steps().size());
-            for (WwStep step : result.steps()) {
-                tiles.add(new int[]{step.targetX(), step.targetY()});
-            }
-            return new PathResult(true, tiles.size(), tiles);
+            return toPathResult(lazyWorldWalker().query(start, goal, null, currentInstance(), walkMoves()));
         } catch (RuntimeException e) {
             log.debug("findPath query failed: {}", e.toString());
             return notFoundPath();
         }
+    }
+
+    /** {@code result} as the api shape, links included; not found for {@code null}. */
+    static PathResult toPathResult(WwPathResult result) {
+        if (result == null) {
+            return notFoundPath();
+        }
+        List<int[]> tiles = new ArrayList<>(result.steps().size());
+        for (WwStep step : result.steps()) {
+            tiles.add(new int[]{step.targetX(), step.targetY()});
+        }
+        return new PathResult(true, tiles.size(), tiles, result.links(), result.linksResolved());
     }
 
     private static PathResult notFoundPath() {

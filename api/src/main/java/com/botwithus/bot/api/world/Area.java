@@ -47,6 +47,15 @@ public interface Area {
         return entity != null && contains(entity.tileX(), entity.tileY(), entity.plane());
     }
 
+    /**
+     * The smallest rectangle holding every tile of this area, when the shape knows it. The
+     * three stock shapes do; an area a script implements itself answers empty unless it
+     * overrides this. A pathfinder avoid area is built from it.
+     */
+    default Optional<RectangularArea> boundingBox() {
+        return Optional.empty();
+    }
+
     /** A uniformly random tile of this area. */
     default Coordinate randomTile() {
         return randomTile(ThreadLocalRandom.current());

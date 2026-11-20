@@ -14,6 +14,11 @@ import java.util.OptionalInt;
  */
 public record ScriptResult(List<Object> returns) {
 
+    /** Most int and string arguments one script call may carry, together. */
+    public static final int MAX_ARGS = 16;
+    /** Longest string argument, in bytes of UTF-8. */
+    public static final int MAX_STRING_ARG_BYTES = 255;
+
     /** Return value {@code index} as an {@code int}, or empty when absent or not an int. */
     public OptionalInt intAt(int index) {
         if (returns == null || index < 0 || index >= returns.size()) {

@@ -2,6 +2,7 @@ package com.botwithus.bot.api.world;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.random.RandomGenerator;
 
 /**
@@ -43,6 +44,12 @@ public record PolygonalArea(List<Coordinate> vertices) implements Area {
     /** The smallest rectangle holding every tile of the polygon. */
     public RectangularArea bounds() {
         return boundsOf(vertices);
+    }
+
+    /** {@link #bounds()}. */
+    @Override
+    public Optional<RectangularArea> boundingBox() {
+        return Optional.of(bounds());
     }
 
     @Override

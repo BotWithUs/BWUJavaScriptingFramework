@@ -1,5 +1,6 @@
 package com.botwithus.bot.api.world;
 
+import java.util.Optional;
 import java.util.random.RandomGenerator;
 
 /**
@@ -44,6 +45,12 @@ public record RectangularArea(int minX, int minY, int maxX, int maxY, int plane)
     /** The square of tiles within {@code radius} (Chebyshev) of {@code centre}. */
     public static RectangularArea around(Coordinate centre, int radius) {
         return of(centre.offset(-radius, -radius), centre.offset(radius, radius));
+    }
+
+    /** This rectangle itself. */
+    @Override
+    public Optional<RectangularArea> boundingBox() {
+        return Optional.of(this);
     }
 
     @Override

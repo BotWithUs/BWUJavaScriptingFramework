@@ -227,6 +227,20 @@ public interface NavigationAPI {
     PathResult findWorldPath(int fromX, int fromY, int toX, int toY);
 
     /**
+     * Plans the route a {@link #walkWorldPathAsync(int, int, int, boolean, WorldPathConfig)
+     * walk} with {@code config} would take, from {@code (fromX, fromY)} on {@code plane},
+     * without walking it. The {@code allow*} flags and {@link WorldPathConfig#avoidAreas()}
+     * apply; {@link PathResult#links()} lists the transports and teleports it takes.
+     *
+     * @param config pathfinder config, or {@code null} for defaults
+     * @return the path result; not found when no route avoids what {@code config} rules out
+     * @throws IllegalStateException when {@code config} has avoid areas and the pathfinder
+     *                               library is too old to apply them
+     */
+    PathResult findWorldPath(int fromX, int fromY, int toX, int toY, int plane,
+                             WorldPathConfig config);
+
+    /**
      * Returns the region collision cache size.
      *
      * @return the number of cached regions

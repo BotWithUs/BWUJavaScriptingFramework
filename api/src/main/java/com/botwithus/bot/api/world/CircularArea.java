@@ -1,5 +1,6 @@
 package com.botwithus.bot.api.world;
 
+import java.util.Optional;
 import java.util.random.RandomGenerator;
 
 /**
@@ -22,6 +23,12 @@ public record CircularArea(Coordinate centre, int radius) implements Area {
     @Override
     public int plane() {
         return centre.plane();
+    }
+
+    /** The square around the circle. */
+    @Override
+    public Optional<RectangularArea> boundingBox() {
+        return Optional.of(RectangularArea.around(centre, radius));
     }
 
     @Override
