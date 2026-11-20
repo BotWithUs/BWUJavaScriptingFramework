@@ -5,6 +5,7 @@ import com.botwithus.bot.api.combat.LocalCombat;
 import com.botwithus.bot.api.combat.Prayers;
 import com.botwithus.bot.api.summoning.Summoning;
 import com.botwithus.bot.api.world.LodestoneNetwork;
+import com.botwithus.bot.api.quest.QuestLog;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.draw.Draw;
@@ -222,6 +223,7 @@ public class GameAPIImpl implements GameAPI {
     private final LocalCombat combatFacade = new LocalCombat(this, prayersFacade);
     private final Summoning summoningFacade = new Summoning(this);
     private final LodestoneNetwork lodestonesFacade = new LodestoneNetwork(this);
+    private final QuestLog questsFacade = new QuestLog(this);
     private final SceneObjects objectsFacade = new SceneObjects(this);
     private final GroundItems groundItemsFacade = new GroundItems(this);
     private final Projectiles projectilesFacade = new Projectiles(this);
@@ -494,6 +496,38 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public LodestoneNetwork lodestones() { return lodestonesFacade; }
+
+    /** One shared instance, so its stub-to-listed quest index is built once. */
+    @Override
+    public QuestLog quests() { return questsFacade; }
+
+    /** {@code logout {} -> {}}; see {@link #queueEscapeMenu}. */
+    @Override
+    public boolean logout() {
+        return queueEscapeMenu("logout");
+    }
+
+    /** {@code exit_to_lobby {} -> {}}; see {@link #queueEscapeMenu}. */
+    @Override
+    public boolean exitToLobby() {
+        return queueEscapeMenu("exit_to_lobby");
+    }
+
+    /**
+     * Calls one of the agent's Escape-menu leave methods, which reply {@code {}} once the
+     * clicks are queued. A refusal ({@code not_in_game}, {@code actions_blocked},
+     * {@code logout_ui_not_found}, {@code action_queue_full}) is {@code false} with a WARN
+     * naming it; only {@link RpcRemoteException} is caught, so a dead pipe still propagates.
+     */
+    private boolean queueEscapeMenu(String method) {
+        try {
+            rpc.callSync(method, Map.of());
+            return true;
+        } catch (RpcRemoteException e) {
+            log.warn("{} refused by the agent: {}", method, e.producerMessage());
+            return false;
+        }
+    }
 
     @Override
     public SceneObjects objects() { return objectsFacade; }

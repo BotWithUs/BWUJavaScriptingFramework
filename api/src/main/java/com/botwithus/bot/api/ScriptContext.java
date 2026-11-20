@@ -1,5 +1,6 @@
 package com.botwithus.bot.api;
 
+import com.botwithus.bot.api.config.ScriptSettings;
 import com.botwithus.bot.api.debug.ScriptContextPublisher;
 import com.botwithus.bot.api.event.EventBus;
 import com.botwithus.bot.api.isc.MessageBus;
@@ -129,6 +130,40 @@ public interface ScriptContext {
      * runtime overrides this.</p>
      */
     default void stopSelf() {
+    }
+
+    /**
+     * Pauses this script: the runtime stops calling {@link BotScript#onLoop} after the current
+     * one returns, and the condition waits in {@link com.botwithus.bot.api.util.Timing} hold
+     * without spending their timeout, until {@link #resume()}. Idempotent.
+     *
+     * <p>A script that pauses itself needs something else to resume it: a UI button, an event
+     * or message handler, or a management script. A stop request still ends a paused script.</p>
+     *
+     * <p>The default does nothing, for contexts the runtime has not bound (test mocks).</p>
+     */
+    default void pause() {
+    }
+
+    /** Resumes a paused script. Idempotent. The default does nothing. */
+    default void resume() {
+    }
+
+    /** True while this script is paused. The default is {@code false}. */
+    default boolean isPaused() {
+        return false;
+    }
+
+    /**
+     * This script's own settings: read, write, remove and save arbitrary keys, kept per
+     * account beside its {@link com.botwithus.bot.api.config.ConfigField ConfigField} values.
+     * The runtime hands out one instance per run.
+     *
+     * <p>The default returns fresh in-memory settings on every call, which keep nothing
+     * between calls, for contexts the runtime has not bound (test mocks).</p>
+     */
+    default ScriptSettings getSettings() {
+        return ScriptSettings.inMemory();
     }
 
     /**

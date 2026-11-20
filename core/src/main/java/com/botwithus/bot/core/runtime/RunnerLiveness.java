@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.runtime;
 
 import com.botwithus.bot.api.runtime.Liveness;
+import com.botwithus.bot.api.runtime.ScriptPause;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -29,6 +30,13 @@ public final class RunnerLiveness {
     private final AtomicReference<Liveness> state = new AtomicReference<>(Liveness.LIVE);
     private final AtomicLong stopRequestedNanos = new AtomicLong(UNSET_NANOS);
     private volatile long loopStartNanos = UNSET_NANOS;
+    /**
+     * The runner's pause switch. Lives here, beside the stop state, because the script's
+     * context is built before its runner and both must hold the same switch. A resume
+     * restarts the in-loop clock, so time spent paused inside {@code onLoop} (a
+     * {@code Timing} wait holds while paused) is never read as a stall.
+     */
+    private final ScriptPause pause = new ScriptPause(this::restartLoopClock);
 
     public RunnerLiveness() {}
 
@@ -59,6 +67,24 @@ public final class RunnerLiveness {
         stopRequestedNanos.set(UNSET_NANOS);
         loopStartNanos = UNSET_NANOS;
         state.set(Liveness.LIVE);
+        pause.resume();
+    }
+
+    /** The runner's pause switch; the same object its script's context pauses. */
+    public ScriptPause pauseGate() {
+        return pause;
+    }
+
+    /** True while the runner is paused; the watchdog does not count a paused loop as stalled. */
+    public boolean isPaused() {
+        return pause.isPaused();
+    }
+
+    /** Restarts the in-loop clock when inside {@code onLoop}; a no-op outside one. */
+    void restartLoopClock() {
+        if (loopStartNanos != UNSET_NANOS) {
+            loopStartNanos = System.nanoTime();
+        }
     }
 
     public void enterLoop() {

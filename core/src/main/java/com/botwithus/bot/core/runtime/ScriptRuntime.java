@@ -355,11 +355,13 @@ public class ScriptRuntime {
             // can bind straight to it; the context is then a constructor
             // argument to the runner that owns the same state object.
             RunnerLiveness liveness = new RunnerLiveness();
-            ScopedContext scoped = perScriptContextFor(script, liveness);
+            RunnerSettings settings = new RunnerSettings();
+            ScopedContext scoped = perScriptContextFor(script, liveness, settings);
             ScriptContext perScriptContext = scoped.context();
             ScriptContextPublisher publisher = perScriptContext.getScriptContext();
             ScriptRunner runner = new ScriptRunner(script, perScriptContext, connectionTagger,
                     connectionCleaner, eventSink, publisher, liveness);
+            runner.setSettings(settings);
             if (scoped.bus() != null) {
                 runner.setEventUnsubscriber(scoped.bus()::unsubscribeAll);
             }
@@ -407,7 +409,8 @@ public class ScriptRuntime {
      * script's name when a factory is installed. Falls back to the shared context
      * unchanged when it isn't a {@link ScriptContextImpl} we can clone.
      */
-    private ScopedContext perScriptContextFor(BotScript script, RunnerLiveness liveness) {
+    private ScopedContext perScriptContextFor(BotScript script, RunnerLiveness liveness,
+                                              RunnerSettings settings) {
         // rule-exception: {rule:no-instanceof} — runtime-shape boundary. ScriptContext
         // is an interface so callers can substitute mocks (see test-support); only the
         // production ScriptContextImpl carries the with-publisher / with-bus hooks.
@@ -438,6 +441,7 @@ public class ScriptRuntime {
                 .withScriptMessageBus(messages, name)
                 .withStopSignal(liveness::isStopRequested)
                 .withStopCallback(() -> stopOwnRun(name, liveness))
+                .withControls(liveness.pauseGate(), settings)
                 .withVoiceInput(voice);
         Function<String, ScriptContextPublisher> factory = this.publisherFactory;
         if (factory == null) {
