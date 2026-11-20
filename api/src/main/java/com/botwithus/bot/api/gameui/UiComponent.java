@@ -24,19 +24,37 @@ public interface UiComponent extends UiParent {
      * as {@link GameUi#onEvent} describes, and in order.
      *
      * <p>Subscriptions end with the component and with the script: once it is
-     * destroyed or the script stops, closing one sends nothing.</p>
+     * destroyed or the script stops, closing one sends nothing, and no listener runs
+     * after the script's release has begun, even for an event already queued.</p>
+     *
+     * <p><b>An event can be lost to a {@code destroyed}.</b> Events are queued and
+     * their listeners looked up when they run. If the component's {@code destroyed}
+     * announcement is handled first, an event the client raised just before it is
+     * dropped: there is no longer a component to deliver it for.</p>
+     *
+     * <p>Only the script that created the component can subscribe to it; host code
+     * cannot subscribe to a script's component either, since a listener runs as the
+     * component's owner.</p>
+     *
+     * <p>The default implementation, for a {@code UiComponent} this package did not
+     * make, refuses: such an object is only a handle number with no connection.</p>
      *
      * @throws UiRefusedException when the agent refuses the hook, for example
      *                            {@code ui: hook not valid for this type}
      */
-    UiSubscription subscribe(UiHook hook, Consumer<? super UiHookEvent> listener);
+    default UiSubscription subscribe(UiHook hook, Consumer<? super UiHookEvent> listener) {
+        throw new UnsupportedOperationException("not a component made by GameUi: " + this);
+    }
 
     /**
      * Stops every listener the script has for {@code hook} on this component and
      * unsubscribes. Returns whether the agent had the hook subscribed; {@code false},
-     * not a refusal, when the component is already gone.
+     * not a refusal, when the component is already gone. Refuses, by default, as
+     * {@link #subscribe} does.
      */
-    boolean unsubscribe(UiHook hook);
+    default boolean unsubscribe(UiHook hook) {
+        throw new UnsupportedOperationException("not a component made by GameUi: " + this);
+    }
 
     /** Moves the component in front of its siblings. */
     void toFront();

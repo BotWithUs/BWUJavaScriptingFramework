@@ -1,6 +1,7 @@
 package com.botwithus.bot.core.impl;
 
 import com.botwithus.bot.api.gameui.Button;
+import com.botwithus.bot.api.gameui.CanvasOp;
 import com.botwithus.bot.api.gameui.ButtonProps;
 import com.botwithus.bot.api.gameui.Check;
 import com.botwithus.bot.api.gameui.CheckProps;
@@ -21,6 +22,7 @@ import com.botwithus.bot.api.gameui.SliderProps;
 import com.botwithus.bot.api.gameui.UiEntry;
 import com.botwithus.bot.api.gameui.UiHook;
 import com.botwithus.bot.api.gameui.UiHookEvent;
+import com.botwithus.bot.api.gameui.UiOrder;
 import com.botwithus.bot.api.gameui.UiRefusedException;
 import com.botwithus.bot.api.gameui.UiSubscription;
 import com.botwithus.bot.api.gameui.UiType;
@@ -39,8 +41,11 @@ import org.mockito.ArgumentCaptor;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -49,6 +54,7 @@ import java.util.function.Supplier;
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -56,6 +62,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -85,6 +92,8 @@ class GameAPIImplGameUiP2Test {
     private static final String SUBSCRIBE = "ui.subscribe";
     private static final String UNSUBSCRIBE = "ui.unsubscribe";
     private static final String SELECTION = "onselectionchanged";
+    /** How many methods GameUiAPI declares; noDebugVerbs calls each one. */
+    private static final int GAME_UI_API_METHODS = 14;
 
     private RpcClient rpc;
     private ScriptGate gate;
@@ -92,6 +101,7 @@ class GameAPIImplGameUiP2Test {
     private GameUi ui;
     private final AtomicLong nextHandle = new AtomicLong(FIRST_CREATED);
     private final BlockingQueue<String> heard = new LinkedBlockingQueue<>();
+    private final AtomicReference<Runnable> reset = new AtomicReference<>();
 
     @BeforeEach
     void setUp() {
@@ -109,6 +119,10 @@ class GameAPIImplGameUiP2Test {
         when(rpc.callSync(eq("ui.destroy"), anyMap())).thenReturn(Map.of("freed", true));
         when(rpc.callSync(eq(SUBSCRIBE), anyMap())).thenReturn(Map.of("subscribed", true));
         when(rpc.callSync(eq(UNSUBSCRIBE), anyMap())).thenReturn(Map.of("unsubscribed", true));
+        doAnswer(inv -> {
+            reset.set(inv.getArgument(0));
+            return null;
+        }).when(rpc).addConnectionResetListener(any());
     }
 
     @AfterEach
@@ -348,13 +362,37 @@ class GameAPIImplGameUiP2Test {
         }
 
         @Test
-        @DisplayName("nothing in the API sends a _debug.ui_* verb")
+        @DisplayName("every GameUiAPI verb sends only ui.* methods, never a _debug.* one")
         void noDebugVerbs() {
-            Slider slider = sliderOf(ALPHA);
-            as(ALPHA, () -> slider.onValueChanged(e -> { })).close();
-            as(ALPHA, () -> ui.createInputField(area(), new InputFieldProps())).blur();
+            when(rpc.callSync(eq("ui.get"), anyMap())).thenAnswer(inv ->
+                    UiCodecTest.handleMap(FIRST_CREATED, "slider", false));
+            when(rpc.callSync(eq("ui.canvas"), anyMap())).thenReturn(Map.of("num_elements", 1L));
+            when(rpc.callSync(eq("ui.list"), anyMap())).thenReturn(Map.of("handles", List.of()));
+            when(rpc.callSync(eq("ui.blur"), anyMap())).thenReturn(Map.of("blurred", false));
+            // One call per GameUiAPI method, in declaration order. Adding a method to
+            // GameUiAPI means adding it here; the count below is the reminder.
+            int verbs = as(ALPHA, () -> {
+                long parent = api.uiGetComponent(IFACE, COMP, -1).handle();
+                long made = api.uiCreate(parent, UiType.SLIDER, null, new SliderProps()).handle();
+                api.uiSet(made, new SliderProps().value(0));
+                api.uiGet(made, true);
+                api.uiCanvas(made, List.of(new CanvasOp.Clear()));
+                api.uiOrder(made, UiOrder.FRONT);
+                api.uiOnEvent(e -> { }).close();
+                api.uiSubscribe(made, UiHook.ON_CLICK, e -> { }).close();
+                api.uiUnsubscribe(made, UiHook.ON_CLICK);
+                api.uiBlur(made);
+                api.uiList();
+                api.uiDestroy(made);
+                api.uiDestroyOwned();
+                return api.gameUi() == ui ? GAME_UI_API_METHODS : 0;
+            });
 
-            verify(rpc, never()).callSync(argThat(m -> m.startsWith("_debug.ui")), anyMap());
+            assertEquals(GAME_UI_API_METHODS, verbs);
+            ArgumentCaptor<String> methods = ArgumentCaptor.forClass(String.class);
+            verify(rpc, atLeastOnce()).callSync(methods.capture(), anyMap());
+            assertTrue(methods.getAllValues().stream().allMatch(m -> m.startsWith("ui.")),
+                    "non-ui.* method sent: " + methods.getAllValues());
         }
     }
 
@@ -500,20 +538,20 @@ class GameAPIImplGameUiP2Test {
         }
 
         @Test
-        @DisplayName("after a connection reset, closing an old subscription sends nothing")
-        void reset_dropsListeners() {
-            AtomicReference<Runnable> reset = new AtomicReference<>();
-            doAnswer(inv -> {
-                reset.set(inv.getArgument(0));
-                return null;
-            }).when(rpc).addConnectionResetListener(any());
-            Slider slider = sliderOf(ALPHA);
-            UiSubscription sub = as(ALPHA, () -> slider.onValueChanged(e -> { }));
+        @DisplayName("after a reset, an old listener never hears a new component that reuses the agent number")
+        void reset_dropsListeners() throws InterruptedException {
+            Slider old = sliderOf(ALPHA);
+            UiSubscription sub = as(ALPHA, () -> old.subscribe(UiHook.ON_SELECTION_CHANGED, recorder("old")));
 
             reset.get().run();
+            nextHandle.set(FIRST_CREATED);
+            Slider reused = sliderOf(ALPHA);
+            push().accept(hookPush(FIRST_CREATED, SELECTION, SLIDER_VALUE, 1L));
             sub.close();
 
-            assertFalse(as(ALPHA, () -> slider.unsubscribe(UiHook.ON_SELECTION_CHANGED)),
+            assertEquals(FIRST_CREATED, UiHandleSpace.agentOf(reused.handle()), "the agent reused the number");
+            assertNothingMore();
+            assertFalse(as(ALPHA, () -> old.unsubscribe(UiHook.ON_SELECTION_CHANGED)),
                     "a pre-reset handle answers false, not a refusal");
             verify(rpc, never()).callSync(eq(UNSUBSCRIBE), anyMap());
         }
@@ -531,6 +569,136 @@ class GameAPIImplGameUiP2Test {
 
             assertTrue(next().startsWith(BETA + "|"));
             verify(rpc, never()).callSync("ui.destroy", Map.of("handle", beta.handle()));
+        }
+    }
+
+    @Nested
+    @DisplayName("review fixes")
+    class ReviewFixes {
+
+        @Test
+        @DisplayName("M1: a hook event queued before a release never runs once the release has begun")
+        void release_queuedEventNeverRuns() throws Exception {
+            Slider slider = sliderOf(ALPHA);
+            CountDownLatch laneHeld = new CountDownLatch(1);
+            CountDownLatch openLane = new CountDownLatch(1);
+            CountDownLatch destroyStarted = new CountDownLatch(1);
+            CountDownLatch finishDestroy = new CountDownLatch(1);
+            AtomicInteger runs = new AtomicInteger();
+            as(ALPHA, () -> slider.onValueChanged(e -> {
+                if (runs.incrementAndGet() == 1) {
+                    laneHeld.countDown();
+                    awaitQuietly(openLane);
+                }
+            }));
+            when(rpc.callSync("ui.destroy", Map.of("handle", slider.handle()))).thenAnswer(inv -> {
+                destroyStarted.countDown();
+                awaitQuietly(finishDestroy);
+                return Map.of("freed", true);
+            });
+            Consumer<Map<String, Object>> push = push();
+
+            push.accept(hookPush(slider.handle(), SELECTION, SLIDER_VALUE, 1L));
+            assertTrue(laneHeld.await(AWAIT_SECONDS, TimeUnit.SECONDS), "the first event never ran");
+            push.accept(hookPush(slider.handle(), SELECTION, SLIDER_VALUE, 1L));
+            Thread release = Thread.ofPlatform().start(() -> api.releaseGameUi(ALPHA));
+            assertTrue(destroyStarted.await(AWAIT_SECONDS, TimeUnit.SECONDS), "the release never reached destroy");
+            openLane.countDown();
+            Thread.sleep(QUIET_MS);
+
+            assertEquals(1, runs.get(), "the queued event ran after the script was released");
+            finishDestroy.countDown();
+            release.join(TimeUnit.SECONDS.toMillis(AWAIT_SECONDS));
+        }
+
+        @Test
+        @DisplayName("M2: a revoked script's subscribe is refused before any lock or call")
+        void revoked_isRefusedWithoutACall() {
+            Slider slider = sliderOf(ALPHA);
+            gate.revoke(ALPHA);
+
+            UiRefusedException e = assertThrows(UiRefusedException.class,
+                    () -> as(ALPHA, () -> slider.onValueChanged(ev -> { })));
+            assertEquals(GameUiBinding.REVOKED, e.getMessage());
+            verify(rpc, never()).callSync(eq(SUBSCRIBE), anyMap());
+        }
+
+        @Test
+        @DisplayName("M2: one owner's slow subscribe does not hold up another owner's")
+        void slowSubscribe_doesNotBlockAnotherHandle() throws Exception {
+            Slider alpha = sliderOf(ALPHA);
+            Slider beta = sliderOf(BETA);
+            CountDownLatch alphaInCall = new CountDownLatch(1);
+            CountDownLatch releaseAlpha = new CountDownLatch(1);
+            when(rpc.callSync(SUBSCRIBE, hookParams(alpha.handle(), SELECTION))).thenAnswer(inv -> {
+                alphaInCall.countDown();
+                awaitQuietly(releaseAlpha);
+                return Map.of("subscribed", true);
+            });
+            Thread slow = Thread.ofPlatform().start(() -> as(ALPHA, () -> alpha.onValueChanged(e -> { })));
+            assertTrue(alphaInCall.await(AWAIT_SECONDS, TimeUnit.SECONDS));
+
+            CompletableFuture<UiSubscription> fast = CompletableFuture.supplyAsync(
+                    () -> as(BETA, () -> beta.onValueChanged(e -> { })));
+            try {
+                assertNotNull(fast.get(QUIET_MS, TimeUnit.MILLISECONDS), "Beta's subscribe waited on Alpha's call");
+            } finally {
+                releaseAlpha.countDown();
+                slow.join(TimeUnit.SECONDS.toMillis(AWAIT_SECONDS));
+            }
+        }
+
+        @Test
+        @DisplayName("L1a: host code cannot subscribe to a script's component, and nothing is sent")
+        void hostOnScriptHandle_isRefused() {
+            Slider slider = sliderOf(ALPHA);
+
+            UiRefusedException e = assertThrows(UiRefusedException.class,
+                    () -> api.uiSubscribe(slider.handle(), UiHook.ON_CLICK, ev -> { }));
+            assertEquals(GameUiBinding.NOT_YOURS, e.getMessage());
+            verify(rpc, never()).callSync(eq(SUBSCRIBE), anyMap());
+        }
+
+        @Test
+        @DisplayName("L1b: a reset while the subscribe is in flight refuses it, and the listener never lands")
+        void resetDuringSubscribe_isRefused() throws InterruptedException {
+            Slider old = sliderOf(ALPHA);
+            when(rpc.callSync(SUBSCRIBE, hookParams(FIRST_CREATED, SELECTION))).thenAnswer(inv -> {
+                reset.get().run();
+                nextHandle.set(FIRST_CREATED);
+                sliderOf(ALPHA);
+                return Map.of("subscribed", true);
+            });
+
+            UiRefusedException e = assertThrows(UiRefusedException.class,
+                    () -> as(ALPHA, () -> old.subscribe(UiHook.ON_SELECTION_CHANGED, recorder("old"))));
+            assertEquals(GameUiBinding.STALE, e.getMessage());
+            push().accept(hookPush(FIRST_CREATED, SELECTION, SLIDER_VALUE, 1L));
+            assertNothingMore();
+        }
+
+        @Test
+        @DisplayName("L2: a reset drops every hook record, whatever reuses the numbers later")
+        void reset_clearsHookRecords() {
+            GameUiBinding binding = new GameUiBinding(rpc, () -> gate, () -> null, "host", 1);
+            gate.enter(ALPHA);
+            long parent = binding.getComponent(IFACE, COMP, -1).handle();
+            long made = binding.create(parent, UiType.SLIDER, null, new SliderProps()).handle();
+            binding.subscribe(made, UiHook.ON_CLICK, e -> { });
+            gate.exit();
+            assertEquals(1, binding.hookedHandleCount());
+
+            binding.onConnectionReset();
+
+            assertEquals(0, binding.hookedHandleCount());
+        }
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(AWAIT_SECONDS, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 }

@@ -112,22 +112,35 @@ public interface GameUiAPI {
      * first listener for a (handle, hook) sends {@code ui.subscribe}, and closing the
      * last one sends {@code ui.unsubscribe}. Events are decoded by the component's
      * type and delivered as {@link GameUi#onEvent} describes. Refused by the agent for
-     * a Jagex handle and for a hook the type does not have.
+     * a Jagex handle and for a hook the type does not have; refused by the host for a
+     * component another owner made (the host's own code included) and for a revoked
+     * script.
+     *
+     * <p>The default, for an implementation that predates interactive components,
+     * refuses with {@link UnsupportedOperationException}; the host's own
+     * implementation overrides all three hook verbs.</p>
      */
-    UiSubscription uiSubscribe(long handle, UiHook hook, Consumer<UiHookEvent> listener);
+    default UiSubscription uiSubscribe(long handle, UiHook hook, Consumer<UiHookEvent> listener) {
+        throw new UnsupportedOperationException("uiSubscribe");
+    }
 
     /**
      * Drops every listener the calling script has for {@code hook} on {@code handle}
      * and sends {@code ui.unsubscribe}. Returns the agent's {@code unsubscribed}:
      * whether the hook was subscribed. A handle the agent no longer knows answers
-     * {@code false} rather than a refusal; its subscriptions went with it.
+     * {@code false} rather than a refusal; its subscriptions went with it. Refuses by
+     * default, as {@link #uiSubscribe} does.
      */
-    boolean uiUnsubscribe(long handle, UiHook hook);
+    default boolean uiUnsubscribe(long handle, UiHook hook) {
+        throw new UnsupportedOperationException("uiUnsubscribe");
+    }
 
     /**
      * {@code ui.blur}: clears the client's input focus from one of the calling
      * script's input fields. Returns whether it had focus. Refused by the agent for
-     * any other type.
+     * any other type. Refuses by default, as {@link #uiSubscribe} does.
      */
-    boolean uiBlur(long handle);
+    default boolean uiBlur(long handle) {
+        throw new UnsupportedOperationException("uiBlur");
+    }
 }

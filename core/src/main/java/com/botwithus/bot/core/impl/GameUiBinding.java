@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -71,6 +72,8 @@ final class GameUiBinding {
     /** What a create says when its owner was released while the call was in flight. */
     static final String RELEASED = "ui: the script was stopped while this component was being created; "
             + "it has been destroyed";
+    /** What a hook verb says to a revoked owner, refused before any lock or call. */
+    static final String REVOKED = "ui: the script was revoked; its plugin UI is being released";
     /** What a subscribe says when its component went while the call was in flight. */
     static final String GONE = "ui: unknown handle (the component was destroyed while subscribing)";
     private static final String SUBSCRIBE = "_debug.subscribe";
@@ -83,8 +86,8 @@ final class GameUiBinding {
     private final String hostOwner;
     private final UiOwnership ownership = new UiOwnership();
     private final UiHookRegistry hooks = new UiHookRegistry();
-    /** Serialises subscribe and unsubscribe, so the first-listener and last-listener calls cannot cross. */
-    private final Object hookLock = new Object();
+    /** One lock per agent handle for its subscribe / unsubscribe calls; see {@link #lockFor}. */
+    private final Map<Long, Object> handleLocks = new ConcurrentHashMap<>();
     private final UiHandleSpace handles = new UiHandleSpace();
     private final UiEventDispatcher dispatcher;
     private final Object subscribeLock = new Object();
@@ -214,29 +217,35 @@ final class GameUiBinding {
     /**
      * Adds a hook listener to one of the caller's components. The first listener for
      * a (handle, hook) sends {@code ui.subscribe}; a refusal is raised and nothing is
-     * registered. A component destroyed while the call was in flight is refused too,
-     * so no listener outlives its component.
+     * registered. Refused before any lock is taken for a revoked owner, and without a
+     * call for a component another owner made, the host included: a listener runs as
+     * the component's owner. A component destroyed, or a connection reset, while the
+     * call was in flight is refused too, so no listener outlives its component or
+     * lands on a later one that reused the agent's number.
      */
     UiSubscription subscribe(long handle, UiHook hook, Consumer<UiHookEvent> listener) {
         if (hook == null || listener == null) {
             throw new IllegalArgumentException(hook == null ? "hook" : "listener");
         }
         hookConnectionReset();
-        long agent = usableHandle(UiCodec.SUBSCRIBE, owner(), handle);
+        String owner = owner();
+        long agent = ownHookHandle(UiCodec.SUBSCRIBE, owner, handle);
         ensureSubscribed(true);
-        synchronized (hookLock) {
+        synchronized (lockFor(agent)) {
             if (!hooks.hasListeners(agent, hook)) {
                 call(UiCodec.SUBSCRIBE, UiCodec.hookParams(agent, hook));
             }
-            if (!hooks.add(agent, hook, listener)) {
+            if (!handles.isCurrent(handle)) {
+                throw new UiRefusedException(UiCodec.SUBSCRIBE, STALE);
+            }
+            if (!hooks.add(agent, hook, owner, listener)) {
                 throw new UiRefusedException(UiCodec.SUBSCRIBE, GONE);
             }
         }
-        long epochHandle = handle;
         AtomicBoolean isClosed = new AtomicBoolean();
         return () -> {
             if (isClosed.compareAndSet(false, true)) {
-                closeListener(epochHandle, agent, hook, listener);
+                closeListener(owner, handle, agent, hook, listener);
             }
         };
     }
@@ -253,11 +262,42 @@ final class GameUiBinding {
         if (!handles.isCurrent(handle)) {
             return false;
         }
-        long agent = usableHandle(UiCodec.UNSUBSCRIBE, owner(), handle);
-        synchronized (hookLock) {
+        long agent = ownHookHandle(UiCodec.UNSUBSCRIBE, owner(), handle);
+        synchronized (lockFor(agent)) {
             hooks.removeAll(agent, hook);
             return sendUnsubscribe(agent, hook);
         }
+    }
+
+    /**
+     * The agent's number for a hook verb: refuses a revoked owner first, so it never
+     * waits on a lock or the gate, then a stale handle, then any component another
+     * owner made. Only the owner subscribes, because its listeners run as the owner.
+     */
+    private long ownHookHandle(String method, String owner, long handle) {
+        if (isRevoked(owner)) {
+            throw new UiRefusedException(method, REVOKED);
+        }
+        long agent = usableHandle(method, owner, handle);
+        String madeBy = ownership.agentOwnerOf(agent);
+        if (madeBy != null && !madeBy.equals(owner)) {
+            throw new UiRefusedException(method, NOT_YOURS);
+        }
+        return agent;
+    }
+
+    /**
+     * The lock for one agent handle's subscribe / unsubscribe pair, so the first- and
+     * last-listener calls on it cannot cross. Per handle, not per connection: one
+     * owner's slow call never holds up another owner's.
+     */
+    private Object lockFor(long agent) {
+        return handleLocks.computeIfAbsent(agent, a -> new Object());
+    }
+
+    /** How many handles hold hook listeners; for tests. */
+    int hookedHandleCount() {
+        return hooks.size();
     }
 
     /** {@code ui.blur}: whether the field had the client's input focus. */
@@ -304,6 +344,9 @@ final class GameUiBinding {
     }
 
     private int releaseClosed(String owner, List<Long> owned) {
+        // Listeners first: an event already queued on the lane must find nothing to
+        // run once the release has begun, not wait for each handle's destroy.
+        owned.forEach(hooks::forget);
         dispatcher.close(owner);
         int removed = asHost(() -> destroyEach(owner, owned));
         if (!owned.isEmpty()) {
@@ -316,6 +359,7 @@ final class GameUiBinding {
     void onConnectionReset() {
         long ended = handles.advance();
         hooks.clear();
+        handleLocks.clear();
         Map<String, List<Long>> lost = ownership.reset();
         lost.forEach((owner, agentHandles) -> agentHandles.forEach(h -> dispatch(owner,
                 new UiEvent(UiHandleSpace.compose(ended, h), UiEvent.HOOK_DESTROYED,
@@ -369,11 +413,17 @@ final class GameUiBinding {
         dispatcher.submit(owner, () -> deliverHook(owner, agent, hookEvent));
     }
 
+    /**
+     * Runs the owner's listeners for a queued hook event, read at delivery. Nothing
+     * runs once the owner is released or revoked, and nothing runs for a handle that
+     * went in between: a {@code destroyed} push that overtakes a queued hook event
+     * drops it.
+     */
     private void deliverHook(String owner, long agent, UiHookEvent event) {
-        if (isRevoked(owner)) {
+        if (isRevoked(owner) || ownership.isClosed(owner)) {
             return;
         }
-        for (Consumer<UiHookEvent> listener : hooks.listeners(agent, event.hook())) {
+        for (Consumer<UiHookEvent> listener : hooks.listeners(agent, event.hook(), owner)) {
             runListener(owner, () -> listener.accept(event));
         }
     }
@@ -383,7 +433,7 @@ final class GameUiBinding {
     }
 
     private void deliver(String owner, UiEvent event) {
-        if (isRevoked(owner)) {
+        if (isRevoked(owner) || ownership.isClosed(owner)) {
             return;
         }
         for (Consumer<UiEvent> listener : ownership.listenersOf(owner)) {
@@ -408,9 +458,19 @@ final class GameUiBinding {
      * released, announced, or from before a reset), and never throws: a close runs
      * in cleanup paths.
      */
-    private void closeListener(long hostHandle, long agent, UiHook hook, Consumer<UiHookEvent> listener) {
-        synchronized (hookLock) {
-            if (!handles.isCurrent(hostHandle) || !hooks.remove(agent, hook, listener)) {
+    private void closeListener(String owner, long hostHandle, long agent, UiHook hook,
+                               Consumer<UiHookEvent> listener) {
+        if (!handles.isCurrent(hostHandle)) {
+            return;
+        }
+        if (isRevoked(owner)) {
+            // No call for a revoked owner: the gate would park it, and its release
+            // destroys the component, subscriptions and all.
+            hooks.remove(agent, hook, listener);
+            return;
+        }
+        synchronized (lockFor(agent)) {
+            if (!hooks.remove(agent, hook, listener)) {
                 return;
             }
             try {
@@ -442,6 +502,7 @@ final class GameUiBinding {
     private void forget(long agent) {
         ownership.forget(agent);
         hooks.forget(agent);
+        handleLocks.remove(agent);
     }
 
     // ------------------------------------------------------------------ internals

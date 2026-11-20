@@ -17,6 +17,10 @@ import java.util.function.Consumer;
  * handle, and the type of each component, which decides how its events decode (a
  * slider's {@code onselectionchanged} carries a value, a list's an entry).
  *
+ * <p>Each listener is stored with the owner that subscribed it, and
+ * {@link #listeners} hands out only one owner's: a listener runs as its owner, so a
+ * listener some other owner registered must never be run as this one.</p>
+ *
  * <p>Only a handle recorded with {@link #recordType} can take a listener, and
  * {@link #forget} drops the handle with every listener on it: a component that is
  * destroyed, released or announced gone takes its subscriptions with it, and the
@@ -27,7 +31,11 @@ import java.util.function.Consumer;
  */
 final class UiHookRegistry {
 
-    private record Entry(UiType type, Map<UiHook, List<Consumer<UiHookEvent>>> listeners) {
+    /** One subscribed listener and the owner it runs as. */
+    private record Subscriber(String owner, Consumer<UiHookEvent> listener) {
+    }
+
+    private record Entry(UiType type, Map<UiHook, List<Subscriber>> listeners) {
     }
 
     private final Map<Long, Entry> entries = new HashMap<>();
@@ -50,12 +58,12 @@ final class UiHookRegistry {
     }
 
     /** Adds a listener; {@code false}, adding nothing, when the handle is not (or no longer) recorded. */
-    synchronized boolean add(long handle, UiHook hook, Consumer<UiHookEvent> listener) {
+    synchronized boolean add(long handle, UiHook hook, String owner, Consumer<UiHookEvent> listener) {
         Entry entry = entries.get(handle);
         if (entry == null) {
             return false;
         }
-        entry.listeners().computeIfAbsent(hook, h -> new ArrayList<>()).add(listener);
+        entry.listeners().computeIfAbsent(hook, h -> new ArrayList<>()).add(new Subscriber(owner, listener));
         return true;
     }
 
@@ -69,8 +77,8 @@ final class UiHookRegistry {
         if (entry == null) {
             return false;
         }
-        List<Consumer<UiHookEvent>> registered = entry.listeners().get(hook);
-        if (registered == null || !registered.remove(listener)) {
+        List<Subscriber> registered = entry.listeners().get(hook);
+        if (registered == null || !registered.removeIf(s -> s.listener() == listener)) {
             return false;
         }
         if (registered.isEmpty()) {
@@ -88,13 +96,16 @@ final class UiHookRegistry {
         }
     }
 
-    /** A copy of the hook's listeners, read when an event is delivered. */
-    synchronized List<Consumer<UiHookEvent>> listeners(long handle, UiHook hook) {
+    /** A copy of the listeners {@code owner} subscribed for the hook, read when an event is delivered. */
+    synchronized List<Consumer<UiHookEvent>> listeners(long handle, UiHook hook, String owner) {
         Entry entry = entries.get(handle);
         if (entry == null) {
             return List.of();
         }
-        return List.copyOf(entry.listeners().getOrDefault(hook, List.of()));
+        return entry.listeners().getOrDefault(hook, List.of()).stream()
+                .filter(s -> s.owner().equals(owner))
+                .map(Subscriber::listener)
+                .toList();
     }
 
     /** Drops the handle and its listeners. */
@@ -107,7 +118,7 @@ final class UiHookRegistry {
         entries.clear();
     }
 
-    /** How many handles are recorded; for tests. */
+    /** How many handles are recorded. */
     synchronized int size() {
         return entries.size();
     }
