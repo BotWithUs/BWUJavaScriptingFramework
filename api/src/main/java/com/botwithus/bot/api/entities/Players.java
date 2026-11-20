@@ -46,7 +46,8 @@ public final class Players {
         return query().all();
     }
 
-    public static final class Query extends EntityQuery<Player, Query> {
+    public static final class Query extends EntityQuery<Player, Query>
+            implements ActorFilters<Player, Query> {
         /** U+00A0, which the client writes for the space in some names (cp1252 0xA0). */
         private static final char NO_BREAK_SPACE = '\u00A0';
 

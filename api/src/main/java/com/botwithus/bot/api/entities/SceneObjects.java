@@ -110,7 +110,8 @@ public final class SceneObjects {
         return fetched;
     }
 
-    public static final class Query extends EntityQuery<SceneObject, Query> {
+    public static final class Query extends EntityQuery<SceneObject, Query>
+            implements AnimationFilters<SceneObject, Query>, OptionFilters<SceneObject, Query> {
         private final IntFunction<LocationType> typeLookup;
         private boolean includeHidden;
 

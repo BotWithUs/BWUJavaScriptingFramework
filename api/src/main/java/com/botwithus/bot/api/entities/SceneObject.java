@@ -17,7 +17,7 @@ import java.util.function.IntFunction;
  * directly. The facade owns the LocationType cache that backs
  * {@link #getType()} repeats.</p>
  */
-public final class SceneObject implements EntityContext {
+public final class SceneObject implements EntityContext, Animated, Interactive {
 
     private final GameAPI api;
     private final SceneObjectInfo raw;

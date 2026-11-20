@@ -16,7 +16,7 @@ import java.util.function.IntFunction;
  * <p>Obtained through {@link GroundItems#query()} — don't construct
  * directly.</p>
  */
-public final class GroundItem implements EntityContext {
+public final class GroundItem implements EntityContext, Interactive {
 
     private final GameAPI api;
     private final GroundItemInfo raw;
