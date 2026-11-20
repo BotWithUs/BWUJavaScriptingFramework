@@ -355,7 +355,8 @@ tasks.register<Test>("harnessTest") {
            "botwithus.live.expectOpenIfaceTypes", "botwithus.live.inventoryOps",
            "botwithus.live.dropItemId", "botwithus.live.combatHud",
            "botwithus.live.lodestones", "botwithus.live.clientState",
-           "botwithus.live.protectedAccount").forEach { key ->
+           "botwithus.live.protectedAccount", "botwithus.live.tierTwo",
+           "botwithus.live.leaveWorld").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {
