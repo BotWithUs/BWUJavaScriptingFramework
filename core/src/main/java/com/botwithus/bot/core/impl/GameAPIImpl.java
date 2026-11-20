@@ -1,5 +1,10 @@
 package com.botwithus.bot.core.impl;
 
+import com.botwithus.bot.api.combat.ActionBar;
+import com.botwithus.bot.api.combat.LocalCombat;
+import com.botwithus.bot.api.combat.Prayers;
+import com.botwithus.bot.api.summoning.Summoning;
+import com.botwithus.bot.api.world.LodestoneNetwork;
 import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.draw.Draw;
@@ -201,6 +206,11 @@ public class GameAPIImpl implements GameAPI {
     private final Bank bankFacade = new Bank(this);
     private final InputDialog inputDialogFacade = new InputDialog(this);
     private final Equipment equipmentFacade = new Equipment(this);
+    private final ActionBar actionBarFacade = new ActionBar(this);
+    private final Prayers prayersFacade = new Prayers(this);
+    private final LocalCombat combatFacade = new LocalCombat(this, prayersFacade);
+    private final Summoning summoningFacade = new Summoning(this);
+    private final LodestoneNetwork lodestonesFacade = new LodestoneNetwork(this);
     private final SceneObjects objectsFacade = new SceneObjects(this);
     private final GroundItems groundItemsFacade = new GroundItems(this);
     private final Projectiles projectilesFacade = new Projectiles(this);
@@ -456,6 +466,21 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public Equipment equipment() { return equipmentFacade; }
+
+    @Override
+    public ActionBar actionBar() { return actionBarFacade; }
+
+    @Override
+    public Prayers prayers() { return prayersFacade; }
+
+    @Override
+    public LocalCombat combat() { return combatFacade; }
+
+    @Override
+    public Summoning summoning() { return summoningFacade; }
+
+    @Override
+    public LodestoneNetwork lodestones() { return lodestonesFacade; }
 
     @Override
     public SceneObjects objects() { return objectsFacade; }

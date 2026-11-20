@@ -1,5 +1,8 @@
 package com.botwithus.bot.api;
 
+import com.botwithus.bot.api.combat.ActionBar;
+import com.botwithus.bot.api.combat.LocalCombat;
+import com.botwithus.bot.api.combat.Prayers;
 import com.botwithus.bot.api.component.Components;
 import com.botwithus.bot.api.domain.ActionAPI;
 import com.botwithus.bot.api.domain.DrawAPI;
@@ -47,6 +50,8 @@ import com.botwithus.bot.api.model.SpotAnimation;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
+import com.botwithus.bot.api.summoning.Summoning;
+import com.botwithus.bot.api.world.LodestoneNetwork;
 
 import java.util.List;
 import java.util.Map;
@@ -215,6 +220,34 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
 
     /** Worn equipment facade. Singleton per {@link GameAPI}. */
     Equipment equipment();
+
+    /**
+     * The main action bar: slot contents, using a slot, cooldowns. A new facade per call by
+     * default; the runtime returns one shared instance so its cache lookups are memoised.
+     */
+    default ActionBar actionBar() {
+        return new ActionBar(this);
+    }
+
+    /** Prayer points, the active book, and turning prayers on and off. */
+    default Prayers prayers() {
+        return new Prayers(this);
+    }
+
+    /** The local player's combat state: adrenaline, life, target, in-combat. */
+    default LocalCombat combat() {
+        return new LocalCombat(this);
+    }
+
+    /** Summoning points and the summoned familiar. */
+    default Summoning summoning() {
+        return new Summoning(this);
+    }
+
+    /** Teleporting on the Lodestone Network. */
+    default LodestoneNetwork lodestones() {
+        return new LodestoneNetwork(this);
+    }
 
     /**
      * Per-item obj vars for every filled slot of a container — the per-instance
