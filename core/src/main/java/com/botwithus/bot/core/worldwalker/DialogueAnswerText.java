@@ -2,16 +2,15 @@ package com.botwithus.bot.core.worldwalker;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Decodes the answer text a {@link ChainStepKind#DIALOGUE_ANSWER} step carries
- * in its nine generic {@code int} slots.
+ * Decodes packed text from WorldWalker dialogue steps. Answers use slots
+ * {@code a..i} as UTF-8, and chooser labels use slots {@code f..i} as ASCII.
  *
- * <p>The executor copies a fixed-size UTF-8 buffer straight into the slots, so
- * each slot holds four bytes of the text in little-endian order, slot {@code a}
- * first. The text ends at the first zero byte, or fills the whole buffer with
- * no terminator at all.</p>
+ * <p>Each slot holds four bytes in little-endian order. The text ends at the
+ * first zero byte or fills the whole buffer.</p>
  */
 public final class DialogueAnswerText {
 
@@ -39,12 +38,22 @@ public final class DialogueAnswerText {
             throw new IllegalArgumentException(
                     "a dialogue answer spans " + SLOT_COUNT + " slots, got " + slots.length);
         }
-        ByteBuffer buffer = ByteBuffer.allocate(MAX_BYTES).order(ByteOrder.LITTLE_ENDIAN);
+        return decodeSlots(StandardCharsets.UTF_8, slots);
+    }
+
+    /** Decodes the optional ASCII chooser text from slots {@code f..i}. */
+    public static String decodeSelection(int f, int g, int h, int i) {
+        return decodeSlots(StandardCharsets.US_ASCII, f, g, h, i);
+    }
+
+    private static String decodeSlots(Charset charset, int... slots) {
+        ByteBuffer buffer = ByteBuffer.allocate(slots.length * Integer.BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN);
         for (int slot : slots) {
             buffer.putInt(slot);
         }
         byte[] bytes = buffer.array();
-        return new String(bytes, 0, textLength(bytes), StandardCharsets.UTF_8);
+        return new String(bytes, 0, textLength(bytes), charset);
     }
 
     /** Index of the first terminator, or the whole length when there is none. */

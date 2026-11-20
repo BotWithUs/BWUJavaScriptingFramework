@@ -1739,6 +1739,59 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals((720 << 16) | 20, action.param3(), "option component 20 for index 1");
     }
 
+    @Test
+    void runChainStepDialogueSelectClicksFirstMatchingText() {
+        when(api.getComponents(any())).thenReturn(List.of(
+                treeNode(720, 14, ComponentType.TEXT, "Camelot", -1).component(),
+                treeNode(720, 21, ComponentType.TEXT, "<col=ffffff>ARDougne   Zoo</col>", -1)
+                        .component(),
+                treeNode(720, 24, ComponentType.TEXT, "Ardougne Zoo", -1).component()));
+
+        runDialogueSelect(720, "ardougne zoo");
+
+        verify(api).queueAction(new GameAction(ActionTypes.DIALOGUE, 0, -1, (720 << 16) | 20));
+    }
+
+    @Test
+    void runChainStepDialogueSelectClicksTenthTextOption() {
+        List<Component> components = new ArrayList<>();
+        for (int i = 0; i < 9; i++) {
+            components.add(null);
+        }
+        components.add(treeNode(720, 45, ComponentType.TEXT, "Ardougne", -1).component());
+        when(api.getComponents(argThat(refs -> refs.size() == 10
+                && refs.stream().allMatch(ref -> ref.interfaceId() == 720)
+                && refs.getLast().componentId() == 45))).thenReturn(components);
+
+        runDialogueSelect(720, "Ardougne");
+
+        verify(api).queueAction(new GameAction(ActionTypes.DIALOGUE, 0, -1, (720 << 16) | 44));
+    }
+
+    @Test
+    void runChainStepDialogueSelectDoesNotClickWhenTextIsMissing() {
+        when(api.getComponents(any())).thenReturn(List.of(
+                treeNode(720, 14, ComponentType.TEXT, "Camelot", -1).component()));
+
+        runDialogueSelect(720, "Ardougne");
+
+        verify(api, never()).queueAction(any());
+    }
+
+    @Test
+    void runChainStepDialogueSelectUsesIndexOnOtherInterfaces() {
+        runDialogueSelect(1188, "Ardougne");
+
+        verify(api, never()).getComponents(any());
+        verify(api).queueAction(new GameAction(ActionTypes.DIALOGUE, 0, -1, (1188 << 16) | 1));
+    }
+
+    private void runDialogueSelect(int iface, String text) {
+        int[] slots = packDialogueText(text);
+        bridge.runChainStep(ChainStepKind.DIALOGUE_SELECT.wire(),
+                iface, 0, 9, 44, 3, slots[0], slots[1], slots[2], slots[3]);
+    }
+
     // ---- CLICK_NPC: the origin of a transition with no loc ----
 
     // Charter-ship crewmembers: Trader Crewmember type ids 4650..4656.
@@ -1857,8 +1910,8 @@ class WorldWalkerCallbackBridgeTest {
                 text, 0, -1, -1, -1, List.of()), parentIndex);
     }
 
-    /** The answer packed as the executor sends it: UTF-8, little-endian slots, zero-padded. */
-    private static int[] packAnswer(String text) {
+    /** Packs dialogue text into little-endian slots, zero-padded. */
+    private static int[] packDialogueText(String text) {
         ByteBuffer buffer = ByteBuffer.allocate(DialogueAnswerText.MAX_BYTES)
                 .order(ByteOrder.LITTLE_ENDIAN);
         buffer.put(text.getBytes(StandardCharsets.UTF_8));
@@ -1871,7 +1924,7 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     private void runAnswer(String text) {
-        int[] s = packAnswer(text);
+        int[] s = packDialogueText(text);
         bridge.runChainStep(ChainStepKind.DIALOGUE_ANSWER.wire(),
                 s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8]);
     }
