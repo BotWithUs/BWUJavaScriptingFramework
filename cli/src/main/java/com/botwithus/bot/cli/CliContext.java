@@ -52,6 +52,8 @@ import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.ReconnectPolicySettings;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.cli.stream.StreamManager;
+import com.botwithus.bot.core.alerts.AlertGateway;
+import com.botwithus.bot.core.secrets.CredentialStore;
 import com.botwithus.bot.core.launcher.AttachResult;
 import com.botwithus.bot.core.launcher.HostClientLauncher;
 import com.botwithus.bot.core.launcher.UnavailableHostClientLauncher;
@@ -201,6 +203,8 @@ public class CliContext {
     private volatile HostSettings settings;
     /** Guarded by {@code this}; set by {@link #startAlerts()}. */
     private Alerts alerts;
+    /** Guarded by {@code this}; set by {@link #bindAlertsToLauncher}, whichever of the two runs first. */
+    private AlertGateway alertGateway;
     /** Host-level events; unlike a connection's bus it exists with no client connected. */
     private final HostEventBus hostEvents = new HostEventBus();
     /**
@@ -365,22 +369,47 @@ public class CliContext {
     }
 
     /**
-     * Starts sending alerts to ntfy, Slack and Discord, as the {@code alerts.*}
-     * settings say (all off until the user turns a service on). Call once, from the
+     * Starts deciding alerts for ntfy, Slack and Discord, as the {@code alerts.*}
+     * settings say (all off until the user turns a service on); the launcher sends
+     * them once {@link #bindAlertsToLauncher} has connected it. Call once, from the
      * composition root, after {@link #setSettings}; a second call returns the same
      * integrations.
      *
      * @return what the Integrations section of the Settings page binds to
      * @throws IllegalStateException if no settings are set
      */
-    public synchronized Integrations startAlerts() {
+    public Integrations startAlerts() {
+        return startAlerts(Alerts::openHostCredentials);
+    }
+
+    /**
+     * {@link #startAlerts()} over a given credential store, so a test can keep the
+     * one-time move of old alert secrets away from the machine's real store.
+     */
+    synchronized Integrations startAlerts(Supplier<CredentialStore> credentials) {
         if (settings == null) {
             throw new IllegalStateException("settings must be set before alerts start");
         }
         if (alerts == null) {
-            alerts = Alerts.start(settings, hostEvents, new LiveClientDirectory(this), connectionHistory);
+            alerts = Alerts.start(settings, hostEvents, new LiveClientDirectory(this), connectionHistory,
+                    credentials.get());
+            if (alertGateway != null) {
+                alerts.bindLauncher(alertGateway);
+            }
         }
         return alerts.integrations();
+    }
+
+    /**
+     * Hands alerts to {@code gateway}, the launcher service connection, from now on.
+     * Called once when the host registers with the launcher; works before or after
+     * {@link #startAlerts()}.
+     */
+    public synchronized void bindAlertsToLauncher(AlertGateway gateway) {
+        alertGateway = gateway;
+        if (alerts != null) {
+            alerts.bindLauncher(gateway);
+        }
     }
 
     /** The alert integrations, once {@link #startAlerts()} has run. */

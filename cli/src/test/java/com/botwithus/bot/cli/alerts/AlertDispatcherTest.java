@@ -7,9 +7,11 @@ import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.QuietMode;
 import com.botwithus.bot.cli.settings.Subscription;
 import com.botwithus.bot.core.alerts.Alert;
+import com.botwithus.bot.core.alerts.AlertDelivery;
 import com.botwithus.bot.core.alerts.AlertKind;
 import com.botwithus.bot.core.alerts.AlertMessage;
 import com.botwithus.bot.core.alerts.AlertService;
+import com.botwithus.bot.core.alerts.DeliveryOutcome;
 import com.botwithus.bot.core.alerts.SendResult;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +25,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -38,8 +41,9 @@ class AlertDispatcherTest {
 
     private final ManualClock clock = new ManualClock(NOON);
     private final ManualScheduler scheduler = new ManualScheduler(clock);
-    private final RecordingNotifiers notifiers = new RecordingNotifiers(clock);
+    private final FakeLauncher notifiers = new FakeLauncher(clock);
     private final ServiceStatusBoard status = new ServiceStatusBoard();
+    private final AlertSender sender = new AlertSender(notifiers, status, Runnable::run, clock);
     private final FakeClientDirectory directory = new FakeClientDirectory().name(PIPE, "Hollowmere");
     private HostSettings settings;
     private AlertDispatcher dispatcher;
@@ -48,6 +52,7 @@ class AlertDispatcherTest {
     @BeforeEach
     void open() {
         settings = HostSettings.open(dir);
+        notifiers.addListener(sender);
         dispatcher = dispatcherWith(Runnable::run);
         resumed = dispatcher.resumeHeld();
     }
@@ -65,8 +70,8 @@ class AlertDispatcherTest {
 
     /** A dispatcher over the same settings and held-alerts file, as a host started again would build. */
     private AlertDispatcher dispatcherWith(Executor intake, ManualScheduler timer) {
-        return new AlertDispatcher(new AlertSettings(settings), new AlertClassifier(directory), notifiers,
-                status, timer, intake, DeliveryLanes.direct(), HeldAlerts.open(heldFile()), clock, ZoneOffset.UTC);
+        return new AlertDispatcher(new AlertSettings(settings), new AlertClassifier(directory), sender, timer,
+                intake, HeldAlerts.open(heldFile()), clock, ZoneOffset.UTC);
     }
 
     private Path heldFile() {
@@ -226,11 +231,31 @@ class AlertDispatcherTest {
     }
 
     @Test
+    void anAlert_isOneDelivery_toExactlyTheServicesTheGridTicks() {
+        enable(AlertService.NTFY);
+        enable(AlertService.SLACK);
+        enable(AlertService.DISCORD);
+        settings.set(AlertSettingKeys.route(AlertService.NTFY, AlertKind.CLIENT_LOST), true);
+        settings.set(AlertSettingKeys.route(AlertService.DISCORD, AlertKind.CLIENT_LOST), true);
+        settings.set(AlertSettingKeys.route(AlertService.SLACK, AlertKind.CLIENT_LOST), false);
+        noBursts();
+
+        dispatcher.dispatch(alert(AlertKind.CLIENT_LOST, "Hollowmere stopped responding"));
+
+        List<AlertDelivery> sent = notifiers.deliveries();
+        assertEquals(1, sent.size());
+        assertEquals(Set.of(AlertService.NTFY, AlertService.DISCORD), sent.getFirst().services());
+        assertEquals(AlertKind.CLIENT_LOST.id(), sent.getFirst().kind());
+        assertEquals(clock.instant(), sent.getFirst().at());
+    }
+
+    @Test
     void aSend_isRecordedOnTheStatusBoard() {
         enable(AlertService.NTFY);
         noBursts();
 
         dispatcher.dispatch(alert(AlertKind.CLIENT_LOST, "Hollowmere stopped responding"));
+        notifiers.reportAll();
 
         LastSend last = status.last(AlertService.NTFY).orElseThrow();
         assertEquals("Hollowmere stopped responding", last.subject());
@@ -242,7 +267,7 @@ class AlertDispatcherTest {
     void aServiceNotSetUp_recordsWhyAndSendsNothing() {
         enable(AlertService.SLACK);
         noBursts();
-        notifiers.notReady(AlertService.SLACK, "Add the webhook URL first");
+        notifiers.drop(AlertService.SLACK, DeliveryOutcome.DropReason.NOT_CONFIGURED);
 
         dispatcher.dispatch(alert(AlertKind.CLIENT_LOST, "Hollowmere stopped responding"));
 

@@ -17,8 +17,9 @@ import java.util.Optional;
 /**
  * Draws one Integrations service card: the tile, name, status and switch, and —
  * while the service is on — its fields on a darker panel, the setup hint and
- * Send test with the last result beside it. Plain settings in the card save like
- * any row; the secret box goes through {@link SecretFields}.
+ * Send test with the last result beside it. Every field is the service's set-up
+ * on the launcher: plain fields go to it when committed, and the secret box goes
+ * through {@link SecretFields}.
  */
 final class ServiceCards {
 
@@ -34,6 +35,7 @@ final class ServiceCards {
     private static final String OPTIONAL = " · optional";
     private static final String SEND_TEST = "Send test";
     private static final String SPACE = " ";
+    private static final String REMOVE = "Remove the saved ";
 
     private final Controls ui;
     private final SettingsWidgets widgets;
@@ -172,9 +174,8 @@ final class ServiceCards {
             case CardField.Setting setting -> settingBox(setting, fieldW, model);
             case CardField.SecretBox box -> secretBox(box, fieldX, y, fieldW, model);
             case CardField.Toggle toggle -> {
-                String id = CARD_ID + toggle.keyName();
-                if (widgets.toggle(id, toggle.isOn())) {
-                    edits.accept(id, model.edit(toggle.keyName(), String.valueOf(!toggle.isOn())));
+                if (widgets.toggle(CARD_ID + toggle.field().id(), toggle.isOn())) {
+                    model.changeIntegration(toggle.field(), String.valueOf(!toggle.isOn()));
                 }
             }
         }
@@ -185,44 +186,45 @@ final class ServiceCards {
         }
     }
 
+    /** A plain field; a refused value stays in the box, with the launcher's reason under it. */
     private void settingBox(CardField.Setting setting, float width, SettingsModel model) {
-        String id = CARD_ID + setting.keyName();
+        String id = CARD_ID + setting.field().id();
         ImString buffer = edits.buffer(id, setting.text());
         SettingsWidgets.Field field = widgets.hintedField(id, buffer, setting.placeholder(), false, width,
-                ui.m().controlHeight(), edits.error(id).isPresent());
-        edits.track(id, field.isActive());
+                ui.m().controlHeight(), setting.error().isPresent());
+        edits.track(id, field.isActive() || setting.error().isPresent());
         if (field.isCommitted()) {
-            edits.accept(id, model.edit(setting.keyName(), buffer.get()));
+            model.changeIntegration(setting.field(), buffer.get());
         }
     }
 
-    /** The masked box and its Show / Hide button. */
+    /** The masked box and, while a secret is saved, the button that removes it. */
     private void secretBox(CardField.SecretBox box, float x, float y, float width, SettingsModel model) {
         ImGuiTheme.Metrics m = ui.m();
         AlertService service = box.service();
+        secrets.poll(service);
         float h = m.controlHeight();
         float boxW = width - h - m.u(1);
-        boolean isRevealed = secrets.isRevealed(service);
         SettingsWidgets.Field field = widgets.hintedField(CARD_ID + SECRET_ID + service.id(), secrets.buffer(service),
-                secrets.hint(box), !isRevealed, boxW, h, secrets.error(service).isPresent());
+                secrets.hint(box), true, boxW, h, secrets.error(service).isPresent());
         if (field.isCommitted()) {
             secrets.commit(service, model);
         }
         ImGui.setCursorScreenPos(x + boxW + m.u(1), y);
-        String icon = isRevealed ? IntegrationIcons.EYE_SLASH : Icons.EYE;
-        if (ui.button("##reveal-" + service.id(), icon, "", Tone.ICON, true, h)) {
-            secrets.toggleReveal(service, model);
+        boolean canRemove = box.hasSecret() && !secrets.isSaving(service);
+        if (ui.button("##remove-" + service.id(), Icons.TRASH, "", Tone.ICON, canRemove, h)) {
+            secrets.remove(service, model);
         }
-        if (ImGui.isItemHovered()) {
-            ImGui.setTooltip((isRevealed ? "Hide " : "Show ") + box.label());
+        if (ImGui.isItemHovered() && canRemove) {
+            ImGui.setTooltip(REMOVE + box.label());
         }
     }
 
     private List<String> errorLines(CardField field, float width) {
         Optional<String> error = switch (field) {
-            case CardField.Setting setting -> edits.error(CARD_ID + setting.keyName());
+            case CardField.Setting setting -> setting.error();
             case CardField.SecretBox box -> secrets.error(box.service());
-            case CardField.Toggle toggle -> edits.error(CARD_ID + toggle.keyName());
+            case CardField.Toggle toggle -> toggle.error();
         };
         return error.map(e -> ui.wrap(ui.fonts().caption(), e, width)).orElse(List.of());
     }

@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
 final class LauncherFixtures {
 
     /** The launcher merge the fixtures were vendored from. */
-    static final String SOURCE_SHA = "d07115099eaa9fdd8443fce51c98e21afa8f8525";
+    static final String SOURCE_SHA = "cb30bf0047e3f8ebeeff1408b8007a553092d521";
 
     private final Path dir;
     private final List<Fixture> fixtures;

@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.alerts.IntegrationField;
 import com.botwithus.bot.cli.alerts.Integrations;
 import com.botwithus.bot.cli.alerts.ServiceStatus;
 import com.botwithus.bot.cli.alerts.ServiceView;
@@ -9,6 +10,7 @@ import com.botwithus.bot.cli.settings.QuietMode;
 import com.botwithus.bot.cli.settings.SettingKey;
 import com.botwithus.bot.core.alerts.AlertKind;
 import com.botwithus.bot.core.alerts.AlertService;
+import com.botwithus.bot.core.alerts.IntegrationState;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -21,14 +23,20 @@ import java.util.function.Function;
  * Builds the Integrations section: a card per alert service, the event grid,
  * and the burst, quiet-hours, quiet-hours mode and daily-summary rows. Cards come from the alert
  * back end's {@link ServiceView}s, which are cheap to read every frame; everything
- * else is a plain {@code alerts.*} setting. No secret is ever part of what this
- * builds: a card only says whether one is saved.
+ * else is a plain {@code alerts.*} setting. A card's fields are the service's set-up
+ * on the launcher. No secret is ever part of what this builds: a card only says
+ * whether one is saved, with the launcher's masked hint.
  */
 public final class IntegrationsSheet {
 
-    /** Shown when the credential store could not be opened. */
-    static final String SESSION_ONLY = "Windows Credential Manager could not be opened, so webhook URLs "
-            + "and tokens are kept only until the host closes. Enter them again after a restart.";
+    /** Shown when the connected launcher predates alerts. */
+    static final String NEEDS_NEWER_LAUNCHER = "Update the launcher to send alerts. Until then nothing is "
+            + "sent: alerts wait, and services cannot be set up or tested here.";
+    /** Shown when no launcher is connected. */
+    static final String NO_LAUNCHER = "The BotWithUs launcher is not running, so services cannot be set up "
+            + "or tested here. Alerts wait until it is.";
+    /** Where the All config keys table says the old service settings went. */
+    static final String KEPT_BY_LAUNCHER = "Kept by the launcher";
     /** Shown when the alert back end is not running. */
     static final String NOT_RUNNING = "Alerts did not start in this session, so services cannot be set up "
             + "or tested here. The settings below still save.";
@@ -59,11 +67,9 @@ public final class IntegrationsSheet {
             items.add(new SettingsItem.Notice(NOT_RUNNING, true));
         }
         integrations.ifPresent(live -> {
-            if (!live.isPersistent()) {
-                items.add(new SettingsItem.Notice(SESSION_ONLY, true));
-            }
+            notice(live.availability()).ifPresent(items::add);
             for (ServiceView view : live.services()) {
-                items.add(card(view, settings));
+                items.add(card(view, live::fieldError));
             }
         });
         items.add(grid(settings));
@@ -81,14 +87,14 @@ public final class IntegrationsSheet {
      * way the card says so, its button is disabled and the previous result is
      * hidden, so the line that appears next is the test's own.
      */
-    static SettingsItem.ServiceCard card(ServiceView view, HostSettings settings) {
+    static SettingsItem.ServiceCard card(ServiceView view, Function<IntegrationField, Optional<String>> errors) {
         AlertService service = view.service();
         StatusChip chip = StatusChip.of(view.status());
         boolean isSending = view.status() == ServiceStatus.SENDING;
         Optional<ResultLine> result = isSending ? Optional.empty()
                 : view.lastLine().map(line -> new ResultLine(line, chip.tone()));
         return new SettingsItem.ServiceCard(service, ServiceCopy.description(service),
-                AlertSettingKeys.enabled(service).name(), view.isEnabled(), chip, fields(view, settings),
+                AlertSettingKeys.enabled(service).name(), view.isEnabled(), chip, fields(view, errors),
                 ServiceCopy.hint(service), result, !isSending);
     }
 
@@ -110,23 +116,35 @@ public final class IntegrationsSheet {
         return new SettingsItem.EventGrid(columns, rows);
     }
 
-    private static List<CardField> fields(ServiceView view, HostSettings settings) {
-        AlertService service = view.service();
-        CardField secret = new CardField.SecretBox(service, service.secretLabel(), view.hasSecret(),
-                service.isSecretOptional(), ServiceCopy.secretPlaceholder(service));
-        return switch (service) {
-            case NTFY -> List.of(
-                    setting(settings, AlertSettingKeys.NTFY_SERVER, "Server", ServiceCopy.NTFY_SERVER_PLACEHOLDER),
-                    setting(settings, AlertSettingKeys.NTFY_TOPIC, "Topic", ServiceCopy.NTFY_TOPIC_PLACEHOLDER),
-                    secret);
-            case SLACK -> List.of(secret);
-            case DISCORD -> List.of(secret, new CardField.Toggle(AlertSettingKeys.DISCORD_MENTION_HERE.name(),
-                    ServiceCopy.MENTION_LABEL, settings.get(AlertSettingKeys.DISCORD_MENTION_HERE)));
+    /** Shown above the cards when alerts cannot be set up or sent now. */
+    private static Optional<SettingsItem> notice(Integrations.Availability availability) {
+        return switch (availability) {
+            case READY -> Optional.empty();
+            case NEEDS_NEWER_LAUNCHER -> Optional.of(new SettingsItem.Notice(NEEDS_NEWER_LAUNCHER, true));
+            case NO_LAUNCHER -> Optional.of(new SettingsItem.Notice(NO_LAUNCHER, true));
         };
     }
 
-    private static CardField setting(HostSettings settings, SettingKey<String> key, String label, String placeholder) {
-        return new CardField.Setting(key.name(), label, settings.get(key), placeholder);
+    private static List<CardField> fields(ServiceView view, Function<IntegrationField, Optional<String>> errors) {
+        AlertService service = view.service();
+        IntegrationState setup = view.setup();
+        CardField secret = new CardField.SecretBox(service, service.secretLabel(), view.hasSecret(),
+                view.secretHint(), service.isSecretOptional(), ServiceCopy.secretPlaceholder(service));
+        return switch (service) {
+            case NTFY -> List.of(
+                    setting(IntegrationField.NTFY_SERVER, setup, "Server", ServiceCopy.NTFY_SERVER_PLACEHOLDER, errors),
+                    setting(IntegrationField.NTFY_TOPIC, setup, "Topic", ServiceCopy.NTFY_TOPIC_PLACEHOLDER, errors),
+                    secret);
+            case SLACK -> List.of(secret);
+            case DISCORD -> List.of(secret, new CardField.Toggle(IntegrationField.DISCORD_MENTION_HERE,
+                    ServiceCopy.MENTION_LABEL, setup.isMentioningHere(),
+                    errors.apply(IntegrationField.DISCORD_MENTION_HERE)));
+        };
+    }
+
+    private static CardField setting(IntegrationField field, IntegrationState setup, String label, String placeholder,
+                                     Function<IntegrationField, Optional<String>> errors) {
+        return new CardField.Setting(field, label, field.valueIn(setup), placeholder, errors.apply(field));
     }
 
     /** The row's second line; the daily summary's says when it is sent. */
@@ -153,9 +171,10 @@ public final class IntegrationsSheet {
                 table.put(AlertSettingKeys.route(service, kind).name(), GRID + service.label());
             }
         }
-        table.put(AlertSettingKeys.NTFY_SERVER.name(), "ntfy · Server");
-        table.put(AlertSettingKeys.NTFY_TOPIC.name(), "ntfy · Topic");
-        table.put(AlertSettingKeys.DISCORD_MENTION_HERE.name(), "Discord · " + ServiceCopy.MENTION_LABEL);
+        for (SettingKey<?> moved : List.of(AlertSettingKeys.NTFY_SERVER, AlertSettingKeys.NTFY_TOPIC,
+                AlertSettingKeys.DISCORD_MENTION_HERE)) {
+            table.put(moved.name(), KEPT_BY_LAUNCHER);
+        }
         for (SettingKey<?> key : List.of(AlertSettingKeys.QUIET_ENABLED, AlertSettingKeys.QUIET_FROM,
                 AlertSettingKeys.QUIET_TO)) {
             table.put(key.name(), QUIET_LABEL);

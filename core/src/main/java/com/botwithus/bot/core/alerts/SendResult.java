@@ -9,7 +9,8 @@ import java.util.Objects;
  *
  * <p>{@link #summary()} is the {@code status · reason} line the Integrations page
  * shows next to Send test, e.g. {@code 401 Unauthorized · Unknown Webhook}. It never
- * contains a secret: URLs in it are {@link Redaction redacted} to their host.</p>
+ * contains a secret: the launcher reduces URLs in a reason to their host before it
+ * reports one.</p>
  */
 public sealed interface SendResult {
 

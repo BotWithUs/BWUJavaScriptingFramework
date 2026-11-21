@@ -2336,6 +2336,509 @@
       },
       "binFields": [],
       "builder": "SdnLegacyRequest"
+    },
+    {
+      "name": "sdn.native_state.event",
+      "file": "sdn.native_state.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "sdn.native_state",
+        "body": {
+          "runId": 7,
+          "scriptId": "202",
+          "pid": 4242,
+          "phase": "accepted"
+        },
+        "seq": 15
+      },
+      "binFields": [],
+      "builder": "SdnNativeStateEvent"
+    },
+    {
+      "name": "sdn.native_state.event.exited",
+      "file": "sdn.native_state.event.exited.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "sdn.native_state",
+        "body": {
+          "runId": 7,
+          "scriptId": "202",
+          "pid": 4242,
+          "phase": "exited",
+          "outcome": "not_delivered",
+          "reason": "heartbeat_refused"
+        },
+        "seq": 16
+      },
+      "binFields": [],
+      "builder": "SdnNativeStateEvent"
+    },
+    {
+      "name": "sdn.native_state.event.exit_code",
+      "file": "sdn.native_state.event.exit_code.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "sdn.native_state",
+        "body": {
+          "runId": 7,
+          "scriptId": "202",
+          "pid": 4242,
+          "phase": "exited",
+          "outcome": "licence_lost",
+          "exitCode": 16
+        },
+        "seq": 17
+      },
+      "binFields": [],
+      "builder": "SdnNativeStateEvent"
+    },
+    {
+      "name": "alerts.deliver.req",
+      "file": "alerts.deliver.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 70,
+        "kind": "req",
+        "method": "alerts.deliver",
+        "body": {
+          "kind": "scriptCrash",
+          "severity": "problem",
+          "title": "Script crashed",
+          "body": "Woodcutter crashed on Main\nNullPointerException in onLoop()",
+          "services": [
+            "discord",
+            "ntfy"
+          ],
+          "ts": 1795132800000
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsDeliverRequest"
+    },
+    {
+      "name": "alerts.deliver.req.full",
+      "file": "alerts.deliver.req.full.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 71,
+        "kind": "req",
+        "method": "alerts.deliver",
+        "body": {
+          "kind": "burst",
+          "severity": "info",
+          "title": "3 alerts",
+          "body": "21:04 Main is back\n21:05 Alt is back\n21:06 Third is back",
+          "fields": [
+            {
+              "name": "Host",
+              "value": "PC-1"
+            }
+          ],
+          "services": [
+            "slack"
+          ],
+          "dedupeKey": "burst-21:04",
+          "ts": 1795132800000
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsDeliverRequest"
+    },
+    {
+      "name": "alerts.deliver.resp",
+      "file": "alerts.deliver.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 70,
+        "kind": "resp",
+        "method": "alerts.deliver",
+        "ok": true,
+        "body": {
+          "accepted": true,
+          "results": [
+            {
+              "service": "discord",
+              "outcome": "queued",
+              "deliveryId": 40
+            },
+            {
+              "service": "ntfy",
+              "outcome": "dropped",
+              "reason": "not_configured"
+            }
+          ]
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsDeliverResponse"
+    },
+    {
+      "name": "alerts.integrations.get.req",
+      "file": "alerts.integrations.get.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 72,
+        "kind": "req",
+        "method": "alerts.integrations.get",
+        "body": {}
+      },
+      "binFields": [],
+      "builder": "Empty"
+    },
+    {
+      "name": "alerts.integrations.get.resp",
+      "file": "alerts.integrations.get.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 72,
+        "kind": "resp",
+        "method": "alerts.integrations.get",
+        "ok": true,
+        "body": {
+          "services": [
+            {
+              "service": "discord",
+              "hasSecret": true,
+              "secretHint": "discord.com/…",
+              "mentionHere": false
+            },
+            {
+              "service": "slack",
+              "hasSecret": false
+            },
+            {
+              "service": "ntfy",
+              "hasSecret": true,
+              "secretHint": "************",
+              "server": "https://ntfy.sh",
+              "topic": "my-alerts"
+            }
+          ]
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsIntegrations"
+    },
+    {
+      "name": "alerts.integrations.set.req",
+      "file": "alerts.integrations.set.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 73,
+        "kind": "req",
+        "method": "alerts.integrations.set",
+        "body": {
+          "service": "discord",
+          "secret": "https://discord.com/api/webhooks/123/abc",
+          "mentionHere": true
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsIntegrationsSetRequest"
+    },
+    {
+      "name": "alerts.integrations.set.req.ntfy",
+      "file": "alerts.integrations.set.req.ntfy.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 74,
+        "kind": "req",
+        "method": "alerts.integrations.set",
+        "body": {
+          "service": "ntfy",
+          "secret": "",
+          "server": "https://ntfy.example",
+          "topic": "my-alerts"
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsIntegrationsSetRequest"
+    },
+    {
+      "name": "alerts.integrations.set.resp",
+      "file": "alerts.integrations.set.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 73,
+        "kind": "resp",
+        "method": "alerts.integrations.set",
+        "ok": true,
+        "body": {
+          "service": "discord",
+          "hasSecret": true,
+          "secretHint": "discord.com/…",
+          "mentionHere": true
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsIntegration"
+    },
+    {
+      "name": "alerts.integrations.set.refused",
+      "file": "alerts.integrations.set.refused.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 75,
+        "kind": "resp",
+        "method": "alerts.integrations.set",
+        "ok": false,
+        "body": {},
+        "error": {
+          "code": "bad_request",
+          "message": "The webhook URL must start with https://",
+          "retryable": false,
+          "detail": {
+            "field": "secret"
+          }
+        }
+      },
+      "binFields": [],
+      "builder": "Error"
+    },
+    {
+      "name": "alerts.integrations.test.req",
+      "file": "alerts.integrations.test.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 76,
+        "kind": "req",
+        "method": "alerts.integrations.test",
+        "body": {
+          "service": "ntfy"
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsServiceRequest"
+    },
+    {
+      "name": "alerts.integrations.test.resp",
+      "file": "alerts.integrations.test.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 76,
+        "kind": "resp",
+        "method": "alerts.integrations.test",
+        "ok": true,
+        "body": {
+          "deliveryId": 43
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsDeliveryId"
+    },
+    {
+      "name": "alerts.status.req",
+      "file": "alerts.status.req.msgpack",
+      "direction": "c2s",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 77,
+        "kind": "req",
+        "method": "alerts.status",
+        "body": {}
+      },
+      "binFields": [],
+      "builder": "Empty"
+    },
+    {
+      "name": "alerts.status.resp",
+      "file": "alerts.status.resp.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 77,
+        "kind": "resp",
+        "method": "alerts.status",
+        "ok": true,
+        "body": {
+          "services": [
+            {
+              "service": "discord",
+              "configured": true,
+              "sending": false,
+              "queued": 0,
+              "last": {
+                "deliveryId": 42,
+                "service": "discord",
+                "isTest": true,
+                "kind": "test",
+                "outcome": "failed",
+                "status": "404 Not Found",
+                "reason": "Unknown Webhook",
+                "attempts": 1,
+                "elapsedMs": 180,
+                "ts": 1795132800900
+              }
+            },
+            {
+              "service": "slack",
+              "configured": false,
+              "sending": false,
+              "queued": 0
+            },
+            {
+              "service": "ntfy",
+              "configured": true,
+              "sending": true,
+              "queued": 2,
+              "last": {
+                "deliveryId": 41,
+                "service": "ntfy",
+                "isTest": false,
+                "kind": "scriptCrash",
+                "outcome": "delivered",
+                "attempts": 1,
+                "elapsedMs": 212,
+                "ts": 1795132800400
+              }
+            }
+          ]
+        }
+      },
+      "binFields": [],
+      "builder": "AlertsStatus"
+    },
+    {
+      "name": "alerts.result.event",
+      "file": "alerts.result.event.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "alerts.result",
+        "body": {
+          "deliveryId": 41,
+          "service": "ntfy",
+          "isTest": false,
+          "kind": "scriptCrash",
+          "outcome": "delivered",
+          "attempts": 1,
+          "elapsedMs": 212,
+          "ts": 1795132800400
+        },
+        "seq": 18
+      },
+      "binFields": [],
+      "builder": "AlertsResult"
+    },
+    {
+      "name": "alerts.result.event.failed",
+      "file": "alerts.result.event.failed.msgpack",
+      "direction": "s2c",
+      "surface": [
+        "full",
+        "automation"
+      ],
+      "value": {
+        "v": 1,
+        "id": 0,
+        "kind": "event",
+        "method": "alerts.result",
+        "body": {
+          "deliveryId": 42,
+          "service": "discord",
+          "isTest": true,
+          "kind": "test",
+          "outcome": "failed",
+          "status": "404 Not Found",
+          "reason": "Unknown Webhook",
+          "attempts": 1,
+          "elapsedMs": 180,
+          "ts": 1795132800900
+        },
+        "seq": 19
+      },
+      "binFields": [],
+      "builder": "AlertsResult"
     }
   ]
 }

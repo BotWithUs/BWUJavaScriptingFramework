@@ -1,6 +1,8 @@
 package com.botwithus.bot.core.launcher;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Names and limits of the launcher service's automation pipe, protocol 1.
@@ -48,6 +50,24 @@ public final class LauncherProtocol {
     /** One chunk of the bundle {@link #METHOD_SDN_BUNDLE} offered. */
     public static final String METHOD_SDN_BUNDLE_CHUNK = "sdn.bundle_chunk";
 
+    /** Queues a finished alert for the services the host chose. Only enqueues; never answers "sent". */
+    public static final String METHOD_ALERTS_DELIVER = "alerts.deliver";
+    /** Every service's set-up, masked: whether a secret is saved and a hint, never the secret. */
+    public static final String METHOD_ALERTS_INTEGRATIONS_GET = "alerts.integrations.get";
+    /** Changes one service's set-up; the secret is write-only. */
+    public static final String METHOD_ALERTS_INTEGRATIONS_SET = "alerts.integrations.set";
+    /** Queues a Send test; its outcome arrives as {@link #EVENT_ALERTS_RESULT}. */
+    public static final String METHOD_ALERTS_INTEGRATIONS_TEST = "alerts.integrations.test";
+    /** Every service's sending state and last result, held in the service's memory. */
+    public static final String METHOD_ALERTS_STATUS = "alerts.status";
+    /**
+     * The alert methods. A launcher sends alerts only when its {@code hello} lists
+     * every one of them; an older launcher lists none, and this host then sends nothing.
+     */
+    public static final List<String> ALERT_METHODS = List.of(METHOD_ALERTS_DELIVER,
+            METHOD_ALERTS_INTEGRATIONS_GET, METHOD_ALERTS_INTEGRATIONS_SET, METHOD_ALERTS_INTEGRATIONS_TEST,
+            METHOD_ALERTS_STATUS);
+
     /**
      * Every refusal and failure of the two SDN methods. The service says nothing
      * more about the cause, and this host neither shows nor logs more than the code.
@@ -87,8 +107,31 @@ public final class LauncherProtocol {
      * {@code native} here needs a resubscribe without it on that refusal.
      */
     public static final List<String> AUTOMATION_TOPICS = List.of("clients", "agent", "data", "licence", "service");
+    /** How one alert send ended, on the {@link #TOPIC_ALERTS} topic. */
+    public static final String EVENT_ALERTS_RESULT = "alerts.result";
+    /** The topic {@link #EVENT_ALERTS_RESULT} is published on. */
+    public static final String TOPIC_ALERTS = "alerts";
 
     private LauncherProtocol() {
+    }
+
+    /** @return whether a service whose {@code hello} listed {@code methods} sends alerts */
+    public static boolean offersAlerts(Set<String> methods) {
+        return methods.containsAll(ALERT_METHODS);
+    }
+
+    /**
+     * The topics to subscribe to on a service whose {@code hello} listed
+     * {@code methods}. {@link #TOPIC_ALERTS} only where the alert methods are
+     * offered: a service that predates the topic refuses the whole subscribe.
+     */
+    static List<String> topicsFor(Set<String> methods) {
+        if (!offersAlerts(methods)) {
+            return AUTOMATION_TOPICS;
+        }
+        List<String> topics = new ArrayList<>(AUTOMATION_TOPICS);
+        topics.add(TOPIC_ALERTS);
+        return List.copyOf(topics);
     }
 
     /** @return the automation pipe's name for {@code scope}, without the pipe namespace prefix */

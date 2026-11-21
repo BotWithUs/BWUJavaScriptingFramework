@@ -1,17 +1,18 @@
 # Vendored: launcher protocol golden fixtures (automation surface)
 
 Source: `BotWithUs/BotWithUs-Launcher`, directory `protocol/fixtures/`, at commit
-`d07115099eaa9fdd8443fce51c98e21afa8f8525` (launcher `dev` after PRs #62-#67: typed SDN reasons, partial
-delivery and the legacy-request notice; launcher ADR 0007, section 3.3).
+`cb30bf0047e3f8ebeeff1408b8007a553092d521` (launcher `dev` after PR #113, the `alerts.*` methods and the
+`alerts.result` event; earlier: PRs #62-#67, typed SDN reasons, partial delivery
+and the legacy-request notice; launcher ADR 0007, section 3.3).
 
 **Only the automation-surface fixtures are vendored; the full surface stays in
 the private launcher repository.** A host speaks only the automation pipe, so
 the fixtures copied are those whose manifest `surface` includes `"automation"`:
-84 of 147.
+102 of 171.
 
 - Every `.msgpack` file is a byte-exact copy of the upstream file.
 - `manifest.json` is **derived**: the upstream manifest (blob
-  `16bcbd3a4257e2d555a8aaa9c1e17ea49dd53f02`) with only those entries kept, in upstream order,
+  `8067189c216995933b1b374c505c3b75db4a7448`) with only those entries kept, in upstream order,
   values unchanged. It is not byte-identical to upstream.
 
 **Do not hand-edit.** A protocol change lands in the launcher first; this
@@ -30,7 +31,7 @@ Checks:
 
 `.gitattributes` here marks everything `-text`, so no checkout converts a line ending.
 
-## Blob ids at d071150
+## Blob ids at cb30bf0
 
 ```
 7eef37e00caa5e1c13682c39eea19cad4160eae3  hello.req.msgpack
@@ -117,4 +118,22 @@ b70d4f5d5b580983253e7faa68c9f895836474d4  sdn.bundle_chunk.resp.msgpack
 71d623ebddc68d3d8c44590f45ddf142626e4b1f  error.sdn_not_delivered.msgpack
 c444cc998351b00dfb280d6655bba76cc2526ea3  sdn.bundle.error.not_delivered.msgpack
 09817a0f2c0299400ec875eeb0f9242a15852cae  sdn.legacy_request.event.msgpack
+f8966e5563a5e79a85554621006278c0f24279d4  sdn.native_state.event.msgpack
+a31a45aefe26f0aca2a46a3c9c792c8838158561  sdn.native_state.event.exited.msgpack
+76b139c4785f26ce52ce482a773f1c774e224cf4  sdn.native_state.event.exit_code.msgpack
+a9bf06e13589a531a9fd2ff646ceed43bb575a55  alerts.deliver.req.msgpack
+4527b528dd40d23961507d87e3f9980dbfeee7cb  alerts.deliver.req.full.msgpack
+8249714dd4fb68aae3ea2e03214f4781dad98141  alerts.deliver.resp.msgpack
+62c73148938c7fc96dc4e168ed953ab7f1cc0fb8  alerts.integrations.get.req.msgpack
+39adc3d43b91d1477ce27c7b8bd323bd87542d78  alerts.integrations.get.resp.msgpack
+b0a40a469d08318662ace7713cf4cb5bc64d6c22  alerts.integrations.set.req.msgpack
+c53e23ece5096ceae0cf115a1808666b3981c04d  alerts.integrations.set.req.ntfy.msgpack
+a8f4a2b9e26ecca28d1d5c1a37297e2e57356eb2  alerts.integrations.set.resp.msgpack
+f377341061b298745cfeac849f7a6f8be33d1e9f  alerts.integrations.set.refused.msgpack
+5b5573e4187e0d5040fba0c105c4d0a2fbe09f1b  alerts.integrations.test.req.msgpack
+c02614c7a62a75d27479f90c21a1f79d63d89cb6  alerts.integrations.test.resp.msgpack
+f9a2f82f77d05fc027f013a9b46b1c1bea85d064  alerts.status.req.msgpack
+a8e17d43d6fb7f68904c4d13ae428c5026f8c50c  alerts.status.resp.msgpack
+65307caa6ad06a0e8340b5470f3192e89204d248  alerts.result.event.msgpack
+58e0025e8f098d79c48faa2ae643411347386ee7  alerts.result.event.failed.msgpack
 ```

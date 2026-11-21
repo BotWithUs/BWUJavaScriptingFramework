@@ -1,10 +1,12 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.alerts.IntegrationField;
 import com.botwithus.bot.cli.alerts.SecretChange;
 import com.botwithus.bot.cli.alerts.ServiceStatus;
 import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.core.alerts.AlertKind;
 import com.botwithus.bot.core.alerts.AlertService;
+import com.botwithus.bot.core.alerts.IntegrationState;
 import com.botwithus.bot.core.alerts.SendResult;
 
 import org.junit.jupiter.api.AfterEach;
@@ -41,7 +43,7 @@ class IntegrationsSectionTest {
 
     @BeforeEach
     void setUp() {
-        alerts = new AlertsHarness(dir.resolve("data"), true);
+        alerts = new AlertsHarness(dir.resolve("data"));
         model = alerts.model(dir);
     }
 
@@ -152,6 +154,7 @@ class IntegrationsSectionTest {
     @Test
     void sendTest_showsSendingWithNoOldResult_thenTheTestsOwnResult() {
         alerts.switchOn(AlertService.DISCORD);
+        alerts.saveSecret(AlertService.DISCORD, AlertsHarness.DISCORD_HINT);
         alerts.lastTest(AlertService.DISCORD,
                 new SendResult.Failed(AlertsHarness.NOW, "401 Unauthorized", "Unknown Webhook", 1));
         alerts.delivers(AlertService.DISCORD, ELAPSED);
@@ -257,13 +260,50 @@ class IntegrationsSectionTest {
     }
 
     @Test
-    void sessionOnlySecrets_areSaidAtTheTopOfTheSection(@TempDir Path other) {
-        try (AlertsHarness sessionOnly = new AlertsHarness(other.resolve("data"), false)) {
-            List<SettingsItem> items = items(sessionOnly.model(other));
+    void anOlderLauncher_isToldToBeUpdated_atTheTopOfTheSection() {
+        alerts.launcher.predatingAlerts();
 
-            assertEquals(new SettingsItem.Notice(IntegrationsSheet.SESSION_ONLY, true), items.getFirst());
-        }
-        assertEquals(List.of(), notices(items(model)), "no notice while secrets are kept");
+        assertEquals(new SettingsItem.Notice(IntegrationsSheet.NEEDS_NEWER_LAUNCHER, true), items(model).getFirst());
+    }
+
+    @Test
+    void noLauncher_isSaidAtTheTopOfTheSection() {
+        alerts.launcher.gone();
+
+        assertEquals(new SettingsItem.Notice(IntegrationsSheet.NO_LAUNCHER, true), items(model).getFirst());
+    }
+
+    @Test
+    void aLauncherThatSendsAlerts_needsNoNotice() {
+        assertEquals(List.of(), notices(items(model)));
+    }
+
+    @Test
+    void anOlderLauncher_takesNoSecret_andSaysWhy() {
+        alerts.launcher.predatingAlerts();
+
+        var change = model.saveSecret(AlertService.SLACK, "https://hooks.slack.com/services/T0/B0/not-real");
+        alerts.runLane();
+
+        assertEquals(new SecretChange.Refused("Update the launcher to send alerts"), change.join());
+    }
+
+    @Test
+    void theNtfyCard_showsTheLaunchersServerAndTopic_andSendsAnEditToIt() {
+        alerts.switchOn(AlertService.NTFY);
+        alerts.launcher.setup(new IntegrationState(AlertService.NTFY, false,
+                Optional.empty(), false, "https://ntfy.sh", "bwu-old"));
+        alerts.integrations.onAvailable();
+        alerts.runLane();
+
+        model.changeIntegration(IntegrationField.NTFY_TOPIC, " bwu-new ");
+        alerts.runLane();
+
+        List<String> texts = card(AlertService.NTFY).fields().stream().flatMap(f -> switch (f) {
+            case CardField.Setting setting -> Stream.of(setting.text());
+            default -> Stream.<String>empty();
+        }).toList();
+        assertEquals(List.of("https://ntfy.sh", "bwu-new"), texts);
     }
 
     @Test
@@ -280,7 +320,7 @@ class IntegrationsSectionTest {
                 () -> assertEquals(0L, cards(items).count()),
                 () -> assertEquals(AlertKind.values().length, grid(items).rows().size()),
                 () -> assertEquals(new SecretChange.Refused(LiveSettingsModel.ALERTS_NOT_RUNNING),
-                        noAlerts.saveSecret(AlertService.SLACK, "https://hooks.slack.com/services/…")));
+                        noAlerts.saveSecret(AlertService.SLACK, "https://hooks.slack.com/services/…").join()));
     }
 
     @Test
@@ -345,7 +385,8 @@ class IntegrationsSectionTest {
                 () -> assertEquals("Event grid · Discord", shownAs(raw,
                         AlertSettingKeys.route(AlertService.DISCORD, AlertKind.SCRIPT_CRASH).name())),
                 () -> assertEquals("Slack switch", shownAs(raw, AlertSettingKeys.enabled(AlertService.SLACK).name())),
-                () -> assertEquals("ntfy · Topic", shownAs(raw, AlertSettingKeys.NTFY_TOPIC.name())),
+                () -> assertEquals(IntegrationsSheet.KEPT_BY_LAUNCHER, shownAs(raw,
+                        AlertSettingKeys.NTFY_TOPIC.name())),
                 () -> assertEquals("Quiet hours", shownAs(raw, AlertSettingKeys.QUIET_TO.name())),
                 () -> assertEquals("Group bursts", shownAs(raw, AlertSettingKeys.BURST_SECONDS.name())));
     }
@@ -361,6 +402,7 @@ class IntegrationsSectionTest {
         alerts.switchOn(AlertService.DISCORD);
 
         model.saveSecret(AlertService.DISCORD, AlertsHarness.DISCORD_HOOK);
+        alerts.runLane();
         alerts.settings.flush();
         SettingsView view = model.view();
 

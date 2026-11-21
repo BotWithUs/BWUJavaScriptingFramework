@@ -7,110 +7,104 @@ import com.botwithus.bot.core.secrets.CredentialStore;
 import imgui.type.ImString;
 
 import java.util.EnumMap;
-import java.util.EnumSet;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 
 /**
  * The secret boxes' side of the Integrations cards: a webhook URL or token is
- * typed, masked, and saved to the credential store when the box is left or Enter
- * is pressed — never per keystroke, and never when nothing was changed. A box
- * that is committed blank removes the saved secret. Render thread only.
+ * typed, masked, and handed to the launcher when the box is left or Enter is
+ * pressed — never per keystroke, and never for an empty box. Render thread only.
  *
- * <p>The saved secret is not held here until the user asks to see it: a masked
- * box that has not been touched is empty and shows dots in its place. Show reads
- * it from the store into the box; Hide drops it from the box again, unless the
- * user has typed a new one that is not saved yet. A refused secret stays in the
- * box with the reason under it, so it can be fixed rather than retyped.</p>
+ * <p>The launcher keeps the secret and never gives it back, so there is nothing
+ * to show: a box that holds nothing shows the launcher's masked hint in place of
+ * a saved secret, and the button beside it removes the saved one. The hand-over
+ * takes a moment; while it is on its way the box says so, and its outcome is
+ * picked up by {@link #poll} on a later frame. A refused secret stays in the box
+ * with the reason under it, so it can be fixed rather than retyped.</p>
  */
 final class SecretFields {
 
     private static final int MASK_DOTS = 12;
-    /** Stands in for a saved secret in a masked box that holds nothing. */
+    /** Stands in for a saved secret when the launcher gave no hint. */
     static final String SAVED_MASK = "•".repeat(MASK_DOTS);
+    /** The box's grey text while a secret is on its way to the launcher. */
+    static final String SAVING = "Saving…";
+    /** Said when the hand-over itself failed rather than being refused. */
+    static final String NOT_SAVED = "Could not save it; try again";
 
     private final Map<AlertService, ImString> buffers = new EnumMap<>(AlertService.class);
-    /** What each box held when it last matched the store; a commit of the same text does nothing. */
-    private final Map<AlertService, String> baselines = new EnumMap<>(AlertService.class);
     private final Map<AlertService, String> errors = new EnumMap<>(AlertService.class);
-    private final Set<AlertService> revealed = EnumSet.noneOf(AlertService.class);
+    private final Map<AlertService, CompletableFuture<SecretChange>> pending = new EnumMap<>(AlertService.class);
 
     /** The box's text. */
     ImString buffer(AlertService service) {
         return buffers.computeIfAbsent(service, s -> new ImString(CredentialStore.MAX_SECRET_CHARS));
     }
 
-    /** Whether the box shows its text rather than dots. */
-    boolean isRevealed(AlertService service) {
-        return revealed.contains(service);
-    }
-
-    /** Show or Hide. Show reads the saved secret into an untouched box; Hide drops it again. */
-    void toggleReveal(AlertService service, SettingsModel model) {
-        ImString buffer = buffer(service);
-        if (revealed.remove(service)) {
-            if (!isChanged(service)) {
-                reset(service);
-            }
-            return;
-        }
-        revealed.add(service);
-        if (!isChanged(service)) {
-            model.readSecret(service).ifPresent(secret -> {
-                buffer.set(secret.reveal());
-                baselines.put(service, secret.reveal());
-            });
-        }
-    }
-
     /**
-     * Saves the box's text as the service's secret, or removes the saved one when
-     * the box is blank. Does nothing, and returns empty, when the text is what the
-     * box held when it last matched the store.
+     * Hands the box's text to the launcher as the service's secret. Does nothing,
+     * and returns empty, for an empty box or while a hand-over is already on its way.
      */
-    Optional<SecretChange> commit(AlertService service, SettingsModel model) {
-        if (!isChanged(service)) {
+    Optional<CompletableFuture<SecretChange>> commit(AlertService service, SettingsModel model) {
+        String text = buffer(service).get();
+        if (text.isBlank() || isSaving(service)) {
             return Optional.empty();
         }
-        String text = buffer(service).get();
-        SecretChange change = model.saveSecret(service, text);
-        switch (change) {
-            case SecretChange.Saved _ -> saved(service, text);
-            case SecretChange.Cleared _ -> {
-                errors.remove(service);
-                reset(service);
-            }
-            case SecretChange.Refused refused -> errors.put(service, refused.reason());
-        }
+        CompletableFuture<SecretChange> change = model.saveSecret(service, text);
+        pending.put(service, change);
         return Optional.of(change);
     }
 
-    /** Why the last secret committed from the box was refused, if it was. */
+    /** Removes the saved secret, as the button beside a box does. */
+    void remove(AlertService service, SettingsModel model) {
+        if (!isSaving(service)) {
+            pending.put(service, model.saveSecret(service, ""));
+        }
+    }
+
+    /** Takes in the outcome of a hand-over that has finished. Call once a frame, before drawing the box. */
+    void poll(AlertService service) {
+        CompletableFuture<SecretChange> change = pending.get(service);
+        if (change == null || !change.isDone()) {
+            return;
+        }
+        pending.remove(service);
+        switch (outcome(change)) {
+            case SecretChange.Saved _ -> {
+                errors.remove(service);
+                buffer(service).set("");
+            }
+            case SecretChange.Cleared _ -> errors.remove(service);
+            case SecretChange.Refused refused -> errors.put(service, refused.reason());
+        }
+    }
+
+    /** Whether a hand-over is on its way. */
+    boolean isSaving(AlertService service) {
+        return pending.containsKey(service);
+    }
+
+    /** Why the last secret handed over from the box was refused, if it was. */
     Optional<String> error(AlertService service) {
         return Optional.ofNullable(errors.get(service));
     }
 
-    /** The grey text in the box while it holds nothing: dots when a secret is saved, else the example. */
+    /** The grey text in the box while it holds nothing: saving, the saved secret's hint, or the example. */
     String hint(CardField.SecretBox box) {
-        return box.hasSecret() && !isRevealed(box.service()) ? SAVED_MASK : box.placeholder();
-    }
-
-    private void saved(AlertService service, String text) {
-        errors.remove(service);
-        if (isRevealed(service)) {
-            baselines.put(service, text);
-        } else {
-            reset(service);
+        if (isSaving(box.service())) {
+            return SAVING;
         }
+        return box.hasSecret() ? box.secretHint().orElse(SAVED_MASK) : box.placeholder();
     }
 
-    private boolean isChanged(AlertService service) {
-        return !buffer(service).get().equals(baselines.getOrDefault(service, ""));
-    }
-
-    private void reset(AlertService service) {
-        buffer(service).set("");
-        baselines.put(service, "");
+    private static SecretChange outcome(CompletableFuture<SecretChange> change) {
+        try {
+            return change.join();
+        } catch (CompletionException | CancellationException e) {
+            return new SecretChange.Refused(NOT_SAVED);
+        }
     }
 }

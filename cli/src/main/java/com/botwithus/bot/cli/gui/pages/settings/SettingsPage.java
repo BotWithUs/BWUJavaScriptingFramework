@@ -102,9 +102,9 @@ public final class SettingsPage implements Page {
         scrollDownBy += px;
     }
 
-    /** Presses the service's Show button. For the dev preview. */
-    void revealSecret(AlertService service) {
-        secrets.toggleReveal(service, model);
+    /** Presses the button that removes the service's saved secret. For the dev preview. */
+    void removeSecret(AlertService service) {
+        secrets.remove(service, model);
     }
 
     @Override

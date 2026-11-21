@@ -73,21 +73,6 @@ public final class AlertSettings {
         return time(AlertSettingKeys.SUMMARY_AT);
     }
 
-    /** The ntfy server, as typed. */
-    public String ntfyServer() {
-        return settings.get(AlertSettingKeys.NTFY_SERVER);
-    }
-
-    /** The ntfy topic; empty until the user sets one. */
-    public String ntfyTopic() {
-        return settings.get(AlertSettingKeys.NTFY_TOPIC);
-    }
-
-    /** Whether Discord messages about a problem start with {@code @here}. */
-    public boolean isMentioningHere() {
-        return settings.get(AlertSettingKeys.DISCORD_MENTION_HERE);
-    }
-
     /** Runs {@code listener} whenever the daily summary time changes. */
     public Subscription onSummaryTimeChange(Runnable listener) {
         return settings.onChange(AlertSettingKeys.SUMMARY_AT, value -> listener.run());

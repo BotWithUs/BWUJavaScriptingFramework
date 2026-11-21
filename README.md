@@ -43,7 +43,7 @@ A script's settings open in the **config inspector**, docked on the right. It ha
 | On this PC | Installed scripts | The JARs in `scripts/`: where each one runs, which failed to load, and starting one on several clients at once |
 | | Management | Host-level management scripts, what each one applies to, and a log of what they did |
 | Online | Script Store | The scripts you subscribe to on BotWithUs, installed through the launcher |
-| Foot of the sidebar | Settings | Every host setting, saved as you change it to `~/.botwithus/config.properties`, including alerts to ntfy, Slack or Discord |
+| Foot of the sidebar | Settings | Every host setting, saved as you change it to `~/.botwithus/config.properties`, including which alerts go to ntfy, Slack or Discord (the launcher sends them and keeps each service's webhook or token) |
 
 ![Advanced mode: the Dashboard](docs/images/advanced-dashboard.png)
 

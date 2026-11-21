@@ -1,6 +1,7 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
 import com.botwithus.bot.cli.Connection;
+import com.botwithus.bot.cli.alerts.IntegrationField;
 import com.botwithus.bot.cli.alerts.Integrations;
 import com.botwithus.bot.cli.alerts.SecretChange;
 import com.botwithus.bot.cli.gui.nav.SecondLine;
@@ -11,7 +12,6 @@ import com.botwithus.bot.core.config.ScriptProfileStore;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.runtime.ScriptRunner;
 import com.botwithus.bot.core.runtime.ScriptRuntime;
-import com.botwithus.bot.core.secrets.Secret;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
@@ -212,14 +213,14 @@ public final class LiveSettingsModel implements SettingsModel {
     }
 
     @Override
-    public Optional<Secret> readSecret(AlertService service) {
-        return host.integrations().get().flatMap(live -> live.readSecret(service));
+    public CompletableFuture<SecretChange> saveSecret(AlertService service, String text) {
+        return host.integrations().get().map(live -> live.saveSecret(service, text))
+                .orElseGet(() -> CompletableFuture.completedFuture(new SecretChange.Refused(ALERTS_NOT_RUNNING)));
     }
 
     @Override
-    public SecretChange saveSecret(AlertService service, String text) {
-        return host.integrations().get().map(live -> live.saveSecret(service, text))
-                .orElseGet(() -> new SecretChange.Refused(ALERTS_NOT_RUNNING));
+    public void changeIntegration(IntegrationField field, String text) {
+        host.integrations().get().ifPresent(live -> live.change(field, text));
     }
 
     /** The card follows the send through the back end's status; the result is not needed here. */

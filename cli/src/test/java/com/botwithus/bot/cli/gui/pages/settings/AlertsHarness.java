@@ -1,18 +1,17 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
 import com.botwithus.bot.cli.alerts.AlertSettings;
+import com.botwithus.bot.cli.alerts.FakeLauncher;
+import com.botwithus.bot.cli.alerts.IntegrationMigration;
 import com.botwithus.bot.cli.alerts.IntegrationsService;
 import com.botwithus.bot.cli.alerts.LastSend;
-import com.botwithus.bot.cli.alerts.NotifierSetup;
 import com.botwithus.bot.cli.alerts.ServiceStatusBoard;
 import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.cli.settings.HostSettings;
-import com.botwithus.bot.core.alerts.AlertMessage;
 import com.botwithus.bot.core.alerts.AlertService;
-import com.botwithus.bot.core.alerts.Notifier;
+import com.botwithus.bot.core.alerts.IntegrationState;
 import com.botwithus.bot.core.alerts.SendResult;
 import com.botwithus.bot.core.secrets.InMemoryCredentialStore;
-import com.botwithus.bot.core.secrets.Secret;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -21,48 +20,36 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.EnumMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 /**
  * The real alert back end the Integrations section binds to — settings in a temp
- * folder, the real {@link IntegrationsService} and status board — over an
- * in-memory credential store, notifiers that answer what the test says, and a
- * delivery lane the test runs by hand, so a test can look at the page while a
- * send is still on its way.
+ * folder, the real {@link IntegrationsService} and status board — over a fake
+ * launcher, and a background lane the test runs by hand, so a test can look at
+ * the page while a call to the launcher is still on its way.
  */
 final class AlertsHarness implements AutoCloseable {
 
     private static final int WINDOWS_PERCENT = 100;
     static final Instant NOW = Instant.parse("2026-09-26T14:05:00Z");
     static final String NOT_SET_UP = "Add the webhook URL first";
-    /** Obviously fake: the host never sends to it. */
+    /** Obviously fake: nothing is ever sent to it. */
     static final String DISCORD_HOOK = "https://discord.com/api/webhooks/0000/not-a-real-token";
-
-    /** Answers every send with the same result. */
-    private record FixedNotifier(AlertService service, SendResult result) implements Notifier {
-        @Override
-        public SendResult send(AlertMessage message) {
-            return result;
-        }
-    }
+    static final String DISCORD_HINT = "discord.com/…";
 
     final HostSettings settings;
-    final InMemoryCredentialStore credentials = new InMemoryCredentialStore();
+    final FakeLauncher launcher = new FakeLauncher(Clock.fixed(NOW, ZoneOffset.UTC));
     final ServiceStatusBoard board = new ServiceStatusBoard();
     final IntegrationsService integrations;
     private final Deque<Runnable> lane = new ArrayDeque<>();
-    private final Map<AlertService, SendResult> answers = new EnumMap<>(AlertService.class);
 
-    AlertsHarness(Path dir, boolean isPersistent) {
+    AlertsHarness(Path dir) {
         settings = HostSettings.open(dir);
-        integrations = new IntegrationsService(new AlertSettings(settings), credentials, isPersistent,
-                service -> Optional.ofNullable(answers.get(service))
-                        .<NotifierSetup>map(result -> new NotifierSetup.Ready(new FixedNotifier(service, result)))
-                        .orElseGet(() -> new NotifierSetup.NotReady(NOT_SET_UP)),
-                board, (service, send) -> lane.add(send), Clock.fixed(NOW, ZoneOffset.UTC), ZoneOffset.UTC);
+        integrations = new IntegrationsService(new AlertSettings(settings), launcher,
+                new IntegrationMigration(launcher, new InMemoryCredentialStore(), settings), board,
+                (at, task) -> () -> { }, lane::add, Clock.fixed(NOW, ZoneOffset.UTC), ZoneOffset.UTC);
+        launcher.addListener(integrations);
     }
 
     /** The model the page uses in the host, over this back end. */
@@ -79,9 +66,9 @@ final class AlertsHarness implements AutoCloseable {
         settings.set(AlertSettingKeys.enabled(service), true);
     }
 
-    /** From now on a send to {@code service} is delivered. */
+    /** From now on a send to {@code service} is delivered, taking {@code elapsed}. */
     void delivers(AlertService service, Duration elapsed) {
-        answers.put(service, new SendResult.Delivered(NOW, elapsed, 1));
+        launcher.elapsed(elapsed);
     }
 
     /** As if a test to {@code service} had gone out earlier with {@code result}. */
@@ -89,16 +76,26 @@ final class AlertsHarness implements AutoCloseable {
         board.record(service, LastSend.test(result));
     }
 
-    void saveSecret(AlertService service, String value) {
-        credentials.write(service.credentialTarget(), new Secret(value));
+    /** As if the user had saved a secret earlier: the launcher has one, and the card has read it. */
+    void saveSecret(AlertService service, String hint) {
+        launcher.setup(new IntegrationState(service, true, Optional.of(hint), false, "", ""));
+        integrations.onAvailable();
+        runLane();
     }
 
+    /** The secret last handed to the launcher for {@code service}. */
     Optional<String> savedSecret(AlertService service) {
-        return credentials.read(service.credentialTarget()).map(Secret::reveal);
+        return launcher.savedSecret(service);
     }
 
-    /** Lets every queued send go out. */
+    /** Lets every queued call to the launcher go out, and the launcher report on what it sent. */
     void runLane() {
+        drain();
+        launcher.reportAll();
+        drain();
+    }
+
+    private void drain() {
         while (!lane.isEmpty()) {
             lane.poll().run();
         }

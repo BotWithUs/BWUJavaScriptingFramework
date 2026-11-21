@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli;
 
+import com.botwithus.bot.cli.alerts.FakeLauncher;
 import com.botwithus.bot.cli.alerts.Integrations;
 import com.botwithus.bot.cli.alerts.ServiceStatus;
 import com.botwithus.bot.cli.alerts.ServiceView;
@@ -8,6 +9,8 @@ import com.botwithus.bot.cli.events.HostEvent;
 import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.core.alerts.AlertService;
+import com.botwithus.bot.core.alerts.DeliveryOutcome;
+import com.botwithus.bot.core.secrets.InMemoryCredentialStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,6 +20,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -26,8 +30,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * The alert wiring in {@link CliContext}: started once, stopped at shutdown, and
- * fed by the host event bus. No request leaves the machine: the only service
- * switched on has no topic, so the send stops at "not set up".
+ * fed by the host event bus, handing alerts to the launcher it is bound to. A
+ * fake launcher stands in, and an in-memory credential store stands in for the
+ * machine's, so the one-time move of old secrets never touches a real one.
  */
 class CliContextAlertsTest {
 
@@ -62,9 +67,9 @@ class CliContextAlertsTest {
         ctx.setSettings(settings);
         assertEquals(Optional.empty(), ctx.getIntegrations());
 
-        Integrations first = ctx.startAlerts();
+        Integrations first = ctx.startAlerts(InMemoryCredentialStore::new);
 
-        assertSame(first, ctx.startAlerts());
+        assertSame(first, ctx.startAlerts(InMemoryCredentialStore::new));
         assertSame(first, ctx.getIntegrations().orElseThrow());
         ctx.stopAlerts();
         assertEquals(Optional.empty(), ctx.getIntegrations());
@@ -75,7 +80,9 @@ class CliContextAlertsTest {
         ctx.setSettings(settings);
         settings.set(AlertSettingKeys.enabled(AlertService.NTFY), true);
         settings.set(AlertSettingKeys.BURST_SECONDS, 0L);
-        Integrations integrations = ctx.startAlerts();
+        Integrations integrations = ctx.startAlerts(InMemoryCredentialStore::new);
+        ctx.bindAlertsToLauncher(new FakeLauncher(Clock.systemUTC())
+                .drop(AlertService.NTFY, DeliveryOutcome.DropReason.NOT_CONFIGURED));
 
         ctx.getHostEvents().publish(new HostEvent.ConnectionLost(new ClientRef("BotWithUs_1"), null, Instant.now()));
 

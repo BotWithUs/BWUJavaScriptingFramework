@@ -30,10 +30,6 @@ module com.botwithus.bot.core {
     requires ch.qos.logback.classic;
     requires ch.qos.logback.core;
     requires java.xml;
-    // Alert notifiers (core.alerts) post to ntfy, Slack and Discord with the JDK
-    // HTTP client. Kept in core rather than cli so the notifiers are built and
-    // tested in CI, and sit beside the credential store holding their secrets.
-    requires java.net.http;
 
     // Every export is qualified to the host front-end. Scripts load in child layers
     // resolved against the boot layer this module lives in, so an unqualified export
