@@ -40,19 +40,26 @@ final class AlertsWire {
     private AlertsWire() {
     }
 
-    /** @return {@code alerts.deliver}'s body; the title and body cut to the service's limits */
+    /**
+     * @return {@code alerts.deliver}'s body; the title and body cut to the service's
+     *         limits. This host never sends {@code fields}.
+     */
     static MsgValue deliver(AlertDelivery delivery) {
         List<MsgValue> services = WIRE_ORDER.stream().filter(delivery.services()::contains)
                 .map(service -> MsgValue.of(service.id())).toList();
-        return MsgMap.builder()
+        var builder = MsgMap.builder()
                 .put(key("kind"), MsgValue.of(delivery.kind()))
                 .put(key("severity"), MsgValue.of(delivery.message().isProblem() ? SEVERITY_PROBLEM : SEVERITY_INFO))
                 .put(key("title"), MsgValue.of(capCodePoints(delivery.message().title(), MAX_TITLE_CHARS)))
                 .put(key("body"), MsgValue.of(capUtf8(delivery.message().body(), MAX_BODY_BYTES)))
-                .put(key("services"), MsgValue.of(services))
-                .put(key("dedupeKey"), MsgValue.of(delivery.dedupeKey()))
-                .put(key("ts"), MsgValue.of(delivery.at().toEpochMilli()))
-                .build();
+                .put(key("services"), MsgValue.of(services));
+        delivery.dedupeKey().ifPresent(dedupeKey -> builder.put(key("dedupeKey"), MsgValue.of(dedupeKey)));
+        return builder.put(key("ts"), MsgValue.of(delivery.at().toEpochMilli())).build();
+    }
+
+    /** @return the body of {@code alerts.integrations.get} and {@code alerts.status}: empty */
+    static MsgValue emptyRequest() {
+        return MsgMap.empty();
     }
 
     /** @return what {@code alerts.deliver} did for each service */

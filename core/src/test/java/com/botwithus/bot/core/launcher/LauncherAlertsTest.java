@@ -139,7 +139,7 @@ class LauncherAlertsTest {
                 () -> assertEquals("Script crashed", WireValues.string(body, "title", "")),
                 () -> assertEquals("Fishing crashed on Hollowmere", WireValues.string(body, "body", "")),
                 () -> assertEquals(List.of("discord", "ntfy"), strings(body, "services"), "in the launcher's order"),
-                () -> assertEquals(delivery.dedupeKey(), WireValues.string(body, "dedupeKey", "")),
+                () -> assertEquals(delivery.dedupeKey().orElseThrow(), WireValues.string(body, "dedupeKey", "")),
                 () -> assertEquals(AT.toEpochMilli(), WireValues.integer(body, "ts", 0L)));
     }
 

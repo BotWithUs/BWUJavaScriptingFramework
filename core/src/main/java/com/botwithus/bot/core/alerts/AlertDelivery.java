@@ -7,6 +7,7 @@ import java.time.Instant;
 import java.util.EnumSet;
 import java.util.HexFormat;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -20,12 +21,13 @@ import java.util.stream.Collectors;
  * @param message   the title, body and whether it reports a problem
  * @param services  where it goes; never empty
  * @param dedupeKey the same for every send of this one message, a replay included,
- *                  so the launcher can drop a copy it has already queued
+ *                  so the launcher can drop a copy it has already queued; always present
+ *                  in what this host composes, optional on the wire
  * @param at        when it was composed; the launcher drops it if it is still
  *                  waiting to go out long after this
  */
-public record AlertDelivery(String kind, AlertMessage message, Set<AlertService> services, String dedupeKey,
-                            Instant at) {
+public record AlertDelivery(String kind, AlertMessage message, Set<AlertService> services,
+                            Optional<String> dedupeKey, Instant at) {
 
     /** The kind of a message that collects several alerts from one burst. */
     public static final String KIND_BURST = "burst";
@@ -54,7 +56,7 @@ public record AlertDelivery(String kind, AlertMessage message, Set<AlertService>
      * composing the same message again, or sending this one twice, gives the same key.
      */
     public static AlertDelivery compose(String kind, AlertMessage message, Set<AlertService> services, Instant at) {
-        return new AlertDelivery(kind, message, services, dedupeKey(kind, message, services, at), at);
+        return new AlertDelivery(kind, message, services, Optional.of(dedupeKey(kind, message, services, at)), at);
     }
 
     /** {@code <kind>-<first 32 hex digits of SHA-256 over the message, services and time>}. */

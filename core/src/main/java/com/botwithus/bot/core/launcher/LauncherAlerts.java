@@ -10,7 +10,6 @@ import com.botwithus.bot.core.alerts.IntegrationReply;
 import com.botwithus.bot.core.alerts.IntegrationState;
 import com.botwithus.bot.core.alerts.ServiceState;
 import com.botwithus.bot.core.alerts.TestReply;
-import com.botwithus.msgpack.MsgMap;
 import com.botwithus.msgpack.MsgValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -137,7 +136,7 @@ public final class LauncherAlerts implements AlertGateway, AutoCloseable {
         if (!isAvailable()) {
             return Optional.empty();
         }
-        return switch (service.exchange(method, MsgMap.empty())) {
+        return switch (service.exchange(method, AlertsWire.emptyRequest())) {
             case CallOutcome.Answered answered -> Optional.of(decode.apply(answered.body()));
             case CallOutcome.Refused refused -> {
                 log.info("Alerts: {} was refused: {}", method, refused.error().code());
@@ -147,7 +146,8 @@ public final class LauncherAlerts implements AlertGateway, AutoCloseable {
         };
     }
 
-    private static IntegrationReply refusal(WireError error) {
+    /** The reply for a refused change; package-private for the fixture test. */
+    static IntegrationReply refusal(WireError error) {
         if (error.code().equals(UNKNOWN_METHOD)) {
             return new IntegrationReply.Unavailable(NEEDS_NEWER_LAUNCHER);
         }

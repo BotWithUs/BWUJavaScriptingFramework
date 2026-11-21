@@ -1,6 +1,11 @@
 package com.botwithus.bot.core.launcher;
 
 import com.botwithus.bot.api.script.StopMode;
+import com.botwithus.bot.core.alerts.AlertDelivery;
+import com.botwithus.bot.core.alerts.AlertMessage;
+import com.botwithus.bot.core.alerts.AlertService;
+import com.botwithus.bot.core.alerts.IntegrationChange;
+import com.botwithus.bot.core.secrets.Secret;
 import com.botwithus.msgpack.MsgValue;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -12,6 +17,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.time.Instant;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -48,10 +54,11 @@ class LauncherFixturesTest {
      * ({@code hostKind:"native"}, with the optional {@code agentProtocol}). This host sends
      * {@code hello.req.host}. {@code sdn.bundle.req.legacy} is {@code sdn.bundle} without
      * {@code allowPartial}, which this host never sends; it is vendored for launchers that
-     * still have to accept it.
+     * still have to accept it. {@code alerts.deliver.req.full} carries {@code fields}, which
+     * this host never sends; {@code alerts.deliver.req} is the form it does send.
      */
     private static final Set<String> NOT_SENT_BY_THIS_HOST =
-            Set.of("hello.req", "hello.req.host.agentproto", "sdn.bundle.req.legacy");
+            Set.of("hello.req", "hello.req.host.agentproto", "sdn.bundle.req.legacy", "alerts.deliver.req.full");
 
     @TestFactory
     Stream<DynamicTest> everyFixture_unpackThenRepack_isByteIdentical() {
@@ -87,7 +94,9 @@ class LauncherFixturesTest {
                 LauncherProtocol.METHOD_CLIENT_STOP, LauncherProtocol.METHOD_CLIENT_LIST,
                 LauncherProtocol.METHOD_CLIENT_STATUS, LauncherProtocol.METHOD_EVENTS_SUBSCRIBE,
                 LauncherProtocol.METHOD_HOST_ACK_CLOSE, LauncherProtocol.METHOD_SDN_BUNDLE,
-                LauncherProtocol.METHOD_SDN_BUNDLE_CHUNK);
+                LauncherProtocol.METHOD_SDN_BUNDLE_CHUNK, LauncherProtocol.METHOD_ALERTS_DELIVER,
+                LauncherProtocol.METHOD_ALERTS_INTEGRATIONS_GET, LauncherProtocol.METHOD_ALERTS_INTEGRATIONS_SET,
+                LauncherProtocol.METHOD_ALERTS_INTEGRATIONS_TEST, LauncherProtocol.METHOD_ALERTS_STATUS);
         List<String> uncovered = FIXTURES.all().stream()
                 .filter(f -> f.direction().equals("c2s"))
                 .filter(f -> sentMethods.contains(f.value().get("method").getAsString()))
@@ -184,7 +193,39 @@ class LauncherFixturesTest {
                 body.getAsJsonArray("scriptIds").asList().stream().map(JsonElement::getAsString).toList()));
         b.put("sdn.bundle_chunk.req", body -> LauncherRequests.sdnBundleChunk(body.get("deliveryId").getAsLong(),
                 body.get("index").getAsLong()));
+        b.put("alerts.deliver.req", body -> AlertsWire.deliver(alertDelivery(body)));
+        b.put("alerts.integrations.get.req", body -> AlertsWire.emptyRequest());
+        b.put("alerts.integrations.set.req", body -> AlertsWire.change(integrationChange(body)));
+        b.put("alerts.integrations.set.req.ntfy", body -> AlertsWire.change(integrationChange(body)));
+        b.put("alerts.integrations.test.req", body -> AlertsWire.test(alertService(body)));
+        b.put("alerts.status.req", body -> AlertsWire.emptyRequest());
         return b;
+    }
+
+    /** The delivery this host would compose to send the manifest's {@code alerts.deliver} body. */
+    private static AlertDelivery alertDelivery(JsonObject body) {
+        Set<AlertService> services = body.getAsJsonArray("services").asList().stream()
+                .map(name -> AlertService.fromId(name.getAsString()).orElseThrow())
+                .collect(Collectors.toSet());
+        AlertMessage message = new AlertMessage(body.get("title").getAsString(), body.get("body").getAsString(),
+                body.get("severity").getAsString().equals(AlertsWire.SEVERITY_PROBLEM));
+        Optional<String> dedupeKey = Optional.ofNullable(body.get("dedupeKey")).map(JsonElement::getAsString);
+        return new AlertDelivery(body.get("kind").getAsString(), message, services, dedupeKey,
+                Instant.ofEpochMilli(body.get("ts").getAsLong()));
+    }
+
+    /** The change this host would make to send the manifest's {@code alerts.integrations.set} body. */
+    private static IntegrationChange integrationChange(JsonObject body) {
+        Optional<String> secret = Optional.ofNullable(body.get("secret")).map(JsonElement::getAsString);
+        boolean isClearing = secret.filter(String::isEmpty).isPresent();
+        return new IntegrationChange(alertService(body), secret.filter(text -> !text.isEmpty()).map(Secret::new),
+                isClearing, Optional.ofNullable(body.get("mentionHere")).map(JsonElement::getAsBoolean),
+                Optional.ofNullable(body.get("server")).map(JsonElement::getAsString),
+                Optional.ofNullable(body.get("topic")).map(JsonElement::getAsString));
+    }
+
+    private static AlertService alertService(JsonObject body) {
+        return AlertService.fromId(body.get("service").getAsString()).orElseThrow();
     }
 
     private static StopMode stopMode(String wire) {

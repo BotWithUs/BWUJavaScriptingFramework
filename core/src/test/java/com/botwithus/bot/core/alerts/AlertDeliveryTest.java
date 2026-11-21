@@ -22,25 +22,27 @@ class AlertDeliveryTest {
         AlertDelivery first = AlertDelivery.compose("scriptCrash", CRASH, Set.of(AlertService.NTFY), AT);
         AlertDelivery again = AlertDelivery.compose("scriptCrash", CRASH, Set.of(AlertService.NTFY), AT);
 
-        assertEquals(first.dedupeKey(), again.dedupeKey());
+        assertEquals(first.dedupeKey().orElseThrow(), again.dedupeKey().orElseThrow());
     }
 
     @Test
     void anotherService_anotherTime_orOtherWords_giveAnotherKey() {
-        String key = AlertDelivery.compose("scriptCrash", CRASH, Set.of(AlertService.NTFY), AT).dedupeKey();
+        String key = AlertDelivery.compose("scriptCrash", CRASH, Set.of(AlertService.NTFY), AT).dedupeKey()
+                .orElseThrow();
 
-        assertNotEquals(key, AlertDelivery.compose("scriptCrash", CRASH, Set.of(AlertService.SLACK), AT).dedupeKey());
+        assertNotEquals(key, AlertDelivery.compose("scriptCrash", CRASH, Set.of(AlertService.SLACK), AT).dedupeKey()
+                .orElseThrow());
         assertNotEquals(key, AlertDelivery.compose("scriptCrash", CRASH, Set.of(AlertService.NTFY),
-                AT.plusMillis(1)).dedupeKey());
+                AT.plusMillis(1)).dedupeKey().orElseThrow());
         assertNotEquals(key, AlertDelivery.compose("scriptCrash",
                 new AlertMessage("Script crashed", "Mining crashed on Hollowmere", true),
-                Set.of(AlertService.NTFY), AT).dedupeKey());
+                Set.of(AlertService.NTFY), AT).dedupeKey().orElseThrow());
     }
 
     @Test
     void theKey_namesItsKind_andFitsTheLaunchersLimit() {
         String key = AlertDelivery.compose(AlertDelivery.KIND_BURST, CRASH, Set.of(AlertService.values()), AT)
-                .dedupeKey();
+                .dedupeKey().orElseThrow();
 
         assertTrue(key.startsWith(AlertDelivery.KIND_BURST + "-"), key);
         assertTrue(key.length() <= MAX_KEY_CHARS, key);
@@ -51,9 +53,9 @@ class AlertDeliveryTest {
     void theOrderServicesAreGivenIn_doesNotChangeTheKey() {
         assertEquals(
                 AlertDelivery.compose("scriptCrash", CRASH, Set.of(AlertService.DISCORD, AlertService.NTFY), AT)
-                        .dedupeKey(),
+                        .dedupeKey().orElseThrow(),
                 AlertDelivery.compose("scriptCrash", CRASH, Set.of(AlertService.NTFY, AlertService.DISCORD), AT)
-                        .dedupeKey());
+                        .dedupeKey().orElseThrow());
     }
 
     @Test
