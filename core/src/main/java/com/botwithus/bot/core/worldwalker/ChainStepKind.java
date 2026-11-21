@@ -17,7 +17,7 @@ public enum ChainStepKind {
     WAIT(1),
     /** Block until interface {@code a} is open (executor-side; never reaches the host). */
     WAIT_INTERFACE(2),
-    /** Select option {@code b} in dialogue interface {@code a} (host-resolved). */
+    /** Select by index or optional packed chooser text (see {@link WwCallbacks#runChainStep}). */
     DIALOGUE_SELECT(3),
     /** Click a teleport item, worn or carried (host-resolved, dual-variant). */
     CLICK_ITEM(4),

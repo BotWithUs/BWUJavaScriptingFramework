@@ -6,6 +6,8 @@ import com.botwithus.bot.api.dialog.Dialog;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Equipment;
+import com.botwithus.bot.api.model.Component;
+import com.botwithus.bot.api.model.ComponentRef;
 import com.botwithus.bot.api.model.GameAction;
 import com.botwithus.bot.api.model.ItemType;
 import com.botwithus.bot.api.model.LocationType;
@@ -36,6 +38,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1265,7 +1268,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
                         actionId, a, b, c, subComponent, e, f, hash);
                 api.queueAction(new GameAction(actionId, c, subComponent, hash));
             }
-            case DIALOGUE_SELECT -> dispatchDialogueSelect(a, b, c, d);
+            case DIALOGUE_SELECT ->
+                dispatchDialogueSelect(a, b, c, d, DialogueAnswerText.decodeSelection(f, g, h, i));
             case DIALOGUE_ANSWER ->
                 answerDialogue(DialogueAnswerText.decode(a, b, c, d, e, f, g, h, i));
             case CLICK_NPC -> clickNpc(a, new WwTile(b, c, d), e, f, g);
@@ -1276,15 +1280,74 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         }
     }
 
-    // Standard RS3 dialogue option component ids for the first nine options on a
-    // page. Mirrors the prior nav stack's DIALOGUE_SELECT mapping.
-    private static final int[] DIALOGUE_OPTION_COMPS = {1, 20, 23, 26, 29, 32, 35, 38, 41};
+    private static final int MODAL_CHOICE_INTERFACE = 720;
+    // Text and click components follow MODAL_CHOICE option order.
+    private static final List<ComponentRef> MODAL_CHOICE_TEXT_REFS =
+            Arrays.stream(new int[]{14, 21, 24, 27, 30, 33, 36, 39, 42, 45})
+                    .mapToObj(comp -> new ComponentRef(MODAL_CHOICE_INTERFACE, comp))
+                    .toList();
+    private static final int[] DIALOGUE_OPTION_COMPS = {1, 20, 23, 26, 29, 32, 35, 38, 41, 44};
+    // The legacy index path uses only the first nine click components per page.
+    private static final int INDEXED_DIALOGUE_OPTIONS = 9;
+
+    /** Selects a MODAL_CHOICE label when supplied, or uses the legacy index path. */
+    private void dispatchDialogueSelect(int iface, int index, int perPage, int nextComp, String text) {
+        if (!text.isEmpty()) {
+            if (iface == MODAL_CHOICE_INTERFACE) {
+                selectModalChoice(text);
+                return;
+            }
+            log.warn("ww runChainStep DIALOGUE_SELECT: iface={} text='{}' unsupported; using index={}",
+                    iface, text, index);
+        }
+        dispatchDialogueSelect(iface, index, perPage, nextComp);
+    }
+
+    private void selectModalChoice(String text) {
+        List<String> optionTexts = readModalChoiceTexts();
+        OptionalInt match = findDialogueOption(text, optionTexts);
+        if (match.isEmpty()) {
+            log.warn("ww runChainStep DIALOGUE_SELECT: iface={} text='{}' matched no option; options={}",
+                    MODAL_CHOICE_INTERFACE, text, optionTexts);
+            return;
+        }
+        int comp = DIALOGUE_OPTION_COMPS[match.getAsInt()];
+        int hash = (MODAL_CHOICE_INTERFACE << 16) | comp;
+        log.info("ww runChainStep DIALOGUE_SELECT: iface={} text='{}' -> comp={} hash={}",
+                MODAL_CHOICE_INTERFACE, text, comp, hash);
+        api.queueAction(new GameAction(ActionTypes.DIALOGUE, 0, -1, hash));
+    }
+
+    private List<String> readModalChoiceTexts() {
+        Map<Integer, String> textByComponent = new HashMap<>();
+        for (Component component : api.getComponents(MODAL_CHOICE_TEXT_REFS)) {
+            // A hidden row can keep the label of an earlier chooser; it must never match.
+            if (component != null && component.ifaceId() == MODAL_CHOICE_INTERFACE && !component.isHidden()) {
+                textByComponent.put(component.compId(), component.text());
+            }
+        }
+        return MODAL_CHOICE_TEXT_REFS.stream()
+                .map(ref -> textByComponent.get(ref.componentId()))
+                .toList();
+    }
+
+    private static OptionalInt findDialogueOption(String text, List<String> options) {
+        String needle = Dialog.normalize(text);
+        if (!needle.isEmpty()) {
+            for (int i = 0; i < options.size(); i++) {
+                if (Dialog.normalize(options.get(i)).contains(needle)) {
+                    return OptionalInt.of(i);
+                }
+            }
+        }
+        return OptionalInt.empty();
+    }
 
     // Select option `index` in dialogue interface `iface`. perPage/nextComp drive
     // multi-page dialogues; most teleport dialogues are single-page (index <
     // perPage), the only case exercised today.
     private void dispatchDialogueSelect(int iface, int index, int perPage, int nextComp) {
-        int pp = perPage > 0 ? perPage : DIALOGUE_OPTION_COMPS.length;
+        int pp = perPage > 0 ? perPage : INDEXED_DIALOGUE_OPTIONS;
         int targetPage = index / pp;
         int optionOnPage = index % pp;
         // Advance to the target page first (best-effort, no inter-click wait —
@@ -1292,7 +1355,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         for (int p = 0; p < targetPage; p++) {
             api.queueAction(new GameAction(ActionTypes.DIALOGUE, 0, -1, (iface << 16) | nextComp));
         }
-        int comp = optionOnPage < DIALOGUE_OPTION_COMPS.length
+        int comp = optionOnPage < INDEXED_DIALOGUE_OPTIONS
                 ? DIALOGUE_OPTION_COMPS[optionOnPage] : 1;
         log.info("ww runChainStep DIALOGUE_SELECT: iface={} index={} -> page={} comp={} hash={}",
                 iface, index, targetPage, comp, (iface << 16) | comp);
