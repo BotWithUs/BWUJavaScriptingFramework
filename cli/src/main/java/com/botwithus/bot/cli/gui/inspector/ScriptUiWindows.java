@@ -266,11 +266,11 @@ final class ScriptUiWindows {
      * windows for the same script tell themselves apart. The id after
      * {@code ###} keeps the window's place and size when the title changes.
      */
-    private static String titleOf(InspectorTarget target) {
+    private String titleOf(InspectorTarget target) {
         String shown = switch (target.subject()) {
             case ClientScript ignored -> target.script().name() + " " + target.context();
             case ManagementScript ignored -> target.script().name();
         };
-        return shown + ScriptUiPopouts.imguiIdOf(target.subject());
+        return shown + ScriptUiPopouts.imguiIdOf(target.subject(), source::accountOf);
     }
 }
