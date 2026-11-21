@@ -38,8 +38,8 @@ class IntegrationMigrationTest {
     private static final String SLACK_HOOK = "https://hooks.slack.com/services/T0/B0/not-a-real-token";
     private static final String NTFY_TOKEN = "tk_not_a_real_token";
     /** Entries of other features in the same store; the migration must never touch them. */
-    private static final String LAUNCHER_TOKEN = "BotWithUs:Token";
-    private static final String JAGEX_ACCOUNT = "BotWithUs:Jagex:0123456789";
+    private static final String OTHER_TOKEN = "SomeOtherApp:Token";
+    private static final String OTHER_ACCOUNT = "SomeOtherApp:Account:0123456789";
     private static final String OTHER_SECRET = "someone-elses-secret";
 
     @TempDir
@@ -54,8 +54,8 @@ class IntegrationMigrationTest {
     void open() {
         settings = HostSettings.open(dir);
         migration = new IntegrationMigration(launcher, credentials, settings);
-        credentials.seed(LAUNCHER_TOKEN, OTHER_SECRET);
-        credentials.seed(JAGEX_ACCOUNT, OTHER_SECRET);
+        credentials.seed(OTHER_TOKEN, OTHER_SECRET);
+        credentials.seed(OTHER_ACCOUNT, OTHER_SECRET);
     }
 
     @AfterEach
@@ -94,8 +94,8 @@ class IntegrationMigrationTest {
         migration.run();
 
         assertAll(
-                () -> assertEquals(Optional.of(new Secret(OTHER_SECRET)), credentials.peek(LAUNCHER_TOKEN)),
-                () -> assertEquals(Optional.of(new Secret(OTHER_SECRET)), credentials.peek(JAGEX_ACCOUNT)),
+                () -> assertEquals(Optional.of(new Secret(OTHER_SECRET)), credentials.peek(OTHER_TOKEN)),
+                () -> assertEquals(Optional.of(new Secret(OTHER_SECRET)), credentials.peek(OTHER_ACCOUNT)),
                 () -> assertTrue(credentials.touched().stream()
                         .allMatch(target -> target.startsWith(AlertService.CREDENTIAL_TARGET_PREFIX)),
                         "touched only " + AlertService.CREDENTIAL_TARGET_PREFIX + "*: " + credentials.touched()),
