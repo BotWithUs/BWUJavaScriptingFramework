@@ -14,11 +14,16 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 /**
- * Decides which {@link CacheSource} the host should open, in this order:
+ * Decides which {@link CacheSource} the host should open. Every answer is a
+ * <b>local</b> directory or {@link CacheSource.Unavailable}; the host never
+ * reads the game cache over the network. In this order:
  *
  * <ol>
+ *   <li>{@code -Dnxtcache.live=true} is <b>refused</b>: it resolves to
+ *       {@link CacheSource.Unavailable} naming the property, even when a path
+ *       is also given, so an operator asking for the network is told no rather
+ *       than quietly handed something else.</li>
  *   <li>{@code -Dnxtcache.path=<dir>} — an operator-named local cache.</li>
- *   <li>{@code -Dnxtcache.live=true} — an operator-named live-only cache.</li>
  *   <li>The cache directory named by the <b>running client's own</b>
  *       {@code preferences.cfg}, when a pid was supplied — see
  *       {@link RunningClientCache}. This is the authoritative answer and it is
@@ -26,13 +31,14 @@ import java.util.function.UnaryOperator;
  *   <li>A discovered NXT client cache directory: the first
  *       {@linkplain #defaultCandidates candidate} that actually holds
  *       {@code js5-*.jcache} files.</li>
- *   <li>The live JS5 service, as the always-available fallback.</li>
+ *   <li>{@link CacheSource.Unavailable}: no local cache was found. There is
+ *       no network fallback.</li>
  * </ol>
  *
  * <p><b>An override is taken at its word and never validated against the
  * discovery predicate.</b> A typo'd {@code -Dnxtcache.path} must fail at the
  * open with the path in the message, not silently resolve to a different cache
- * or to the network — which is precisely the failure mode that would make a dev
+ * — which is precisely the failure mode that would make a dev
  * spend an afternoon wondering why their patched cache had no effect.</p>
  *
  * <p><b>Existence of a candidate directory is not the predicate; holding index
@@ -40,11 +46,11 @@ import java.util.function.UnaryOperator;
  * launcher before the game has ever downloaded an archive, and sits alongside
  * sibling directories ({@code RuneScape-BETA}, {@code Scratch}) with the same
  * shape. Opening an empty one yields a handle that answers "not found" to every
- * lookup — a worse outcome than the live fallback, and a silent one.</p>
+ * lookup — a worse outcome than reporting no cache, because it is silent.</p>
  *
  * <p><b>The running-client tier is a {@link Supplier} rather than a resolved
  * value, and that is load-bearing.</b> It defers the {@link ProcessHandle} call
- * until the two override tiers have declined, so naming
+ * until the override tiers have declined, so naming
  * {@code -Dnxtcache.path} costs no process inspection at all and the override
  * leg stays free of side effects.</p>
  *
@@ -66,7 +72,10 @@ public final class CacheSourceResolver {
     /** Operator override naming a local cache directory. */
     public static final String PATH_PROPERTY = "nxtcache.path";
 
-    /** Operator override selecting a live-only cache. */
+    /**
+     * The retired switch that once selected the live JS5 cache. Still read, so
+     * that setting it is refused with a message instead of being ignored.
+     */
     public static final String LIVE_PROPERTY = "nxtcache.live";
 
     /**
@@ -85,7 +94,7 @@ public final class CacheSourceResolver {
 
     /**
      * Resolver with no running client to ask: overrides, then the platform's
-     * standard locations, then live. Callers that hold the client's pid should
+     * standard locations, then {@link CacheSource.Unavailable}. Callers that hold the client's pid should
      * prefer {@link #CacheSourceResolver(long)}, which is strictly better
      * informed.
      */
@@ -124,7 +133,7 @@ public final class CacheSourceResolver {
      * @param candidates         directories to probe, in preference order
      * @param systemProperties   reads a system property by name, {@code null} when unset
      * @param runningClientCache the running client's own cache directory, consulted
-     *                           only once both overrides have declined
+     *                           only once the overrides have declined
      */
     public CacheSourceResolver(List<Path> candidates, UnaryOperator<String> systemProperties,
                                Supplier<Optional<Path>> runningClientCache) {
@@ -136,12 +145,14 @@ public final class CacheSourceResolver {
 
     /** Applies the precedence documented on this class. Never {@code null}. */
     public CacheSource resolve() {
+        if (Boolean.parseBoolean(systemProperties.apply(LIVE_PROPERTY))) {
+            return new CacheSource.Unavailable("-D" + LIVE_PROPERTY + " is set, and the host "
+                    + "never reads the game cache over the network. Remove it, and pass -D"
+                    + PATH_PROPERTY + "=<cache dir> if the cache is not found", true);
+        }
         String override = systemProperties.apply(PATH_PROPERTY);
         if (override != null && !override.isBlank()) {
             return new CacheSource.LocalDirectory(Path.of(override), true);
-        }
-        if (Boolean.parseBoolean(systemProperties.apply(LIVE_PROPERTY))) {
-            return new CacheSource.Live(true);
         }
         Optional<Path> fromRunningClient = runningClientCache.get();
         if (fromRunningClient.isPresent()) {
@@ -154,7 +165,9 @@ public final class CacheSourceResolver {
                 return new CacheSource.LocalDirectory(candidate, false);
             }
         }
-        return new CacheSource.Live(false);
+        return new CacheSource.Unavailable("no " + INDEX_FILE_GLOB + " files were found in the "
+                + "running client's cache or in " + candidates + ". Pass -D" + PATH_PROPERTY
+                + "=<cache dir> to name it", false);
     }
 
     /**

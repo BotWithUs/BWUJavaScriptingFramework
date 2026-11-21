@@ -300,14 +300,14 @@ public class CliContext {
      * sqlite is safe to read from one connection, and reopening it per
      * connection would waste startup time.
      *
-     * <p>{@link NXTCache#openForHost(long)} resolves its own source — an
-     * explicit {@code -Dnxtcache.path} / {@code -Dnxtcache.live} override, else
-     * the cache the client running as {@code clientPid} names in its own
-     * {@code preferences.cfg}, else a known install location, else live JS5 —
-     * so a shipped install needs no flag. It logs which of those it took.
-     * Returns {@code null} only when opening genuinely fails (no
-     * {@code NXTCache.dll}, or live JS5 unreachable with no local cache), in
-     * which case config-type lookups surface a clear error as before.</p>
+     * <p>{@link NXTCache#openForHost(long)} resolves its own local source — an
+     * explicit {@code -Dnxtcache.path} override, else the cache the client
+     * running as {@code clientPid} names in its own {@code preferences.cfg},
+     * else a known install location — so a shipped install needs no flag. It
+     * logs which of those it took. It never reads the cache over the network.
+     * Returns {@code null} when opening fails (no {@code NXTCache.dll}, or no
+     * local cache, whose reason is logged), in which case config-type lookups
+     * surface a clear error as before.</p>
      *
      * <p><b>The first connection's pid decides for the process.</b> This is
      * one-shot by design — the handle is shared across every connection, as it

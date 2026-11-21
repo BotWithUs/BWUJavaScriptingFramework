@@ -40,8 +40,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * populate from game-state 20 up); the class self-skips otherwise.</p>
  *
  * <p>The varbit checks additionally need the cache for the varbit type configs —
- * rerun with {@code -Dnxtcache.dll=<NXTCache.dll>} plus either
- * {@code -Dnxtcache.live=true} or {@code -Dnxtcache.path=<cache dir>}. Without
+ * rerun with {@code -Dnxtcache.path=<cache dir>} (and {@code -Dnxtcache.dll=<NXTCache.dll>}
+ * for a DLL other than the deployed one). Without
  * those, the varbit tests self-skip while the varp/varc tests still run.</p>
  *
  * <p>Read-only — never mutates game state.</p>
@@ -75,7 +75,7 @@ class LiveVariableApiSmokeTest {
             cache = NXTCache.tryOpenFromSystemProperty();
         } catch (Throwable t) {
             log.warn("NXTCache unavailable ({}): varbit tests will skip. "
-                    + "Set -Dnxtcache.dll=<NXTCache.dll> and -Dnxtcache.live=true (or -Dnxtcache.path=<dir>).",
+                    + "Set -Dnxtcache.path=<cache dir> (and -Dnxtcache.dll=<NXTCache.dll> if not deployed).",
                     t.toString());
             cache = null;
         }
@@ -118,7 +118,7 @@ class LiveVariableApiSmokeTest {
     @Test
     void varbitDecodeMatchesBaseVarpShiftMask() {
         Assumptions.assumeTrue(cache != null,
-                "varbit decode needs the cache — rerun with -Dnxtcache.dll=<...> and -Dnxtcache.live=true");
+                "varbit decode needs the cache — rerun with -Dnxtcache.path=<cache dir>");
 
         int verified = 0;
         int defsSeen = 0;

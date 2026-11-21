@@ -36,10 +36,18 @@ import static java.lang.foreign.ValueLayout.JAVA_LONG;
 /**
  * Java wrapper around the NXTCache C ABI ({@code NXTCache.dll}).
  *
- * <p>Thin Panama/FFM binding over the 23-symbol surface defined in
+ * <p>Thin Panama/FFM binding over part of the surface defined in
  * {@code NXTCacheLibrary/src/c_api/nxtcache_c.h}. Loads the native
  * library on first use and exposes typed config-type lookups returning
  * the same record types declared in {@code com.botwithus.bot.api.model}.</p>
+ *
+ * <h2>Local cache only</h2>
+ * The host reads the game cache from disk and never over the network. The
+ * library's live JS5 entry points (open a live cache, enable a live fallback,
+ * fetch master CRCs) are deliberately <b>not bound</b> here, so no code in
+ * the host can reach them; {@code NXTCacheLocalOnlyTest} fails the build if a
+ * binding to one reappears. With no local cache, opening fails with
+ * {@link NoLocalCacheException}.
  *
  * <h2>Loading the DLL</h2>
  * The library is resolved by {@code -Dnxtcache.dll=<absolute path>}
@@ -109,10 +117,6 @@ public final class NXTCache implements AutoCloseable {
 
     private static final MethodHandle MH_OPEN_LOCAL =
             dl("nxt_cache_open_local", FunctionDescriptor.of(ADDRESS, ADDRESS));
-    private static final MethodHandle MH_OPEN_LIVE =
-            dl("nxt_cache_open_live", FunctionDescriptor.of(ADDRESS));
-    private static final MethodHandle MH_ENABLE_FALLBACK =
-            dl("nxt_cache_enable_live_fallback", FunctionDescriptor.of(JAVA_INT, ADDRESS));
     private static final MethodHandle MH_CLOSE =
             dl("nxt_cache_close", FunctionDescriptor.ofVoid(ADDRESS));
     private static final MethodHandle MH_LAST_ERROR =
@@ -199,52 +203,39 @@ public final class NXTCache implements AutoCloseable {
     // ---------------------------------------------------------- Lifecycle
 
     /**
-     * Opens a cache configured from system properties:
-     * <ul>
-     *   <li>{@code -Dnxtcache.path=<dir>} — open the local sqlite cache at
-     *       this directory and enable live-JS5 fallback. Recommended.</li>
-     *   <li>{@code -Dnxtcache.live=true} — open a live-only cache (no local
-     *       sqlite). Slower but always current.</li>
-     * </ul>
-     * Returns {@code null} when neither is set, so callers can degrade
+     * Opens the local cache named by {@code -Dnxtcache.path=<dir>}, local only.
+     * Returns {@code null} when the property is unset, so callers can degrade
      * gracefully. Throws on actual open failure.
      *
+     * <p>{@code -Dnxtcache.live=true} is refused with {@link NoLocalCacheException}
+     * rather than ignored: the host never reads the game cache over the network.</p>
+     *
      * <p>This is the properties-only half, and stays that way. Host wiring
-     * wants {@link #openForHost()}, which uses this for the override leg and
-     * then discovers or falls back instead of returning {@code null}.</p>
+     * wants {@link #openForHost()}, which also discovers the client's cache
+     * instead of returning {@code null}.</p>
      */
     public static NXTCache tryOpenFromSystemProperty() throws IOException {
-        String path = System.getProperty(CacheSourceResolver.PATH_PROPERTY);
-        if (path != null && !path.isBlank()) {
-            return openLocalWithFallback(Path.of(path));
+        CacheSource fromProperties = new CacheSourceResolver(List.of(), System::getProperty)
+                .resolve();
+        if (!fromProperties.isExplicit()) {
+            return null;
         }
-        if (Boolean.getBoolean(CacheSourceResolver.LIVE_PROPERTY)) {
-            return openLive();
-        }
-        return null;
+        return open(fromProperties);
     }
 
     /**
      * Opens the cache a host process should run against, without requiring
-     * anyone to pass a {@code -D} flag. Never returns {@code null}: an
-     * explicit override wins, else a discovered NXT client cache directory,
-     * else the live JS5 service. See {@link CacheSourceResolver} for the
-     * precedence and for why a discovered directory has to hold index files
-     * rather than merely exist.
+     * anyone to pass a {@code -D} flag: an explicit override wins, else a
+     * discovered NXT client cache directory. See {@link CacheSourceResolver}
+     * for the precedence and for why a discovered directory has to hold index
+     * files rather than merely exist.
      *
-     * <p>This is the entry point host wiring should call.
-     * {@link #tryOpenFromSystemProperty()} remains what its name says — the
-     * properties-only half — and is what this delegates to for the override
-     * leg. Widening that method in place would have made a {@code null} return
-     * mean "no override" to one caller and "no cache anywhere" to another,
-     * which is the kind of ambiguity a return type cannot carry.</p>
+     * <p>Local only. There is no network fallback: when no local cache is
+     * found this throws {@link NoLocalCacheException} with the reason, and the
+     * caller leaves config-type lookups failing with that reason.</p>
      *
-     * <p>The live fallback is deliberately silent to the script: a network
-     * dependency and slower lookups beat every config-type lookup throwing.
-     * It is logged at {@code info} so the mode is legible in a log we are
-     * sent, and never at {@code error} — it is a working state.</p>
-     *
-     * @throws IOException if the resolved source cannot be opened. An explicit
+     * @throws NoLocalCacheException when no local cache is available
+     * @throws IOException if the resolved directory cannot be opened. An explicit
      *         override that names a bad directory fails here rather than
      *         degrading, so the operator sees their own typo.
      */
@@ -272,7 +263,8 @@ public final class NXTCache implements AutoCloseable {
      *
      * @param clientPid the game client's process id, as carried by the agent's
      *                  pipe and shared-memory names
-     * @throws IOException if the resolved source cannot be opened
+     * @throws NoLocalCacheException when no local cache is available
+     * @throws IOException if the resolved directory cannot be opened
      */
     public static NXTCache openForHost(long clientPid) throws IOException {
         NXTCache cache = open(new CacheSourceResolver(clientPid).resolve());
@@ -280,53 +272,14 @@ public final class NXTCache implements AutoCloseable {
         return cache;
     }
 
-    /** Opens an already-decided {@link CacheSource}, logging which mode was taken. */
-    public static NXTCache open(CacheSource source) throws IOException {
-        Objects.requireNonNull(source, "source");
-        return switch (source) {
-            case CacheSource.LocalDirectory local -> openLocalReporting(local);
-            case CacheSource.Live live -> openLiveReporting(live);
-        };
-    }
-
-    private static NXTCache openLocalReporting(CacheSource.LocalDirectory local) throws IOException {
-        NXTCache cache = openLocalWithFallback(local.directory());
-        if (local.isExplicit()) {
-            log.info("NXTCache: local cache {} named by -D{}",
-                    local.directory(), CacheSourceResolver.PATH_PROPERTY);
-        } else {
-            log.info("NXTCache: discovered the client's local cache at {}", local.directory());
-        }
-        return cache;
-    }
-
-    private static NXTCache openLiveReporting(CacheSource.Live live) throws IOException {
-        if (live.isExplicit()) {
-            log.info("NXTCache: live JS5 only, named by -D{}", CacheSourceResolver.LIVE_PROPERTY);
-        } else {
-            log.info("NXTCache: no local NXT cache found; using live JS5 instead. Config-type "
-                            + "lookups work, but each archive is fetched over the network. Pass "
-                            + "-D{}=<cache dir> to read a local cache instead.",
-                    CacheSourceResolver.PATH_PROPERTY);
-        }
-        return openLive();
-    }
-
     /**
-     * Opens a local cache and turns on live-JS5 fallback for archives it does
-     * not hold. The fallback is best-effort: a local cache that answers most
-     * lookups is worth keeping even when the network leg is unavailable, so a
-     * failure there is reported and swallowed rather than failing the open.
+     * Opens an already-decided {@link CacheSource}, local only, logging which
+     * source was taken. See {@link CacheOpening}.
+     *
+     * @throws NoLocalCacheException when {@code source} is {@link CacheSource.Unavailable}
      */
-    private static NXTCache openLocalWithFallback(Path directory) throws IOException {
-        NXTCache cache = openLocal(directory);
-        try {
-            cache.enableLiveFallback();
-        } catch (IOException e) {
-            log.info("NXTCache: live-JS5 fallback unavailable for {} ({}); lookups are limited "
-                    + "to archives already cached locally", directory, e.getMessage());
-        }
-        return cache;
+    public static NXTCache open(CacheSource source) throws IOException {
+        return CacheOpening.open(source, NXTCache::openLocal);
     }
 
     /** Opens a sqlite-backed cache from the given directory. */
@@ -349,36 +302,6 @@ public final class NXTCache implements AutoCloseable {
                 throw new IOException("nxt_cache_open_local failed: " + lastError());
             }
             return new NXTCache(ptr, guard);
-        }
-    }
-
-    /** Opens a live JS5-backed cache; performs jav_config + handshake. */
-    public static NXTCache openLive() throws IOException {
-        MemorySegment ptr;
-        try {
-            ptr = (MemorySegment) MH_OPEN_LIVE.invokeExact();
-        } catch (Throwable t) {
-            throw rethrow(t);
-        }
-        if (ptr.address() == 0) {
-            throw new IOException("nxt_cache_open_live failed: " + lastError());
-        }
-        return new NXTCache(ptr, new HandleGuard());
-    }
-
-    /** Enables transparent live-JS5 fallback for misses on a local cache. */
-    public void enableLiveFallback() throws IOException {
-        String failure;
-        try {
-            failure = guard.call(() -> {
-                int rc = (int) MH_ENABLE_FALLBACK.invokeExact(handle);
-                return rc == NXT_OK ? null : "enable_live_fallback rc=" + rc + ": " + lastError();
-            });
-        } catch (Throwable t) {
-            throw rethrow(t);
-        }
-        if (failure != null) {
-            throw new IOException(failure);
         }
     }
 
@@ -703,8 +626,7 @@ public final class NXTCache implements AutoCloseable {
 
     /**
      * Index 67's reference-table version, the value a build from this cache writes as
-     * {@code meta.index_version}. Cheap: decodes nothing. Enable the live fallback, if
-     * wanted, before the first call — the table is not re-read afterwards.
+     * {@code meta.index_version}. Cheap: decodes nothing. Read from the local cache only.
      *
      * @throws UnsupportedOperationException when {@link #supportsGamevalBuild()} is false
      */

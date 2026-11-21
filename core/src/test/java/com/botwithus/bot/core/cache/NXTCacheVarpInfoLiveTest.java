@@ -40,7 +40,7 @@ class NXTCacheVarpInfoLiveTest {
         assumeTrue(NXTCache.supportsVarpInfo(), "this NXTCache.dll has no nxt_get_varp_info");
         switch (new CacheSourceResolver().resolve()) {
             case CacheSource.LocalDirectory local -> cacheDirectory = local.directory();
-            case CacheSource.Live ignored -> assumeTrue(false, "no local game cache found");
+            case CacheSource.Unavailable ignored -> assumeTrue(false, "no local game cache found");
         }
     }
 

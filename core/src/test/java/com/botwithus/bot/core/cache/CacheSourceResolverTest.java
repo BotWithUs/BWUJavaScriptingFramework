@@ -15,6 +15,7 @@ import java.util.function.UnaryOperator;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Pins the precedence a shipped host resolves its cache source by, and the
@@ -111,20 +112,34 @@ class CacheSourceResolverTest {
     }
 
     @Test
-    void theLiveOverrideWinsOverAPopulatedCandidate(@TempDir Path dir) throws IOException {
+    void theLiveSwitchIsRefusedEvenWithAPopulatedCandidate(@TempDir Path dir) throws IOException {
         Files.createFile(dir.resolve(AN_INDEX_FILE));
 
         CacheSource source = resolver(List.of(dir),
                 Map.of(CacheSourceResolver.LIVE_PROPERTY, "true")).resolve();
 
-        assertEquals(new CacheSource.Live(true), source);
+        CacheSource.Unavailable refused = assertUnavailable(source);
+        assertTrue(refused.isExplicit(), "the operator's own switch caused this");
+        assertTrue(refused.reason().contains("-D" + CacheSourceResolver.LIVE_PROPERTY),
+                "the refusal must name the property, so the operator knows what to remove: "
+                        + refused.reason());
     }
 
     @Test
-    void thePathOverrideWinsOverTheLiveOverride(@TempDir Path dir) {
+    void theLiveSwitchIsRefusedEvenWithAPathOverride(@TempDir Path dir) {
         CacheSource source = resolver(List.of(), Map.of(
                 CacheSourceResolver.PATH_PROPERTY, dir.toString(),
                 CacheSourceResolver.LIVE_PROPERTY, "true")).resolve();
+
+        assertTrue(assertUnavailable(source).isExplicit(),
+                "an operator asking for the network is told no, not quietly given a local cache");
+    }
+
+    @Test
+    void aFalseLiveSwitchIsNotARefusal(@TempDir Path dir) {
+        CacheSource source = resolver(List.of(), Map.of(
+                CacheSourceResolver.PATH_PROPERTY, dir.toString(),
+                CacheSourceResolver.LIVE_PROPERTY, "false")).resolve();
 
         assertEquals(new CacheSource.LocalDirectory(dir, true), source);
     }
@@ -196,13 +211,13 @@ class CacheSourceResolverTest {
     }
 
     @Test
-    void theLiveOverrideWinsOverTheRunningClient(@TempDir Path dir) throws IOException {
+    void theLiveSwitchIsRefusedEvenWithARunningClientCache(@TempDir Path dir) throws IOException {
         Files.createFile(dir.resolve(AN_INDEX_FILE));
 
         CacheSource source = resolver(List.of(), Map.of(
                 CacheSourceResolver.LIVE_PROPERTY, "true"), dir).resolve();
 
-        assertEquals(new CacheSource.Live(true), source);
+        assertTrue(assertUnavailable(source).isExplicit());
     }
 
     @Test
@@ -224,10 +239,22 @@ class CacheSourceResolverTest {
     }
 
     @Test
-    void noPropertyAndNoPopulatedCandidateFallsBackToLive(@TempDir Path dir) {
-        CacheSource source = resolver(List.of(dir, dir.resolve("absent")), NO_PROPERTIES).resolve();
+    void noPropertyAndNoPopulatedCandidateIsUnavailableNotTheNetwork(@TempDir Path dir) {
+        Path absent = dir.resolve("absent");
+        CacheSource source = resolver(List.of(dir, absent), NO_PROPERTIES).resolve();
 
-        assertEquals(new CacheSource.Live(false), source,
-                "the fallback is silent to the script and must never be a null source");
+        CacheSource.Unavailable unavailable = assertUnavailable(source);
+        assertFalse(unavailable.isExplicit(), "nothing the operator set caused this");
+        assertTrue(unavailable.reason().contains(absent.toString()),
+                "the reason lists where the host looked: " + unavailable.reason());
+        assertTrue(unavailable.reason().contains("-D" + CacheSourceResolver.PATH_PROPERTY),
+                "the reason names the override that fixes it: " + unavailable.reason());
+    }
+
+    private static CacheSource.Unavailable assertUnavailable(CacheSource source) {
+        return switch (source) {
+            case CacheSource.Unavailable unavailable -> unavailable;
+            case CacheSource.LocalDirectory local -> fail("expected no cache, got " + local);
+        };
     }
 }
