@@ -6,6 +6,7 @@ import com.botwithus.bot.cli.command.CommandParser;
 import com.botwithus.bot.cli.command.ParsedCommand;
 import com.botwithus.bot.cli.groups.GroupId;
 import com.botwithus.bot.cli.groups.GroupsFile;
+import com.botwithus.bot.cli.clients.JsonClientStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,12 +31,20 @@ class GroupCommandTest {
     private CliContext ctx;
     private ByteArrayOutputStream output;
 
+    /**
+     * In line, not {@code inDir}: connecting a client on a real account saves
+     * {@code clients.json} into {@link #tempDir} on the context's background
+     * executor, and with a background thread that save can still be writing when
+     * {@code @TempDir} cleanup deletes the directory, which then fails the test
+     * with a {@code DirectoryNotEmptyException} or {@code NoSuchFileException}.
+     * Run in line, every write has finished before the test body returns.
+     */
     @BeforeEach
     void setUp() {
         command = new GroupCommand();
         output = new ByteArrayOutputStream();
         PrintStream ps = new PrintStream(output);
-        ctx = TestContexts.inDir(tempDir, ps);
+        ctx = TestContexts.inDirInLine(tempDir, ps);
     }
 
     private ParsedCommand parse(String input) {
@@ -181,6 +190,8 @@ class GroupCommandTest {
 
         command.execute(parse("group add farm BotWithUs_1001"), ctx);
 
+        assertTrue(Files.exists(tempDir.resolve(JsonClientStore.FILE_NAME)),
+                "the remembered-clients save finished before the test returns, so @TempDir cleanup cannot race it");
         assertEquals(List.of(ACCOUNT), ctx.findGroup("farm").orElseThrow().members());
         command.execute(parse("group info farm"), ctx);
         assertTrue(output().contains("Alpha (" + ACCOUNT + ") [") && output().contains("connected"), output());
