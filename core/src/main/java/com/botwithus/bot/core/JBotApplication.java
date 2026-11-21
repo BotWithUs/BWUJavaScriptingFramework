@@ -144,9 +144,10 @@ public final class JBotApplication {
      * needs no {@code -D} flag, and the one it took is logged there. The pid is
      * the one already parsed out of the agent's pipe name above, so the cache is
      * resolved from the client actually being driven rather than from a list of
-     * places a client is usually installed. Null only on a genuine open failure,
-     * which leaves config-type lookups throwing the same clear error they did
-     * before.
+     * places a client is usually installed. Local only: with no local cache this
+     * is null and the reason is logged, never a network fallback. Null on any
+     * open failure, which leaves config-type lookups throwing the same clear
+     * error they did before.
      */
     private static NXTCache openNxtCacheOrNull(long clientPid) {
         try {

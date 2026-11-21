@@ -38,9 +38,6 @@ class NXTCacheHostResolutionLiveTest {
     /** Coins. Chosen because it is present in every cache and its name never changes. */
     private static final int COINS_ITEM_ID = 995;
 
-    /** Opt-in for the one case that reaches the network. */
-    private static final String LIVE_FALLBACK_OPT_IN = "nxtcache.smoke.live";
-
     @BeforeAll
     static void requireTheDecoderLibrary() {
         assumeTrue(NativeCache.locateNxtCacheDll().isPresent(),
@@ -49,8 +46,7 @@ class NXTCacheHostResolutionLiveTest {
 
     private static boolean isCacheSourceOverridden() {
         String path = System.getProperty(CacheSourceResolver.PATH_PROPERTY);
-        return (path != null && !path.isBlank())
-                || Boolean.getBoolean(CacheSourceResolver.LIVE_PROPERTY);
+        return path != null && !path.isBlank();
     }
 
     /**
@@ -107,24 +103,6 @@ class NXTCacheHostResolutionLiveTest {
         assumeTrue(candidates.stream().anyMatch(CacheSourceResolver::holdsGameCache),
                 "the game is not installed on this machine, so there is nothing to discover");
         assertTrue(candidates.stream().anyMatch(CacheSourceResolver::holdsGameCache));
-    }
-
-    /**
-     * The leg a machine with no Jagex-launcher install lands on. Opt-in
-     * because it reaches the network: the {@code :core:nxtCacheResolutionTest}
-     * task sets the property, the CI-run {@code test} task does not.
-     */
-    @Test
-    void theLiveFallbackAnswersTheSameLookup() throws IOException {
-        assumeTrue(Boolean.getBoolean(LIVE_FALLBACK_OPT_IN),
-                "set -D" + LIVE_FALLBACK_OPT_IN + "=true to exercise the network leg");
-
-        try (NXTCache cache = NXTCache.open(new CacheSource.Live(false))) {
-            ItemType coins = new GameAPIImpl(null, cache).getItemType(COINS_ITEM_ID);
-            assertNotNull(coins, "live JS5 came back empty for id " + COINS_ITEM_ID);
-            System.out.println("live fallback getItemType(" + COINS_ITEM_ID + ") -> " + coins.name());
-            assertEquals("Coins", coins.name());
-        }
     }
 
     /** The dev case: an explicit override still wins, and is still taken at its word. */

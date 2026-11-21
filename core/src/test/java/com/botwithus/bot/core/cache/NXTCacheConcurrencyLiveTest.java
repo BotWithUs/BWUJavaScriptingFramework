@@ -45,7 +45,7 @@ class NXTCacheConcurrencyLiveTest {
         assumeTrue(NativeCache.locateNxtCacheDll().isPresent(), "no NXTCache.dll deployed");
         switch (new CacheSourceResolver().resolve()) {
             case CacheSource.LocalDirectory local -> cacheDirectory = local.directory();
-            case CacheSource.Live ignored -> assumeTrue(false, "no local game cache found");
+            case CacheSource.Unavailable ignored -> assumeTrue(false, "no local game cache found");
         }
     }
 

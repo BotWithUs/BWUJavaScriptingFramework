@@ -50,9 +50,8 @@ public final class NxtCacheGamevalSource implements GamevalCacheSource {
             return new GamevalSourceOpener.Opening.Unavailable(missing);
         }
         return switch (resolve.get()) {
-            case CacheSource.Live live -> new GamevalSourceOpener.Opening.Unavailable(
-                    "no local game cache was found, and a local gameval build reads only the "
-                            + "local cache");
+            case CacheSource.Unavailable unavailable -> new GamevalSourceOpener.Opening.Unavailable(
+                    "no local game cache: " + unavailable.reason());
             case CacheSource.LocalDirectory local -> openLocal(local.directory());
         };
     }

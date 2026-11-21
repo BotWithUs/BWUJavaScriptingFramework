@@ -114,6 +114,16 @@ tasks.named<Test>("test") {
     })
 }
 
+// NXTCacheLocalOnlyTest scans the host jar (above) and every module's main
+// sources for a binding to one of NXTCache.dll's network entry points. The
+// sources are inputs so that a binding added anywhere reruns it.
+tasks.named<Test>("test") {
+    val repoRoot = rootDir.absolutePath
+    inputs.files(fileTree(rootDir) { include("*/src/main/java/**/*.java") })
+        .withPropertyName("allMainSources")
+    systemProperty("botwithus.test.repoRoot", repoRoot)
+}
+
 // A real NXTCache.dll against the player's real game cache (read-only), building
 // into a temp directory. Needs a DLL with nxt_build_gameval_db:
 //   ./gradlew :core:gamevalLocalBuildLiveTest -Dnxtcache.dll=<path> [-Dbotwithus.gameval.cache=<dir>]
@@ -181,10 +191,6 @@ tasks.register<Test>("nxtCacheResolutionTest") {
     group = "verification"
     useJUnitPlatform()
     jvmArgs("--enable-native-access=ALL-UNNAMED")
-    // Opt in to the one case that reaches the network, so the CI-run `test`
-    // task stays offline while this task covers the leg a machine with no
-    // local game cache actually lands on.
-    systemProperty("nxtcache.smoke.live", "true")
     // Forward only what the invoking command line sets. With nothing set the
     // discovery case runs; with -Dnxtcache.path=<dir> the override case runs.
     // Deliberately NOT wired to local.properties: a dev override baked in here
@@ -311,8 +317,10 @@ tasks.register<Test>("liveSmokeTest") {
     systemProperty("botwithus.smoke.live", "true")
     // LiveVariableApiSmokeTest's varbit checks load NXTCache.dll via Panama, which
     // needs native access enabled; forward the cache locators from the invoking
-    // command line (e.g. -Dnxtcache.dll=<...> -Dnxtcache.live=true). Harmless for
-    // the other live tests, which don't touch the cache.
+    // command line (e.g. -Dnxtcache.dll=<...> -Dnxtcache.path=<dir>). Harmless for
+    // the other live tests, which don't touch the cache. nxtcache.live is forwarded
+    // only so that setting it is refused loudly: the host never reads the cache
+    // over the network.
     jvmArgs("--enable-native-access=ALL-UNNAMED")
     listOf("nxtcache.dll", "nxtcache.path", "nxtcache.live").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
@@ -356,7 +364,8 @@ tasks.register<Test>("harnessTest") {
            "botwithus.live.dropItemId", "botwithus.live.combatHud",
            "botwithus.live.lodestones", "botwithus.live.clientState",
            "botwithus.live.protectedAccount", "botwithus.live.tierTwo",
-           "botwithus.live.leaveWorld").forEach { key ->
+           "botwithus.live.leaveWorld", "botwithus.live.cacheReads",
+           "botwithus.live.cacheHoldMs").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {

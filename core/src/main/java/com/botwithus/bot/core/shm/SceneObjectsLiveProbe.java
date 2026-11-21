@@ -49,7 +49,7 @@ public final class SceneObjectsLiveProbe {
              NXTCache cache = NXTCache.tryOpenFromSystemProperty()) {
 
             if (cache == null) {
-                System.err.println("NXTCache not loaded — set -Dnxtcache.dll=<path>");
+                System.err.println("no NXTCache opened — set -Dnxtcache.path=<cache dir>");
                 System.exit(3);
             }
 
