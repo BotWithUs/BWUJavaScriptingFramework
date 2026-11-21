@@ -1,18 +1,19 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.alerts.IntegrationField;
 import com.botwithus.bot.cli.alerts.SecretChange;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.cli.settings.PreviewSettings;
 import com.botwithus.bot.cli.settings.SaveStatus;
 import com.botwithus.bot.cli.settings.SettingKeys;
 import com.botwithus.bot.core.alerts.AlertService;
-import com.botwithus.bot.core.secrets.Secret;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * DEV ONLY. The Settings page over real settings kept in memory, eight sample
@@ -29,10 +30,9 @@ public final class FixtureSettingsModel implements SettingsModel {
     private final HostSettings settings = PreviewSettings.inMemory(Map.of(
             "autoReload", "true",
             "scripts.stallAfterMs", "30000",
-            "theme.accent", "#4ade80",
-            "alerts.ntfy.topic", "bwu-alerts-preview"));
+            "theme.accent", "#4ade80"));
     private final SettingEditor editor = new SettingEditor(settings);
-    private final FixtureIntegrations integrations = new FixtureIntegrations(settings);
+    private final FixtureIntegrations integrations = integrationsOver(settings);
     private final List<AccountRow> accounts = new ArrayList<>(List.of(
             account("3f9a1c2e", "Oakheart", true, "Woodcutting"),
             account("b71d09e4", "Fernmoss", true, "Divination"),
@@ -123,13 +123,20 @@ public final class FixtureSettingsModel implements SettingsModel {
     }
 
     @Override
-    public Optional<Secret> readSecret(AlertService service) {
-        return integrations.live().readSecret(service);
+    public CompletableFuture<SecretChange> saveSecret(AlertService service, String text) {
+        return integrations.live().saveSecret(service, text);
     }
 
     @Override
-    public SecretChange saveSecret(AlertService service, String text) {
-        return integrations.live().saveSecret(service, text);
+    public void changeIntegration(IntegrationField field, String text) {
+        integrations.live().change(field, text);
+    }
+
+    /** The launcher stand-in, with the ntfy topic the captures show. */
+    private static FixtureIntegrations integrationsOver(HostSettings settings) {
+        FixtureIntegrations alerts = new FixtureIntegrations(settings);
+        alerts.ntfyTopic("bwu-alerts-preview");
+        return alerts;
     }
 
     @Override

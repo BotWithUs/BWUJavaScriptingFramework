@@ -2,7 +2,6 @@ package com.botwithus.bot.cli.alerts;
 
 import com.botwithus.bot.core.alerts.AlertService;
 import com.botwithus.bot.core.alerts.SendResult;
-import com.botwithus.bot.core.secrets.Secret;
 
 import java.util.List;
 import java.util.Optional;
@@ -10,14 +9,29 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * What the Integrations section of the Settings page binds to, beside the plain
- * {@code alerts.*} settings (switches, ntfy server and topic, the event grid, bursts,
- * quiet hours, summary time), which it reads and writes through
+ * {@code alerts.*} settings (switches, the event grid, bursts, quiet hours, summary
+ * time), which it reads and writes through
  * {@link com.botwithus.bot.cli.settings.HostSettings} like any other setting.
  *
- * <p>Secrets — the Slack and Discord webhook URLs and the ntfy token — go through
- * here and never through the settings file.</p>
+ * <p>Each service's connection set-up (the webhook URL or token, the ntfy server
+ * and topic, Discord's {@code @here}) is kept by the launcher service, which also
+ * sends every alert. This host never holds a secret: it hands a new one to the
+ * launcher and from then on knows only whether one is saved, and a masked hint.</p>
  */
 public interface Integrations {
+
+    /** Whether alerts can be set up and sent now, and if not, why. */
+    enum Availability {
+        /** A launcher that sends alerts is connected. */
+        READY,
+        /** The connected launcher predates alerts; nothing is sent until it is updated. */
+        NEEDS_NEWER_LAUNCHER,
+        /** No launcher is connected. */
+        NO_LAUNCHER
+    }
+
+    /** Whether alerts can be set up and sent now. Cheap; safe to call every frame. */
+    Availability availability();
 
     /** One card per service, in display order. Cheap; safe to call every frame. */
     List<ServiceView> services();
@@ -26,27 +40,26 @@ public interface Integrations {
     ServiceView service(AlertService service);
 
     /**
-     * The saved secret, for the reveal button. Reads the credential store, so call
-     * it when the user asks to see the value, not every frame.
+     * Hands {@code value} to the launcher as the service's secret, or removes the
+     * saved one when it is blank. Returns at once; the future completes off the
+     * calling thread when the launcher has answered.
      */
-    Optional<Secret> readSecret(AlertService service);
+    CompletableFuture<SecretChange> saveSecret(AlertService service, String value);
 
     /**
-     * Saves {@code value} as the service's secret, or removes the saved one when it
-     * is blank. Writes the credential store; call it on commit, not per keystroke.
+     * Sets one plain field of a service's set-up on the launcher. Returns at once;
+     * a refusal shows under the field, through {@link ServiceView#fieldError}.
      */
-    SecretChange saveSecret(AlertService service, String value);
+    void change(IntegrationField field, String value);
 
     /**
-     * Sends a test message to {@code service} as it is set up now, whether or not it
-     * is switched on. The card shows {@link ServiceStatus#SENDING} until the result is
-     * in; the future completes with it, off the calling thread.
+     * Asks the launcher to send a test message to {@code service} as it is set up
+     * there, whether or not it is switched on here. The card shows
+     * {@link ServiceStatus#SENDING} until the result is in; the future completes with
+     * it, off the calling thread.
      */
     CompletableFuture<SendResult> sendTest(AlertService service);
 
-    /**
-     * Whether saved secrets survive a restart. {@code false} when the operating
-     * system's credential store could not be opened and secrets are kept in memory.
-     */
-    boolean isPersistent();
+    /** Why the last change to {@code field} was refused, until it is changed again. */
+    Optional<String> fieldError(IntegrationField field);
 }

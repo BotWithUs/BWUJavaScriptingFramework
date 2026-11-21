@@ -7,8 +7,8 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * What a {@link Notifier} sends: a title, a body and whether it reports a problem.
- * Each notifier lays these out in its service's own format.
+ * What an alert says: a title, a body and whether it reports a problem.
+ * The launcher lays these out in each service's own format.
  *
  * @param title     one short line
  * @param body      one or more lines; never empty

@@ -1,10 +1,10 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.alerts.IntegrationField;
 import com.botwithus.bot.cli.alerts.SecretChange;
 import com.botwithus.bot.core.alerts.AlertService;
-import com.botwithus.bot.core.secrets.Secret;
 
-import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * What the Settings page reads and asks for. The live model works on the host's
@@ -46,17 +46,18 @@ public interface SettingsModel {
     void run(SettingsAction action);
 
     /**
-     * The saved webhook URL or token for {@code service}, for its Show button.
-     * Reads the credential store, so it is called on the click, never every frame.
+     * Hands {@code text} to the launcher as the service's webhook URL or token, or
+     * removes the saved one when it is blank. Called when the box is committed,
+     * never per keystroke. Returns at once; the future completes when the launcher
+     * has answered. The secret goes to the launcher, never to the settings file.
      */
-    Optional<Secret> readSecret(AlertService service);
+    CompletableFuture<SecretChange> saveSecret(AlertService service, String text);
 
     /**
-     * Saves {@code text} as the service's webhook URL or token, or removes the
-     * saved one when it is blank. Called when the box is committed, never per
-     * keystroke. The secret goes to the credential store, never to the settings file.
+     * Sets one plain field of a service's set-up on the launcher, such as the ntfy
+     * topic. Returns at once; a refusal shows under the field on a later frame.
      */
-    SecretChange saveSecret(AlertService service, String text);
+    void changeIntegration(IntegrationField field, String text);
 
     /**
      * Sends a test message to {@code service}. Returns at once: the card shows

@@ -28,7 +28,7 @@ class IntegrationsFindTest {
 
     @BeforeEach
     void setUp() {
-        alerts = new AlertsHarness(dir.resolve("data"), true);
+        alerts = new AlertsHarness(dir.resolve("data"));
         sections = alerts.model(dir).view().sections();
     }
 

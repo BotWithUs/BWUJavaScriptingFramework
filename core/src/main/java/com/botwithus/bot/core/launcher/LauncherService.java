@@ -84,10 +84,14 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
     private final Timings timings;
     private final Consumer<CloseRequest> closeRequests;
     private final List<Consumer<LauncherEvent>> listeners = new CopyOnWriteArrayList<>();
+    private final List<EventTap> taps = new CopyOnWriteArrayList<>();
+    private final List<Runnable> registrationListeners = new CopyOnWriteArrayList<>();
     private final AtomicLong registrations = new AtomicLong();
     private volatile ServiceSession session;
     /** What the current session's {@code hello} listed; empty between sessions. */
     private volatile Set<String> offeredMethods = Set.of();
+    /** What the current session subscribed to; refreshed with the same list after a gap. */
+    private volatile List<String> subscribedTopics = LauncherProtocol.AUTOMATION_TOPICS;
     private volatile boolean isRunning;
     private volatile Thread connector;
 
@@ -138,6 +142,26 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
             throw errorOf(response).toException(method);
         }
         return response.body();
+    }
+
+    /**
+     * Calls a method and reports how it ended rather than throwing: for callers that
+     * word a refusal for the user, such as the alert methods.
+     */
+    CallOutcome exchange(String method, MsgValue body) {
+        ServiceSession current = session;
+        if (current == null) {
+            return new CallOutcome.NoAnswer(notConnected(null).getMessage());
+        }
+        Envelope response;
+        try {
+            response = current.call(method, body, timings.callTimeout());
+        } catch (ChannelClosedException e) {
+            log.info("{} got no answer: {}", method, e.getMessage());
+            return new CallOutcome.NoAnswer(notConnected(null).getMessage());
+        }
+        return response.isOk() ? new CallOutcome.Answered(response.body())
+                : new CallOutcome.Refused(errorOf(response));
     }
 
     /**
@@ -216,6 +240,31 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
         return () -> listeners.remove(listener);
     }
 
+    /**
+     * Adds a listener for one event method this class does not turn into a
+     * {@link LauncherEvent}. Called on the reader thread: hand off, never block.
+     *
+     * @return removes the listener
+     */
+    Runnable addEventTap(String method, Consumer<MsgValue> listener) {
+        EventTap tap = new EventTap(Objects.requireNonNull(method, "method"),
+                Objects.requireNonNull(listener, "listener"));
+        taps.add(tap);
+        return () -> taps.remove(tap);
+    }
+
+    /**
+     * Adds a listener run after each successful registration, the first included,
+     * once {@link #offers} answers for the new session. Called on the connecting
+     * thread: hand off, never block.
+     *
+     * @return removes the listener
+     */
+    Runnable addRegistrationListener(Runnable listener) {
+        registrationListeners.add(Objects.requireNonNull(listener, "listener"));
+        return () -> registrationListeners.remove(listener);
+    }
+
     /** @return whether a registered connection is up now */
     public boolean isConnected() {
         ServiceSession current = session;
@@ -288,6 +337,7 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
         session = candidate;
         long count = registrations.incrementAndGet();
         log.info("Registered with the launcher service (registration {})", count);
+        notifyRegistered();
         return candidate;
     }
 
@@ -304,13 +354,15 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
                     .orElseGet(() -> new LauncherException(WireError.UNKNOWN_CODE, "hello failed"));
         }
         Set<String> methods = HelloReply.check(reply.body());
-        subscribe(candidate);
+        List<String> topics = LauncherProtocol.topicsFor(methods);
+        subscribe(candidate, topics);
+        subscribedTopics = topics;
         return methods;
     }
 
-    private void subscribe(ServiceSession target) {
+    private void subscribe(ServiceSession target, List<String> topics) {
         Envelope reply = target.call(LauncherProtocol.METHOD_EVENTS_SUBSCRIBE,
-                LauncherRequests.subscribe(LauncherProtocol.AUTOMATION_TOPICS), timings.callTimeout());
+                LauncherRequests.subscribe(topics), timings.callTimeout());
         if (!reply.isOk()) {
             throw reply.error().map(e -> e.toException(LauncherProtocol.METHOD_EVENTS_SUBSCRIBE))
                     .orElseGet(() -> new LauncherException(WireError.UNKNOWN_CODE, "events.subscribe failed"));
@@ -359,13 +411,46 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
         }
     }
 
+    private void notifyRegistered() {
+        for (Runnable listener : registrationListeners) {
+            try {
+                listener.run();
+            } catch (RuntimeException e) {
+                log.warn("A registration listener failed", e);
+            }
+        }
+    }
+
+    /** @return whether a tap took {@code event}, which then goes nowhere else */
+    private boolean tapped(Envelope event) {
+        boolean isTapped = false;
+        for (EventTap tap : taps) {
+            if (tap.method().equals(event.method())) {
+                isTapped = true;
+                deliverTo(tap, event.body());
+            }
+        }
+        return isTapped;
+    }
+
+    private static void deliverTo(EventTap tap, MsgValue body) {
+        try {
+            tap.listener().accept(body);
+        } catch (RuntimeException e) {
+            log.warn("A launcher event tap failed on {}", tap.method(), e);
+        }
+    }
+
+    /** One listener for one event method. */
+    private record EventTap(String method, Consumer<MsgValue> listener) { }
+
     /** A sequence gap means missed events: report it, then refresh the subscription. */
     private void onEventsMissed(ServiceSession source, long missed) {
         log.warn("Missed {} launcher service event(s); subscribing again", missed);
         emit(new LauncherEvent.EventsDropped(missed));
         Thread.ofVirtual().name("launcher-resubscribe").start(() -> {
             try {
-                subscribe(source);
+                subscribe(source, subscribedTopics);
             } catch (ChannelClosedException | LauncherException e) {
                 log.warn("Could not subscribe again after a gap: {}", e.getMessage());
             }
@@ -381,6 +466,9 @@ public final class LauncherService implements SdnBundleChannel, AutoCloseable {
             }
             if (event.method().equals(LauncherProtocol.EVENT_HOST_CLOSE_REQUESTED)) {
                 deliverCloseRequest(LauncherDecoder.closeRequest(event.body()));
+                return;
+            }
+            if (tapped(event)) {
                 return;
             }
             LauncherDecoder.event(event.method(), event.body()).ifPresent(LauncherService.this::emit);

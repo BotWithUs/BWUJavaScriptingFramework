@@ -1,68 +1,89 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
 import com.botwithus.bot.cli.alerts.AlertSettings;
+import com.botwithus.bot.cli.alerts.IntegrationMigration;
 import com.botwithus.bot.cli.alerts.Integrations;
 import com.botwithus.bot.cli.alerts.IntegrationsService;
 import com.botwithus.bot.cli.alerts.LastSend;
-import com.botwithus.bot.cli.alerts.NotifierSetup;
 import com.botwithus.bot.cli.alerts.ServiceStatusBoard;
 import com.botwithus.bot.cli.settings.AlertSettingKeys;
 import com.botwithus.bot.cli.settings.HostSettings;
 import com.botwithus.bot.core.alerts.AlertService;
+import com.botwithus.bot.core.alerts.IntegrationState;
 import com.botwithus.bot.core.alerts.SendResult;
 import com.botwithus.bot.core.secrets.InMemoryCredentialStore;
-import com.botwithus.bot.core.secrets.Secret;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Optional;
 
 /**
- * DEV ONLY. The real Integrations back end over the fixture's in-memory
- * settings, an in-memory credential store holding obviously fake secrets, and a
- * delivery lane that never runs — nothing is ever sent, and a Send test stays
- * "Sending test…" for the capture. Scenarios put each service in the state they
- * show by recording what a send would have left behind.
+ * DEV ONLY. The real Integrations back end over the fixture's in-memory settings
+ * and {@link FixtureAlertGateway}, a stand-in launcher that sends nothing — a Send
+ * test stays "Sending test…" for the capture. Scenarios put each service in the
+ * state they show by recording what a send would have left behind.
  */
 public final class FixtureIntegrations {
 
     private static final Instant NOW = Instant.parse("2026-09-26T14:05:00Z");
     private static final Instant EARLIER = Instant.parse("2026-09-26T14:02:00Z");
     private static final Duration DELIVERED_IN = Duration.ofMillis(180);
-    private static final String NOT_SENT = "The preview never sends";
+    private static final String TOKEN_HINT = "************";
 
     private final HostSettings settings;
-    private final InMemoryCredentialStore credentials = new InMemoryCredentialStore();
+    private final FixtureAlertGateway gateway = new FixtureAlertGateway();
     private final ServiceStatusBoard board = new ServiceStatusBoard();
-    private IntegrationsService live;
+    private final IntegrationsService live;
 
     FixtureIntegrations(HostSettings settings) {
         this.settings = settings;
-        this.live = build(true);
+        this.live = new IntegrationsService(new AlertSettings(settings), gateway,
+                new IntegrationMigration(gateway, new InMemoryCredentialStore(), settings), board,
+                (at, task) -> () -> { }, Runnable::run, Clock.fixed(NOW, ZoneOffset.UTC), ZoneOffset.UTC);
+        live.onAvailable();
     }
 
     Integrations live() {
         return live;
     }
 
-    /** As if Windows Credential Manager could not be opened: secrets last until the host closes. */
-    public void keepSecretsForThisSessionOnly() {
-        live = build(false);
+    /** As if the connected launcher predated alerts: the section says to update it. */
+    public void launcherPredatesAlerts() {
+        gateway.predateAlerts();
     }
 
     public void switchOn(AlertService service) {
         settings.set(AlertSettingKeys.enabled(service), true);
     }
 
-    /** Saves a fake secret, as if the user had pasted one earlier. */
+    /** As if the user had saved a secret earlier: the launcher reports it with its masked hint. */
     public void saveFakeSecret(AlertService service) {
-        String fake = switch (service) {
-            case NTFY -> "tk_preview_not_a_real_token";
-            case SLACK -> "https://hooks.slack.com/services/T0000/B0000/preview-not-real";
-            case DISCORD -> "https://discord.com/api/webhooks/0000000000/preview-not-a-real-token";
+        IntegrationState now = gateway.setup(service);
+        String hint = switch (service) {
+            case NTFY -> TOKEN_HINT;
+            case SLACK -> "hooks.slack.com/…";
+            case DISCORD -> "discord.com/…";
         };
-        credentials.write(service.credentialTarget(), new Secret(fake));
+        gateway.put(new IntegrationState(service, true, Optional.of(hint), now.isMentioningHere(), now.server(),
+                now.topic()));
+        live.onAvailable();
+    }
+
+    /** As if the user had set an ntfy topic earlier. */
+    public void ntfyTopic(String topic) {
+        IntegrationState now = gateway.setup(AlertService.NTFY);
+        gateway.put(new IntegrationState(AlertService.NTFY, now.hasSecret(), now.secretHint(), false, now.server(),
+                topic));
+        live.onAvailable();
+    }
+
+    /** As if Discord's {@code @here} had been switched on earlier. */
+    public void mentionHere() {
+        IntegrationState now = gateway.setup(AlertService.DISCORD);
+        gateway.put(new IntegrationState(AlertService.DISCORD, now.hasSecret(), now.secretHint(), true, "", ""));
+        live.onAvailable();
     }
 
     /** As if a Send test had just been delivered. */
@@ -73,11 +94,5 @@ public final class FixtureIntegrations {
     /** As if the last send had been refused by the service. */
     public void lastSendFailed(AlertService service) {
         board.record(service, LastSend.test(new SendResult.Failed(EARLIER, "401 Unauthorized", "Unknown Webhook", 1)));
-    }
-
-    private IntegrationsService build(boolean isPersistent) {
-        return new IntegrationsService(new AlertSettings(settings), credentials, isPersistent,
-                service -> new NotifierSetup.NotReady(NOT_SENT), board, (service, send) -> { },
-                Clock.fixed(NOW, ZoneOffset.UTC), ZoneOffset.UTC);
     }
 }

@@ -8,7 +8,7 @@ import com.botwithus.bot.core.alerts.Alert;
 import com.botwithus.bot.core.alerts.AlertKind;
 import com.botwithus.bot.core.alerts.AlertMessage;
 import com.botwithus.bot.core.alerts.AlertService;
-import com.botwithus.bot.core.alerts.SendResult;
+import com.botwithus.bot.core.alerts.AlertResult;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,8 +46,9 @@ class QuietHoursHoldTest {
 
     private final ManualClock clock = new ManualClock(LATE_EVENING);
     private final ManualScheduler scheduler = new ManualScheduler(clock);
-    private final RecordingNotifiers notifiers = new RecordingNotifiers(clock);
+    private final FakeLauncher notifiers = new FakeLauncher(clock);
     private final ServiceStatusBoard status = new ServiceStatusBoard();
+    private final AlertSender sender = new AlertSender(notifiers, status, Runnable::run, clock);
     private HostSettings settings;
     private AlertDispatcher dispatcher;
     private final List<AutoCloseable> toClose = new ArrayList<>();
@@ -55,6 +56,7 @@ class QuietHoursHoldTest {
     @BeforeEach
     void open() {
         settings = HostSettings.open(dir);
+        notifiers.addListener(sender);
         settings.set(AlertSettingKeys.BURST_SECONDS, 0L);
         settings.set(AlertSettingKeys.QUIET_ENABLED, true);
         settings.set(AlertSettingKeys.QUIET_FROM, "22:00");
@@ -74,8 +76,8 @@ class QuietHoursHoldTest {
     /** Builds and resumes a dispatcher over the settings and held-alerts file, as the host does on start. */
     private AlertDispatcher start(ManualScheduler timer) {
         AlertDispatcher started = new AlertDispatcher(new AlertSettings(settings),
-                new AlertClassifier(new FakeClientDirectory()), notifiers, status, timer, Runnable::run,
-                DeliveryLanes.direct(), HeldAlerts.open(dir.resolve(HeldAlerts.FILE_NAME)), clock, ZoneOffset.UTC);
+                new AlertClassifier(new FakeClientDirectory()), sender, timer, Runnable::run,
+                HeldAlerts.open(dir.resolve(HeldAlerts.FILE_NAME)), clock, ZoneOffset.UTC);
         Subscription resumed = started.resumeHeld();
         toClose.add(started::close);
         toClose.add(resumed);
@@ -192,11 +194,11 @@ class QuietHoursHoldTest {
 
     @Test
     void hold_theSendIsRecordedOnTheStatusBoard_evenWhenItFails() {
-        notifiers.answer(AlertService.NTFY,
-                () -> new SendResult.Failed(clock.instant(), "429", "Too many requests", 3));
+        notifiers.answer(AlertService.NTFY, AlertResult.Outcome.FAILED);
         dispatcher.dispatch(alert(AlertKind.CLIENT_LOST, LOST));
 
         advanceTo(END);
+        notifiers.reportAll();
 
         LastSend last = status.last(AlertService.NTFY).orElseThrow();
         assertEquals("1 alert during quiet hours", last.subject());

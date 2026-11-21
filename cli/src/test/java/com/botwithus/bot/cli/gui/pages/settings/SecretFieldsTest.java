@@ -1,5 +1,6 @@
 package com.botwithus.bot.cli.gui.pages.settings;
 
+import com.botwithus.bot.cli.alerts.FakeLauncher;
 import com.botwithus.bot.cli.alerts.SecretChange;
 import com.botwithus.bot.core.alerts.AlertService;
 
@@ -10,21 +11,22 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The secret box's commit rules, through the live model into the real
- * Integrations back end and an in-memory credential store. The box commits when
- * it is left or Enter is pressed ({@link SettingsWidgets.Field#isCommitted()});
- * these tests stand in for that frame.
+ * Integrations back end and a fake launcher. The box commits when it is left or
+ * Enter is pressed ({@link SettingsWidgets.Field#isCommitted()}); these tests
+ * stand in for that frame, run the hand-over, and poll as the next frame does.
  */
 class SecretFieldsTest {
 
     private static final AlertService DISCORD = AlertService.DISCORD;
-    private static final String OTHER_HOOK = "https://discord.com/api/webhooks/1111/also-not-real";
     private static final String NOT_HTTPS = "http://discord.com/api/webhooks/2222/not-real";
 
     @TempDir
@@ -36,7 +38,7 @@ class SecretFieldsTest {
 
     @BeforeEach
     void setUp() {
-        alerts = new AlertsHarness(dir.resolve("data"), true);
+        alerts = new AlertsHarness(dir.resolve("data"));
         model = alerts.model(dir);
     }
 
@@ -53,95 +55,75 @@ class SecretFieldsTest {
         }).findFirst().orElseThrow();
     }
 
-    @Test
-    void commit_savesWhatWasTypedAndMasksTheBoxAgain() {
-        secrets.buffer(DISCORD).set(AlertsHarness.DISCORD_HOOK);
-
-        Optional<SecretChange> change = secrets.commit(DISCORD, model);
-
-        assertAll(
-                () -> assertEquals(Optional.of(new SecretChange.Saved()), change),
-                () -> assertEquals(Optional.of(AlertsHarness.DISCORD_HOOK), alerts.savedSecret(DISCORD)),
-                () -> assertEquals("", secrets.buffer(DISCORD).get(), "the box lets go of the secret once saved"),
-                () -> assertEquals(SecretFields.SAVED_MASK, secrets.hint(box()), "and shows it is saved"));
+    /** The hand-over finishes and the next frame takes its outcome in. */
+    private void nextFrame() {
+        alerts.runLane();
+        secrets.poll(DISCORD);
     }
 
     @Test
-    void commit_ofAnUntouchedBox_leavesTheSavedSecretAlone() {
-        alerts.saveSecret(DISCORD, AlertsHarness.DISCORD_HOOK);
+    void commit_handsWhatWasTypedToTheLauncher_andShowsItsHint() {
+        secrets.buffer(DISCORD).set(AlertsHarness.DISCORD_HOOK);
 
-        Optional<SecretChange> change = secrets.commit(DISCORD, model);
+        Optional<CompletableFuture<SecretChange>> change = secrets.commit(DISCORD, model);
+        nextFrame();
+
+        assertAll(
+                () -> assertEquals(new SecretChange.Saved(), change.orElseThrow().join()),
+                () -> assertEquals(Optional.of(AlertsHarness.DISCORD_HOOK), alerts.savedSecret(DISCORD)),
+                () -> assertEquals("", secrets.buffer(DISCORD).get(), "the box lets go of the secret once saved"),
+                () -> assertTrue(box().hasSecret()),
+                () -> assertEquals("hint/…", secrets.hint(box()), "and shows the launcher's masked hint"));
+    }
+
+    @Test
+    void whileTheHandOverIsOnItsWay_theBoxSaysSo_andASecondCommitWaits() {
+        secrets.buffer(DISCORD).set(AlertsHarness.DISCORD_HOOK);
+        secrets.commit(DISCORD, model);
+
+        Optional<CompletableFuture<SecretChange>> again = secrets.commit(DISCORD, model);
+
+        assertAll(
+                () -> assertEquals(SecretFields.SAVING, secrets.hint(box())),
+                () -> assertEquals(Optional.empty(), again));
+    }
+
+    @Test
+    void commit_ofAnEmptyBox_leavesTheSavedSecretAlone() {
+        alerts.saveSecret(DISCORD, AlertsHarness.DISCORD_HINT);
+
+        Optional<CompletableFuture<SecretChange>> change = secrets.commit(DISCORD, model);
+        nextFrame();
 
         assertAll(
                 () -> assertEquals(Optional.empty(), change, "Enter in an empty masked box must not clear it"),
-                () -> assertEquals(Optional.of(AlertsHarness.DISCORD_HOOK), alerts.savedSecret(DISCORD)));
+                () -> assertEquals(0, alerts.launcher.changes().size(), "nothing was asked of the launcher"),
+                () -> assertEquals(AlertsHarness.DISCORD_HINT, secrets.hint(box())));
     }
 
     @Test
-    void show_readsTheSavedSecretIntoTheBox_andHideDropsItAgain() {
-        alerts.saveSecret(DISCORD, AlertsHarness.DISCORD_HOOK);
+    void remove_clearsTheSavedSecretOnTheLauncher() {
+        alerts.saveSecret(DISCORD, AlertsHarness.DISCORD_HINT);
 
-        secrets.toggleReveal(DISCORD, model);
-        String shown = secrets.buffer(DISCORD).get();
-        secrets.toggleReveal(DISCORD, model);
+        secrets.remove(DISCORD, model);
+        nextFrame();
 
         assertAll(
-                () -> assertEquals(AlertsHarness.DISCORD_HOOK, shown),
-                () -> assertEquals("", secrets.buffer(DISCORD).get()),
-                () -> assertEquals(Optional.empty(), secrets.commit(DISCORD, model), "showing is not an edit"));
+                () -> assertTrue(alerts.launcher.changes().getLast().isClearingSecret()),
+                () -> assertEquals(Optional.empty(), secrets.error(DISCORD)),
+                () -> assertEquals(ServiceCopy.secretPlaceholder(DISCORD), secrets.hint(box())));
     }
 
     @Test
-    void commit_blank_clearsTheSavedSecret() {
-        alerts.saveSecret(DISCORD, AlertsHarness.DISCORD_HOOK);
-        secrets.toggleReveal(DISCORD, model);
-        secrets.buffer(DISCORD).set("");
-
-        Optional<SecretChange> change = secrets.commit(DISCORD, model);
-
-        assertAll(
-                () -> assertEquals(Optional.of(new SecretChange.Cleared()), change),
-                () -> assertEquals(Optional.empty(), alerts.savedSecret(DISCORD)),
-                () -> assertEquals(box().placeholder(), secrets.hint(box()), "the empty box shows the example again"));
-    }
-
-    @Test
-    void commit_whileShown_replacesTheSecretAndKeepsItVisible() {
-        alerts.saveSecret(DISCORD, AlertsHarness.DISCORD_HOOK);
-        secrets.toggleReveal(DISCORD, model);
-        secrets.buffer(DISCORD).set(OTHER_HOOK);
-
-        secrets.commit(DISCORD, model);
-
-        assertAll(
-                () -> assertEquals(Optional.of(OTHER_HOOK), alerts.savedSecret(DISCORD)),
-                () -> assertEquals(OTHER_HOOK, secrets.buffer(DISCORD).get()),
-                () -> assertEquals(Optional.empty(), secrets.commit(DISCORD, model), "saved text is not re-sent"));
-    }
-
-    @Test
-    void aRefusedSecret_staysInTheBoxWithItsReason_andNothingIsSaved() {
+    void aRefusedSecret_staysInTheBoxWithTheLaunchersReason_andNothingIsSaved() {
         secrets.buffer(DISCORD).set(NOT_HTTPS);
 
         secrets.commit(DISCORD, model);
+        nextFrame();
 
         assertAll(
-                () -> assertEquals(Optional.of("The webhook URL must start with https://"), secrets.error(DISCORD)),
-                () -> assertEquals(NOT_HTTPS, secrets.buffer(DISCORD).get()),
+                () -> assertEquals(Optional.of(FakeLauncher.HTTPS_REQUIRED), secrets.error(DISCORD)),
+                () -> assertEquals(NOT_HTTPS, secrets.buffer(DISCORD).get(), "kept, so it can be fixed"),
                 () -> assertEquals(Optional.empty(), alerts.savedSecret(DISCORD)));
-
-        secrets.buffer(DISCORD).set(AlertsHarness.DISCORD_HOOK);
-        secrets.commit(DISCORD, model);
-
-        assertEquals(Optional.empty(), secrets.error(DISCORD), "a good value clears the reason");
-    }
-
-    @Test
-    void hide_keepsANewSecretThatIsNotSavedYet() {
-        secrets.buffer(DISCORD).set(OTHER_HOOK);
-        secrets.toggleReveal(DISCORD, model);
-        secrets.toggleReveal(DISCORD, model);
-
-        assertEquals(OTHER_HOOK, secrets.buffer(DISCORD).get());
     }
 }

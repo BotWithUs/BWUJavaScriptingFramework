@@ -29,9 +29,9 @@ public final class SettingsPreviewSeams {
         page.typeSecret(service, text);
     }
 
-    /** Presses the service's Show button. */
-    public static void revealSecret(SettingsPage page, AlertService service) {
-        page.revealSecret(service);
+    /** Presses the button that removes the service's saved secret. */
+    public static void removeSecret(SettingsPage page, AlertService service) {
+        page.removeSecret(service);
     }
 
     /** Types {@code text} into the named setting's box and presses Enter. */

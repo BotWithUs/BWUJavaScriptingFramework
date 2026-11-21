@@ -5,6 +5,7 @@ import com.botwithus.bot.core.launcher.ClientLauncherImpl;
 import com.botwithus.bot.core.launcher.CloseRequest;
 import com.botwithus.bot.core.launcher.DevGate;
 import com.botwithus.bot.core.launcher.HelloParams;
+import com.botwithus.bot.core.launcher.LauncherAlerts;
 import com.botwithus.bot.core.launcher.LauncherService;
 import com.botwithus.bot.core.launcher.PipeFrameChannel;
 import com.botwithus.bot.core.launcher.ServiceLocation;
@@ -43,10 +44,12 @@ public final class LauncherHost implements AutoCloseable {
 
     private final LauncherService service;
     private final ClientLauncherImpl launcher;
+    private final LauncherAlerts alerts;
 
-    private LauncherHost(LauncherService service, ClientLauncherImpl launcher) {
+    private LauncherHost(LauncherService service, ClientLauncherImpl launcher, LauncherAlerts alerts) {
         this.service = service;
         this.launcher = launcher;
+        this.alerts = alerts;
     }
 
     /**
@@ -76,9 +79,12 @@ public final class LauncherHost implements AutoCloseable {
         ClientLauncherImpl launcher = new ClientLauncherImpl(service,
                 pid -> ctx.attachLaunchedClient(pid, ATTACH_TIMEOUT));
         ctx.setClientLauncher(launcher);
+        // Before start, so the first registration's "alerts can go out" is heard.
+        LauncherAlerts alerts = LauncherAlerts.attach(service);
+        ctx.bindAlertsToLauncher(alerts);
         service.start();
         log.info("Registering with the launcher service on pipe {}", location.pipeName());
-        return Optional.of(new LauncherHost(service, launcher));
+        return Optional.of(new LauncherHost(service, launcher, alerts));
     }
 
     /** @return the service connection, for answering close requests */
@@ -89,6 +95,7 @@ public final class LauncherHost implements AutoCloseable {
     @Override
     public void close() {
         launcher.close();
+        alerts.close();
         service.close();
     }
 

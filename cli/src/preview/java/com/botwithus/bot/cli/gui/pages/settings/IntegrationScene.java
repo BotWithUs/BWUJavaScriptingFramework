@@ -8,7 +8,7 @@ import com.botwithus.bot.core.alerts.AlertService;
 
 /**
  * DEV ONLY. The Integrations section's preview captures: each service status,
- * the event grid, session-only secrets, a secret shown and one refused, the
+ * the event grid, a launcher too old to send alerts, a saved secret's hint and one refused, the
  * rows under the grid (quiet hours in their default mode, hold), quiet hours set
  * to mute, and "Find a setting" narrowed to quiet hours. Each scene sets the fixture up on the first frame, does
  * what a user would on the next, and scrolls to the section once it has laid out.
@@ -21,8 +21,8 @@ public enum IntegrationScene {
     FAILED("133-settings-integrations-last-send-failed"),
     SENDING("134-settings-integrations-sending-test"),
     GRID("135-settings-integrations-event-grid"),
-    SESSION_ONLY("136-settings-integrations-session-only-secrets"),
-    SHOWN("137-settings-integrations-secret-shown"),
+    OLD_LAUNCHER("136-settings-integrations-update-launcher"),
+    SAVED_HINT("137-settings-integrations-secret-saved-hint"),
     REFUSED("138-settings-integrations-secret-refused"),
     LOWER_ROWS("139-settings-integrations-bursts-quiet-summary"),
     QUIET_MUTE("200-settings-integrations-quiet-hours-mute"),
@@ -85,14 +85,14 @@ public enum IntegrationScene {
             }
             case REFUSED -> alerts.switchOn(AlertService.SLACK);
             case GRID -> routeSome(model);
-            case SESSION_ONLY -> {
-                alerts.keepSecretsForThisSessionOnly();
+            case OLD_LAUNCHER -> {
+                alerts.launcherPredatesAlerts();
                 alerts.switchOn(AlertService.SLACK);
             }
-            case SHOWN -> {
+            case SAVED_HINT -> {
                 alerts.switchOn(AlertService.DISCORD);
                 alerts.saveFakeSecret(AlertService.DISCORD);
-                set(model, AlertSettingKeys.DISCORD_MENTION_HERE, "true");
+                alerts.mentionHere();
             }
             case LOWER_ROWS, QUIET_FIND -> quietOvernight(model);
             case QUIET_MUTE -> {
@@ -107,9 +107,8 @@ public enum IntegrationScene {
             case SENDING -> model.sendTest(AlertService.SLACK);
             case GRID -> SettingsPreviewSeams.find(page, GRID_QUERY);
             case QUIET_FIND -> SettingsPreviewSeams.find(page, QUIET_QUERY);
-            case SHOWN -> SettingsPreviewSeams.revealSecret(page, AlertService.DISCORD);
             case REFUSED -> SettingsPreviewSeams.typeSecret(page, AlertService.SLACK, NOT_HTTPS);
-            case OFF, NOT_TESTED, WORKING, FAILED, SESSION_ONLY, LOWER_ROWS, QUIET_MUTE -> { }
+            case OFF, NOT_TESTED, WORKING, FAILED, OLD_LAUNCHER, SAVED_HINT, LOWER_ROWS, QUIET_MUTE -> { }
         }
     }
 

@@ -1,9 +1,10 @@
 package com.botwithus.bot.core.alerts;
 
+import java.util.Optional;
+
 /**
- * A place the host can send alerts to. Each service keeps one secret in the
- * {@link com.botwithus.bot.core.secrets.CredentialStore credential store}, under
- * {@link #credentialTarget()}.
+ * A place alerts can be sent to. The launcher service delivers them and keeps each
+ * service's connection settings; the host only chooses which services get what.
  */
 public enum AlertService {
 
@@ -14,7 +15,7 @@ public enum AlertService {
     /** A Discord channel, through a server webhook. */
     DISCORD("discord", "Discord", "Webhook URL", false);
 
-    /** Every credential target starts with this. */
+    /** Every target the host used to keep a secret under starts with this. */
     public static final String CREDENTIAL_TARGET_PREFIX = "BotWithUs/integrations/";
 
     private final String id;
@@ -29,9 +30,22 @@ public enum AlertService {
         this.isSecretOptional = isSecretOptional;
     }
 
-    /** Lower-case id used in setting names, e.g. {@code discord}. */
+    /**
+     * Lower-case id used in setting names and, spelled the same, as the service's
+     * name on the launcher's {@code alerts.*} methods, e.g. {@code discord}.
+     */
     public String id() {
         return id;
+    }
+
+    /** The service whose {@link #id()} is {@code id}, if there is one. */
+    public static Optional<AlertService> fromId(String id) {
+        for (AlertService service : values()) {
+            if (service.id.equals(id)) {
+                return Optional.of(service);
+            }
+        }
+        return Optional.empty();
     }
 
     /** Name to show, e.g. {@code Discord}. */
@@ -49,7 +63,11 @@ public enum AlertService {
         return isSecretOptional;
     }
 
-    /** The credential-store target holding this service's secret. */
+    /**
+     * The credential-store target the host kept this service's secret under before
+     * the launcher took delivery over. Only the one-time move of that secret to the
+     * launcher reads it, and it deletes the entry once the launcher holds the secret.
+     */
     public String credentialTarget() {
         return CREDENTIAL_TARGET_PREFIX + id;
     }
