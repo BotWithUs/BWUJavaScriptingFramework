@@ -82,6 +82,11 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     private static final int SHAPE_WALL_FIRST    = 0;
     private static final int SHAPE_WALL_LAST     = 3;
     private static final int SHAPE_WALL_DIAGONAL = 9;
+    /**
+     * The currency pouch (gameval inv 889 CURRENCY_POUCH). Currencies an item requirement can name, such as the
+     * ecto-tokens the Port Phasmatys toll takes, live here rather than in the backpack, so the item counts include it.
+     */
+    static final int CURRENCY_POUCH_INVENTORY_ID = 889;
 
     // Cache options that mark the two states of an openable loc. The closed
     // loc a transition names offers Open; the loc it is swapped for offers Close.
@@ -551,6 +556,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
             Map<Integer, Integer> totals = new HashMap<>();
             sumIntoMap(Equipment.INVENTORY_ID, totals);
             sumIntoMap(Backpack.INVENTORY_ID, totals);
+            sumIntoMap(CURRENCY_POUCH_INVENTORY_ID, totals);
             for (int i = 0; i < ids.length; i++) {
                 Integer total = totals.get(ids[i]);
                 outValues[i] = total == null ? 0 : total;
@@ -579,7 +585,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     }
 
     private int readItemCountImpl(int itemId) {
-        // Total held = worn (equipment, inv 94) + carried (backpack, inv 93).
+        // Total held = worn (equipment, inv 94) + carried (backpack, inv 93)
+        // + the currency pouch (inv 889), where currencies such as ecto-tokens live.
         // Used to gate item-requirement teleports (e.g. a dungeoneering cape).
         // Must never throw: the snapshot inventory accessors raise
         // IndexOutOfBoundsException on a mid-update / absent inventory, and any
@@ -589,7 +596,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         // fires. Swallow to 0, exactly like readVarbit.
         try {
             return containerCount(Equipment.INVENTORY_ID, itemId)
-                    + containerCount(Backpack.INVENTORY_ID, itemId);
+                    + containerCount(Backpack.INVENTORY_ID, itemId)
+                    + containerCount(CURRENCY_POUCH_INVENTORY_ID, itemId);
         } catch (RuntimeException e) {
             log.debug("readItemCount({}) failed: {}", itemId, e.toString());
             return 0;
