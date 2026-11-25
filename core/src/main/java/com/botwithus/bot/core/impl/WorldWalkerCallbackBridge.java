@@ -176,6 +176,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     static final int          REFUSED_WALK_LEG_TILES = 10;
     static final int          REFUSED_WALK_RETRIES = 2;
     // Ticks to wait after an ability before re-queueing the walk it cancelled.
+    // The minimum is what the ability needs to go off; the random extra is the
+    // host's own jitter, dropped while the agent's session layer owns timing.
     private static final int  RESUME_WALK_MIN_TICKS = 1;
     private static final int  RESUME_WALK_MAX_TICKS = 2;
     // LocalPlayer.animationId() when the player is idle.
@@ -717,7 +719,7 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
     // cancellable; a run cancelled meanwhile queues nothing more, but a
     // tile-targeted ability still gets its target mode cleaned up first.
     private void resumeWalkAfterAbility(WwTile target, AbilityFamily family) {
-        sleepTicks(rng.nextInt(RESUME_WALK_MIN_TICKS, RESUME_WALK_MAX_TICKS + 1));
+        sleepTicks(resumeWalkTicks());
         if (family.isTileTargeted()) {
             clearLeftoverTargetMode(family);
         }
@@ -727,6 +729,15 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         log.info("ww walkTo ({},{},p{}) re-queued after ability",
                 target.x(), target.y(), target.plane());
         queueWalk(target);
+    }
+
+    // The agent holds a re-queued walk until its own planned press, so a random
+    // wait in front of it would add to the plan rather than stand in for one.
+    private int resumeWalkTicks() {
+        if (api.sessionPacing().isActive()) {
+            return RESUME_WALK_MIN_TICKS;
+        }
+        return rng.nextInt(RESUME_WALK_MIN_TICKS, RESUME_WALK_MAX_TICKS + 1);
     }
 
     // A new executor target: a refusal heard for the old one, still pending,

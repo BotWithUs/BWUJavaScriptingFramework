@@ -96,6 +96,7 @@ import com.botwithus.bot.api.world.RectangularArea;
 import com.botwithus.bot.api.world.WorldHopRequest;
 import com.botwithus.bot.api.world.WorldList;
 import com.botwithus.bot.api.model.WorldPathConfig.MovementOptions;
+import com.botwithus.bot.api.runtime.SessionPacing;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
@@ -259,6 +260,10 @@ public class GameAPIImpl implements GameAPI {
      * for its own length, so its bridge can re-click a refused walk shorter.
      */
     private final ActionRefusalFeed refusals;
+
+    /** This client's session-plan reads; remembers an agent that predates the method. */
+    private final SessionPacingReader sessionPacingReader =
+            new SessionPacingReader(this::callSessionPacing);
 
     /**
      * Last health reading and the server tick it was taken on, or {@code null}
@@ -463,6 +468,15 @@ public class GameAPIImpl implements GameAPI {
 
     @Override
     public GamevalIndex gamevals() { return gamevals; }
+
+    @Override
+    public SessionPacing sessionPacing() {
+        return sessionPacingReader.read();
+    }
+
+    private Map<String, Object> callSessionPacing() {
+        return rpc.callSync(SessionPacingCodec.METHOD, Map.of());
+    }
 
     @Override
     public Npcs npcs() { return npcsFacade; }
