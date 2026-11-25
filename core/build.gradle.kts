@@ -114,6 +114,17 @@ tasks.named<Test>("test") {
     })
 }
 
+// HostMakesNoHttpRequestsTest reads the api jar as well as the host jar (above),
+// so a compiled reference to an HTTP client in either fails it. core already
+// depends on api, so this adds no new edge to the task graph.
+tasks.named<Test>("test") {
+    val apiJar = project(":api").tasks.named<Jar>("jar").flatMap { it.archiveFile }
+    inputs.files(apiJar).withPropertyName("apiJar")
+    jvmArgumentProviders.add(CommandLineArgumentProvider {
+        listOf("-Dbotwithus.test.apiJar=${apiJar.get().asFile.absolutePath}")
+    })
+}
+
 // NXTCacheLocalOnlyTest scans the host jar (above) and every module's main
 // sources for a binding to one of NXTCache.dll's network entry points. The
 // sources are inputs so that a binding added anywhere reruns it.
