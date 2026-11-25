@@ -83,18 +83,8 @@ val extractNatives by tasks.registering(Copy::class) {
     include("**/*.dll", "**/*.so", "**/*.dylib")
 }
 
-// JDK modules no host module requires but user scripts may. A script layer
-// resolves against the boot layer alone, so these must be boot-layer roots for a
-// script's `requires` to succeed. java.net.http: the host makes no HTTP requests
-// (the launcher owns all of its traffic), but scripts may use HttpClient.
-// The image links the module through the jlink options below, and the launcher
-// and `run` make it a root with SCRIPT_ONLY_BOOT_MODULES.
-val SCRIPT_ONLY_JDK_MODULES = "java.net.http"
-val SCRIPT_ONLY_BOOT_MODULES = "--add-modules=$SCRIPT_ONLY_JDK_MODULES"
-
 tasks.named<JavaExec>("run") {
     dependsOn(extractNatives)
-    jvmArgs(SCRIPT_ONLY_BOOT_MODULES)
     workingDir = rootProject.projectDir
     // A dev run reads the developer's real ~/.botwithus settings, where
     // auto-connect is on by default, and auto-connect attaches to every agent
@@ -424,12 +414,6 @@ jlink {
         // check because the signature is irrelevant once the module is
         // baked into a custom runtime image.
         "--ignore-signing-information",
-        // Kept for user scripts, not for the host. The host makes no HTTP
-        // requests and no host module requires java.net.http, so jlink's
-        // module resolution would leave it out of the image. jlink
-        // accumulates repeated --add-modules, so this adds to the plugin's
-        // own list rather than replacing it.
-        "--add-modules", SCRIPT_ONLY_JDK_MODULES,
     ))
     launcher {
         name = "jbot"
@@ -465,12 +449,6 @@ jlink {
             // and the launcher's matching lookup both default to
             // ~/.botwithus/sdn, so they agree unless one is overridden.
             "-Dbotwithus.sdn.disk=true",
-            // Pairs with the --add-modules jlink option above. Linking the
-            // module only puts it in the image; a script layer resolves
-            // against the boot layer alone, and the boot layer's roots are
-            // the main module's requires, which do not name java.net.http.
-            // Without this a script requiring it still fails to resolve.
-            SCRIPT_ONLY_BOOT_MODULES,
         )
     }
     forceMerge("lwjgl")

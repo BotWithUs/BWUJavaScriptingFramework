@@ -20,6 +20,14 @@ module com.botwithus.bot.cli {
     requires org.lwjgl.glfw;
     requires org.lwjgl.opengl;
 
+    // For user scripts only. Host code must not use this module: the host makes
+    // no HTTP requests, and the launcher sends all of its traffic. A script layer
+    // resolves against the boot layer alone, and the shipped launcher starts this
+    // module with a fixed argument line, so this require is what puts the JDK
+    // HTTP client module in the boot layer (and in the linked image) for a script
+    // that requires it. HostMakesNoHttpRequestsTest allows exactly this line.
+    requires java.net.http;
+
     uses com.botwithus.bot.api.BotScript;
     uses com.botwithus.bot.api.script.ManagementScript;
 
