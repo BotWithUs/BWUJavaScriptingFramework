@@ -11,7 +11,10 @@ package com.botwithus.bot.api.input;
 public enum KeyResult {
     /** The key down and key up were posted to the client's render view. */
     SENT,
-    /** The agent accepted the call but could not post the key. Nothing was delivered. */
+    /**
+     * The agent accepted the call but could not post the whole press. The key may have been partly delivered (a key
+     * down whose key up failed), so a caller must not assume the client ignored it.
+     */
     NOT_SENT,
     /**
      * The client's render view does not hold the keyboard, so the client would
