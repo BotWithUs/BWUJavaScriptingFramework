@@ -11,6 +11,7 @@
  *   <li>{@link com.botwithus.bot.api.domain.VariableAPI} — varps, varbits, and client variables</li>
  *   <li>{@link com.botwithus.bot.api.domain.NavigationAPI} — pathfinding, walks, and navigation links</li>
  *   <li>{@link com.botwithus.bot.api.domain.DrawAPI} — debug drawing over the client</li>
+ *   <li>{@link com.botwithus.bot.api.domain.KeyboardAPI} - real key presses and the client focus mode</li>
  * </ul>
  */
 package com.botwithus.bot.api.domain;

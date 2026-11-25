@@ -4,6 +4,7 @@ import com.botwithus.bot.api.GameAPI;
 import com.botwithus.bot.api.Navigation;
 import com.botwithus.bot.api.ScriptContext;
 import com.botwithus.bot.api.event.EventBus;
+import com.botwithus.bot.api.input.FocusMode;
 import com.botwithus.bot.api.isc.MessageBus;
 import com.botwithus.bot.api.isc.SharedState;
 import com.botwithus.bot.api.model.GameAction;
@@ -16,7 +17,7 @@ import java.util.function.Supplier;
 /**
  * Test-only {@link ScriptContext} composed from a builder.
  *
- * <p>The two configurable seams are:
+ * <p>The configurable seams are:
  * <ul>
  *   <li>{@link Builder#withSnapshot(Supplier)} — provides the snapshot that
  *       the embedded {@link GameAPI} returns from {@code snapshot()} /
@@ -25,6 +26,13 @@ import java.util.function.Supplier;
  *       and {@code queueActions} invocation appends the action's string form
  *       to the supplied sink, in order. Subsequent asserts inspect the list
  *       to verify the script issued the expected commands.</li>
+ *   <li>{@link Builder#recordingKeysInto(List)} and
+ *       {@link Builder#recordingFocusModesInto(List)} - every delivered
+ *       {@code sendKey} and every applied {@code setFocusMode}, in order.
+ *       {@link Builder#withRealFocus(boolean)},
+ *       {@link Builder#withFocusMode(FocusMode)} and
+ *       {@link Builder#withAgentFocusAvailable(boolean)} shape how the mock
+ *       answers them.</li>
  * </ul>
  *
  * <p>Everything else on the {@link ScriptContext} returns {@code null} (the
@@ -96,6 +104,11 @@ public final class MockScriptContext implements ScriptContext {
         private Supplier<GameSnapshot> snapshotSource = CannedSnapshot::empty;
         private List<String> actionSink;
         private String displayName;
+        private List<String> keySink;
+        private List<FocusMode> focusSink;
+        private FocusMode initialFocusMode = FocusMode.REAL;
+        private boolean realFocusOnView = true;
+        private boolean agentFocusAvailable = true;
 
         private Builder() {}
 
@@ -141,11 +154,76 @@ public final class MockScriptContext implements ScriptContext {
             return this;
         }
 
+        /**
+         * Records every key the script's {@code sendKey} delivered, as
+         * {@code "<virtualKey>/<holdMs>"} ({@code sendKey(49)} records
+         * {@code "49/0"}), in invocation order. A refused key
+         * ({@code NOT_FOCUSED}) is not recorded.
+         */
+        public Builder recordingKeysInto(List<String> sink) {
+            if (sink == null) {
+                throw new IllegalArgumentException("sink");
+            }
+            this.keySink = sink;
+            return this;
+        }
+
+        /**
+         * Records every focus mode a {@code setFocusMode} call applied, in
+         * invocation order. A switch to {@link FocusMode#AGENT} refused because of
+         * {@link #withAgentFocusAvailable(boolean) withAgentFocusAvailable(false)}
+         * is not recorded.
+         */
+        public Builder recordingFocusModesInto(List<FocusMode> sink) {
+            if (sink == null) {
+                throw new IllegalArgumentException("sink");
+            }
+            this.focusSink = sink;
+            return this;
+        }
+
+        /**
+         * Whether the client's render view really holds the keyboard. Defaults to
+         * {@code true}. With {@code false}, a {@code sendKey} in
+         * {@link FocusMode#REAL} answers {@code NOT_FOCUSED}, as a background
+         * client does; in {@link FocusMode#AGENT} keys are still delivered.
+         */
+        public Builder withRealFocus(boolean focused) {
+            this.realFocusOnView = focused;
+            return this;
+        }
+
+        /** The focus mode the mock starts in. Defaults to {@link FocusMode#REAL}. */
+        public Builder withFocusMode(FocusMode mode) {
+            if (mode == null) {
+                throw new IllegalArgumentException("mode");
+            }
+            this.initialFocusMode = mode;
+            return this;
+        }
+
+        /**
+         * Whether {@link FocusMode#AGENT} can be armed. Defaults to {@code true}.
+         * With {@code false}, {@code setFocusMode(AGENT)} leaves the mode as it
+         * was and returns a state whose {@code available} is false, as the real
+         * binding does on such a client.
+         */
+        public Builder withAgentFocusAvailable(boolean available) {
+            this.agentFocusAvailable = available;
+            return this;
+        }
+
         public MockScriptContext build() {
             List<String> sink = actionSink;
+            List<String> keys = keySink;
+            List<FocusMode> focus = focusSink;
+            MockKeyboard keyboard = new MockKeyboard(initialFocusMode, realFocusOnView, agentFocusAvailable,
+                    keys == null ? key -> {} : keys::add,
+                    focus == null ? mode -> {} : focus::add);
             GameAPI api = new MockGameAPI(
                     snapshotSource,
-                    sink == null ? action -> {} : action -> sink.add(formatAction(action)));
+                    sink == null ? action -> {} : action -> sink.add(formatAction(action)),
+                    keyboard);
             return new MockScriptContext(api, new InMemoryEventBus(), displayName);
         }
 

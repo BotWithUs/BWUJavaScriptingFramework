@@ -25,7 +25,10 @@ import com.botwithus.bot.api.gameui.UiProps;
 import com.botwithus.bot.api.gameui.UiReadback;
 import com.botwithus.bot.api.gameui.UiSubscription;
 import com.botwithus.bot.api.gameui.UiType;
+import com.botwithus.bot.api.input.FocusMode;
+import com.botwithus.bot.api.input.FocusState;
 import com.botwithus.bot.api.input.InputDialog;
+import com.botwithus.bot.api.input.KeyResult;
 import com.botwithus.bot.api.inventory.Backpack;
 import com.botwithus.bot.api.inventory.Bank;
 import com.botwithus.bot.api.inventory.Equipment;
@@ -88,6 +91,9 @@ import java.util.function.Supplier;
  *       than expecting the mock to fill them in</li>
  *   <li>{@link #queueAction(GameAction)} — forwards to the recording sink</li>
  *   <li>{@link #queueActions(List)} — forwarded one-by-one to the sink</li>
+ *   <li>{@link #sendKey(int, int)}, {@link #setFocusMode(FocusMode)} and
+ *       {@link #focusMode()} - answered by a {@link MockKeyboard}, which records
+ *       delivered keys and focus switches</li>
  * </ul>
  *
  * <p>Every other method throws {@link UnsupportedOperationException} with a
@@ -101,16 +107,22 @@ final class MockGameAPI implements GameAPI {
 
     private final Supplier<GameSnapshot> snapshotSource;
     private final Consumer<GameAction> actionSink;
+    private final MockKeyboard keyboard;
 
-    MockGameAPI(Supplier<GameSnapshot> snapshotSource, Consumer<GameAction> actionSink) {
+    MockGameAPI(Supplier<GameSnapshot> snapshotSource, Consumer<GameAction> actionSink,
+                MockKeyboard keyboard) {
         if (snapshotSource == null) {
             throw new IllegalArgumentException("snapshotSource");
         }
         if (actionSink == null) {
             throw new IllegalArgumentException("actionSink");
         }
+        if (keyboard == null) {
+            throw new IllegalArgumentException("keyboard");
+        }
         this.snapshotSource = snapshotSource;
         this.actionSink = actionSink;
+        this.keyboard = keyboard;
     }
 
     private static UnsupportedOperationException notStubbed(String method) {
@@ -138,6 +150,28 @@ final class MockGameAPI implements GameAPI {
     public int queueActions(List<GameAction> actions) {
         actions.forEach(actionSink);
         return actions.size();
+    }
+
+    // ---- KeyboardAPI -------------------------------------------------------
+
+    @Override
+    public KeyResult sendKey(int virtualKey) {
+        return keyboard.sendKey(virtualKey, 0);
+    }
+
+    @Override
+    public KeyResult sendKey(int virtualKey, int holdMs) {
+        return keyboard.sendKey(virtualKey, holdMs);
+    }
+
+    @Override
+    public FocusState setFocusMode(FocusMode mode) {
+        return keyboard.setFocusMode(mode);
+    }
+
+    @Override
+    public FocusState focusMode() {
+        return keyboard.focusMode();
     }
 
     // ---- SystemAPI ---------------------------------------------------------
