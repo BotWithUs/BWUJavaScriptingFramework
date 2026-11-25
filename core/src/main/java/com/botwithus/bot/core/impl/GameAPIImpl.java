@@ -38,7 +38,10 @@ import com.botwithus.bot.api.gameui.UiReadback;
 import com.botwithus.bot.api.gameui.UiSubscription;
 import com.botwithus.bot.api.gameui.UiType;
 import com.botwithus.bot.api.gameval.GamevalIndex;
+import com.botwithus.bot.api.input.FocusMode;
+import com.botwithus.bot.api.input.FocusState;
 import com.botwithus.bot.api.input.InputDialog;
+import com.botwithus.bot.api.input.KeyResult;
 import com.botwithus.bot.api.input.KeyStroke;
 import com.botwithus.bot.api.inventory.ActionTypes;
 import com.botwithus.bot.api.inventory.Backpack;
@@ -195,6 +198,7 @@ public class GameAPIImpl implements GameAPI {
     private static final int HEALTH_MAX_SLOT = 1;
 
     private final RpcClient rpc;
+    private final KeyboardBinding keyboard;
     private final NXTCache cache;
 
     /**
@@ -443,6 +447,7 @@ public class GameAPIImpl implements GameAPI {
         }
         this.refusals = refusals;
         this.rpc = rpc;
+        this.keyboard = new KeyboardBinding(rpc);
         this.cache = cache;
         this.worldMaps = new WorldMapElementIndex(new CacheWorldMapSource(cache));
         this.snapshotSource = snapshotSource;
@@ -1170,6 +1175,28 @@ public class GameAPIImpl implements GameAPI {
     @Override
     public void setAutoLogin(boolean enabled) {
         rpc.callSync("set_auto_login", Map.of("enabled", enabled));
+    }
+
+    // ---------------------------------------------------------------- Keyboard (KeyboardAPI)
+
+    @Override
+    public KeyResult sendKey(int virtualKey) {
+        return keyboard.sendKey(virtualKey, 0);
+    }
+
+    @Override
+    public KeyResult sendKey(int virtualKey, int holdMs) {
+        return keyboard.sendKey(virtualKey, holdMs);
+    }
+
+    @Override
+    public FocusState setFocusMode(FocusMode mode) {
+        return keyboard.setFocusMode(mode);
+    }
+
+    @Override
+    public FocusState focusMode() {
+        return keyboard.focusMode();
     }
 
     // ---------------------------------------------------------------- Walker / pathfinder
