@@ -1384,6 +1384,11 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
      * resolved child id (the Draynor Underworld portal, base 127139 over 127140/127141, read
      * absent on every use once that happened).</p>
      *
+     * <p>The baseId arm covers a direct LOCATION row, whose {@code typeId} is not its loc id: the
+     * server id rides in {@code interactId} ({@link Location#baseId()}). Without it a row naming a
+     * multiloc base (a spirit tree, a balloon basket) matched nothing whenever the base's cache
+     * transforms could not be read, and was logged absent and skipped beside the player.</p>
+     *
      * <p>Distance is measured to the loc's footprint, not its anchor tile: the dataset's row tile
      * is often the stand tile or a corner of a multi-tile loc (a 4x4 cave entrance anchored two
      * tiles from its row). A footprint within {@link #LOC_FOOTPRINT_REACH} is the normal case;
@@ -1404,7 +1409,8 @@ final class WorldWalkerCallbackBridge implements WwCallbacks {
         }
         Set<Integer> ids = transitionIds(objectId);
         List<Location> candidates = snap.locations().stream()
-                .filter(loc -> (ids.contains(loc.typeId()) || ids.contains(loc.resolvedId()))
+                .filter(loc -> (ids.contains(loc.typeId()) || ids.contains(loc.baseId())
+                        || ids.contains(loc.resolvedId()))
                         && loc.plane() == tile.plane()
                         && !loc.isDeleted())
                 .toList();
