@@ -34,10 +34,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * inactive, {@code loopDelay} is unchanged.
  *
  * <p>The measurement is the agent's own. After each committed action,
- * {@code get_humanizer_session}'s {@code last} block reports the planned and the delivered
- * press-to-press interval on the client clock. The host's pacing shows up only as the excess
- * of delivered over planned: an action queued after its planned press has passed goes out late
- * by however long the host slept past the plan.</p>
+ * {@code get_humanizer_session}'s {@code last} block reports, on the client clock, the press
+ * the agent intended ({@code final_press_ms}: the planned press after any release-time re-aim)
+ * and the frame the click actually went out ({@code delivered_press_ms}). The agent plans the
+ * next press from the previous one, so the host's pacing shows up only as the excess of
+ * delivered over final: an action queued after its press was due goes out late by however long
+ * the host slept past the plan. {@code planned_press_ms} is not the reference, because about
+ * one walk hold in three is re-aimed and lands after it for reasons that are not the host's.
+ * An agent that predates {@code final_press_ms} falls back to {@code planned_press_ms}.</p>
  *
  * <p>Two arms, both a loop that queues one click and then sleeps
  * {@code Humanize.loopDelay(BASE_MS, VARIANCE)}:</p>
@@ -100,7 +104,7 @@ class LiveSessionPacingTest {
         List<Long> deferring = excesses(api::sessionPacing);
         long controlMedian = median(control);
         long deferringMedian = median(deferring);
-        log.info("excess of delivered over planned interval (ms): deferring {} median {}; "
+        log.info("excess of delivered over intended press (ms): deferring {} median {}; "
                 + "control {} median {}", deferring, deferringMedian, control, controlMedian);
 
         assertTrue(controlMedian > deferringMedian,
@@ -122,7 +126,7 @@ class LiveSessionPacingTest {
         assertFalse(api.sessionPacing().isActive());
     }
 
-    /** One arm: each committed action's delivered interval minus its planned interval. */
+    /** One arm: how late each committed action's click went out against the agent's intent. */
     private List<Long> excesses(Supplier<SessionPacing> pacing) {
         LocalPlayer start = self();
         List<Long> out = new ArrayList<>();
@@ -168,8 +172,11 @@ class LiveSessionPacingTest {
 
     private long lastExcess() {
         Map<String, Object> last = MapHelper.getObjectMap(session(), "last");
-        return MapHelper.getLong(last, "delivered_interval_ms")
-                - MapHelper.getLong(last, "planned_interval_ms");
+        long intended = MapHelper.getLong(last, "final_press_ms");
+        if (intended == 0) {
+            intended = MapHelper.getLong(last, "planned_press_ms");
+        }
+        return MapHelper.getLong(last, "delivered_press_ms") - intended;
     }
 
     private static long median(List<Long> values) {
