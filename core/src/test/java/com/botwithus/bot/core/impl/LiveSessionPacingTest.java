@@ -7,9 +7,11 @@ import com.botwithus.bot.api.runtime.SessionPacing;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.util.Humanize;
+import com.botwithus.bot.core.impl.snapshot.GameSnapshotImpl;
 import com.botwithus.bot.core.pipe.AgentSelection;
 import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
+import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.test.LiveAgent;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,15 +36,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * presses follows the agent's plan and not plan + {@link Humanize#loopDelay}; with it
  * inactive, {@code loopDelay} is unchanged.
  *
- * <p>The measurement is the agent's own. After each committed action,
- * {@code get_humanizer_session}'s {@code last} block reports, on the client clock, the press
- * the agent intended ({@code final_press_ms}: the planned press after any release-time re-aim)
- * and the frame the click actually went out ({@code delivered_press_ms}). The agent plans the
- * next press from the previous one, so the host's pacing shows up only as the excess of
- * delivered over final: an action queued after its press was due goes out late by however long
- * the host slept past the plan. {@code planned_press_ms} is not the reference, because about
- * one walk hold in three is re-aimed and lands after it for reasons that are not the host's.
- * An agent that predates {@code final_press_ms} falls back to {@code planned_press_ms}.</p>
+ * <p>The measurement is the agent's own. The session layer anchors each action's plan at the
+ * previous press's release. When the action reaches it too late for that, the plan is moved up
+ * to the action's arrival and {@code get_humanizer_session}'s {@code last.late_ms} reports by how
+ * much: that is exactly the time the host added on top of the plan. An action that arrives early
+ * is held until its planned press, so its {@code late_ms} is 0. {@code delivered_press_ms} minus
+ * {@code planned_press_ms} cannot show this, because the planned press is the one already moved.</p>
  *
  * <p>Two arms, both a loop that queues one click and then sleeps
  * {@code Humanize.loopDelay(BASE_MS, VARIANCE)}:</p>
@@ -50,8 +50,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li><b>control</b>: {@link SessionPacing#INACTIVE} bound instead, which is what the host
  *       did before this change, so the two compound.</li>
  * </ul>
- * <p>What counts as a failure: the deferring arm's median excess over one server tick, or a
- * control arm that shows no more excess than the deferring arm (the measurement could not see
+ * <p>What counts as a failure: the deferring arm's median {@code late_ms} over one server tick,
+ * or a control arm whose median is not above the deferring arm's (the measurement could not see
  * compounding, so a pass would mean nothing).</p>
  *
  * <p><b>This test moves the character</b>: it clicks between the tile the player stands on and
@@ -69,22 +69,28 @@ class LiveSessionPacingTest {
     private static final int BASE_MS = 1_800;
     private static final double VARIANCE = 0.3;
     private static final int ACTIONS_PER_ARM = 12;
-    /** Excess the deferring arm may show: the agent dispatches on the game tick. */
+    /** {@code late_ms} the deferring arm may show: the agent dispatches on the game tick. */
     private static final long TOLERANCE_MS = 600;
     private static final int WALK_OPTION = 1;
     private static final int EAST = 1;
-    /** How long to wait for a queued action to commit before reading its interval. */
-    private static final long COMMIT_WAIT_MS = 15_000;
-    private static final long COMMIT_POLL_MS = 50;
+    /** Attempts per arm before giving up on collecting {@link #ACTIONS_PER_ARM} samples. */
+    private static final int MAX_ATTEMPTS_PER_ARM = 2 * ACTIONS_PER_ARM;
+    /** How long a queued action may stay held: a planned break legitimately runs past 30 s. */
+    private static final long DRAIN_WAIT_MS = 120_000;
+    private static final long DRAIN_POLL_MS = 50;
+    /** How long the queue must sit drained with nothing held before an action counts as unplanned. */
+    private static final long SETTLE_MS = 1_500;
 
+    private SharedRegion region;
     private RpcClient rpc;
     private GameAPI api;
 
     @BeforeAll
-    void connect() {
+    void connect() throws IOException {
         AgentSelection.Attach agent = LiveAgent.attachOrSkip();
+        region = SharedRegion.open(agent.pid());
         rpc = new RpcClient(new PipeClient(agent.pipeName()));
-        api = new GameAPIImpl(rpc);
+        api = new GameAPIImpl(rpc, null, () -> new GameSnapshotImpl(region.snapshot()));
         log.info("connected to {}; session plan: {}", agent.pipeName(), api.sessionPacing());
     }
 
@@ -93,6 +99,9 @@ class LiveSessionPacingTest {
         if (rpc != null) {
             rpc.close();
         }
+        if (region != null) {
+            region.close();
+        }
     }
 
     @Test
@@ -100,11 +109,11 @@ class LiveSessionPacingTest {
         Assumptions.assumeTrue(api.sessionPacing().isActive(),
                 "SKIPPED: the agent's session layer is not active, so there is no plan to follow");
 
-        List<Long> control = excesses(() -> SessionPacing.INACTIVE);
-        List<Long> deferring = excesses(api::sessionPacing);
+        List<Long> control = lateness(() -> SessionPacing.INACTIVE);
+        List<Long> deferring = lateness(api::sessionPacing);
         long controlMedian = median(control);
         long deferringMedian = median(deferring);
-        log.info("excess of delivered over intended press (ms): deferring {} median {}; "
+        log.info("late_ms per action: deferring {} median {}; "
                 + "control {} median {}", deferring, deferringMedian, control, controlMedian);
 
         assertTrue(controlMedian > deferringMedian,
@@ -126,21 +135,52 @@ class LiveSessionPacingTest {
         assertFalse(api.sessionPacing().isActive());
     }
 
-    /** One arm: how late each committed action's click went out against the agent's intent. */
-    private List<Long> excesses(Supplier<SessionPacing> pacing) {
+    /**
+     * One arm: how far each committed action's plan was moved up because the host queued it
+     * late. An action the layer did not plan (the first one on a fresh client takes the
+     * single-point move) contributes no sample.
+     */
+    private List<Long> lateness(Supplier<SessionPacing> pacing) {
         LocalPlayer start = self();
+        walkAndAwait(start, 0);
         List<Long> out = new ArrayList<>();
-        long committed = committedCount();
-        for (int i = 0; i < ACTIONS_PER_ARM; i++) {
-            int x = start.tileX() + (i % 2 == 0 ? EAST : 0);
-            api.queueAction(new GameAction(ActionTypes.WALK, WALK_OPTION, x, start.tileY()));
-            committed = awaitCommit(committed);
-            out.add(lastExcess());
+        for (int i = 1; i <= MAX_ATTEMPTS_PER_ARM && out.size() < ACTIONS_PER_ARM; i++) {
+            if (walkAndAwait(start, i)) {
+                out.add(MapHelper.getLong(MapHelper.getObjectMap(session(), "last"), "late_ms"));
+            }
             int delay = ScopedValue.where(SessionPacing.CURRENT, pacing)
                     .call(() -> Humanize.loopDelay(BASE_MS, VARIANCE));
             sleep(delay);
         }
+        assertTrue(out.size() > 1, "the layer committed " + out.size() + " walks; nothing to measure");
         return out.subList(1, out.size());
+    }
+
+    /**
+     * Clicks the start tile or the one east of it and waits until the layer commits it (true),
+     * or until the queue has drained with nothing held for {@link #SETTLE_MS} (false: the
+     * action was not planned). A planned break can hold an action past 30 s.
+     */
+    private boolean walkAndAwait(LocalPlayer start, int step) {
+        long before = committedCount();
+        int x = start.tileX() + (step % 2 == 0 ? EAST : 0);
+        api.queueAction(new GameAction(ActionTypes.WALK, WALK_OPTION, x, start.tileY()));
+        long deadline = System.currentTimeMillis() + DRAIN_WAIT_MS;
+        long idleSince = Long.MAX_VALUE;
+        while (System.currentTimeMillis() < deadline) {
+            Map<String, Object> now = session();
+            if (MapHelper.getLong(MapHelper.getObjectMap(now, "counters"), "committed") > before) {
+                return true;
+            }
+            boolean isIdle = !MapHelper.getBool(now, "held") && api.getActionQueueSize() == 0;
+            idleSince = isIdle ? Math.min(idleSince, System.currentTimeMillis()) : Long.MAX_VALUE;
+            if (System.currentTimeMillis() - idleSince > SETTLE_MS) {
+                return false;
+            }
+            sleep(DRAIN_POLL_MS);
+        }
+        throw new AssertionError("the walk was not committed within " + DRAIN_WAIT_MS
+                + " ms; session: " + session());
     }
 
     private LocalPlayer self() {
@@ -156,27 +196,6 @@ class LiveSessionPacingTest {
 
     private long committedCount() {
         return MapHelper.getLong(MapHelper.getObjectMap(session(), "counters"), "committed");
-    }
-
-    private long awaitCommit(long before) {
-        long deadline = System.currentTimeMillis() + COMMIT_WAIT_MS;
-        while (System.currentTimeMillis() < deadline) {
-            long now = committedCount();
-            if (now > before) {
-                return now;
-            }
-            sleep(COMMIT_POLL_MS);
-        }
-        throw new AssertionError("no action committed within " + COMMIT_WAIT_MS + " ms");
-    }
-
-    private long lastExcess() {
-        Map<String, Object> last = MapHelper.getObjectMap(session(), "last");
-        long intended = MapHelper.getLong(last, "final_press_ms");
-        if (intended == 0) {
-            intended = MapHelper.getLong(last, "planned_press_ms");
-        }
-        return MapHelper.getLong(last, "delivered_press_ms") - intended;
     }
 
     private static long median(List<Long> values) {
