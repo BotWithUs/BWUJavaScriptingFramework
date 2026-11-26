@@ -1633,6 +1633,20 @@ class WorldWalkerCallbackBridgeTest {
     }
 
     @Test
+    void interactMatchesADirectLocationByItsBaseId() {
+        int base = 26723;
+        int morphed = 26721;
+        when(api.getLocationType(base)).thenReturn(null);
+        Location tree = new Location(0x5A5A5A, base, -1, 2338, 3110, 0, 10, 0, 0, morphed);
+        when(locationsTable.stream()).thenReturn(Stream.of(tree));
+
+        int issued = bridge.interact(base, new WwTile(2338, 3110, 0), 0);
+
+        assertEquals(1, issued, "a row naming the base must match a direct LOCATION carrying it as interactId");
+        assertQueuedAt(base, 2338, 3110);
+    }
+
+    @Test
     void interactMatchesAMultilocBasePublishedAsItsChild() {
         int base = 127139;
         int quietChild = 127141;
