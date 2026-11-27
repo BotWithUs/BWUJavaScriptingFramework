@@ -62,7 +62,8 @@ class ScriptUiPopoutsTest {
         assertAll(
                 () -> assertEquals(FLEET, ScriptUiPopouts.windowOf(onHost)),
                 () -> assertTrue(popouts.isPoppedOut(FLEET)),
-                () -> assertEquals(ScriptUiPopouts.imguiIdOf(FLEET, ACCOUNTS), ScriptUiPopouts.imguiIdOf(onHost, ACCOUNTS)));
+                () -> assertEquals(ScriptUiPopouts.imguiIdOf(FLEET, ACCOUNTS),
+                        ScriptUiPopouts.imguiIdOf(onHost, ACCOUNTS)));
     }
 
     @Test
