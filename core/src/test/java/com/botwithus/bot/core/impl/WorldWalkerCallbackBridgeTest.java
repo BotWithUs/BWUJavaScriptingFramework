@@ -21,6 +21,7 @@ import com.botwithus.bot.api.model.LocationType;
 import com.botwithus.bot.api.model.ScriptResult;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.model.WorldPathConfig;
+import com.botwithus.bot.api.runtime.SessionPacing;
 import com.botwithus.bot.api.snapshot.DynamicRegion;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.Inventory;
@@ -131,6 +132,7 @@ class WorldWalkerCallbackBridgeTest {
     @BeforeEach
     void setUp() {
         api = mock(GameAPI.class);
+        when(api.sessionPacing()).thenReturn(SessionPacing.INACTIVE);
         snapshot = mock(GameSnapshot.class);
         locationsTable = mock(GameSnapshot.Locations.class);
         when(snapshot.locations()).thenReturn(locationsTable);
@@ -1224,6 +1226,22 @@ class WorldWalkerCallbackBridgeTest {
         assertEquals(3003, rewalk.param3());
         // One tick for the select to settle, then the re-walk pause.
         assertEquals(List.of(ONE_TICK_MS, 2 * ONE_TICK_MS), sleeps);
+    }
+
+    @Test
+    void diveReQueuesAfterTheMinimumPauseWhileTheAgentOwnsTiming() {
+        // The rng would pick the 2-tick pause, but the agent holds the re-walk
+        // until its own planned press, so the host waits only for the ability.
+        bridge = bridgeWithRng(TWO_TICK_PAUSE);
+        when(api.sessionPacing()).thenReturn(new SessionPacing(true, 0, Optional.empty()));
+        when(snapshot.self()).thenReturn(player(3000, 3000, 0));
+        stubStructSprite(WorldWalkerCallbackBridge.STRUCT_DIVE, DIVE_SPRITE);
+        stubSpriteOnBar(1430, DIVE_SPRITE, 12);
+
+        bridge.walkTo(new WwTile(3007, 3003, 0));
+
+        assertEquals(ActionTypes.WALK, queuedActions(4).get(3).actionId());
+        assertEquals(List.of(ONE_TICK_MS, ONE_TICK_MS), sleeps);
     }
 
     @Test

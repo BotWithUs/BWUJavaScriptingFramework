@@ -55,6 +55,7 @@ import com.botwithus.bot.api.model.SequenceType;
 import com.botwithus.bot.api.model.SpotAnimation;
 import com.botwithus.bot.api.model.StructType;
 import com.botwithus.bot.api.quest.QuestLog;
+import com.botwithus.bot.api.runtime.SessionPacing;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.api.summoning.Summoning;
@@ -157,6 +158,27 @@ public interface GameAPI extends SystemAPI, ActionAPI, NavigationAPI, VariableAP
      */
     default GamevalIndex gamevals() {
         return GamevalIndex.empty();
+    }
+
+    /**
+     * What the agent's session layer has planned for this client's action timing: whether
+     * the layer owns timing, how long until the next planned press, and the next planned
+     * break. Never {@code null}; an agent without the layer reports
+     * {@link SessionPacing#INACTIVE}.
+     *
+     * <p>Read-only. Use it to see a break coming, for example to bank before the client
+     * goes idle for a minute rather than in the middle of a trip:</p>
+     *
+     * <pre>{@code
+     * api.sessionPacing().plannedBreak()
+     *         .filter(b -> b.startsInMs() < 5_000)
+     *         .ifPresent(b -> log.info("break in {} ms for {} ms", b.startsInMs(), b.lengthMs()));
+     * }</pre>
+     *
+     * <p>One pipe round-trip per call.</p>
+     */
+    default SessionPacing sessionPacing() {
+        return SessionPacing.INACTIVE;
     }
 
     /**

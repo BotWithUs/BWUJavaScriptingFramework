@@ -14,6 +14,7 @@ import com.botwithus.bot.api.runtime.Liveness;
 import com.botwithus.bot.api.runtime.Phase;
 import com.botwithus.bot.api.runtime.ScriptPause;
 import com.botwithus.bot.api.runtime.ScriptHealth;
+import com.botwithus.bot.api.runtime.SessionPacing;
 import com.botwithus.bot.api.snapshot.GameSnapshot;
 import com.botwithus.bot.api.snapshot.LocalPlayer;
 import com.botwithus.bot.core.config.ScriptConfigStore;
@@ -602,11 +603,15 @@ public class ScriptRunner implements Runnable, LivenessWatchdog.Subject {
 
     /**
      * Runs the whole lifecycle with the runner's pause switch bound to
-     * {@link ScriptPause#CURRENT}, so {@code Timing} on this thread can find it.
+     * {@link ScriptPause#CURRENT}, so {@code Timing} on this thread can find it, and the
+     * client's session plan bound to {@link SessionPacing#CURRENT}, so {@code Humanize}
+     * can step back while the agent owns action timing.
      */
     @Override
     public void run() {
-        ScopedValue.where(ScriptPause.CURRENT, livenessState.pauseGate()).run(this::runLifecycle);
+        ScopedValue.where(ScriptPause.CURRENT, livenessState.pauseGate())
+                .where(SessionPacing.CURRENT, new SessionPacingSource(context::getGameAPI))
+                .run(this::runLifecycle);
     }
 
     private void runLifecycle() {

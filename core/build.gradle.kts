@@ -376,7 +376,7 @@ tasks.register<Test>("harnessTest") {
            "botwithus.live.lodestones", "botwithus.live.clientState",
            "botwithus.live.protectedAccount", "botwithus.live.tierTwo",
            "botwithus.live.leaveWorld", "botwithus.live.cacheReads",
-           "botwithus.live.cacheHoldMs").forEach { key ->
+           "botwithus.live.cacheHoldMs", "botwithus.live.sessionPacing").forEach { key ->
         System.getProperty(key)?.let { systemProperty(key, it) }
     }
     testLogging {
