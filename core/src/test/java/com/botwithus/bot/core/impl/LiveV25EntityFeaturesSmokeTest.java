@@ -18,6 +18,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.OtherPlayersInView;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,10 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * The wire-v25 features read from a live agent through the stack a script uses. Logs each value it
  * saw, then asserts on it. A missing observation fails rather than skips, so the hint-arrow read
- * needs a character holding an arrow; the harness character holds one in its owner tree.
+ * needs a character holding an arrow; the harness character holds one in its owner tree. The one
+ * exception is another player coming into view, which depends on how busy the world is: that test
+ * skips on a quiet world, but only once the read has returned the local player's own row
+ * ({@link OtherPlayersInView}).
  *
  * <p>Opt in with {@code -Dbotwithus.smoke.live=true}, pin the client with
  * {@code -Dbotwithus.harness.pid=<pid>}. The hint-arrow and silent-self reads are read-only. <b>The
@@ -216,7 +220,8 @@ class LiveV25EntityFeaturesSmokeTest {
         int maxCount = 0;
         while (System.nanoTime() < deadline) {
             maxCount = Math.max(maxCount, api.snapshot().players().count());
-            List<Player> others = api.players().query().filter(p -> p.serverIndex() != own).all();
+            List<Player> others = OtherPlayersInView.othersOf(api.players().query().all(),
+                    Player::serverIndex, own);
             if (!others.isEmpty()) {
                 log.info("v25 live: players[] count={} others={}", api.snapshot().players().count(), others.size());
                 others.forEach(this::assertPlausibleServerTile);
@@ -224,7 +229,8 @@ class LiveV25EntityFeaturesSmokeTest {
             }
             Thread.sleep(POLL_MS);
         }
-        fail("no other player came into view in " + OTHER_PLAYER_TIMEOUT + "; largest players[] count " + maxCount);
+        OtherPlayersInView.requireAny(List.of(), "at the bank chest in " + OTHER_PLAYER_TIMEOUT
+                + " (largest players[] count " + maxCount + ")");
     }
 
     private void assertPlausibleServerTile(Player p) {

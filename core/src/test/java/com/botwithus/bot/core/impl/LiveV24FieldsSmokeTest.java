@@ -14,6 +14,7 @@ import com.botwithus.bot.core.pipe.PipeClient;
 import com.botwithus.bot.core.rpc.RpcClient;
 import com.botwithus.bot.core.shm.SharedRegion;
 import com.botwithus.bot.core.test.LiveAgent;
+import com.botwithus.bot.core.test.OtherPlayersInView;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -38,8 +39,11 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <p>Logs what it saw for each field (other players' names, a morphing NPC, run energy and weight,
  * own appearance slots, and the run-orb text component's visibility), then asserts on it. Stand
- * the character in Lumbridge, where Xenia and The Sage morph, with another player in view.
- * A missing observation fails rather than skips: this class exists to certify the fields.</p>
+ * the character in Lumbridge, where Xenia and The Sage morph. A missing observation fails rather
+ * than skips: this class exists to certify the fields. The one exception is another player being
+ * in view, which depends on how busy the world is rather than on where the character stands, so
+ * {@link #otherPlayersHaveNames} skips on a quiet world, but only once the read has proved itself
+ * by returning the local player's own row ({@link OtherPlayersInView}).</p>
  *
  * <p>Opt in with {@code -Dbotwithus.smoke.live=true} ({@code :core:harnessTest} sets it); pin the
  * client with {@code -Dbotwithus.harness.pid=<pid>}, and point at the cache with
@@ -88,12 +92,13 @@ class LiveV24FieldsSmokeTest {
     @Test
     void otherPlayersHaveNames() {
         LocalPlayer self = api.snapshot().self();
-        List<Player> others = api.players().query()
-                .filter(p -> p.serverIndex() != self.serverIndex()).all();
+        List<Player> others = OtherPlayersInView.othersOf(api.players().query().all(), Player::serverIndex,
+                self.serverIndex());
         others.forEach(p -> log.info("v24 live: player idx={} name='{}' truncated={} combat={}",
                 p.serverIndex(), p.name(), p.isNameTruncated(), p.combatLevel()));
         long named = others.stream().filter(Player::hasName).count();
         log.info("v24 live: {} other players, {} named", others.size(), named);
+        OtherPlayersInView.requireAny(others, "around " + self.tileX() + "," + self.tileY());
         assertTrue(named > 0, "at least one other player must have a non-empty name");
     }
 
